@@ -15,7 +15,7 @@ import {
 import { ProviderIcon } from "@/components/provider-icon";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,7 +78,9 @@ export function ProviderSettings() {
     const unavailable = sorted.filter((row) => !used.has(row.id));
     return { connectedRows, recommended, curated, catalog, unavailable };
   }, [visible]);
-  const open = providers.find((row) => row.id === openId) ?? null;
+  // One provider expanded at a time; clicking it again folds it.
+  const toggle = React.useCallback((id: string, next: boolean) => setOpenId(next ? id : null), []);
+  const list = { openId, onToggle: toggle };
   const catalogRows = searching || showAll ? sections.catalog : sections.catalog.slice(0, CATALOG_PREVIEW);
 
   return (
@@ -135,19 +137,19 @@ export function ProviderSettings() {
         </div>
       ) : (
         <>
-          <ProviderSection title="Connected" rows={sections.connectedRows} onOpen={setOpenId} />
+          <ProviderSection title="Connected" rows={sections.connectedRows} {...list} />
           <ProviderSection
             title="Recommended"
             description="Where most people start — frontier vendors, the subscriptions you may already pay for, and MiMo."
             rows={sections.recommended}
-            onOpen={setOpenId}
+            {...list}
           />
-          <ProviderSection title="More providers" rows={sections.curated} onOpen={setOpenId} />
+          <ProviderSection title="More providers" rows={sections.curated} {...list} />
           <ProviderSection
             title="From the models.dev catalog"
             description="Any OpenAI-compatible endpoint models.dev lists. Models are read from the provider once you connect it."
             rows={catalogRows}
-            onOpen={setOpenId}
+            {...list}
             footer={
               !searching && sections.catalog.length > CATALOG_PREVIEW ? (
                 <button
@@ -164,13 +166,11 @@ export function ProviderSettings() {
             title="Coming soon"
             description="These need a sign-in flow or cloud credentials evo does not support yet."
             rows={sections.unavailable}
-            onOpen={setOpenId}
+            {...list}
           />
           {visible.length === 0 && <p className="text-sm text-muted-foreground">No provider matches “{query}”.</p>}
         </>
       )}
-
-      <ProviderDialog row={open} onClose={() => setOpenId(null)} />
     </div>
   );
 }
@@ -284,13 +284,15 @@ function ProviderSection({
   title,
   description,
   rows,
-  onOpen,
+  openId,
+  onToggle,
   footer,
 }: {
   title: string;
   description?: string;
   rows: ProviderRow[];
-  onOpen(id: string): void;
+  openId: string | null;
+  onToggle(id: string, open: boolean): void;
   footer?: React.ReactNode;
 }) {
   if (rows.length === 0) return null;
@@ -300,7 +302,7 @@ function ProviderSection({
       {description && <p className="mt-1 max-w-lg text-[13px] text-muted-foreground">{description}</p>}
       <div className="mt-3 divide-y overflow-hidden rounded-xl bg-card shadow-hairline">
         {rows.map((row) => (
-          <ProviderListItem key={row.id} row={row} onOpen={() => onOpen(row.id)} />
+          <ProviderListItem key={row.id} row={row} open={openId === row.id} onToggle={(next) => onToggle(row.id, next)} />
         ))}
         {footer}
       </div>
@@ -320,66 +322,68 @@ function KindBadge({ kind }: { kind: ProviderKind }) {
   );
 }
 
-function ProviderListItem({ row, onOpen }: { row: ProviderRow; onOpen(): void }) {
+/** A provider row that unfolds in place into its settings form. */
+function ProviderListItem({ row, open, onToggle }: { row: ProviderRow; open: boolean; onToggle(open: boolean): void }) {
   const busy = useProviderStore((s) => s.busy[row.id]);
-  return (
-    <div className={cn("flex items-stretch", !row.supported && "opacity-70")}>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
-      >
-        <ProviderMark row={row} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium">{row.label}</span>
-            <KindBadge kind={row.kind} />
-          </div>
-          <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
-            {row.supported ? row.description : (row.unsupportedReason ?? row.description)}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {busy && <LoaderCircleIcon className="size-3.5 animate-spin text-muted-foreground" />}
-          {row.connected && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <StatusDot tone={row.discoveryError ? "warn" : "ok"} />
-              Connected
-            </span>
-          )}
-          {row.connected && row.modelCount > 0 && (
-            <span className="rounded border px-1.5 py-px font-mono text-[11px] text-muted-foreground">
-              {row.modelCount} models
-            </span>
-          )}
-          <ChevronRightIcon className="size-4 text-muted-foreground" />
-        </div>
-      </button>
-      {row.docsUrl && (
-        <button
-          type="button"
-          aria-label={`Open ${row.label} website`}
-          title="Get an API key"
-          onClick={() => openLink(row.docsUrl)}
-          className="flex w-12 shrink-0 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-        >
-          <ExternalLinkIcon className="size-4" />
-        </button>
-      )}
-    </div>
-  );
-}
+  const ref = React.useRef<HTMLDivElement>(null);
 
-function ProviderDialog({ row, onClose }: { row: ProviderRow | null; onClose(): void }) {
-  // Keep the last row while the dialog animates out.
-  const [shown, setShown] = React.useState(row);
+  // Bring the unfolded form into view once it has finished growing.
   React.useEffect(() => {
-    if (row) setShown(row);
-  }, [row]);
+    if (!open) return;
+    const timer = window.setTimeout(() => ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 220);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
   return (
-    <Dialog open={row !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-lg">{shown && <ProviderForm key={shown.id} row={shown} />}</DialogContent>
-    </Dialog>
+    <Collapsible open={open} onOpenChange={onToggle}>
+      <div ref={ref} className={cn(open && "bg-muted/25")}>
+        <div className={cn("flex items-stretch", !row.supported && "opacity-70")}>
+          <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
+            <ProviderMark row={row} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium">{row.label}</span>
+                <KindBadge kind={row.kind} />
+              </div>
+              <p className={cn("mt-0.5 text-[13px] text-muted-foreground", !open && "truncate")}>
+                {row.supported ? row.description : (row.unsupportedReason ?? row.description)}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {busy && <LoaderCircleIcon className="size-3.5 animate-spin text-muted-foreground" />}
+              {row.connected && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <StatusDot tone={row.discoveryError ? "warn" : "ok"} />
+                  Connected
+                </span>
+              )}
+              {row.connected && row.modelCount > 0 && (
+                <span className="rounded border px-1.5 py-px font-mono text-[11px] text-muted-foreground">
+                  {row.modelCount} models
+                </span>
+              )}
+              <ChevronRightIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[panel-open]:rotate-90" />
+            </div>
+          </CollapsibleTrigger>
+          {row.docsUrl && (
+            <button
+              type="button"
+              aria-label={`Open ${row.label} website`}
+              title="Get an API key"
+              onClick={() => openLink(row.docsUrl)}
+              className="flex w-12 shrink-0 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            >
+              <ExternalLinkIcon className="size-4" />
+            </button>
+          )}
+        </div>
+        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-ending-style:h-0 data-starting-style:h-0">
+          <div className="pt-1 pr-4 pb-4 pl-16">
+            <ProviderForm row={row} />
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
   );
 }
 
@@ -461,18 +465,7 @@ function ProviderForm({ row }: { row: ProviderRow }) {
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-5">
-      <DialogHeader className="flex-row items-center gap-3">
-        <ProviderMark row={row} size="lg" />
-        <div className="min-w-0 flex-1">
-          <DialogTitle className="flex items-center gap-2">
-            {row.label}
-            <KindBadge kind={row.kind} />
-          </DialogTitle>
-          <DialogDescription className="mt-0.5">{row.description}</DialogDescription>
-        </div>
-      </DialogHeader>
-
+    <form onSubmit={submit} className="flex flex-col gap-4">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg bg-muted/40 px-3 py-2.5 text-[13px]">
         <dt className="text-muted-foreground">Status</dt>
         <dd className="flex items-center gap-1.5">
@@ -574,8 +567,8 @@ function ProviderForm({ row }: { row: ProviderRow }) {
         </p>
       )}
 
-      <DialogFooter className="flex-row items-center sm:justify-between">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="-ml-2.5 flex items-center gap-1">
           {row.docsUrl && (
             <Button type="button" variant="ghost" size="sm" onClick={() => openLink(row.docsUrl)}>
               <ExternalLinkIcon />
@@ -603,7 +596,7 @@ function ProviderForm({ row }: { row: ProviderRow }) {
             </Button>
           )}
         </div>
-      </DialogFooter>
+      </div>
     </form>
   );
 }
