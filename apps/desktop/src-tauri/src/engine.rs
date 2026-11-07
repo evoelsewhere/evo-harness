@@ -126,6 +126,24 @@ fn sandbox_config(db: &Db) -> Value {
     config
 }
 
+/// The approval mode (`ask` · `auto-edits` · `auto`), as the composer's menu
+/// saves it in the app settings; the engine's `--approval-mode`
+/// (docs/features/approval-modes/spec.md FR-1, FR-2).
+pub const APPROVAL_MODE_KEY: &str = "approvalMode";
+
+/// The saved approval mode; `ask` when none is saved or the value is unknown.
+pub fn approval_mode(db: &Db) -> &'static str {
+    let saved = db
+        .with(|conn| evo_store::settings::all(conn))
+        .ok()
+        .and_then(|settings| settings.get(APPROVAL_MODE_KEY).cloned());
+    match saved.as_ref().and_then(Value::as_str) {
+        Some("auto") => "auto",
+        Some("auto-edits") => "auto-edits",
+        _ => "ask",
+    }
+}
+
 fn extra_args() -> Vec<String> {
     std::env::var(ENGINE_ARGS_ENV)
         .map(|value| value.split_whitespace().map(str::to_owned).collect())
@@ -272,6 +290,8 @@ pub async fn engine_start(
         // Process security for the chat's shell and file tools (Settings → Sandbox).
         .arg("--sandbox-config")
         .arg(sandbox_config(&db).to_string())
+        // Which tool calls wait for the person (the composer's Approvals menu).
+        .args(["--approval-mode", approval_mode(&db)])
         .args(extra_args())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
