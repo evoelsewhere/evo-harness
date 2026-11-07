@@ -29,7 +29,8 @@ import { isBackgroundNote, turnReply, type Part, type ReasoningPart, type ToolPa
 //   and ran commands");
 // - text parts are the reply, as markdown, always visible;
 // - once the turn completes its process folds behind "Completed in 1m 12s";
-// - a running turn ends with a live "Working for 12s" line.
+// - a running turn starts with a live "Working for 12s" line, so it stays put
+//   while the process and reply grow below it.
 
 /** A background subagent's delivered report, or the automated wake that reads it. */
 function BackgroundNote({ text }: { text: string }) {
@@ -261,6 +262,8 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
   return (
     <Message>
       <MessageContent className="gap-4">
+        {running && <RunningStatus startedAt={turn.startedAt} />}
+
         {foldable && (
           <button
             type="button"
@@ -297,8 +300,6 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
             />
           ),
         )}
-
-        {running && <RunningStatus startedAt={turn.startedAt} />}
 
         {turn.error && (
           <div className="flex items-start gap-2 text-sm text-destructive" data-selectable>
