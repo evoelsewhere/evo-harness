@@ -661,8 +661,8 @@ fn console_run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_console", description: CONSOLE, schema: console_schema, class: Class::Observe, run: console_run },
-        Tool { name: "browser_network", description: NETWORK, schema: network_schema, class: Class::Observe, run: network_run },
+        Tool { name: "browser_console", description: CONSOLE, schema: console_schema, class: Class::Read, run: console_run },
+        Tool { name: "browser_network", description: NETWORK, schema: network_schema, class: Class::Read, run: network_run },
     ]
 }
 
@@ -1146,7 +1146,7 @@ mod tests {
     #[test]
     fn the_tools_replace_the_core_ones_with_closed_schemas() {
         let tools = tools();
-        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_console", Class::Observe), ("browser_network", Class::Observe)]);
+        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_console", Class::Read), ("browser_network", Class::Read)]);
         for tool in &tools {
             let schema = (tool.schema)();
             assert_eq!(schema["additionalProperties"], false, "{}", tool.name);

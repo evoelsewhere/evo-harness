@@ -177,8 +177,8 @@ fn folder_run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_downloads", description: DOWNLOADS, schema: downloads_schema, class: Class::Observe, run: downloads_run },
-        Tool { name: "browser_download_folder", description: FOLDER, schema: folder_schema, class: Class::Change, run: folder_run },
+        Tool { name: "browser_downloads", description: DOWNLOADS, schema: downloads_schema, class: Class::Read, run: downloads_run },
+        Tool { name: "browser_download_folder", description: FOLDER, schema: folder_schema, class: Class::Command, run: folder_run },
     ]
 }
 
@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn the_tools_have_closed_schemas_and_the_right_classes() {
         let tools = tools();
-        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_downloads", Class::Observe), ("browser_download_folder", Class::Change)]);
+        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_downloads", Class::Read), ("browser_download_folder", Class::Command)]);
         for tool in &tools {
             let schema = (tool.schema)();
             assert_eq!(schema["additionalProperties"], false, "{}", tool.name);

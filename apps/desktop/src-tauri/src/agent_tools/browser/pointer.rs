@@ -80,9 +80,9 @@ runner!(click_run, click);
 /// `browser_hover`, `browser_drag` and the `browser_click` that replaces core's.
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_hover", description: HOVER, schema: hover_schema, class: Class::Act, run: hover_run },
-        Tool { name: "browser_drag", description: DRAG, schema: drag_schema, class: Class::Act, run: drag_run },
-        Tool { name: "browser_click", description: CLICK, schema: click_schema, class: Class::Act, run: click_run },
+        Tool { name: "browser_hover", description: HOVER, schema: hover_schema, class: Class::Edit, run: hover_run },
+        Tool { name: "browser_drag", description: DRAG, schema: drag_schema, class: Class::Edit, run: drag_run },
+        Tool { name: "browser_click", description: CLICK, schema: click_schema, class: Class::Edit, run: click_run },
     ]
 }
 
@@ -555,6 +555,6 @@ mod tests {
         assert_eq!(schema["additionalProperties"], false);
         assert!(schema["properties"]["button"]["enum"].as_array().unwrap().len() == 3);
         assert!(schema["properties"]["tabId"].is_object());
-        assert_eq!(click.class, Class::Act);
+        assert_eq!(click.class, Class::Edit);
     }
 }

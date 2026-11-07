@@ -186,7 +186,7 @@ pub fn tools() -> Vec<Tool> {
         description: "Open, focus or close one of the app's side panel tools (terminal, browser, files, memory, side-chat) for this chat, or read which are open. The panel shows when the person looks at this chat; use it to put a page, a shell or a file in front of the person. It never touches another chat's tools.",
         schema,
         // Moves the app's view on; nothing the person keeps is altered, so it never asks.
-        class: Class::Act,
+        class: Class::Edit,
         run: run_tool,
     }]
 }

@@ -361,7 +361,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 }
 
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_mock", description: MOCK, schema, class: Class::Change, run }]
+    vec![Tool { name: "browser_mock", description: MOCK, schema, class: Class::Command, run }]
 }
 
 async fn mock(ctx: &ToolCtx, args: &Value) -> ToolResult {
@@ -584,7 +584,7 @@ mod tests {
     #[test]
     fn the_tool_is_a_change_with_a_closed_schema() {
         let tool = &tools()[0];
-        assert_eq!((tool.name, tool.class), ("browser_mock", Class::Change));
+        assert_eq!((tool.name, tool.class), ("browser_mock", Class::Command));
         let schema = (tool.schema)();
         assert_eq!(schema["additionalProperties"], false);
         assert_eq!(schema["required"], json!(["action"]));

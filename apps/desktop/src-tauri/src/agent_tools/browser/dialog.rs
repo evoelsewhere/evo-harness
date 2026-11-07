@@ -37,7 +37,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 /// The tool of this module.
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_dialog", description: DIALOG, schema, class: Class::Act, run }]
+    vec![Tool { name: "browser_dialog", description: DIALOG, schema, class: Class::Edit, run }]
 }
 
 // ── Arguments ───────────────────────────────────────────────────────────────
@@ -281,7 +281,7 @@ mod tests {
     fn the_description_tells_that_a_click_returns_while_a_dialog_is_open() {
         let tool = &tools()[0];
         assert!(tool.description.contains("returns while it is open"));
-        assert_eq!(tool.class, Class::Act);
+        assert_eq!(tool.class, Class::Edit);
         assert_eq!((tool.schema)()["additionalProperties"], false);
     }
 }

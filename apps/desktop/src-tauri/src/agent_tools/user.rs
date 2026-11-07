@@ -48,14 +48,14 @@ pub fn tools() -> Vec<Tool> {
             description: "Give the person files you made or found — a report, an image, a build, an export — as cards in the chat they can open, show in their folder, or view in the app. Use it for deliverables, not for every file you touch.",
             schema: send_file_schema,
             // Only checks that the files exist; never reads them.
-            class: Class::Observe,
+            class: Class::Read,
             run: |ctx, args| Box::pin(run_send_file(ctx, args)),
         },
         Tool {
             name: "notify",
             description: "Send the person a notification (on their desktop when the app is in the background). Use it when a long run finishes or needs their decision while they may be away — not for every step.",
             schema: notify_schema,
-            class: Class::Observe,
+            class: Class::Read,
             run: |ctx, args| Box::pin(run_notify(ctx, args)),
         },
         Tool {
@@ -63,7 +63,7 @@ pub fn tools() -> Vec<Tool> {
             description: "Show a file to the user in the app's Files panel, scrolled to a line. Use it to point the user at code you are talking about instead of pasting it.",
             schema: show_file_schema,
             // Moves the app's view on; nothing the person keeps is altered, so it never asks.
-            class: Class::Act,
+            class: Class::Edit,
             run: |ctx, args| Box::pin(run_show_file(ctx, args)),
         },
     ]
@@ -415,7 +415,7 @@ mod tests {
     fn the_group_registers_three_tools_with_closed_schemas() {
         let tools = tools();
         let names: Vec<_> = tools.iter().map(|tool| (tool.name, tool.class)).collect();
-        assert_eq!(names, [("send_file", Class::Observe), ("notify", Class::Observe), ("show_file", Class::Act)]);
+        assert_eq!(names, [("send_file", Class::Read), ("notify", Class::Read), ("show_file", Class::Edit)]);
         for tool in &tools {
             let schema = (tool.schema)();
             assert_eq!(schema["type"], "object", "{}", tool.name);

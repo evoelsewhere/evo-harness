@@ -47,7 +47,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 /// The `browser_screenshot` that replaces core's.
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_screenshot", description: SCREENSHOT, schema, class: Class::Observe, run }]
+    vec![Tool { name: "browser_screenshot", description: SCREENSHOT, schema, class: Class::Read, run }]
 }
 
 // ── Arguments ───────────────────────────────────────────────────────────────
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn the_tool_replaces_core_with_an_observe_tool() {
         let tool = &tools()[0];
-        assert_eq!((tool.name, tool.class), ("browser_screenshot", Class::Observe));
+        assert_eq!((tool.name, tool.class), ("browser_screenshot", Class::Read));
         let schema = (tool.schema)();
         assert_eq!(schema["additionalProperties"], false);
         for key in ["fullPage", "ref", "region", "scale", "format", "tabId"] {

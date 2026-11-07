@@ -204,19 +204,19 @@ runner!(network_run, network);
 /// The 13 core tools.
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_navigate", description: NAVIGATE, schema: navigate_schema, class: Class::Act, run: navigate_run },
-        Tool { name: "browser_tabs", description: TABS, schema: tabs_schema, class: Class::Observe, run: tabs_run },
-        Tool { name: "browser_screenshot", description: SCREENSHOT, schema: screenshot_schema, class: Class::Observe, run: screenshot_run },
-        Tool { name: "browser_read_page", description: READ_PAGE, schema: read_page_schema, class: Class::Observe, run: read_page_run },
-        Tool { name: "browser_find", description: FIND, schema: find_schema, class: Class::Observe, run: find_run },
-        Tool { name: "browser_click", description: CLICK, schema: click_schema, class: Class::Act, run: click_run },
-        Tool { name: "browser_type", description: TYPE, schema: type_schema, class: Class::Act, run: type_run },
-        Tool { name: "browser_key", description: KEY, schema: key_schema, class: Class::Act, run: key_run },
-        Tool { name: "browser_form_input", description: FORM_INPUT, schema: form_input_schema, class: Class::Act, run: form_input_run },
-        Tool { name: "browser_scroll", description: SCROLL, schema: scroll_schema, class: Class::Act, run: scroll_run },
-        Tool { name: "browser_eval", description: EVAL, schema: eval_schema, class: Class::Change, run: eval_run },
-        Tool { name: "browser_console", description: CONSOLE, schema: console_schema, class: Class::Observe, run: console_run },
-        Tool { name: "browser_network", description: NETWORK, schema: network_schema, class: Class::Observe, run: network_run },
+        Tool { name: "browser_navigate", description: NAVIGATE, schema: navigate_schema, class: Class::Edit, run: navigate_run },
+        Tool { name: "browser_tabs", description: TABS, schema: tabs_schema, class: Class::Read, run: tabs_run },
+        Tool { name: "browser_screenshot", description: SCREENSHOT, schema: screenshot_schema, class: Class::Read, run: screenshot_run },
+        Tool { name: "browser_read_page", description: READ_PAGE, schema: read_page_schema, class: Class::Read, run: read_page_run },
+        Tool { name: "browser_find", description: FIND, schema: find_schema, class: Class::Read, run: find_run },
+        Tool { name: "browser_click", description: CLICK, schema: click_schema, class: Class::Edit, run: click_run },
+        Tool { name: "browser_type", description: TYPE, schema: type_schema, class: Class::Edit, run: type_run },
+        Tool { name: "browser_key", description: KEY, schema: key_schema, class: Class::Edit, run: key_run },
+        Tool { name: "browser_form_input", description: FORM_INPUT, schema: form_input_schema, class: Class::Edit, run: form_input_run },
+        Tool { name: "browser_scroll", description: SCROLL, schema: scroll_schema, class: Class::Edit, run: scroll_run },
+        Tool { name: "browser_eval", description: EVAL, schema: eval_schema, class: Class::Command, run: eval_run },
+        Tool { name: "browser_console", description: CONSOLE, schema: console_schema, class: Class::Read, run: console_run },
+        Tool { name: "browser_network", description: NETWORK, schema: network_schema, class: Class::Read, run: network_run },
     ]
 }
 
@@ -805,19 +805,19 @@ mod tests {
     #[test]
     fn the_thirteen_tools_keep_their_names_and_classes() {
         let expected = [
-            ("browser_navigate", Class::Act),
-            ("browser_tabs", Class::Observe),
-            ("browser_screenshot", Class::Observe),
-            ("browser_read_page", Class::Observe),
-            ("browser_find", Class::Observe),
-            ("browser_click", Class::Act),
-            ("browser_type", Class::Act),
-            ("browser_key", Class::Act),
-            ("browser_form_input", Class::Act),
-            ("browser_scroll", Class::Act),
-            ("browser_eval", Class::Change),
-            ("browser_console", Class::Observe),
-            ("browser_network", Class::Observe),
+            ("browser_navigate", Class::Edit),
+            ("browser_tabs", Class::Read),
+            ("browser_screenshot", Class::Read),
+            ("browser_read_page", Class::Read),
+            ("browser_find", Class::Read),
+            ("browser_click", Class::Edit),
+            ("browser_type", Class::Edit),
+            ("browser_key", Class::Edit),
+            ("browser_form_input", Class::Edit),
+            ("browser_scroll", Class::Edit),
+            ("browser_eval", Class::Command),
+            ("browser_console", Class::Read),
+            ("browser_network", Class::Read),
         ];
         let all = tools();
         assert_eq!(all.len(), 13);

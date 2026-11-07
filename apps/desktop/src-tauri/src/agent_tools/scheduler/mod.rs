@@ -74,14 +74,14 @@ pub fn tools() -> Vec<Tool> {
                     "additionalProperties": false
                 })
             },
-            class: Class::Change,
+            class: Class::Command,
             run: |ctx, args| Box::pin(create_tool(ctx, args)),
         },
         Tool {
             name: "list_scheduled_tasks",
             description: "List the scheduled tasks: id, name, schedule, next run, whether on, last runs.",
             schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-            class: Class::Observe,
+            class: Class::Read,
             run: |ctx, args| Box::pin(list_tool(ctx, args)),
         },
         Tool {
@@ -102,14 +102,14 @@ pub fn tools() -> Vec<Tool> {
                     "additionalProperties": false
                 })
             },
-            class: Class::Change,
+            class: Class::Command,
             run: |ctx, args| Box::pin(update_tool(ctx, args)),
         },
         Tool {
             name: "delete_scheduled_task",
             description: "Delete a scheduled task. The person approves it first.",
             schema: || json!({ "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"], "additionalProperties": false }),
-            class: Class::Change,
+            class: Class::Command,
             run: |ctx, args| Box::pin(delete_tool(ctx, args)),
         },
     ]
@@ -603,10 +603,10 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                ("create_scheduled_task", Class::Change),
-                ("list_scheduled_tasks", Class::Observe),
-                ("update_scheduled_task", Class::Change),
-                ("delete_scheduled_task", Class::Change),
+                ("create_scheduled_task", Class::Command),
+                ("list_scheduled_tasks", Class::Read),
+                ("update_scheduled_task", Class::Command),
+                ("delete_scheduled_task", Class::Command),
             ]
         );
         for tool in &tools {

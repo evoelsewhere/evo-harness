@@ -83,7 +83,7 @@ mod tests {
     }
 
     fn tool(name: &'static str, description: &'static str) -> Tool {
-        Tool { name, description, schema, class: Class::Observe, run }
+        Tool { name, description, schema, class: Class::Read, run }
     }
 
     #[test]

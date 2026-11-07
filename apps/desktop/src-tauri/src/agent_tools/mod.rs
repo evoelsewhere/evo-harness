@@ -33,15 +33,18 @@ use crate::db::Db;
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
-/// What a tool does to the page or the machine; the gate asks by class.
+/// What a tool does, in the words the engine's approval modes use (ADR 0014); the
+/// gate asks by class. The shell adds one rule the engine does not have: an origin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Class {
     /// Only reads: never asks.
-    Observe,
-    /// Moves the page on (clicks, typing, navigation).
-    Act,
-    /// Alters something the page or the person keeps (uploads, storage, mocks, scripts, commands).
-    Change,
+    Read,
+    /// Moves the page on (clicks, typing, navigation). Like the engine's edits it asks
+    /// only in "Ask every time", and only for a site that is not on this machine.
+    Edit,
+    /// Alters something the page or the person keeps (uploads, storage, mocks, scripts,
+    /// commands). Like the engine's commands it asks in "Ask every time" and "Approve edits".
+    Command,
 }
 
 /// One part of a tool's result.
@@ -111,7 +114,7 @@ pub struct Tool {
     /// The JSON schema of its arguments.
     pub schema: fn() -> Value,
     pub class: Class,
-    /// The body. A tool that is not `Observe` must call [`ToolCtx::gate`] once it
+    /// The body. A tool that is not `Read` must call [`ToolCtx::gate`] once it
     /// knows the page or the folder it acts on, before it changes anything.
     pub run: fn(ToolCtx, Value) -> BoxFuture<ToolOutput>,
 }
@@ -401,7 +404,7 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
             app.state::<AgentTools>().calls.lock().expect("calls lock").insert(request_id.to_string(), cancel.clone());
             let (tool_name, class) = match &target {
                 Target::Static(tool) => (tool.name, tool.class),
-                Target::Dynamic(_) => ("dynamic", Class::Change),
+                Target::Dynamic(_) => ("dynamic", Class::Command),
             };
             let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id: request_id.to_string(), cancel: cancel.clone(), tool: tool_name, class };
             let (app, chat, request_id, name) = (app.clone(), chat.to_string(), request_id.to_string(), name.to_string());

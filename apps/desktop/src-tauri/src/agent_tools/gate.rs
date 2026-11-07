@@ -1,8 +1,10 @@
 //! The approval gate of the agent tools the shell answers (ADR 0013).
 //!
-//! Observing never asks. Acting asks on a site that is not local, in "Ask every
-//! time", once per site and chat. Changing asks every time in "Ask every time"
-//! and "Approve edits". Nothing asks in "Approve for me".
+//! The classes are the engine's (ADR 0014). A read never asks. An edit (a click,
+//! typing, a navigation) asks on a site that is not local, in "Ask every time",
+//! once per site and chat. A command (an upload, storage, a mock, a script) asks
+//! every time in "Ask every time" and "Approve edits". Nothing asks in "Approve
+//! for me".
 //! Spec: docs/features/agent-browser (FR-22).
 
 use std::collections::HashSet;
@@ -22,7 +24,7 @@ pub enum Verdict {
     Gone,
 }
 
-/// Pages of the person's own machine: acting on them never asks.
+/// Pages of the person's own machine: editing them never asks.
 pub fn is_local_origin(url: &str) -> bool {
     let Ok(parsed) = Url::parse(url) else {
         return false;
@@ -50,7 +52,7 @@ pub fn origin_of(url: &str) -> String {
     }
 }
 
-/// What a chat already allowed: `chat|act|origin` and `chat|change|tool`. In memory only.
+/// What a chat already allowed: `chat|edit|origin` and `chat|command|tool`. In memory only.
 static GRANTS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn granted(key: &str) -> bool {
@@ -75,10 +77,10 @@ where
     F: Fn(String, String, Vec<String>) -> Fut,
     Fut: Future<Output = i32>,
 {
-    if class == Class::Observe || mode == "auto" {
+    if class == Class::Read || mode == "auto" {
         return Verdict::Allow;
     }
-    if class == Class::Act {
+    if class == Class::Edit {
         // Only "Ask every time" asks, and only for a site that is not local.
         if mode != "ask" || url.is_empty() || is_local_origin(url) {
             return Verdict::Allow;
@@ -87,7 +89,7 @@ where
             origin if origin.is_empty() => url.to_string(),
             origin => origin,
         };
-        let key = format!("{chat}|act|{origin}");
+        let key = format!("{chat}|edit|{origin}");
         if granted(&key) {
             return Verdict::Allow;
         }
@@ -107,8 +109,8 @@ where
         };
     }
 
-    // Change: "Ask every time" and "Approve edits" ask, every time unless allowed for the chat.
-    let key = format!("{chat}|change|{tool}");
+    // Command: "Ask every time" and "Approve edits" ask, every time unless allowed for the chat.
+    let key = format!("{chat}|command|{tool}");
     if granted(&key) {
         return Verdict::Allow;
     }
@@ -187,7 +189,7 @@ mod tests {
     async fn observing_never_asks() {
         for mode in ["ask", "auto-edits", "auto"] {
             let person = Person::default();
-            let verdict = check("browser_read_page", Class::Observe, mode, "obs", "https://example.com", "x", person.ask()).await;
+            let verdict = check("browser_read_page", Class::Read, mode, "obs", "https://example.com", "x", person.ask()).await;
             assert_eq!(verdict, Verdict::Allow);
             assert_eq!(person.count(), 0);
         }
@@ -196,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn acting_on_a_public_site_asks_once_per_site_and_chat_in_ask_every_time() {
         let person = Person::answering(&[0, 0]);
-        let run = |url: &'static str| check("browser_click", Class::Act, "ask", "act-1", url, "click", person.ask());
+        let run = |url: &'static str| check("browser_click", Class::Edit, "ask", "act-1", url, "click", person.ask());
         assert_eq!(run("https://example.com/a").await, Verdict::Allow);
         assert_eq!(run("https://example.com/b").await, Verdict::Allow);
         assert_eq!(person.count(), 1);
@@ -209,10 +211,10 @@ mod tests {
     async fn acting_never_asks_on_local_sites_or_outside_ask_every_time() {
         let person = Person::default();
         for mode in ["ask", "auto-edits", "auto"] {
-            assert_eq!(check("browser_click", Class::Act, mode, "act-2", "http://localhost:5173", "c", person.ask()).await, Verdict::Allow);
+            assert_eq!(check("browser_click", Class::Edit, mode, "act-2", "http://localhost:5173", "c", person.ask()).await, Verdict::Allow);
         }
         for mode in ["auto-edits", "auto"] {
-            assert_eq!(check("browser_click", Class::Act, mode, "act-2", "https://example.com", "c", person.ask()).await, Verdict::Allow);
+            assert_eq!(check("browser_click", Class::Edit, mode, "act-2", "https://example.com", "c", person.ask()).await, Verdict::Allow);
         }
         assert_eq!(person.count(), 0);
     }
@@ -222,28 +224,28 @@ mod tests {
         for (index, mode) in ["ask", "auto-edits"].into_iter().enumerate() {
             let person = Person::answering(&[0, 0]);
             let chat = format!("chg-{index}");
-            check("browser_upload", Class::Change, mode, &chat, "http://localhost:3000", "upload", person.ask()).await;
-            check("browser_upload", Class::Change, mode, &chat, "http://localhost:3000", "upload", person.ask()).await;
+            check("browser_upload", Class::Command, mode, &chat, "http://localhost:3000", "upload", person.ask()).await;
+            check("browser_upload", Class::Command, mode, &chat, "http://localhost:3000", "upload", person.ask()).await;
             assert_eq!(person.count(), 2, "{mode}");
         }
         let person = Person::default();
-        assert_eq!(check("browser_upload", Class::Change, "auto", "chg-2", "https://example.com", "u", person.ask()).await, Verdict::Allow);
+        assert_eq!(check("browser_upload", Class::Command, "auto", "chg-2", "https://example.com", "u", person.ask()).await, Verdict::Allow);
         assert_eq!(person.count(), 0);
     }
 
     #[tokio::test]
     async fn deny_refuses_and_a_moot_question_ends_quietly() {
         let deny = Person::answering(&[2]);
-        assert_eq!(check("browser_click", Class::Act, "ask", "deny", "https://example.com", "c", deny.ask()).await, Verdict::Deny);
+        assert_eq!(check("browser_click", Class::Edit, "ask", "deny", "https://example.com", "c", deny.ask()).await, Verdict::Deny);
         let moot = Person::answering(&[-1]);
-        assert_eq!(check("browser_click", Class::Act, "ask", "moot", "https://example.com", "c", moot.ask()).await, Verdict::Gone);
+        assert_eq!(check("browser_click", Class::Edit, "ask", "moot", "https://example.com", "c", moot.ask()).await, Verdict::Gone);
     }
 
     #[tokio::test]
     async fn allow_for_this_chat_stops_the_questions_of_that_kind_in_that_chat() {
         let person = Person::answering(&[1]);
         async fn change(chat: &str, p: &Person) -> Verdict {
-            check("browser_storage", Class::Change, "ask", chat, "https://example.com", "clear", p.ask()).await
+            check("browser_storage", Class::Command, "ask", chat, "https://example.com", "clear", p.ask()).await
         }
         assert_eq!(change("grant-1", &person).await, Verdict::Allow);
         assert_eq!(change("grant-1", &person).await, Verdict::Allow);

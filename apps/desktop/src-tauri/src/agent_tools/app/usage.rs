@@ -273,7 +273,7 @@ pub fn tools() -> Vec<Tool> {
         name: "usage_get",
         description: "Read what the models used and cost, from the same history as the app's Usage page: input, output and cache tokens and cost per model or per day, with totals, for today, the last 7 or 30 days, or all time. Use it to answer \"what did I spend this week\". A model with no recorded cost shows n/a.",
         schema,
-        class: Class::Observe,
+        class: Class::Read,
         run: run_tool,
     }]
 }

@@ -334,6 +334,7 @@ fn schema() -> Value {
             "timezone": { "type": "string", "description": "IANA time zone such as America/New_York; empty clears it." },
             "userAgent": { "type": "string", "description": "User agent string; empty clears it." },
             "reset": { "type": "boolean", "description": "Clear every override of this tab." },
+            "reload": { "type": "boolean", "description": "Reload the page after the change. A page reads its viewport meta tag only when it loads, so the mobile layout (width=device-width) shows after a reload; the page loses its state." },
             "tabId": { "type": "string", "description": "A tab id from browser_tabs; default: the active tab." },
         },
         "additionalProperties": false,
@@ -345,7 +346,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 }
 
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_viewport", description: VIEWPORT, schema, class: Class::Change, run }]
+    vec![Tool { name: "browser_viewport", description: VIEWPORT, schema, class: Class::Command, run }]
 }
 
 /// What the page reports about itself after the change.
@@ -414,10 +415,24 @@ async fn viewport(ctx: &ToolCtx, args: &Value) -> ToolResult {
         }
     }
     remember(&page.tab, plan.state.clone());
+    let reload = args.get("reload").and_then(Value::as_bool).unwrap_or(false);
+    if reload {
+        page.cdp("Page.reload", json!({})).await.map_err(|error| Stop::from(format!("Page.reload failed: {error}")))?;
+        settle(400).await;
+        for _ in 0..30 {
+            if page.eval("document.readyState === 'complete'", false).await.ok().and_then(|v| v.as_bool()).unwrap_or(false) {
+                break;
+            }
+            settle(250).await;
+        }
+    }
     settle(150).await;
     let mut out = if parsed.reset { "Viewport reset: no emulation.".to_string() } else { format!("Viewport: {}.", describe(&plan.state)) };
     if let Some(line) = page.eval(PAGE_VIEW, false).await.ok().as_ref().and_then(page_view_line) {
         out.push_str(&format!("\n{line}"));
+    }
+    if !reload && !parsed.reset && plan.state.mobile.unwrap_or(false) {
+        out.push_str("\nThe page reads its viewport meta tag when it loads: pass reload true (or navigate again) to see the mobile layout.");
     }
     out.push_str("\nThe settings stay on this tab until browser_viewport changes them or is called with reset true.");
     Ok(ToolOutput::text(out))
@@ -599,7 +614,7 @@ mod tests {
         assert_eq!(schema["properties"]["tabId"]["type"], "string");
         assert_eq!(schema["properties"]["preset"]["enum"], json!(["mobile", "tablet", "desktop"]));
         assert!(schema.get("required").is_none());
-        assert_eq!(tools()[0].class, Class::Change);
+        assert_eq!(tools()[0].class, Class::Command);
     }
 
     #[test]

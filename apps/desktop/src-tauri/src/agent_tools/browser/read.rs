@@ -68,9 +68,9 @@ runner!(find_run, find);
 /// `browser_read_page` and `browser_find` (replacing core's) and `browser_frames`.
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_read_page", description: READ_PAGE, schema: read_page_schema, class: Class::Observe, run: read_page_run },
-        Tool { name: "browser_frames", description: FRAMES, schema: frames_schema, class: Class::Observe, run: frames_run },
-        Tool { name: "browser_find", description: FIND, schema: find_schema, class: Class::Observe, run: find_run },
+        Tool { name: "browser_read_page", description: READ_PAGE, schema: read_page_schema, class: Class::Read, run: read_page_run },
+        Tool { name: "browser_frames", description: FRAMES, schema: frames_schema, class: Class::Read, run: frames_run },
+        Tool { name: "browser_find", description: FIND, schema: find_schema, class: Class::Read, run: find_run },
     ]
 }
 
@@ -282,7 +282,7 @@ mod tests {
         let names: Vec<_> = tools.iter().map(|t| t.name).collect();
         assert_eq!(names, ["browser_read_page", "browser_frames", "browser_find"]);
         for tool in &tools {
-            assert_eq!(tool.class, Class::Observe, "{}", tool.name);
+            assert_eq!(tool.class, Class::Read, "{}", tool.name);
             let schema = (tool.schema)();
             assert_eq!(schema["additionalProperties"], false, "{}", tool.name);
             assert!(schema["properties"]["tabId"].is_object(), "{}", tool.name);

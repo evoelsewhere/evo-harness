@@ -311,8 +311,8 @@ fn pdf_run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_performance", description: PERFORMANCE, schema: performance_schema, class: Class::Observe, run: performance_run },
-        Tool { name: "browser_pdf", description: PDF, schema: pdf_schema, class: Class::Change, run: pdf_run },
+        Tool { name: "browser_performance", description: PERFORMANCE, schema: performance_schema, class: Class::Read, run: performance_run },
+        Tool { name: "browser_pdf", description: PDF, schema: pdf_schema, class: Class::Command, run: pdf_run },
     ]
 }
 
@@ -541,7 +541,7 @@ mod tests {
     #[test]
     fn the_tools_have_closed_schemas_and_the_right_classes() {
         let tools = tools();
-        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_performance", Class::Observe), ("browser_pdf", Class::Change)]);
+        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_performance", Class::Read), ("browser_pdf", Class::Command)]);
         for tool in &tools {
             let schema = (tool.schema)();
             assert_eq!(schema["additionalProperties"], false, "{}", tool.name);

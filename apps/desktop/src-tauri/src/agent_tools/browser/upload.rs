@@ -39,7 +39,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 /// The tool of this module.
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_upload", description: UPLOAD, schema, class: Class::Change, run }]
+    vec![Tool { name: "browser_upload", description: UPLOAD, schema, class: Class::Command, run }]
 }
 
 // ── Arguments and path rules ────────────────────────────────────────────────
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn the_tool_is_a_change_with_a_strict_schema() {
         let tool = &tools()[0];
-        assert_eq!((tool.name, tool.class), ("browser_upload", Class::Change));
+        assert_eq!((tool.name, tool.class), ("browser_upload", Class::Command));
         let schema = (tool.schema)();
         assert_eq!(schema["additionalProperties"], false);
         assert_eq!(schema["required"], json!(["ref", "paths"]));

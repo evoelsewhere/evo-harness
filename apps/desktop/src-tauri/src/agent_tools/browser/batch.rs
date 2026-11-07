@@ -48,7 +48,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 /// The tool of this module.
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_batch", description: BATCH, schema, class: Class::Act, run }]
+    vec![Tool { name: "browser_batch", description: BATCH, schema, class: Class::Edit, run }]
 }
 
 // ── Arguments ───────────────────────────────────────────────────────────────
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn the_tool_is_an_act_that_takes_up_to_twenty_steps() {
         let tool = &tools()[0];
-        assert_eq!((tool.name, tool.class), ("browser_batch", Class::Act));
+        assert_eq!((tool.name, tool.class), ("browser_batch", Class::Edit));
         let schema = (tool.schema)();
         assert_eq!(schema["additionalProperties"], false);
         assert_eq!(schema["properties"]["steps"]["maxItems"], 20);

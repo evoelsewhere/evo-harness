@@ -43,7 +43,7 @@ fn run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 /// The tool of this module.
 pub fn tools() -> Vec<Tool> {
-    vec![Tool { name: "browser_wait", description: WAIT, schema, class: Class::Observe, run }]
+    vec![Tool { name: "browser_wait", description: WAIT, schema, class: Class::Read, run }]
 }
 
 // ── Arguments ───────────────────────────────────────────────────────────────

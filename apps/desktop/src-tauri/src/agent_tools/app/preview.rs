@@ -304,7 +304,7 @@ pub fn tools() -> Vec<Tool> {
         description: "Start the project's dev server from a saved launch configuration (`.evo/launch.json`: {\"configurations\": [{\"name\", \"command\", \"cwd\"?, \"port\"?, \"ready\"? (regular expression), \"shell\"?}]}) in a terminal tab, wait for its ready line (up to 60 s), then open http://localhost:<port> in the browser tool and return the tab id and the page summary. `name` picks a configuration (default the first). The command runs in the terminal tool, so it asks like terminal_run does; the file is never changed.",
         schema,
         // Runs a command: gated by the terminal tool it calls, once, with the command shown.
-        class: Class::Change,
+        class: Class::Command,
         run: run_tool,
     }]
 }

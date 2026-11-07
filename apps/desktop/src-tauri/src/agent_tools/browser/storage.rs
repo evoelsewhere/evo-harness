@@ -341,8 +341,8 @@ fn write_run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_storage_read", description: READ, schema: read_schema, class: Class::Observe, run: read_run },
-        Tool { name: "browser_storage", description: WRITE, schema: write_schema, class: Class::Change, run: write_run },
+        Tool { name: "browser_storage_read", description: READ, schema: read_schema, class: Class::Read, run: read_run },
+        Tool { name: "browser_storage", description: WRITE, schema: write_schema, class: Class::Command, run: write_run },
     ]
 }
 
@@ -691,7 +691,7 @@ mod tests {
     #[test]
     fn the_two_tools_have_closed_schemas_and_the_right_classes() {
         let tools = tools();
-        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_storage_read", Class::Observe), ("browser_storage", Class::Change)]);
+        assert_eq!(tools.iter().map(|t| (t.name, t.class)).collect::<Vec<_>>(), [("browser_storage_read", Class::Read), ("browser_storage", Class::Command)]);
         for tool in &tools {
             let schema = (tool.schema)();
             assert_eq!(schema["additionalProperties"], false, "{}", tool.name);

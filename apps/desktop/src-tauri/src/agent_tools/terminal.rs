@@ -45,7 +45,7 @@ pub fn tools() -> Vec<Tool> {
             name: "terminal_list",
             description: "List the shells installed on this computer (id, name, default) and the open terminal tabs (id, title, shell, folder, status, who started it). Returns no tab content; read a tab with terminal_read.",
             schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-            class: Class::Observe,
+            class: Class::Read,
             run: |ctx, args| Box::pin(list_tool(ctx, args)),
         },
         Tool {
@@ -70,7 +70,7 @@ pub fn tools() -> Vec<Tool> {
                     "additionalProperties": false
                 })
             },
-            class: Class::Change,
+            class: Class::Command,
             run: |ctx, args| Box::pin(run_tool(ctx, args)),
         },
         Tool {
@@ -95,7 +95,7 @@ pub fn tools() -> Vec<Tool> {
                     "additionalProperties": false
                 })
             },
-            class: Class::Change,
+            class: Class::Command,
             run: |ctx, args| Box::pin(send_tool(ctx, args)),
         },
         Tool {
@@ -119,7 +119,7 @@ pub fn tools() -> Vec<Tool> {
                     "additionalProperties": false
                 })
             },
-            class: Class::Observe,
+            class: Class::Read,
             run: |ctx, args| Box::pin(read_tool(ctx, args)),
         },
         Tool {
@@ -136,7 +136,7 @@ pub fn tools() -> Vec<Tool> {
                     "additionalProperties": false
                 })
             },
-            class: Class::Change,
+            class: Class::Command,
             run: |ctx, args| Box::pin(kill_tool(ctx, args)),
         },
     ]

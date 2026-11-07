@@ -45,8 +45,8 @@ fn status_run(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 /// The `browser_tabs` that replaces core's, and `browser_status`.
 pub fn tools() -> Vec<Tool> {
     vec![
-        Tool { name: "browser_tabs", description: TABS, schema: tabs_schema, class: Class::Observe, run: tabs_run },
-        Tool { name: "browser_status", description: STATUS, schema: status_schema, class: Class::Observe, run: status_run },
+        Tool { name: "browser_tabs", description: TABS, schema: tabs_schema, class: Class::Read, run: tabs_run },
+        Tool { name: "browser_status", description: STATUS, schema: status_schema, class: Class::Read, run: status_run },
     ]
 }
 
@@ -344,7 +344,7 @@ mod tests {
         let tools = tools();
         assert_eq!(tools.iter().map(|t| t.name).collect::<Vec<_>>(), ["browser_tabs", "browser_status"]);
         for tool in &tools {
-            assert_eq!(tool.class, Class::Observe);
+            assert_eq!(tool.class, Class::Read);
             let schema = (tool.schema)();
             assert_eq!(schema["additionalProperties"], false);
             assert!(schema["properties"]["tabId"].is_object());
