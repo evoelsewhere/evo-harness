@@ -2,11 +2,33 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { emit } from "@tauri-apps/api/event";
+import type { ApprovalMode } from "@/engine/protocol";
+import { db, log } from "@/lib/db";
 
 export type PanelId = "terminal" | "browser" | "files" | "side-chat" | "memory";
 /** Panels that exist; a saved tab for any other (Plugins moved to Customize, Scheduler to its page) is dropped. */
 const PANEL_IDS: readonly string[] = ["terminal", "browser", "files", "side-chat", "memory"];
-export type ApprovalMode = "ask" | "auto-edits" | "auto";
+export type { ApprovalMode };
+/** The app setting that holds the approval mode (read by the shell for every engine it starts). */
+export const APPROVAL_MODE_KEY = "approvalMode";
+/** Emitted after the mode changed (payload `{ mode }`): every window tells its engines. */
+export const APPROVAL_CHANGED = "approval://changed";
+const APPROVAL_MODES: readonly string[] = ["ask", "auto-edits", "auto"];
+const isApprovalMode = (value: unknown): value is ApprovalMode => typeof value === "string" && APPROVAL_MODES.includes(value);
+
+const STORAGE_KEY = "evo.ui";
+/** Earlier builds kept the mode in this store's local storage; read it once, before the store hydrates. */
+const legacy = (() => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return { existing: false, approval: undefined };
+    const approval = (JSON.parse(raw) as { state?: { approval?: unknown } } | null)?.state?.approval;
+    return { existing: true, approval: isApprovalMode(approval) ? approval : undefined };
+  } catch {
+    return { existing: false, approval: undefined };
+  }
+})();
 export type SettingsSection = "general" | "appearance" | "providers" | "engine" | "sandbox" | "logs" | "about";
 export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "plugins" | "hooks" | "languages";
 
@@ -51,7 +73,18 @@ interface UiStore {
   customizeSection: CustomizeSection;
   openCustomize(section?: CustomizeSection): void;
   closeCustomize(): void;
+  /**
+   * The approval mode: the app setting `approvalMode`, which every engine
+   * starts with and live-changes follow (docs/features/approval-modes/spec.md).
+   */
   approval: ApprovalMode;
+  /** Read the setting (and move the mode an older build kept locally into it); once per window. */
+  loadApproval(): Promise<void>;
+  /** The mode changed in another window: show it (nothing is written). */
+  syncApproval(mode: ApprovalMode): void;
+  /** The one-time "approvals now apply" note was dismissed or acted on. */
+  approvalNoteSeen: boolean;
+  dismissApprovalNote(): void;
   /** `provider/id` keys shown at the top of the model menu, in a stable order. */
   pinnedModels: string[];
   /** Page zoom (1 = 100%). */
@@ -136,6 +169,25 @@ export const useUiStore = create<UiStore>()(
         }),
       settingsSection: "general",
       approval: "ask",
+      loadApproval: async () => {
+        try {
+          const saved = (await db.settings())[APPROVAL_MODE_KEY];
+          if (isApprovalMode(saved)) {
+            set({ approval: saved });
+            return;
+          }
+          // First start of this version: keep what was last picked in the menu.
+          const mode = legacy.approval ?? "ask";
+          set({ approval: mode });
+          await db.setSetting(APPROVAL_MODE_KEY, mode);
+        } catch (error) {
+          log("warn", "ui", `could not read the approval mode: ${String(error)}`);
+        }
+      },
+      syncApproval: (approval) => set({ approval }),
+      // New installs have nothing to be told about.
+      approvalNoteSeen: !legacy.existing,
+      dismissApprovalNote: () => set({ approvalNoteSeen: true }),
       pinnedModels: [],
       zoom: 1,
       openInApp: null,
@@ -192,19 +244,29 @@ export const useUiStore = create<UiStore>()(
         })),
       // Leaves any full page (Customize, Scheduler or Usage) for the chat.
       closeCustomize: () => set({ customizeOpen: false, schedulerOpen: false, usageOpen: false }),
-      setApproval: (approval) => set({ approval }),
+      setApproval: (approval) => {
+        if (approval === get().approval) return;
+        set({ approval });
+        // Saved first: an engine that starts now reads the new mode; then
+        // every window tells its running engines.
+        void db
+          .setSetting(APPROVAL_MODE_KEY, approval)
+          .then(() => emit(APPROVAL_CHANGED, { mode: approval }))
+          .catch((error) => log("error", "ui", `could not save the approval mode: ${String(error)}`));
+      },
       setPinnedModels: (keys) => set({ pinnedModels: keys.slice(0, PINNED_MODELS_MAX) }),
     }),
     {
-      name: "evo.ui",
+      name: STORAGE_KEY,
       merge: (persisted, current) => {
-        const saved = (persisted ?? {}) as Partial<UiStore>;
+        // `approval` lived here in earlier builds: it is an app setting now.
+        const { approval: _moved, ...saved } = (persisted ?? {}) as Partial<UiStore>;
         const openTabs = (saved.openTabs ?? current.openTabs).filter((id) => PANEL_IDS.includes(id));
         const activePanel = saved.activePanel && PANEL_IDS.includes(saved.activePanel) ? saved.activePanel : (openTabs[0] ?? null);
         return { ...current, ...saved, openTabs, activePanel };
       },
       partialize: (state) => ({
-        approval: state.approval,
+        approvalNoteSeen: state.approvalNoteSeen,
         pinnedModels: state.pinnedModels,
         zoom: state.zoom,
         openInApp: state.openInApp,

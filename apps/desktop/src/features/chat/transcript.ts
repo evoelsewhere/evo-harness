@@ -8,7 +8,7 @@
 // to; tool calls are also keyed by their call id, which is how the execution
 // events find them. (The same model as DeepSeek Harness's per-step `blocks[]`.)
 
-import { type AgentMessage, type EngineMessage } from "@/engine/protocol";
+import { type AgentMessage, type ApprovalPrompt, type EngineMessage } from "@/engine/protocol";
 
 export interface TextPart {
   kind: "text";
@@ -78,6 +78,8 @@ export interface PermissionRequest {
   kind: string;
   /** `kind: "questions"`: the agent's questions, answered in the questions panel. */
   questions?: Question[];
+  /** An engine approval (a command or an edit about to run); absent for older prompts. */
+  approval?: ApprovalPrompt;
 }
 
 export interface Turn {
@@ -259,6 +261,18 @@ function permissionFrom(message: EngineMessage): PermissionRequest {
     options: options.length || questions ? options : [{ title: "Allow" }, { title: "Deny" }],
     kind: ui.kind ?? "confirm",
     questions,
+    approval: approvalFrom(ui.approval),
+  };
+}
+
+/** The engine's approval details of a prompt; anything unexpected reads as a plain prompt. */
+function approvalFrom(value: unknown): ApprovalPrompt | undefined {
+  const approval = value as Record<string, unknown> | null | undefined;
+  if (!approval || (approval.kind !== "command" && approval.kind !== "edit")) return undefined;
+  return {
+    kind: approval.kind,
+    tool: typeof approval.tool === "string" ? approval.tool : "",
+    agent: typeof approval.agent === "string" && approval.agent ? approval.agent : undefined,
   };
 }
 

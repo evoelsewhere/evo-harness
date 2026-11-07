@@ -68,7 +68,39 @@ export interface EngineState {
   thinkingLevel?: string;
   activeTools?: string[];
   context?: { tokens: number; window: number; percent: number };
+  /** The approval mode and this chat's grants (absent from older engines). */
+  approval?: ApprovalState;
 }
+
+// ── Approvals (docs/features/approval-modes/spec.md) ────────────────────────
+
+/** Which tool calls wait for the person: edits and commands, commands only, or none. */
+export type ApprovalMode = "ask" | "auto-edits" | "auto";
+
+/** A kind of call the person allowed for the rest of the chat. */
+export type ApprovalGrant = "edit" | "command";
+
+/** `get_state`'s `approval` field and the answer of `get_approval_state`. */
+export interface ApprovalState {
+  mode: ApprovalMode;
+  grants: ApprovalGrant[];
+}
+
+/**
+ * The extra field of an approval prompt (`ui_dialog_request`, `ui.kind`
+ * `"confirm"`): what is asked, which tool, and the subagent that asks.
+ */
+export interface ApprovalPrompt {
+  kind: "command" | "edit";
+  tool: string;
+  agent?: string;
+}
+
+/** Commands for the approval gate (camelCase JSON, sent through `EngineClient.request`). */
+export type ApprovalCommand =
+  | { type: "set_approval_mode"; mode: ApprovalMode } // → { mode }
+  | { type: "clear_approval_grants" } // → { grants: [] }
+  | { type: "get_approval_state" }; // → ApprovalState
 
 /** Concatenate the text parts of a message. */
 export function messageText(message: AgentMessage | undefined): string {
