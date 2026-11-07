@@ -13,6 +13,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { hasMod, isMac, isWindows } from "@/lib/platform";
 import { useAppearanceStore } from "@/stores/appearance-store";
 import { resizePty, writePty } from "./pty";
+import { OutputLog } from "./output-log";
 import { isDark, loadTerminalFont, themedOptions } from "./terminal-theme";
 
 export interface InstanceCallbacks {
@@ -51,6 +52,8 @@ export async function copyText(text: string): Promise<void> {
 export class TerminalInstance {
   readonly term: Terminal;
   readonly search: SearchAddon;
+  /** The tab's output as plain text, for the agent's terminal tools. */
+  readonly log = new OutputLog();
   private readonly fitAddon = new FitAddon();
   /** Our own wrapper, opened once and then moved between containers. */
   private readonly host: HTMLDivElement;
@@ -123,6 +126,12 @@ export class TerminalInstance {
   }
 
   write(data: string) {
+    this.log.feed(data);
+    this.term.write(data);
+  }
+
+  /** A note from the app itself (not the shell): shown, but not part of the output log. */
+  notice(data: string) {
     this.term.write(data);
   }
 
@@ -133,6 +142,7 @@ export class TerminalInstance {
    */
   replay(data: string) {
     if (!data) return;
+    this.log.feed(data);
     this.replaying = true;
     this.term.write(data, () => {
       this.replaying = false;

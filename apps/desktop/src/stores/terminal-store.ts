@@ -4,7 +4,8 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { attachPty, killPty, listPtys, listShells, spawnPty, type PtyEvent, type ShellInfo } from "@/features/terminal/pty";
+import { attachPty, killPty, listExtraShells, listPtys, listShells, spawnPty, type PtyEvent, type ShellInfo } from "@/features/terminal/pty";
+import { shellIntegrationEnabled } from "@/features/terminal/settings";
 import { TerminalInstance } from "@/features/terminal/terminal-instance";
 import { useUiStore } from "./ui-store";
 
@@ -19,6 +20,10 @@ export interface TerminalTab {
   title: string;
   status: "starting" | "running" | "exited";
   exitCode?: number | null;
+  /** Id of the chat whose agent started the tab; `null` for the person's own tabs. */
+  owner: string | null;
+  /** The shell reports command marks (OSC 133). */
+  integration: boolean;
 }
 
 interface TerminalStore {
@@ -34,13 +39,17 @@ interface TerminalStore {
   /** Last start failure, shown in place of the terminal. */
   error: string | null;
   loadShells(): Promise<void>;
+  /** Every shell, the slow sources (WSL, profiles) included. */
+  allShells(): Promise<ShellInfo[]>;
   /** Re-attach the ptys that outlived a reload; runs once per window. */
   restore(): Promise<void>;
   /** Restore, load the shells, and start a terminal in `cwd` when none is open; `true` if it started one. */
   ensure(cwd?: string): Promise<boolean>;
   /** Start a terminal (`shell` id, else the default) in `cwd`; resolves to its tab key. */
-  create(options?: { shell?: string; cwd?: string }): Promise<string | null>;
+  create(options?: { shell?: string; cwd?: string; owner?: string }): Promise<string | null>;
   restart(key: string): Promise<void>;
+  /** Stop a tab's shell and what it started; the tab stays, showing it exited. */
+  kill(key: string): void;
   close(key: string): void;
   closeAll(): void;
   select(key: string): void;
@@ -57,6 +66,9 @@ const instances = new Map<string, TerminalInstance>();
 /** The xterm instance of a tab. */
 export const terminalInstance = (key: string) => instances.get(key);
 
+/** Tabs stopped on purpose: they stay, showing exited, even for exit code 0. */
+const killed = new Set<string>();
+
 let keySeq = 0;
 const newKey = () => `t${Date.now().toString(36)}${(keySeq++).toString(36)}`;
 
@@ -71,6 +83,8 @@ export function cleanTitle(title: string): string {
 export const tabLabel = (tab: TerminalTab) => cleanTitle(tab.title) || tab.shell;
 
 let restored: Promise<void> | null = null;
+/** The background load of WSL distributions and profiles. */
+let extraLoad: Promise<void> = Promise.resolve();
 let ensuring: Promise<boolean> | null = null;
 
 export const useTerminalStore = create<TerminalStore>()(
@@ -101,17 +115,19 @@ export const useTerminalStore = create<TerminalStore>()(
           return;
         }
         instance.unbind();
+        instance.log.close(event.code);
         // `exit` (or Ctrl+D) ends the terminal, as in most editors; a failure stays to be read.
-        if (event.code === 0) {
+        // An agent's tab stays, so the agent can read how it ended.
+        if (event.code === 0 && !tab.owner && !killed.has(key)) {
           get().close(key);
           return;
         }
         const code = event.code === null ? "" : ` with code ${event.code}`;
-        instance.write(`\r\n\x1b[2m[Process exited${code}]\x1b[0m\r\n`);
+        instance.notice(`\r\n\x1b[2m[Process exited${code}]\x1b[0m\r\n`);
         patch(key, { status: "exited", exitCode: event.code });
       };
 
-      const start = async (key: string, shell: string | undefined, cwd: string | undefined) => {
+      const start = async (key: string, shell: string | undefined, cwd: string | undefined, owner?: string) => {
         const instance = instances.get(key);
         if (!instance) return;
         // Events can arrive before `spawnPty` resolves; they wait for the pty id here.
@@ -122,20 +138,29 @@ export const useTerminalStore = create<TerminalStore>()(
           else early.push(event);
         };
         try {
-          const info = await spawnPty({ shell, cwd, cols: instance.term.cols, rows: instance.term.rows }, route);
+          const integration = await shellIntegrationEnabled();
+          const info = await spawnPty({ shell, cwd, owner, integration, cols: instance.term.cols, rows: instance.term.rows }, route);
           if (!get().tabs.some((t) => t.key === key)) {
             // Closed while starting.
             void killPty(info.id).catch(() => undefined);
             return;
           }
-          patch(key, { ptyId: info.id, shellId: info.shellId, shell: info.shell, cwd: info.cwd, status: "running" });
+          patch(key, {
+            ptyId: info.id,
+            shellId: info.shellId,
+            shell: info.shell,
+            cwd: info.cwd,
+            status: "running",
+            owner: info.owner,
+            integration: info.integration,
+          });
           instance.bind(info.id);
           ready = handler(key, info.id);
           for (const event of early.splice(0)) ready(event);
           set({ error: null });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          instance.write(`\x1b[31m${message}\x1b[0m\r\n`);
+          instance.notice(`\x1b[31m${message}\x1b[0m\r\n`);
           patch(key, { status: "exited", exitCode: null });
           set({ error: message });
         }
@@ -156,6 +181,19 @@ export const useTerminalStore = create<TerminalStore>()(
           } catch {
             set({ shells: [] });
           }
+          // WSL distributions and profiles load in the background (NFR-2).
+          extraLoad = listExtraShells()
+            .then((extra) => {
+              if (extra.length === 0) return;
+              set((s) => ({ shells: [...s.shells, ...extra.filter((e) => !s.shells.some((known) => known.id === e.id))] }));
+            })
+            .catch(() => undefined);
+        },
+
+        async allShells() {
+          if (get().shells.length === 0) await get().loadShells();
+          await extraLoad;
+          return get().shells;
         },
 
         restore() {
@@ -178,7 +216,17 @@ export const useTerminalStore = create<TerminalStore>()(
               set((s) => ({
                 tabs: [
                   ...s.tabs,
-                  { key, ptyId: pty.id, shellId: pty.shellId, shell: pty.shell, cwd: pty.cwd, title: "", status: "running" },
+                    {
+                    key,
+                    ptyId: pty.id,
+                    shellId: pty.shellId,
+                    shell: pty.shell,
+                    cwd: pty.cwd,
+                    title: "",
+                    status: "running",
+                    owner: pty.owner ?? null,
+                    integration: pty.integration ?? false,
+                  },
                 ],
                 activeKey: s.activeKey ?? key,
               }));
@@ -223,13 +271,15 @@ export const useTerminalStore = create<TerminalStore>()(
                 cwd: options.cwd ?? "",
                 title: "",
                 status: "starting",
+                owner: options.owner ?? null,
+                integration: false,
               },
             ],
             activeKey: key,
             findOpen: false,
             focusPending: true,
           }));
-          await start(key, shell, options.cwd);
+          await start(key, shell, options.cwd, options.owner);
           return key;
         },
 
@@ -242,7 +292,16 @@ export const useTerminalStore = create<TerminalStore>()(
           instance.term.reset();
           patch(key, { ptyId: null, status: "starting", exitCode: undefined, title: "" });
           set({ focusPending: true });
-          await start(key, tab.shellId || undefined, tab.cwd || undefined);
+          killed.delete(key);
+          instance.log.reopen();
+          await start(key, tab.shellId || undefined, tab.cwd || undefined, tab.owner ?? undefined);
+        },
+
+        kill(key) {
+          const tab = get().tabs.find((t) => t.key === key);
+          if (!tab || tab.ptyId === null || tab.status !== "running") return;
+          killed.add(key);
+          void killPty(tab.ptyId).catch(() => undefined);
         },
 
         close(key) {
@@ -253,6 +312,7 @@ export const useTerminalStore = create<TerminalStore>()(
           if (tab.ptyId !== null && tab.status === "running") void killPty(tab.ptyId).catch(() => undefined);
           instances.get(key)?.dispose();
           instances.delete(key);
+          killed.delete(key);
           const rest = tabs.filter((t) => t.key !== key);
           const next = activeKey === key ? (rest[Math.min(index, rest.length - 1)]?.key ?? null) : activeKey;
           set({ tabs: rest, activeKey: next, findOpen: false, focusPending: next !== null });

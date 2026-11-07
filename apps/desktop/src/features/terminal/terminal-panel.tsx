@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  BotIcon,
   CaseSensitiveIcon,
   ChevronDownIcon,
   EraserIcon,
@@ -35,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
+import { useSessionStore } from "@/stores/session-store";
 import { tabLabel, terminalInstance, useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
 
 const COPY_KEYS = isMac ? "⌘C" : "Ctrl+Shift+C";
@@ -84,6 +86,9 @@ const folderName = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? 
 function TerminalTabButton({ tab, active }: { tab: TerminalTab; active: boolean }) {
   const { select, close } = useTerminalStore.getState();
   const label = tabLabel(tab);
+  // A tab an agent started: marked, with the chat's title in the tooltip (also after a reload).
+  const ownerTitle = useSessionStore((s) => (tab.owner ? (s.sessions.find((chat) => chat.id === tab.owner)?.title ?? null) : null));
+  const byAgent = tab.owner !== null;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -116,6 +121,8 @@ function TerminalTabButton({ tab, active }: { tab: TerminalTab; active: boolean 
       >
         {tab.status === "starting" ? (
           <Spinner className="size-3 shrink-0" />
+        ) : byAgent ? (
+          <BotIcon className={cn("size-3 shrink-0", tab.status === "exited" && "text-destructive")} />
         ) : (
           <TerminalIcon className={cn("size-3 shrink-0", tab.status === "exited" && "text-destructive")} />
         )}
@@ -138,6 +145,7 @@ function TerminalTabButton({ tab, active }: { tab: TerminalTab; active: boolean 
       </TooltipTrigger>
       <TooltipContent className="flex flex-col items-start gap-0.5">
         <span>{tab.shell}</span>
+        {byAgent && <span className="text-muted-foreground">Started by {ownerTitle ?? "a deleted chat"}</span>}
         {tab.cwd && <span className="text-muted-foreground">{tab.cwd}</span>}
       </TooltipContent>
     </Tooltip>
@@ -149,7 +157,7 @@ function NewTerminalButton({ onCreate }: { onCreate(shell?: string): void }) {
   const shells = useTerminalStore((s) => s.shells);
   const defaultShell = useTerminalStore((s) => s.defaultShell);
   const setDefaultShell = useTerminalStore((s) => s.setDefaultShell);
-  const current = defaultShell && shells.some((s) => s.id === defaultShell) ? defaultShell : shells[0]?.id;
+  const current = defaultShell && shells.some((s) => s.id === defaultShell) ? defaultShell : (shells.find((s) => s.isDefault) ?? shells[0])?.id;
 
   return (
     <div className="flex shrink-0 items-center">
