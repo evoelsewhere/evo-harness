@@ -1256,6 +1256,13 @@ pub async fn build_prepared(
     // Before anything else: ask before a shell command stops this app or engine.
     let before_tool_call =
         crate::self_kill::before_tool_call(before_tool_call, ui_dialog_mailbox.clone());
+    // Last of all: the approval mode asks for edits and commands the links
+    // above let through (docs/features/approval-modes, FR-13).
+    let before_tool_call = crate::approval::before_tool_call(
+        before_tool_call,
+        ui_dialog_mailbox.clone(),
+        crate::approval::global().clone(),
+    );
     // `ask_user` puts its questions through the same dialog channel.
     crate::interaction::set_mailbox(ui_dialog_mailbox.clone());
 

@@ -196,6 +196,15 @@ async fn run_inner() -> i32 {
         }
     }
 
+    // When to ask before edits and commands (docs/features/approval-modes).
+    match crate::approval::initial_mode(parsed.approval_mode.as_deref(), parsed.mode) {
+        Ok(mode) => crate::approval::global().set_mode(mode),
+        Err(error) => {
+            eprintln!("error: {error}");
+            return EXIT_USAGE;
+        }
+    }
+
     if dev_options.is_some()
         && (parsed.resource_config.is_some() || parsed.resource_transition.is_some())
     {

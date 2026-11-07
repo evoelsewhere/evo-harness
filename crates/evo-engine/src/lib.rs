@@ -22,6 +22,7 @@ pub mod agent_session;
 pub use evo_store as app_db;
 pub mod agent_tool;
 pub mod agents;
+pub mod approval;
 pub mod args;
 pub mod auth;
 pub mod auth_guidance;

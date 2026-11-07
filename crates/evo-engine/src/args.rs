@@ -171,6 +171,10 @@ pub struct Args {
     /// `--sandbox-config <json>`: process security for shell and file tools
     /// (`evo_tools::sandbox::SandboxConfig`, camelCase), set by the desktop.
     pub sandbox_config: Option<String>,
+    /// `--approval-mode ask|auto-edits|auto`: when to ask before edits and
+    /// commands, set by the desktop (`approval.rs`). Absent: `ask` for the RPC
+    /// host, `auto` for `text` and `json`.
+    pub approval_mode: Option<String>,
     /// Reserved even in feature-off builds; fresh explicit print sessions only.
     pub experimental_native_store: Option<PathBuf>,
     pub no_session: bool,
@@ -449,6 +453,7 @@ pub fn parse_args(args: &[String]) -> Args {
             "--sandbox-config" => {
                 result.sandbox_config = take_value(&mut result, "--sandbox-config")
             }
+            "--approval-mode" => result.approval_mode = take_value(&mut result, "--approval-mode"),
             "--models" => {
                 if let Some(v) = take_value(&mut result, &flag_key) {
                     result.models = Some(split_csv(&v));

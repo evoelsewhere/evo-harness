@@ -314,6 +314,11 @@ pub fn before_tool_call(
                     if !confirm(&ui_dialog, &id, &tool, &reason, &signal).await {
                         return block("The user declined this tool call.".into());
                     }
+                    // The person answered once: the approval mode does not ask again.
+                    crate::approval::global().cover(&id);
+                } else if outcome.allow {
+                    // An explicit `allow` skips the mode's prompt.
+                    crate::approval::global().cover(&id);
                 }
                 if let Some(earlier) = earlier {
                     if let Some(result) = earlier.await {
