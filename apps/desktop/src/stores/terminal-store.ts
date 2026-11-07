@@ -4,14 +4,30 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { attachPty, killPty, listExtraShells, listPtys, listShells, spawnPty, type PtyEvent, type ShellInfo } from "@/features/terminal/pty";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  attachPty,
+  closePty,
+  killPty,
+  listExtraShells,
+  listPtys,
+  listShells,
+  setDefaultPtyShell,
+  setPtyChat,
+  spawnPty,
+  type CreatedPty,
+  type PtyEvent,
+  type ShellInfo,
+} from "@/features/terminal/pty";
+import { inTauri } from "@/lib/platform";
 import { shellIntegrationEnabled } from "@/features/terminal/settings";
 import { forgetTabChat, recalledTabChat, rememberTabChat } from "@/lib/tab-chats";
 import { TerminalInstance } from "@/features/terminal/terminal-instance";
 import { useUiStore } from "./ui-store";
 
 export interface TerminalTab {
-  /** Stable for the tab's life; a restart binds a new pty to the same tab. */
+  /** Stable for the tab's life; a restart binds a new pty to the same tab. The agent's terminal tools use it too. */
   key: string;
   ptyId: number | null;
   shellId: string;
@@ -88,9 +104,6 @@ export const chatTabs = (tabs: TerminalTab[], chat: string | null) => tabs.filte
 /** The xterm instance of a tab. */
 export const terminalInstance = (key: string) => instances.get(key);
 
-/** Tabs stopped on purpose: they stay, showing exited, even for exit code 0. */
-const killed = new Set<string>();
-
 let keySeq = 0;
 const newKey = () => `t${Date.now().toString(36)}${(keySeq++).toString(36)}`;
 
@@ -103,6 +116,13 @@ export function cleanTitle(title: string): string {
 }
 
 export const tabLabel = (tab: TerminalTab) => cleanTitle(tab.title) || tab.shell;
+
+/** A shell found in the native layer, as the store adopts it. */
+type AdoptedPty = Pick<CreatedPty, "id" | "key" | "shellId" | "shell" | "cwd" | "owner" | "integration">;
+
+/** Set up with the store: adopt / close a tab an agent tool started / closed. */
+let onCreated: (pty: CreatedPty) => Promise<void> = async () => undefined;
+let onClosed: (key: string) => void = () => undefined;
 
 let restored: Promise<void> | null = null;
 /** The background load of WSL distributions and profiles. */
@@ -145,11 +165,10 @@ export const useTerminalStore = create<TerminalStore>()(
           return;
         }
         instance.unbind();
-        instance.log.close(event.code);
         forgetTabChat("terminal", ptyId);
         // `exit` (or Ctrl+D) ends the terminal, as in most editors; a failure stays to be read.
-        // An agent's tab stays, so the agent can read how it ended.
-        if (event.code === 0 && !tab.owner && !killed.has(key)) {
+        // An agent's tab stays, so the agent can read how it ended; so does a tab stopped on purpose.
+        if (event.code === 0 && !tab.owner && !event.killed) {
           get().close(key);
           return;
         }
@@ -158,7 +177,7 @@ export const useTerminalStore = create<TerminalStore>()(
         patch(key, { status: "exited", exitCode: event.code });
       };
 
-      const start = async (key: string, shell: string | undefined, cwd: string | undefined, owner?: string) => {
+      const start = async (key: string, shell: string | undefined, cwd: string | undefined, owner?: string, chat?: string | null) => {
         const instance = instances.get(key);
         if (!instance) return;
         // Events can arrive before `spawnPty` resolves; they wait for the pty id here.
@@ -170,10 +189,10 @@ export const useTerminalStore = create<TerminalStore>()(
         };
         try {
           const integration = await shellIntegrationEnabled();
-          const info = await spawnPty({ shell, cwd, owner, integration, cols: instance.term.cols, rows: instance.term.rows }, route);
+          const info = await spawnPty({ shell, cwd, owner, chat, key, integration, cols: instance.term.cols, rows: instance.term.rows }, route);
           if (!get().tabs.some((t) => t.key === key)) {
             // Closed while starting.
-            void killPty(info.id).catch(() => undefined);
+            void closePty(info.id).catch(() => undefined);
             return;
           }
           rememberTabChat("terminal", info.id, get().tabs.find((t) => t.key === key)?.chat ?? null);
@@ -197,6 +216,49 @@ export const useTerminalStore = create<TerminalStore>()(
           set({ error: message });
         }
       };
+
+      /** A shell that already runs in the native layer joins its chat's tabs (after a reload, or when an agent tool started it). */
+      const adopt = async (pty: AdoptedPty, chat: string | null, options: { activate: boolean }) => {
+        const key = pty.key;
+        if (get().tabs.some((t) => t.key === key)) return;
+        const instance = instanceFor(key);
+        set((s) => ({
+          tabs: [
+            ...s.tabs,
+            {
+              key,
+              ptyId: pty.id,
+              shellId: pty.shellId,
+              shell: pty.shell,
+              cwd: pty.cwd,
+              title: "",
+              status: "running",
+              owner: pty.owner ?? null,
+              integration: pty.integration ?? false,
+              chat,
+            },
+          ],
+          ...(options.activate || !s.activeByChat[keyOf(chat)] ? activate(s, key, chat) : {}),
+        }));
+        rememberTabChat("terminal", pty.id, chat);
+        instance.bind(pty.id);
+        try {
+          const backlog = await attachPty(pty.id, handler(key, pty.id));
+          instance.replay(backlog);
+        } catch {
+          get().close(key);
+        }
+      };
+
+      // The agent's terminal tools (the shell) start and close tabs; this window shows them.
+      onCreated = async (pty: CreatedPty) => {
+        if (pty.window !== getCurrentWindow().label) return;
+        // Adding the tab is synchronous: the panel that opens next finds it and starts no shell of its own.
+        const adopted = adopt(pty, pty.chat, { activate: true });
+        if (pty.chat) useUiStore.getState().openPanel("terminal", pty.chat);
+        await adopted;
+      };
+      onClosed = (key: string) => get().close(key);
 
       return {
         tabs: [],
@@ -244,38 +306,14 @@ export const useTerminalStore = create<TerminalStore>()(
             const panelOpen = (chat: string | null) =>
               (chat === null || chat === ui.panelChat ? ui.openTabs : (ui.panelsByChat[chat]?.openTabs ?? [])).includes("terminal");
             for (const pty of ptys) {
-              const chat = recalledTabChat("terminal", pty.id) ?? pty.owner ?? null;
+              // Already a tab (a shell an agent tool started, adopted from its event).
+              if (get().tabs.some((t) => t.key === pty.key)) continue;
+              const chat = pty.chat ?? recalledTabChat("terminal", pty.id) ?? pty.owner ?? null;
               if (!panelOpen(chat)) {
-                void killPty(pty.id).catch(() => undefined);
+                void closePty(pty.id).catch(() => undefined);
                 continue;
               }
-              const key = newKey();
-              const instance = instanceFor(key);
-              set((s) => ({
-                tabs: [
-                  ...s.tabs,
-                    {
-                    key,
-                    ptyId: pty.id,
-                    shellId: pty.shellId,
-                    shell: pty.shell,
-                    cwd: pty.cwd,
-                    title: "",
-                    status: "running",
-                    owner: pty.owner ?? null,
-                    integration: pty.integration ?? false,
-                    chat,
-                  },
-                ],
-                ...(s.activeByChat[keyOf(chat)] ? {} : activate(s, key, chat)),
-              }));
-              instance.bind(pty.id);
-              try {
-                const backlog = await attachPty(pty.id, handler(key, pty.id));
-                instance.replay(backlog);
-              } catch {
-                get().close(key);
-              }
+              await adopt(pty, chat, { activate: false });
             }
           })();
           return restored;
@@ -299,6 +337,10 @@ export const useTerminalStore = create<TerminalStore>()(
           set((s) => {
             // Tabs found after a reload with no known chat go to the first chat shown.
             const tabs = chat && s.chat === null ? s.tabs.map((t) => (t.chat === null ? { ...t, chat } : t)) : s.tabs;
+            // The shell keeps the chat of each tab for the agent's tools.
+            if (chat && s.chat === null) {
+              for (const t of s.tabs) if (t.chat === null && t.ptyId !== null) void setPtyChat(t.ptyId, chat).catch(() => undefined);
+            }
             const mine = chatTabs(tabs, chat);
             const wanted = s.activeByChat[keyOf(chat)];
             const activeKey = wanted && mine.some((t) => t.key === wanted) ? wanted : (mine.at(-1)?.key ?? null);
@@ -331,7 +373,7 @@ export const useTerminalStore = create<TerminalStore>()(
             ...activate(s, key, chat),
             ...(chat === s.chat ? { findOpen: false, focusPending: true } : {}),
           }));
-          await start(key, shell, options.cwd, options.owner);
+          await start(key, shell, options.cwd, options.owner, chat);
           return key;
         },
 
@@ -339,20 +381,17 @@ export const useTerminalStore = create<TerminalStore>()(
           const tab = get().tabs.find((t) => t.key === key);
           const instance = instances.get(key);
           if (!tab || !instance) return;
-          if (tab.ptyId !== null && tab.status === "running") void killPty(tab.ptyId).catch(() => undefined);
+          if (tab.ptyId !== null) void closePty(tab.ptyId).catch(() => undefined);
           instance.unbind();
           instance.term.reset();
           patch(key, { ptyId: null, status: "starting", exitCode: undefined, title: "" });
           set({ focusPending: true });
-          killed.delete(key);
-          instance.log.reopen();
-          await start(key, tab.shellId || undefined, tab.cwd || undefined, tab.owner ?? undefined);
+          await start(key, tab.shellId || undefined, tab.cwd || undefined, tab.owner ?? undefined, tab.chat);
         },
 
         kill(key) {
           const tab = get().tabs.find((t) => t.key === key);
           if (!tab || tab.ptyId === null || tab.status !== "running") return;
-          killed.add(key);
           void killPty(tab.ptyId).catch(() => undefined);
         },
 
@@ -361,10 +400,9 @@ export const useTerminalStore = create<TerminalStore>()(
           const index = tabs.findIndex((t) => t.key === key);
           if (index < 0) return;
           const tab = tabs[index];
-          if (tab.ptyId !== null && tab.status === "running") void killPty(tab.ptyId).catch(() => undefined);
+          if (tab.ptyId !== null) void closePty(tab.ptyId).catch(() => undefined);
           instances.get(key)?.dispose();
           instances.delete(key);
-          killed.delete(key);
           if (tab.ptyId !== null) forgetTabChat("terminal", tab.ptyId);
           const rest = tabs.filter((t) => t.key !== key);
           // The next tab is one of the same chat.
@@ -381,7 +419,7 @@ export const useTerminalStore = create<TerminalStore>()(
 
         closeAll(chat = get().chat) {
           for (const tab of chatTabs(get().tabs, chat)) {
-            if (tab.ptyId !== null && tab.status === "running") void killPty(tab.ptyId).catch(() => undefined);
+            if (tab.ptyId !== null) void closePty(tab.ptyId).catch(() => undefined);
             if (tab.ptyId !== null) forgetTabChat("terminal", tab.ptyId);
             instances.get(tab.key)?.dispose();
             instances.delete(tab.key);
@@ -431,3 +469,15 @@ useUiStore.subscribe((state, previous) => {
     useTerminalStore.getState().closeAll();
   }
 });
+
+// The agent's terminal tools run in the shell: tabs they start or close arrive as events.
+if (inTauri) {
+  void listen<CreatedPty>("terminal://created", (event) => void onCreated(event.payload));
+  void listen<{ key: string }>("terminal://closed", (event) => onClosed(event.payload.key));
+  // The shell starts a tool's tab in the person's default shell too.
+  const report = (shell: string | null) => void setDefaultPtyShell(shell).catch(() => undefined);
+  report(useTerminalStore.getState().defaultShell);
+  useTerminalStore.subscribe((state, previous) => {
+    if (state.defaultShell !== previous.defaultShell) report(state.defaultShell);
+  });
+}

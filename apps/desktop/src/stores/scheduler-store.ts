@@ -5,6 +5,7 @@
 // evo running — the tray icon and Keep awake (Settings → General) let tasks
 // carry on with the window closed or the computer idle.
 
+import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { notify } from "@/features/notifications/notify";
 import { db } from "@/lib/db";
@@ -173,6 +174,7 @@ function lastRunBusy(task: ScheduledTask): boolean {
 }
 
 let timer: ReturnType<typeof setInterval> | undefined;
+let listening = false;
 
 /** Run due tasks from now on (main window only). */
 export async function startScheduler() {
@@ -184,6 +186,13 @@ export async function startScheduler() {
     // The app database was not ready: try again shortly.
     setTimeout(() => void startScheduler(), 10_000);
     return;
+  }
+  // The shell's scheduler tools (the agent creating, changing or deleting a task)
+  // write the tasks themselves and say so: read them again so the page and the
+  // timers below see the change, and our next save does not undo it.
+  if (!listening) {
+    listening = true;
+    void listen("scheduler://changed", () => void useSchedulerStore.getState().load().catch(() => undefined));
   }
   const now = Date.now();
   // Missed while closed: run once to catch up, then go on from now.

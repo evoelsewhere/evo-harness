@@ -3,6 +3,8 @@
 // pages and shells of the chat that went out of sight keep running.
 // Spec: docs/features/session-panels.
 
+import { invoke } from "@tauri-apps/api/core";
+import { startAgentEvents } from "./agent-events";
 import { useBrowserStore } from "./browser-store";
 import { useEngineStore } from "./engine-store";
 import { useSessionStore } from "./session-store";
@@ -11,6 +13,8 @@ import { useUiStore } from "./ui-store";
 
 /** Tell every store which chat shows. The tabs go first: the browser reads them. */
 export function enterChat(chat: string | null) {
+  // The shell's tools create pages and shells in the window showing the chat.
+  void invoke("agent_window_chat", { chat }).catch(() => undefined);
   useUiStore.getState().enterChat(chat);
   useTerminalStore.getState().setChat(chat);
   useBrowserStore.getState().setChat(chat);
@@ -31,6 +35,7 @@ export function startChatScope() {
   if (started) return;
   started = true;
   enterChat(useEngineStore.getState().activeId);
+  startAgentEvents();
   useEngineStore.subscribe((state, previous) => {
     if (state.activeId !== previous.activeId) enterChat(state.activeId);
   });

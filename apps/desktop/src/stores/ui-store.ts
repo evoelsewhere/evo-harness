@@ -134,6 +134,8 @@ interface UiStore {
    */
   openPanel(panel: PanelId | null, chat?: string | null): void;
   closeTab(panel: PanelId): void;
+  /** Close `panel`'s tab of `chat` (an agent closing a tool): the showing chat's own tabs, or another chat's saved ones. */
+  closeChatPanel(chat: string, panel: PanelId): void;
   /** Close every tab but `panel`, which becomes the visible one. */
   closeOtherTabs(panel: PanelId): void;
   closeAllTabs(): void;
@@ -267,6 +269,20 @@ export const useUiStore = create<UiStore>()(
             s.activePanel === panel ? (openTabs[Math.min(index, openTabs.length - 1)] ?? null) : s.activePanel;
           return { openTabs, activePanel };
         }),
+      closeChatPanel: (chat, panel) => {
+        if (!get().panelChat || chat === get().panelChat) {
+          get().closeTab(panel);
+          return;
+        }
+        set((s) => {
+          const saved = s.panelsByChat[chat];
+          if (!saved || !saved.openTabs.includes(panel)) return s;
+          const index = saved.openTabs.indexOf(panel);
+          const openTabs = saved.openTabs.filter((t) => t !== panel);
+          const activePanel = saved.activePanel === panel ? (openTabs[Math.min(index, openTabs.length - 1)] ?? null) : saved.activePanel;
+          return { panelsByChat: { ...s.panelsByChat, [chat]: { ...saved, openTabs, activePanel } } };
+        });
+      },
       closeOtherTabs: (panel) => set({ openTabs: [panel], activePanel: panel }),
       closeAllTabs: () => set({ openTabs: [], activePanel: null }),
       cycleTab: (step) =>

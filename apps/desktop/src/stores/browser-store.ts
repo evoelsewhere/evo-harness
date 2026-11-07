@@ -4,9 +4,17 @@
 // hidden, until their chat shows again. The side panel's browser view reports
 // the area the page should cover; the active tab is shown there only while the
 // Browser tool is visible and nothing (a menu, a dialog) lies over it.
+//
+// The shell keeps which chat each page belongs to and which page each chat shows,
+// because the agent's browser tools run there (src-tauri/src/agent_tools/browser):
+// this store reports its selection (`browser_select_tab`), and adopts the pages,
+// selections and closings the tools make (`browser://created`, `browser://selected`,
+// `browser://closed`).
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { ask, message } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { forgetTabChat, recalledTabChat, rememberTabChat } from "@/lib/tab-chats";
@@ -58,12 +66,9 @@ interface BrowserStore {
   patchTab(id: string, change: Partial<BrowserTab>): void;
   setBounds(bounds: Bounds | null): void;
   setCovered(covered: boolean): void;
-  /** Resolve once `id` finishes loading (or after `timeoutMs`). */
-  waitForLoad(id: string, timeoutMs?: number): Promise<void>;
 }
 
 const HISTORY_MAX = 12;
-const loadWaiters = new Map<string, Array<() => void>>();
 
 const keyOf = (chat: string | null) => chat ?? "";
 
@@ -74,6 +79,20 @@ const browserShown = () => {
 };
 
 type Source = Pick<BrowserStore, "all" | "activeByChat" | "chat">;
+
+/** Tell the shell which page each chat shows now, for the chats whose page changed. */
+function reportActive(before: Record<string, string | null>, after: Record<string, string | null>) {
+  if (!inTauri) return;
+  for (const [chat, tab] of Object.entries(after)) {
+    if (chat && tab && before[chat] !== tab) void invoke("browser_select_tab", { chat, tab }).catch(() => undefined);
+  }
+}
+
+/** Pages of no known chat that joined `chat`: the shell learns whose they are. */
+function reportOwner(chat: string | null, ids: string[]) {
+  if (!inTauri || !chat) return;
+  for (const tab of ids) void invoke("browser_set_chat", { tab, chat }).catch(() => undefined);
+}
 
 /** What the showing chat sees. */
 function view({ all, activeByChat, chat }: Source): Pick<BrowserStore, "tabs" | "activeId"> {
@@ -86,11 +105,14 @@ export const useBrowserStore = create<BrowserStore>()(
   persist(
     (set, get) => {
       /** Change the source of truth and refresh what the showing chat sees. */
-      const commit = (change: (s: BrowserStore) => Partial<Source>) =>
+      const commit = (change: (s: BrowserStore) => Partial<Source>) => {
+        const before = get().activeByChat;
         set((s) => {
           const next: Source = { all: s.all, activeByChat: s.activeByChat, chat: s.chat, ...change(s) };
           return { ...next, ...view(next) };
         });
+        reportActive(before, get().activeByChat);
+      };
 
       const patch = (id: string, change: Partial<BrowserTab>) =>
         commit((s) => ({ all: s.all.map((t) => (t.id === id ? { ...t, ...change } : t)) }));
@@ -108,11 +130,13 @@ export const useBrowserStore = create<BrowserStore>()(
 
         setChat(chat) {
           if (chat === get().chat) return;
+          const orphans = chat && get().chat === null ? get().all.filter((t) => t.chat === null).map((t) => t.id) : [];
           commit((s) => ({
             chat,
             // Pages found after a reload with no known chat go to the first chat shown.
             all: chat && s.chat === null ? s.all.map((t) => (t.chat === null ? { ...t, chat } : t)) : s.all,
           }));
+          reportOwner(chat, orphans);
           sync();
         },
 
@@ -121,7 +145,7 @@ export const useBrowserStore = create<BrowserStore>()(
           const chat = options.chat !== undefined ? options.chat : get().chat;
           const bounds = get().bounds ?? { x: 0, y: 0, width: 800, height: 600 };
           try {
-            const id = await invoke<string>("browser_create", { url, ...bounds, visible: false });
+            const id = await invoke<string>("browser_create", { url, ...bounds, visible: false, chat });
             rememberTabChat("browser", id, chat);
             commit((s) => {
               const current = view(s);
@@ -200,19 +224,6 @@ export const useBrowserStore = create<BrowserStore>()(
           set({ covered });
           sync();
         },
-
-        waitForLoad(id, timeoutMs = 15000) {
-          const tab = get().all.find((t) => t.id === id);
-          if (!tab?.loading) return Promise.resolve();
-          return new Promise((resolve) => {
-            const done = () => {
-              clearTimeout(timer);
-              resolve();
-            };
-            const timer = setTimeout(done, timeoutMs);
-            loadWaiters.set(id, [...(loadWaiters.get(id) ?? []), done]);
-          });
-        },
       };
     },
     {
@@ -257,6 +268,39 @@ async function refreshTitle(id: string) {
   useBrowserStore.getState().patchTab(id, { title });
 }
 
+/** A page as `browser_list` reports it. */
+interface NativeTab {
+  id: string;
+  url: string;
+  title: string;
+  loading: boolean;
+  chat: string | null;
+}
+
+/** Add a page to its chat's tabs; it becomes the chat's visible one unless `background`. */
+function addTab(tab: BrowserTab, background: boolean) {
+  useBrowserStore.setState((s) => {
+    const key = keyOf(tab.chat);
+    const showing = tab.chat === s.chat ? view(s).activeId : (s.activeByChat[key] ?? null);
+    const next: Source = {
+      all: [...s.all, tab],
+      activeByChat: { ...s.activeByChat, [key]: background && showing ? showing : tab.id },
+      chat: s.chat,
+    };
+    return { ...next, ...view(next) };
+  });
+  sync();
+}
+
+/** Show `tab` as `chat`'s visible page without taking the keyboard focus (an agent chose it). */
+function showTab(chat: string | null, tab: string) {
+  useBrowserStore.setState((s) => {
+    const next: Source = { all: s.all, activeByChat: { ...s.activeByChat, [keyOf(chat)]: tab }, chat: s.chat };
+    return { ...next, ...view(next) };
+  });
+  sync();
+}
+
 /**
  * Take over this window's pages the store lost track of (the window reloaded,
  * or this module was hot-reloaded): they keep running in the native layer.
@@ -265,19 +309,26 @@ async function refreshTitle(id: string) {
  */
 export async function adoptTabs(): Promise<number> {
   if (!inTauri) return 0;
-  const native = await invoke<Array<[string, string]>>("browser_list").catch(() => []);
+  const native = await invoke<NativeTab[]>("browser_list").catch((): NativeTab[] => []);
   const known = new Set(useBrowserStore.getState().all.map((t) => t.id));
-  const fresh = native.filter(([id]) => !known.has(id));
+  const fresh = native.filter((t) => !known.has(t.id));
   if (!fresh.length) return 0;
+  // The shell knows each page's chat; one it does not know goes where the window remembers it, else to the showing chat.
+  const orphans: string[] = [];
   useBrowserStore.setState((s) => {
-    const adopted: BrowserTab[] = fresh.map(([id, url]) => ({ id, url, title: "", loading: false, chat: recalledTabChat("browser", id) ?? s.chat }));
+    const adopted: BrowserTab[] = fresh.map((t) => {
+      const chat = t.chat ?? recalledTabChat("browser", t.id) ?? s.chat;
+      if (!t.chat && chat) orphans.push(t.id);
+      return { id: t.id, url: t.url, title: t.title, loading: t.loading, chat };
+    });
     const all = [...s.all, ...adopted];
     const activeByChat = { ...s.activeByChat };
     for (const tab of adopted) if (activeByChat[keyOf(tab.chat)] == null) activeByChat[keyOf(tab.chat)] = tab.id;
     const next: Source = { all, activeByChat, chat: s.chat };
     return { ...next, ...view(next) };
   });
-  for (const [id] of fresh) void refreshTitle(id);
+  for (const { id } of fresh) void refreshTitle(id);
+  for (const id of orphans) reportOwner(useBrowserStore.getState().all.find((t) => t.id === id)?.chat ?? null, [id]);
   sync();
   return fresh.length;
 }
@@ -293,8 +344,6 @@ if (inTauri) {
     else if (kind === "loadEnd") {
       set({ loading: false, ...(url ? { url } : {}) });
       void refreshTitle(tab);
-      for (const done of loadWaiters.get(tab) ?? []) done();
-      loadWaiters.delete(tab);
       if (url && /^https?:/.test(url)) {
         useBrowserStore.setState((s) => ({
           history: [url, ...s.history.filter((h) => h !== url)].slice(0, HISTORY_MAX),
@@ -307,21 +356,50 @@ if (inTauri) {
       void store.newTab(url, { chat: opener?.chat ?? store.chat });
     }
   });
+  // The shell holds a page's dialog (alert, confirm, prompt, leave-page) until it is answered.
+  // While an agent drives the tab it answers with browser_dialog; otherwise the person does.
+  const unlistenDialog = listen<{ tab: string; kind: string; message: string; url: string; agentDriven?: boolean }>("browser://dialog", async ({ payload }) => {
+    if (payload.agentDriven) return;
+    let accept = false;
+    let text: string | undefined;
+    if (payload.kind === "alert") {
+      await message(payload.message, { title: "This page says" });
+      accept = true;
+    } else if (payload.kind === "prompt") {
+      const pending = await invoke<{ defaultText?: string } | null>("browser_dialog_pending", { tab: payload.tab }).catch(() => null);
+      const answer = window.prompt(payload.message, pending?.defaultText ?? "");
+      accept = answer !== null;
+      text = answer ?? undefined;
+    } else {
+      // A confirm or a leave-page question: the app's own dialog does not block the window's script.
+      accept = await ask(payload.message, { title: payload.kind === "beforeunload" ? "Leave this page?" : "This page asks", kind: "info" });
+    }
+    await invoke("browser_dialog_answer", { tab: payload.tab, accept, text }).catch(() => undefined);
+  });
+  // The agent's browser tools run in the shell: a page they open for a chat of this window joins that chat's
+  // tabs, and what they select or close here follows.
+  const windowLabel = getCurrentWindow().label;
+  const unlistenCreated = listen<{ tab: string; url: string; chat: string | null; window: string; background?: boolean; loading?: boolean; title?: string }>(
+    "browser://created",
+    ({ payload }) => {
+      if (payload.window !== windowLabel || useBrowserStore.getState().all.some((t) => t.id === payload.tab)) return;
+      rememberTabChat("browser", payload.tab, payload.chat);
+      addTab({ id: payload.tab, url: payload.url, title: payload.title ?? "", loading: payload.loading ?? true, chat: payload.chat }, !!payload.background);
+    },
+  );
+  const unlistenSelected = listen<{ chat: string; tab: string }>("browser://selected", ({ payload }) => {
+    if (useBrowserStore.getState().all.some((t) => t.id === payload.tab)) showTab(payload.chat, payload.tab);
+  });
+  const unlistenClosed = listen<{ tab: string }>("browser://closed", ({ payload }) => {
+    const store = useBrowserStore.getState();
+    if (store.all.some((t) => t.id === payload.tab)) store.closeTab(payload.tab);
+  });
   // A hot-reloaded copy of this module must not leave the old listener behind.
   import.meta.hot?.dispose(() => {
     void unlisten.then((stop) => stop());
+    void unlistenDialog.then((stop) => stop());
+    void unlistenCreated.then((stop) => stop());
+    void unlistenSelected.then((stop) => stop());
+    void unlistenClosed.then((stop) => stop());
   });
-}
-
-/**
- * The tab the agent acts on: the given one (by id, in any chat), else the
- * visible one of `chat` (default: the chat showing).
- */
-export function agentTab(id?: string, chat?: string | null): BrowserTab | undefined {
-  const { all, activeByChat, chat: showing } = useBrowserStore.getState();
-  if (id) return all.find((t) => t.id === id);
-  const owner = chat === undefined ? showing : chat;
-  const mine = all.filter((t) => t.chat === owner);
-  const wanted = activeByChat[keyOf(owner)];
-  return mine.find((t) => t.id === wanted) ?? mine.at(-1);
 }

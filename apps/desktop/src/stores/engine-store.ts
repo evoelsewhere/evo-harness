@@ -60,25 +60,10 @@ function promptPayload(text: string, images: PromptImage[] = []): Record<string,
 import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log } from "@/lib/db";
 import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow } from "@/lib/windows";
-import { isUiTool, runUiTool, UI_TOOLS } from "@/features/browser/agent-tools";
-import { isTerminalTool, runTerminalTool, TERMINAL_TOOLS } from "@/features/terminal";
-import { isSchedulerTool, runSchedulerTool, SCHEDULER_TOOLS } from "@/features/scheduler/agent-tools";
-import { isUserTool, runUserTool, USER_TOOLS } from "@/features/chat/user-tools";
 import { APPROVAL_CHANGED, useUiStore } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
 import { connectorsChanged, useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
-import {
-  isMcpTool,
-  mcp,
-  MCP_CALL_TOOL,
-  MCP_SEARCH_TOOL,
-  mcpToolLabel,
-  searchToolDefinitions,
-  searchTools,
-  shouldDefer,
-  type ChatTool,
-} from "@/lib/mcp";
 import { UNTITLED, useSessionStore } from "@/stores/session-store";
 
 export type EngineStatus = "idle" | "starting" | "ready" | "exited" | "error";
@@ -116,6 +101,8 @@ interface EngineStore extends Mirrored {
   /** Chats running in another window (whose engine this window does not hold). */
   busyElsewhere: Record<string, true>;
   logs: LogLine[];
+  /** Chats whose `compact` is still running (outlives the context panel that started it). */
+  compactingChats: Record<string, boolean>;
   models: ModelDescriptor[];
   thinkingLevels: string[];
   /** `provider/id` of the model new chats start with. */
@@ -702,8 +689,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
   // background agents). By default start_session only proposes: the person
   // starts it from the card (Settings → Sandbox can allow starting directly).
   // Nested sessions get none of these tools: one level deep.
-  /** Tools the shell's mesh hub answers (src-tauri/src/mesh.rs). */
-  const SESSION_TOOL_NAMES = new Set(["start_session", "message_session", "list_sessions"]);
   const pendingPrompts = new Map<string, string>();
 
   const chatRow = (id: string) => {
@@ -727,19 +712,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     }
   };
 
-  // Connectors' tools (`mcp__<server>__<tool>`) per chat, as last handed to
-  // it: your connectors plus the approved servers of the chat's project,
-  // without those switched off for the chat.
-  const mcpTools = new Map<string, ChatTool[]>();
-  const loadMcpTools = async (chat: string) => {
-    const cwd = await chatFolder(chat).catch(() => "");
-    if (cwd) await mcp.openProject(cwd).catch(() => undefined);
-    const off = new Set(useUiStore.getState().chatConnectorsOff[chat] ?? []);
-    const tools = (await mcp.chatTools(cwd || undefined).catch(() => [])).filter((t) => !off.has(t.server));
-    mcpTools.set(chat, tools);
-    return tools;
-  };
-
   /**
    * A chat's setup after its engine is `ready` (model, tools). A prompt sent
    * before it ends would start a run, and the engine refuses to change
@@ -757,22 +729,26 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
   /** Chats whose tools could not be set during a run: set again when it settles. */
   const toolsStale = new Set<string>();
 
+  /** Tell the shell which connectors are switched off for a chat (it builds and gates the connector tools). */
+  const pushConnectorSwitches = (chat: string) =>
+    invoke("agent_mcp_chat_config", { chat, off: useUiStore.getState().chatConnectorsOff[chat] ?? [] }).catch(() => undefined);
+
   const configureSessionTools = async (chat: string) => {
     if (!client) return;
-    // Every chat gets the app's browser and Files tools and the connectors'
-    // tools; nested sessions get no session tools.
-    // Past a size the connectors' tools sit behind search (two tools instead).
-    const loaded = await loadMcpTools(chat);
-    const connectorTools = shouldDefer(loaded)
-      ? searchToolDefinitions(loaded)
-      : loaded.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
-    // Session and scheduler tools are for top-level chats. The session tools
-    // are defined and answered by the shell's mesh hub (src-tauri/src/mesh.rs).
+    // Every chat gets the shell's tools (browser, terminal, Files, scheduler,
+    // and the connectors' tools, built by the shell for the chat's folder and
+    // the connectors switched off for it); nested sessions get no session tools.
+    const folder = await chatFolder(chat).catch(() => "");
+    await pushConnectorSwitches(chat);
+    // Session tools are for top-level chats; they are defined and answered by
+    // the shell's mesh hub (src-tauri/src/mesh.rs). The scheduler tools are the
+    // shell's too (agent_tools/scheduler) and refuse nested chats themselves.
     const topLevel = !chatRow(chat)?.parentChatId;
     const sessionTools = topLevel
       ? await invoke<Record<string, unknown>[]>("mesh_session_tools").catch((): Record<string, unknown>[] => [])
       : [];
-    const tools = [...(topLevel ? [...sessionTools, ...SCHEDULER_TOOLS] : []), ...USER_TOOLS, ...UI_TOOLS, ...TERMINAL_TOOLS, ...connectorTools];
+    const shellTools = await invoke<Record<string, unknown>[]>("agent_tools_definitions", { chat, folder: folder || null }).catch((): Record<string, unknown>[] => []);
+    const tools = [...(topLevel ? sessionTools : []), ...shellTools];
     await client
       .request(chat, "configure_external_tools", { tools })
       .then(() => toolsStale.delete(chat))
@@ -894,21 +870,10 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     await launch(chat, cwd ?? (await chatFolder(chat)), restore, true);
   };
 
-  // Approvals the app asks itself (connector tools set to "ask"), shown like
-  // the engine's permission prompts; `answerPermission` resolves them.
+  // Questions the shell's tools raise (a connector tool set to "ask", the
+  // browser's gate), shown like the engine's permission prompts;
+  // `answerPermission` resolves them.
   const appApprovals = new Map<string, { chat: string; externalId: string; resolve(answer: number): void }>();
-  let approvalSeq = 0;
-  const askApproval = (chat: string, externalId: string, title: string, description: string, options: string[]) =>
-    new Promise<number>((resolve) => {
-      const requestId = `app:${++approvalSeq}`;
-      appApprovals.set(requestId, { chat, externalId, resolve });
-      dispatch(chat, {
-        type: "engine",
-        message: { type: "ui_dialog_request", requestId, ui: { title, description, options: options.map((title) => ({ title })) } },
-      });
-    });
-  /** Terminal tool calls in flight, so a dropped call ends its waits. */
-  const terminalCalls = new Map<string, AbortController>();
   /** The engine gave up on a call (the run stopped): its open question is moot. */
   const dropApprovals = (externalId: string) => {
     for (const [requestId, approval] of appApprovals) {
@@ -916,112 +881,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       appApprovals.delete(requestId);
       dispatch(approval.chat, { type: "engine", message: { type: "ui_dialog_closed", requestId } });
       approval.resolve(-1);
-    }
-  };
-
-  /** A connector's tool: ask when its permission says so, then call it through the pool. */
-  const runMcpTool = async (chat: string, requestId: string, name: string, args: Record<string, unknown>) => {
-    const respond = (result: Record<string, unknown>) =>
-      client?.request(chat, "external_tool_response", { requestId, result }).catch(() => undefined);
-    const fail = (text: string) => respond({ content: [{ type: "text", text }], isError: true });
-    const tool =
-      mcpTools.get(chat)?.find((t) => t.name === name) ?? (await loadMcpTools(chat)).find((t) => t.name === name);
-    if (!tool) return fail(`${name} is not available: its connector is off or disconnected.`);
-    if (tool.permission === "ask") {
-      const { server, tool: toolName } = mcpToolLabel(name);
-      const preview = JSON.stringify(args, null, 2);
-      const answer = await askApproval(
-        chat,
-        requestId,
-        `Allow ${server} to run ${toolName}?`,
-        preview.length > 600 ? `${preview.slice(0, 600)}…` : preview,
-        ["Allow once", "Always allow", "Deny"],
-      );
-      if (answer === -1) return;
-      if (answer === 2) return fail("The user declined this tool call.");
-      if (answer === 1) await mcp.setPermission(tool.server, tool.tool, "allow").catch(() => undefined);
-    }
-    try {
-      const cwd = await chatFolder(chat).catch(() => "");
-      return respond(await mcp.call(name, args, cwd || undefined));
-    } catch (error) {
-      return fail(String(error));
-    }
-  };
-
-  const answerExternalTool = async (chat: string, message: EngineMessage) => {
-    const requestId = message.requestId as string;
-    const args = (message.arguments ?? {}) as Record<string, any>;
-    const reply = (text: string, structured?: Record<string, unknown>, isError = false) =>
-      client
-        ?.request(chat, "external_tool_response", {
-          requestId,
-          result: {
-            content: [{ type: "text", text }],
-            ...(structured ? { structuredContent: structured } : {}),
-            ...(isError ? { isError: true } : {}),
-          },
-        })
-        .catch(() => undefined);
-    // The session tools are answered by the shell's mesh hub, which sees
-    // every engine's requests (src-tauri/src/mesh.rs).
-    if (SESSION_TOOL_NAMES.has(String(message.toolName))) return;
-    try {
-      if (isMcpTool(String(message.toolName))) return runMcpTool(chat, requestId, String(message.toolName), args);
-      if (message.toolName === MCP_SEARCH_TOOL) {
-        const tools = mcpTools.get(chat) ?? (await loadMcpTools(chat));
-        const found = searchTools(tools, String(args.query ?? ""), Number(args.limit) || 8);
-        if (!found.length) return reply(`No connector tool matches "${String(args.query ?? "")}". Try other words.`);
-        const results = found.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
-        return reply(
-          found.map((t) => `${t.name}: ${t.description || "(no description)"}\n${JSON.stringify(t.inputSchema)}`).join("\n\n"),
-          { tools: results },
-        );
-      }
-      if (message.toolName === MCP_CALL_TOOL) {
-        const name = String(args.name ?? "");
-        if (!isMcpTool(name)) return reply(`${name || "(no name)"} is not a connector tool; find one with ${MCP_SEARCH_TOOL}.`, undefined, true);
-        const toolArgs = args.arguments && typeof args.arguments === "object" ? (args.arguments as Record<string, unknown>) : {};
-        return runMcpTool(chat, requestId, name, toolArgs);
-      }
-      if (isUserTool(String(message.toolName))) {
-        const cwd = await chatFolder(chat).catch(() => "");
-        const result = await runUserTool(String(message.toolName), args, { chat, cwd });
-        return reply(result.text, result.structured, result.isError);
-      }
-      if (isSchedulerTool(String(message.toolName))) {
-        const cwd = await chatFolder(chat).catch(() => "");
-        const result = await runSchedulerTool(String(message.toolName), args, {
-          cwd,
-          ask: (title, description, options) => askApproval(chat, requestId, title, description, options),
-        });
-        return reply(result.text, result.structured, result.isError);
-      }
-      if (isTerminalTool(String(message.toolName))) {
-        // The terminal tools wait (for output, for an approval): the engine dropping the call ends them.
-        const controller = new AbortController();
-        terminalCalls.set(requestId, controller);
-        try {
-          const cwd = await chatFolder(chat).catch(() => "");
-          const result = await runTerminalTool(String(message.toolName), args, {
-            chat,
-            cwd,
-            signal: controller.signal,
-            ask: (title, description, options) => askApproval(chat, requestId, title, description, options),
-          });
-          if (controller.signal.aborted) return;
-          return client?.request(chat, "external_tool_response", { requestId, result }).catch(() => undefined);
-        } finally {
-          terminalCalls.delete(requestId);
-        }
-      }
-      if (isUiTool(String(message.toolName))) {
-        const result = await runUiTool(String(message.toolName), args, chat);
-        return client?.request(chat, "external_tool_response", { requestId, result }).catch(() => undefined);
-      }
-      return reply(`Unknown tool ${String(message.toolName)}.`, undefined, true);
-    } catch (error) {
-      return reply(String(error), undefined, true);
     }
   };
 
@@ -1099,13 +958,10 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       });
       return;
     }
-    if (message.type === "external_tool_request") {
-      void answerExternalTool(chat, message);
-      return;
-    }
+    // The shell answers every external tool request itself (src-tauri/src/agent_tools): nothing to do here.
+    if (message.type === "external_tool_request") return;
     if (message.type === "external_tool_request_closed") {
       if (typeof message.requestId === "string") {
-        terminalCalls.get(message.requestId)?.abort();
         dropApprovals(message.requestId);
       }
       return;
@@ -1190,6 +1046,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     runtimes: {},
     busyElsewhere: {},
     logs: [],
+    compactingChats: {},
     defaultSaved: false,
     models: [],
     thinkingLevels: [],
@@ -1247,6 +1104,23 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       pushMeshSettings(useUiStore.getState().autoStartSessions);
       useUiStore.subscribe((state, before) => {
         if (state.autoStartSessions !== before.autoStartSessions) pushMeshSettings(state.autoStartSessions);
+      });
+      // Questions the shell's tools raise (approvals) show as the chat's approval prompt.
+      void listen<{ chat: string; requestId: string; callId?: string; title: string; description: string; options: string[] }>("agent://ask", ({ payload }) => {
+        const id = `shell:${payload.requestId}`;
+        appApprovals.set(id, {
+          chat: payload.chat,
+          externalId: payload.callId ?? "",
+          resolve: (index) => void invoke("agent_ask_answer", { requestId: payload.requestId, index }).catch(() => undefined),
+        });
+        dispatch(payload.chat, {
+          type: "engine",
+          message: { type: "ui_dialog_request", requestId: id, ui: { title: payload.title, description: payload.description, options: payload.options.map((title) => ({ title })) } },
+        });
+      });
+      void listen<{ chat: string; requestId: string }>("agent://ask-closed", ({ payload }) => {
+        const id = `shell:${payload.requestId}`;
+        if (appApprovals.delete(id)) dispatch(payload.chat, { type: "engine", message: { type: "ui_dialog_closed", requestId: id } });
       });
       void listen("plugins://changed", () => {
         for (const rt of Object.values(get().runtimes)) {
@@ -1403,6 +1277,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
 
     async setChatConnector(chat, key, on) {
       useUiStore.getState().setChatConnectorOff(chat, key, !on);
+      await pushConnectorSwitches(chat);
       if (runtime(chat)?.status === "ready") await configureSessionTools(chat);
     },
 
@@ -1648,6 +1523,9 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       const chat = get().activeId;
       if (!client || !chat) return;
       const before = runtime(chat)?.state?.context?.tokens;
+      const setCompacting = (on: boolean) =>
+        set((s) => ({ compactingChats: { ...s.compactingChats, [chat]: on } }));
+      setCompacting(true);
       // The engine accepts `compact` at once and summarises in its run slot,
       // ending with `agent_settled` (`compact: true`). Wait for that, or the
       // numbers read next are still the ones from before.
@@ -1664,10 +1542,12 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       } catch (error) {
         compactWaiters.get(chat)?.(null);
         compactWaiters.delete(chat);
+        setCompacting(false);
         notify({ source: "engine", level: "error", title: "Could not compact the conversation", body: String(error) });
         return;
       }
       const result = await settled;
+      setCompacting(false);
       await Promise.all([get().refreshState(chat), get().loadContextBreakdown()]);
       const after = runtime(chat)?.state?.context?.tokens;
       const tokens = (n: number | undefined) => (n == null ? "?" : `${Math.round(n / 100) / 10}k`);

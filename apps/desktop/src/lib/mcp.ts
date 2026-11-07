@@ -1,4 +1,5 @@
 // Connectors: the shell's MCP pool (src-tauri/src/mcp.rs, crates/evo-mcp).
+// The connectors' agent tools (names, search, permissions) are the shell's: src-tauri/src/agent_tools/mcp.rs.
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -81,15 +82,6 @@ export interface ProjectState {
   servers: ProjectServer[];
 }
 
-export interface ChatTool {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  permission: ToolPermission;
-  server: string;
-  tool: string;
-}
-
 /** The change event the shell emits. */
 export const MCP_CHANGED = "mcp://changed";
 
@@ -102,9 +94,6 @@ export const mcp = {
   reconnect: (name: string) => invoke<void>("mcp_reconnect", { name }),
   setPermission: (name: string, tool: string, permission: ToolPermission) =>
     invoke<void>("mcp_set_permission", { name, tool, permission }),
-  chatTools: (cwd?: string) => invoke<ChatTool[]>("mcp_chat_tools", { cwd: cwd ?? null }),
-  call: (name: string, args: Record<string, unknown> | undefined, cwd?: string) =>
-    invoke<Record<string, unknown>>("mcp_call", { name, arguments: args ?? null, cwd: cwd ?? null }),
   /** Opens the provider's sign-in page; resolves once the browser came back. */
   signIn: (name: string) => invoke<void>("mcp_sign_in", { name }),
   signOut: (name: string) => invoke<void>("mcp_sign_out", { name }),
@@ -116,96 +105,3 @@ export const mcp = {
   getPrompt: (server: string, prompt: string, args: Record<string, string>) =>
     invoke<string>("mcp_get_prompt", { server, prompt, arguments: args }),
 };
-
-/** `mcp__<server>__<tool>` names a connector's tool. */
-export const isMcpTool = (name: string) => name.startsWith("mcp__");
-
-/** `server · tool` for a tool row. */
-export function mcpToolLabel(name: string): { server: string; tool: string } {
-  const [, server = "", ...rest] = name.split("__");
-  return { server, tool: rest.join("__") };
-}
-
-// ── Tool search ──────────────────────────────────────────────────────────────
-//
-// Many connector tools crowd the model's context. Past a threshold a chat gets
-// two tools instead of every connector tool: `mcp_search_tools` finds tools
-// (with their input schemas) and `mcp_call_tool` runs one by name. Each call
-// still goes through the tool's own permission (allow / ask / block).
-
-export const MCP_SEARCH_TOOL = "mcp_search_tools";
-export const MCP_CALL_TOOL = "mcp_call_tool";
-/** Defer past this many tools… */
-const DEFER_COUNT = 40;
-/** …or this many characters of names, descriptions and schemas. */
-const DEFER_CHARS = 60_000;
-
-/** Whether `tools` should sit behind search rather than be listed. */
-export function shouldDefer(tools: ChatTool[]): boolean {
-  if (tools.length > DEFER_COUNT) return true;
-  const size = tools.reduce((n, t) => n + t.name.length + t.description.length + JSON.stringify(t.inputSchema).length, 0);
-  return size > DEFER_CHARS;
-}
-
-/** The two tools a chat gets instead of `tools`. */
-export function searchToolDefinitions(tools: ChatTool[]) {
-  const servers = new Map<string, number>();
-  for (const tool of tools) {
-    const server = mcpToolLabel(tool.name).server;
-    servers.set(server, (servers.get(server) ?? 0) + 1);
-  }
-  const listing = [...servers].map(([server, count]) => `${server} (${count})`).join(", ");
-  return [
-    {
-      name: MCP_SEARCH_TOOL,
-      description:
-        `Find tools of the connected MCP servers — ${listing} — and get their input schemas. ` +
-        `Search by what you want to do ("create issue", "query database"), or pass "select:<name>,<name>" for exact tool names. ` +
-        `Then run one with ${MCP_CALL_TOOL}.`,
-      inputSchema: {
-        type: "object",
-        properties: {
-          query: { type: "string", description: 'Words describing the task, or "select:name1,name2".' },
-          limit: { type: "number", description: "At most this many results (default 8)." },
-        },
-        required: ["query"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: MCP_CALL_TOOL,
-      description: `Run a connector tool found with ${MCP_SEARCH_TOOL}, by its full name (mcp__server__tool), with arguments matching its input schema.`,
-      inputSchema: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "The tool's full name, e.g. mcp__github__create_issue." },
-          arguments: { type: "object", description: "The tool's arguments." },
-        },
-        required: ["name"],
-        additionalProperties: false,
-      },
-    },
-  ];
-}
-
-/** The best matches for `query` among `tools`. */
-export function searchTools(tools: ChatTool[], query: string, limit = 8): ChatTool[] {
-  const q = query.trim();
-  if (q.toLowerCase().startsWith("select:")) {
-    const names = q.slice(7).split(",").map((n) => n.trim()).filter(Boolean);
-    return tools.filter((t) => names.includes(t.name) || names.includes(mcpToolLabel(t.name).tool));
-  }
-  const words = q.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1);
-  if (!words.length) return tools.slice(0, limit);
-  return tools
-    .map((tool) => {
-      const name = tool.name.toLowerCase();
-      const description = tool.description.toLowerCase();
-      const score = words.reduce((s, w) => s + (name.includes(w) ? 3 : 0) + (description.includes(w) ? 1 : 0), 0);
-      return { tool, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
-    .slice(0, Math.max(1, Math.min(limit, 25)))
-    .map((x) => x.tool);
-}
