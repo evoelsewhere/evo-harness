@@ -19,6 +19,9 @@ consequences and the alternatives rejected. The
 | [0009](0009-native-office-preview-renderer.md) | Office files render natively in the engine; LibreOffice gives exact pages | Accepted | 2026-11-07 |
 | [0010](0010-engine-enforces-approval-mode.md) | The engine enforces the approval mode on every tool call | Accepted | 2026-11-07 |
 | [0011](0011-features-follow-spec-driven-development.md) | Features follow Spec-Driven Development: spec, plan, tasks | Accepted | 2026-11-07 |
+| [0012](0012-native-messaging-bridge-to-the-persons-browser.md) | A native messaging bridge to the person's own browser | Proposed | 2026-11-07 |
+| [0013](0013-app-side-agent-tools-run-in-the-rust-shell.md) | App-side agent tools run in the Rust shell | Accepted | 2026-11-08 |
+| [0014](0014-agent-tools-by-layer.md) | Where each agent tool lives: engine or shell, never the webview | Accepted | 2026-11-08 |
 
 ## Rules
 

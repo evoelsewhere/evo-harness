@@ -111,10 +111,13 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   compaction, skills, hooks, memory, model selection and credentials.
 - **The webview owns presentation only**: it renders state and sends user
   intent. Only `stores/engine-store.ts` talks to the engine client.
-- Some agent tools are implemented by the app (browser, terminal, `show_file`,
-  `send_file`, `notify`, nested-session tools) and offered to the engine as
+- Some agent tools are implemented by the app and offered to the engine as
   **external tools** over the protocol; the engine still runs the loop and
-  the permission checks.
+  the permission checks. The browser, terminal and app-control tools and the
+  session tools run in the Rust shell, which answers their requests itself
+  ([ADR 0013](decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md));
+  `show_file`, `send_file`, `notify` and the scheduler tools are answered by the
+  webview.
 
 ## 5. Building blocks
 
