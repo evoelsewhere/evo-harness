@@ -226,4 +226,18 @@ Edited from the composer's menu (mode) and the task editor (task setting).
 
 ## 5. As-built notes
 
-n/a — empty until the status is `In progress`.
+- The wire contract is `crates/evo-engine/src/rpc/protocol.rs` (`Command`,
+  `SUPPORTED_COMMANDS`), not `crates/evo-protocol`; the three commands were
+  added there.
+- The mode and grants are one process-wide `approval::global()` (one engine
+  process serves one chat), so `modes.rs` and the gate share them without
+  plumbing; tests use their own `ApprovalState`.
+- The gate wraps the whole chain, so the guards, hooks and plugin handlers run
+  first and a block from them wins; a hook that allowed or asked marks the
+  call id (`ApprovalState::cover`) and the gate skips it.
+- Tools the app registers (`configure_external_tools`) are skipped by name.
+- `visualize_read_me`, `show_widget`, `image`, `send_file`, `notify` and
+  `document_preview` count as reads.
+- Not built yet: the subagent name in prompts (FR-9) — the child's hook is the
+  parent's and does not know which agent calls; Phase 2 (FR-11).
+

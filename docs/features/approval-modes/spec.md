@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | engine, protocol, desktop shell, desktop UI |
 | Created | 2026-11-07 |
 | Updated | 2026-11-07 |
@@ -214,3 +214,4 @@ n/a — none open.
 - 2026-11-07 — Draft.
 - 2026-11-07 — Accepted with the proposed answers to every open question; ADR 0010 accepted.
 - 2026-11-07 — Moved to the spec / plan / tasks format.
+- 2026-11-07 — In progress: engine gate, protocol, shell setting and composer built; scheduler setting (FR-11) and the subagent label (FR-9) open.

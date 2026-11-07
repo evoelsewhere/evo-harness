@@ -263,6 +263,14 @@ Details: [app database spec](../features/app-database/spec.md).
 - **Permissions and sandbox.** Tool calls pass the permission check (Allow /
   Ask / Block) and the sandbox config (`crates/evo-tools/src/sandbox.rs`,
   passed as `--sandbox-config`). Approvals are shown in the composer.
+  The approval mode (`ask` · `auto-edits` · `auto`, an app setting passed as
+  `--approval-mode` and changed live with `set_approval_mode`) is enforced by
+  the engine as the last link of `before_tool_call`: read-only guard →
+  self-kill guard → `PreToolUse` hooks → plugin handlers → approval mode. It
+  classifies each call as a read, an edit or a command and asks for the kinds
+  the mode says ([ADR 0010](decisions/0010-engine-enforces-approval-mode.md)).
+  App-side tools — terminal, scheduler, connectors — ask through the same
+  approval panel, reading the same mode.
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
 - **Project trust.** Project hooks, `.mcp.json` servers and settings apply only
