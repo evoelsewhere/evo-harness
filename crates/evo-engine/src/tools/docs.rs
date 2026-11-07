@@ -31,25 +31,25 @@ static DOCS: &[DocPage] = &[
     DocPage {
         topic: "authoring",
         description: "Rust cdylib extension authoring best practices: unified C ABI entry point, tool lifecycle, event handlers, resource discovery, evo dev workflow, evo-extcore reuse boundaries and release checklist",
-        content: include_str!("../embedded-docs/extension-authoring.md"),
+        content: include_str!("../../embedded-docs/extension-authoring.md"),
         aliases: &["package-authoring", "extension-authoring", "create-package", "create-extension"],
     },
     DocPage {
         topic: "guide",
         description: "Complete user guide: installation, models, CLI, .evo resources, Rust extensions, SDK, troubleshooting and releasing",
-        content: include_str!("../embedded-docs/user-guide.md"),
+        content: include_str!("../../embedded-docs/user-guide.md"),
         aliases: &["manual", "user-guide", "cli", "quickstart", "package", "packages", "extension", "extensions"],
     },
     DocPage {
         topic: "overview",
         description: "evo installation, built-in tools, configuration, extensions, and release basics",
-        content: include_str!("../embedded-docs/README.md"),
+        content: include_str!("../../embedded-docs/README.md"),
         aliases: &["readme", "getting-started", "start", "usage"],
     },
     DocPage {
         topic: "agent",
         description: "Default structure and conventions for building your own Agent project with the evo SDK: directory layout, embedded Agent, cdylib adapter, single tool registration point, prompts/skills, configuration and dev loop",
-        content: include_str!("../embedded-docs/agent-project.md"),
+        content: include_str!("../../embedded-docs/agent-project.md"),
         aliases: &[
             "agent-project",
             "project-layout",
@@ -61,13 +61,13 @@ static DOCS: &[DocPage] = &[
     DocPage {
         topic: "architecture",
         description: "evo crate layering, agent loop, provider, harness, sessions, and extension boundaries",
-        content: include_str!("../embedded-docs/architecture.md"),
+        content: include_str!("../../embedded-docs/architecture.md"),
         aliases: &["design", "crates", "sdk"],
     },
     DocPage {
         topic: "debugging",
         description: "Writing Rust cdylib extensions (unified C ABI, tool lifecycle, event handlers) and debugging agents/extensions (event log, evo dev-local, locating common failures)",
-        content: include_str!("../embedded-docs/rust-debugging.md"),
+        content: include_str!("../../embedded-docs/rust-debugging.md"),
         aliases: &["rust", "rust-debug", "extension-debug", "troubleshoot", "debug"],
     },
 ];

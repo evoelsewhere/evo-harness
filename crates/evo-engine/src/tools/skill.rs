@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-use crate::agent_tool::HarnessCell;
+use crate::tools::agent::HarnessCell;
 
 pub struct SkillTool {
     schema: Tool,

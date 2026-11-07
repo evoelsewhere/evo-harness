@@ -20,7 +20,6 @@
 pub mod agent_session;
 /// The on-device application database (see the `evo-store` crate).
 pub use evo_store as app_db;
-pub mod agent_tool;
 pub mod agents;
 pub mod approval;
 pub mod args;
@@ -33,8 +32,6 @@ pub mod context_breakdown;
 pub mod credentials;
 pub mod customize;
 pub mod dev_extension;
-pub mod docs_tool;
-pub mod document_preview_tool;
 pub mod experimental;
 pub mod export;
 pub mod extension_api;
@@ -44,11 +41,8 @@ pub mod hooks;
 pub mod host;
 pub mod install;
 pub mod instructions;
-pub mod interaction;
-pub mod lsp_tool;
 pub mod memory;
 pub mod mesh;
-pub mod mesh_tools;
 pub mod model_registry;
 pub mod models_dev;
 pub mod modes;
@@ -74,14 +68,12 @@ pub mod session_cwd;
 pub mod settings;
 pub mod side_questions;
 pub mod skill_runtime;
-pub mod skill_tool;
 pub mod source_info;
 pub mod startup_diagnostics;
 pub mod timings;
+pub mod tools;
 pub mod trust;
 pub mod usage_log;
-pub mod visualize_tool;
-pub mod web_tools;
 pub mod worktrees;
 
 /// The wire contract, re-exported under the module name the engine has always

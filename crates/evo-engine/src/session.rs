@@ -47,17 +47,11 @@ use evo_harness::session::Session;
 use evo_harness::system_prompt::compose_system_prompt;
 use evo_harness::types::{
     AgentHarnessOptions, AgentHarnessResources, AgentHarnessStreamOptions, DrivingMode,
-    HarnessTool, HarnessToolExecution, ToolReplay,
+    HarnessTool, HarnessToolExecution,
 };
-#[cfg(windows)]
-use evo_tools::create_powershell_tool;
-use evo_tools::{
-    create_bash_tool, create_edit_tool, create_read_tool, create_write_tool, ExecutionToolContext,
-    MutationQueueRegistry, OsExecutionEnv,
-};
+use evo_tools::{ExecutionToolContext, MutationQueueRegistry, OsExecutionEnv};
 
 use crate::args::Args;
-use crate::docs_tool::create_docs_tool;
 use crate::provider::ResolvedModel;
 use crate::resource_dirs::{
     discover_append_system_prompt_file, discover_system_prompt_file, extension_dirs,
@@ -122,7 +116,7 @@ pub(crate) fn file_io_router(
 }
 
 /// The coding tools registered by the CLI by default.
-pub const BUILTIN_TOOL_NAMES: &[&str] = &["read", "bash", "edit", "write", "docs"];
+pub const BUILTIN_TOOL_NAMES: &[&str] = crate::tools::info::DEFAULT_PROMPT_TOOLS;
 
 /// The default coding system prompt for the CLI's built-in tools.
 ///
@@ -1264,7 +1258,7 @@ pub async fn build_prepared(
         crate::approval::global().clone(),
     );
     // `ask_user` puts its questions through the same dialog channel.
-    crate::interaction::set_mailbox(ui_dialog_mailbox.clone());
+    crate::tools::interaction::set_mailbox(ui_dialog_mailbox.clone());
 
     let options = AgentHarnessOptions {
         model: resolved.model.clone(),
@@ -2248,7 +2242,7 @@ where
     let mut_env: Arc<dyn evo_tools::MutatingEnv> = env.clone();
     let tool_ctx = evo_tools::ExecutionToolContext::new(env_dyn.clone(), Some(mut_env))
         .with_file_io(ctx.file_io.clone());
-    let agent_cell: crate::agent_tool::HarnessCell = Arc::new(std::sync::OnceLock::new());
+    let agent_cell: crate::tools::agent::HarnessCell = Arc::new(std::sync::OnceLock::new());
     let _ = agent_cell.set(harness.downgrade());
     let mut tools = build_tools(&tool_ctx, &effective_args, &agent_cell);
     merge_extension_tools(
@@ -2830,187 +2824,17 @@ fn merge_extension_tools(
 
 /// Build the tool list per `--tools`/`--exclude-tools`/`--no-tools`/
 /// `--no-builtin-tools`. Mirrors the TS `tools`/`excludeTools`/`noTools`
-/// resolution in `createAgentSession`.
-/// Default bash timeout: 120s when the model doesn't pass one (prevents a
-/// forgotten `timeout` from hanging the run forever — the "it is stuck" report).
-/// `EVO_BASH_TIMEOUT` overrides; a model-supplied timeout always wins.
-pub fn bash_options() -> evo_tools::tools::bash::BashToolOptions {
-    use evo_tools::tools::bash::BashToolOptions;
-    let default = std::env::var("EVO_BASH_TIMEOUT")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(evo_tools::tools::bash::DEFAULT_BASH_TIMEOUT_SECONDS);
-    // Saved user defaults, matching how `defaultTools` is read in `build_tools`.
-    // `shellCommandPrefix` is prepended to every command (upstream's key for
-    // alias/`shopt` setup). Native's `shellPath` is *not* wired: neither
-    // `BashToolOptions` nor `ShellCaptureOptions` carries a shell binary today, so
-    // honouring it means plumbing one through evo-tools first.
-    let settings = crate::settings::load_settings().unwrap_or_default();
-    BashToolOptions {
-        command_prefix: settings.shell_command_prefix.clone(),
-        default_timeout: Some(default),
-        prepare: None,
-    }
-}
-
-/// The built-in file and shell tools working in `cwd` instead of the
-/// session's folder, for a delegated child in its own worktree. Same options
-/// as the parent's (`build_tools`); the harness swaps them in by name.
-pub fn builtin_tools_in(cwd: &Path) -> Vec<HarnessTool> {
-    let env = Arc::new(
-        OsExecutionEnv::with_cwd(cwd.to_path_buf())
-            .with_shell_env_provider(crate::office::shell_env_provider()),
-    );
-    let env_dyn: Arc<dyn evo_tools::ExecutionEnv> = env.clone();
-    let mut_env: Arc<dyn evo_tools::MutatingEnv> = env;
-    let ctx = ExecutionToolContext::new(env_dyn, Some(mut_env));
-    // Only Windows adds a tool after this.
-    #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
-    let mut tools = vec![
-        HarnessTool::new(create_read_tool(
-            &ctx,
-            Some(evo_tools::tools::read::ReadToolOptions {
-                image_processor: Some(Arc::new(evo_tools::image_processing::InlineImageProcessor)),
-                ..Default::default()
-            }),
-        ))
-        .with_replay(ToolReplay::Safe),
-        HarnessTool::new(create_bash_tool(&ctx, Some(bash_options()))),
-        HarnessTool::new(create_edit_tool(&ctx)),
-        HarnessTool::new(create_write_tool(&ctx)),
-    ];
-    #[cfg(target_os = "windows")]
-    tools.push(HarnessTool::new(create_powershell_tool(&ctx)));
-    tools
-}
-
-fn build_tools(
+/// resolution in `createAgentSession`. The tools themselves come from
+/// [`crate::tools::register_all`]; this applies the person's selection.
+pub(crate) fn build_tools(
     ctx: &ExecutionToolContext,
     args: &Args,
-    harness: &crate::agent_tool::HarnessCell,
+    harness: &crate::tools::agent::HarnessCell,
 ) -> Vec<HarnessTool> {
     if args.no_tools {
         return Vec::new();
     }
-    // Keep the coding tools aligned with Evo and expose evo's read-only docs
-    // lookup as a default assistant capability.
-    //
-    // Replay policy (native `ToolDeclaration.replay`): only tools that are
-    // genuinely free of side effects may be re-run when a crash leaves their
-    // outcome unknown — everything else must stay `Never`, because replaying
-    // `bash`/`write`/`edit` would duplicate a side effect. `HarnessTool::new`
-    // already defaults to `Never`, so this is opt-in per read-only tool.
-    let mut all: Vec<(&'static str, HarnessTool)> = vec![
-        (
-            "read",
-            HarnessTool::new(create_read_tool(
-                ctx,
-                Some(evo_tools::tools::read::ReadToolOptions {
-                    image_processor: Some(Arc::new(
-                        evo_tools::image_processing::InlineImageProcessor,
-                    )),
-                    ..Default::default()
-                }),
-            ))
-            .with_replay(ToolReplay::Safe),
-        ),
-        (
-            "bash",
-            HarnessTool::new(create_bash_tool(ctx, Some(bash_options()))),
-        ),
-        ("edit", HarnessTool::new(create_edit_tool(ctx))),
-        ("write", HarnessTool::new(create_write_tool(ctx))),
-        (
-            "docs",
-            HarnessTool::new(create_docs_tool()).with_replay(ToolReplay::Safe),
-        ),
-        (
-            "agent",
-            HarnessTool::new(crate::agent_tool::create_agent_tool(
-                harness.clone(),
-                ctx.env().cwd().to_path_buf(),
-            )),
-        ),
-        (
-            "message_agent",
-            HarnessTool::new(crate::agent_tool::create_message_agent_tool(
-                harness.clone(),
-            )),
-        ),
-    ];
-    // Talking between the session and its agents (session mesh, mesh_tools.rs).
-    for (name, tool) in crate::mesh_tools::TOOL_NAMES
-        .into_iter()
-        .zip(crate::mesh_tools::create(harness.clone(), None))
-    {
-        all.push((name, HarnessTool::new(tool)));
-    }
-    all.extend(vec![
-        (
-            "skill",
-            HarnessTool::new(crate::skill_tool::create_skill_tool(harness.clone()))
-                .with_replay(ToolReplay::Safe),
-        ),
-        (
-            "memory",
-            HarnessTool::new(crate::memory::create_memory_tool(
-                ctx.env().cwd().to_path_buf(),
-            )),
-        ),
-    ]);
-    // Working with the person (`interaction.rs`).
-    all.push((
-        "ask_user",
-        HarnessTool::new(crate::interaction::create_ask_user_tool()),
-    ));
-    all.push((
-        "update_todos",
-        HarnessTool::new(crate::interaction::create_update_todos_tool()),
-    ));
-    // Inline HTML widgets in the chat (`visualize_tool.rs`); both only read.
-    all.push((
-        "visualize_read_me",
-        HarnessTool::new(crate::visualize_tool::create_read_me_tool())
-            .with_replay(ToolReplay::Safe),
-    ));
-    all.push((
-        "show_widget",
-        HarnessTool::new(crate::visualize_tool::create_show_widget_tool())
-            .with_replay(ToolReplay::Safe),
-    ));
-    // Layout check of a rendered document (`document_preview_tool.rs`); only reads.
-    all.push((
-        "document_preview",
-        HarnessTool::new(crate::document_preview_tool::create_document_preview_tool(
-            ctx.env().cwd().to_path_buf(),
-        ))
-        .with_replay(ToolReplay::Safe),
-    ));
-    // Code intelligence from language servers (`lsp_tool.rs`).
-    all.push((
-        "lsp",
-        HarnessTool::new(crate::lsp_tool::create_lsp_tool(
-            ctx.env().cwd().to_path_buf(),
-        ))
-        .with_replay(ToolReplay::Safe),
-    ));
-    // Web search and fetch (`web_tools.rs`), unless switched off in settings.
-    if crate::web_tools::enabled() {
-        all.push((
-            "web_search",
-            HarnessTool::new(crate::web_tools::create_web_search_tool())
-                .with_replay(ToolReplay::Safe),
-        ));
-        all.push((
-            "web_fetch",
-            HarnessTool::new(crate::web_tools::create_web_fetch_tool())
-                .with_replay(ToolReplay::Safe),
-        ));
-    }
-
-    // Add PowerShell tool on Windows
-    #[cfg(target_os = "windows")]
-    all.push(("powershell", HarnessTool::new(create_powershell_tool(ctx))));
+    let mut all = crate::tools::register_all(ctx, harness);
 
     // Apply default_tools from settings (if no CLI override)
     if args.tools.is_none() && args.resource_config.is_none() && args.resource_transition.is_none()
@@ -4239,6 +4063,7 @@ mod transcript_file_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evo_harness::types::ToolReplay;
 
     #[test]
     fn settlement_bridge_follows_reload_and_releases_its_session_with_the_bus() {

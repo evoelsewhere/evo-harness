@@ -354,7 +354,7 @@ impl ChildAgents {
         };
         let replacements = worktree
             .as_ref()
-            .map(|created| crate::session::builtin_tools_in(&created.cwd))
+            .map(|created| crate::tools::builtin_tools_in(&created.cwd))
             .unwrap_or_default();
         let session = Session::new(
             Arc::new(InMemorySessionStorage::new(

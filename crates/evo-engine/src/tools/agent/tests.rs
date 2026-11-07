@@ -33,7 +33,7 @@ static NEXT_PARENT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUs
 async fn parent(cwd: &std::path::Path, script: FauxScript, events: Arc<Collector>) -> AgentHarness {
     let provider = FauxProvider::new(script);
     let cell: HarnessCell = Arc::new(OnceLock::new());
-    let mut tools = crate::session::builtin_tools_in(cwd);
+    let mut tools = crate::tools::builtin_tools_in(cwd);
     tools.push(HarnessTool::new(create_agent_tool(
         cell.clone(),
         cwd.to_path_buf(),

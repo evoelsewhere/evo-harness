@@ -3,7 +3,7 @@
 //! `ask`, `reply`, `list_nodes` and `cancel_node` tools.
 //!
 //! The session has one instance of each (bound to the session's node); every
-//! subagent gets its own, bound to its node (`agent_tool.rs` passes them as
+//! subagent gets its own, bound to its node (`tools/agent.rs` passes them as
 //! the child's tool replacements), so a call knows who is calling. The
 //! session's instances refuse calls from any other child (plugin children).
 //!
@@ -264,7 +264,7 @@ async fn deliver(
                 Ok("queued for its next turn; it is being woken")
             }
         }
-        NodeKind::Agent => crate::agent_tool::deliver(&to.id, text, ask)
+        NodeKind::Agent => crate::tools::agent::deliver(&to.id, text, ask)
             .await
             .map_err(AgentError::Tool),
         NodeKind::Side => Err(AgentError::Tool("side questions take no messages".into())),

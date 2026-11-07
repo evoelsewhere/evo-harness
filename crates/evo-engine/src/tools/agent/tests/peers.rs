@@ -1,4 +1,4 @@
-//! Agents talking to each other (mesh_tools.rs): ask / reply between
+//! Agents talking to each other (tools/mesh.rs): ask / reply between
 //! siblings, a cyclic ask refused, a message to the parent, list_nodes.
 //!
 //! One scripted model serves the parent and its agents; each step looks at
@@ -61,13 +61,13 @@ async fn parent_with_mesh(
 ) -> AgentHarness {
     let provider = evo_ai::providers::faux::FauxProvider::new(script);
     let cell: HarnessCell = Arc::new(OnceLock::new());
-    let mut tools = crate::session::builtin_tools_in(cwd);
+    let mut tools = crate::tools::builtin_tools_in(cwd);
     tools.push(HarnessTool::new(create_agent_tool(
         cell.clone(),
         cwd.to_path_buf(),
     )));
     tools.extend(
-        crate::mesh_tools::create(cell.clone(), None)
+        crate::tools::mesh::create(cell.clone(), None)
             .into_iter()
             .map(HarnessTool::new),
     );
@@ -329,7 +329,7 @@ async fn the_refusal_says_why_and_reply_checks_the_asker() {
     .await;
     let cell: HarnessCell = Arc::new(OnceLock::new());
     let _ = cell.set(parent.downgrade());
-    let tools = crate::mesh_tools::create(cell, None);
+    let tools = crate::tools::mesh::create(cell, None);
     let by_name = |name: &str| {
         tools
             .iter()

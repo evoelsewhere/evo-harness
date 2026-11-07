@@ -2,7 +2,7 @@
 //!
 //! The [`LocalRouter`] is the one registry of the conversations this engine
 //! hosts: its session, the subagents of the `agent` tool
-//! ([`crate::agent_tool`]), plugin children ([`crate::child_agents`]) and side
+//! ([`crate::tools::agent`]), plugin children ([`crate::child_agents`]) and side
 //! questions ([`crate::side_questions`]). Each of those keeps its own run
 //! state, but registers here under a mesh [`Address`] with a cancel handle and
 //! reports its lifecycle, activity and usage here. The router turns that into
@@ -398,7 +398,7 @@ impl LocalRouter {
         let mut node = Node::new(id, parent.as_ref(), title, origin);
         node.started_at = now_ms();
         node.meta = if meta.is_object() { meta } else { json!({}) };
-        // Agents may write to their parent and their siblings (mesh_tools.rs).
+        // Agents may write to their parent and their siblings (tools/mesh.rs).
         node.caps = match node.kind {
             NodeKind::Agent => vec!["mail.parent".into(), "mail.siblings".into()],
             _ => vec!["mail.parent".into()],
@@ -914,7 +914,7 @@ pub fn session_run(session_id: &str, running: bool, report: Option<(RunStatus, S
     if !running {
         // Questions to the session that its run did not answer get its final text.
         let text = report.map(|(_, text)| text).unwrap_or_default();
-        crate::mesh_tools::run_ended(&root, &text);
+        crate::tools::mesh::run_ended(&root, &text);
     }
     router().transition(&root, state, None, None);
 }

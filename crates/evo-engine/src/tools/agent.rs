@@ -470,7 +470,7 @@ pub struct Job {
     cancel: Mutex<CancellationToken>,
     running: AtomicBool,
     background: AtomicBool,
-    /// This run was started to answer an `ask` (mesh_tools.rs): its report
+    /// This run was started to answer an `ask` (tools/mesh.rs): its report
     /// goes to the asker, not to the parent as a background note.
     quiet: AtomicBool,
     worktree: Mutex<Option<crate::worktrees::Created>>,
@@ -730,7 +730,7 @@ fn announce(job: &Job, outcome: &Outcome, snapshot: &Value, usage: MeshUsage) {
     let reason = snapshot["error"].as_str().map(str::to_string);
     router.transition(&job.address, NodeState::Settled, Some(status), reason);
     // Questions it did not `reply` to get its report as their answer.
-    crate::mesh_tools::run_ended(&job.address, &report_text(outcome, snapshot));
+    crate::tools::mesh::run_ended(&job.address, &report_text(outcome, snapshot));
 }
 
 /// The report for the parent, with a kept worktree's place.
@@ -842,7 +842,7 @@ async fn drive(
 
     *lock(&job.update) = Some(on_update.clone());
     // The session waits on this agent until it reports: the agent asking the
-    // session would never end (mesh_tools.rs refuses it).
+    // session would never end (tools/mesh.rs refuses it).
     let _waits = mesh::router().add_wait(&Address::session(&job.session_id), &job.address);
     let before = lock(&job.progress).usage.clone();
     on_update(partial(lock(&job.progress).snapshot()));
@@ -979,7 +979,7 @@ fn released(job: &Job) -> AgentToolResult {
     )
 }
 
-/// Put a mail message in front of the agent at `address` (mesh_tools.rs):
+/// Put a mail message in front of the agent at `address` (tools/mesh.rs):
 /// into its current run, or for its next one. A question (`ask`) to an idle
 /// agent continues it in the background to answer.
 pub(crate) async fn deliver(
@@ -1211,7 +1211,7 @@ impl AgentTool for SubagentTool {
             wanted
                 .iter()
                 .map(String::as_str)
-                .chain(crate::mesh_tools::TOOL_NAMES)
+                .chain(crate::tools::mesh::TOOL_NAMES)
                 .filter(|name| active.iter().any(|a| a == name))
                 .map(str::to_string)
                 .collect::<Vec<_>>()
@@ -1235,7 +1235,7 @@ impl AgentTool for SubagentTool {
         };
         let mut replacements = worktree
             .as_ref()
-            .map(|created| crate::session::builtin_tools_in(&created.cwd))
+            .map(|created| crate::tools::builtin_tools_in(&created.cwd))
             .unwrap_or_default();
 
         let id = parent.session().id_generator().next();
@@ -1280,7 +1280,7 @@ impl AgentTool for SubagentTool {
         );
         // Its own send_message / ask / reply / list_nodes, acting as its node.
         replacements.extend(
-            crate::mesh_tools::create(self.harness.clone(), Some(address.clone()))
+            crate::tools::mesh::create(self.harness.clone(), Some(address.clone()))
                 .into_iter()
                 .map(evo_harness::types::HarnessTool::new),
         );

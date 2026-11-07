@@ -75,55 +75,12 @@ impl ApprovalMode {
     }
 }
 
-/// What a tool call does to the machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Read,
-    Edit,
-    Command,
-}
+/// What a tool call does to the machine: the class of `tools::info`.
+pub use crate::tools::info::Class as Kind;
 
-impl Kind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Read => "read",
-            Self::Edit => "edit",
-            Self::Command => "command",
-        }
-    }
-}
-
-/// Tools that only read, talk to the person or to other agents, or show
-/// something. A subagent's own calls are checked one by one, so `agent` and
-/// `message_agent` pass; a skill's `` !`command` `` lines are governed by
-/// Customize → Skills.
-const READ_TOOLS: &[&str] = &[
-    "read",
-    "grep",
-    "find",
-    "ls",
-    "lsp",
-    "docs",
-    "document_preview",
-    "web_search",
-    "web_fetch",
-    "ask_user",
-    "update_todos",
-    "send_file",
-    "notify",
-    "skill",
-    "agent",
-    "message_agent",
-    "image",
-    "show_widget",
-    "visualize_read_me",
-];
-
-/// Tools that change files.
-const EDIT_TOOLS: &[&str] = &["write", "edit"];
-
-/// Classify one call. Unknown tools count as commands, so a new tool asks until
-/// it is listed here.
+/// Classify one call. The tool table gives the class of a tool; shell
+/// commands and `memory` actions are judged per call. Unknown tools count as
+/// commands, so a new tool asks until it has a row in `tools::info`.
 pub fn classify(tool: &str, args: &Value) -> Kind {
     match tool {
         "bash" | "powershell" => {
@@ -143,11 +100,7 @@ pub fn classify(tool: &str, args: &Value) -> Kind {
             Some("save" | "delete") => Kind::Edit,
             _ => Kind::Read,
         },
-        name if EDIT_TOOLS.contains(&name) => Kind::Edit,
-        name if READ_TOOLS.contains(&name) || crate::mesh_tools::TOOL_NAMES.contains(&name) => {
-            Kind::Read
-        }
-        _ => Kind::Command,
+        name => crate::tools::info::class_of(name),
     }
 }
 

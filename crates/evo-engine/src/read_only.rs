@@ -19,30 +19,13 @@
 
 use serde_json::Value;
 
-/// Tools that only read (or only talk to the person or other agents).
-const SAFE_TOOLS: &[&str] = &[
-    "read",
-    "grep",
-    "find",
-    "ls",
-    "docs",
-    "document_preview",
-    "lsp",
-    "web_search",
-    "web_fetch",
-    "ask_user",
-    "update_todos",
-];
-
 /// Check one tool call of a read-only agent. `Err` is the refusal shown to
 /// the model.
 pub fn guard(tool: &str, args: &Value) -> Result<(), String> {
     let shell = match tool {
         "bash" => Shell::Bash,
         "powershell" => Shell::PowerShell,
-        name if SAFE_TOOLS.contains(&name) || crate::mesh_tools::TOOL_NAMES.contains(&name) => {
-            return Ok(())
-        }
+        name if crate::tools::info::read_only_safe(name) => return Ok(()),
         name => {
             return Err(format!(
                 "Refused: this agent is read-only, and `{name}` can change state."

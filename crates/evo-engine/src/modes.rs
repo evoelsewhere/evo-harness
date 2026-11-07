@@ -1254,7 +1254,7 @@ where
             }
             // Customize → Code intelligence.
             "list_language_servers" => {
-                Ok(crate::lsp_tool::describe(&rpc_cwd(&rpc_providers)).await)
+                Ok(crate::tools::lsp::describe(&rpc_cwd(&rpc_providers)).await)
             }
             "install_language_server"
             | "uninstall_language_server"
@@ -1265,9 +1265,9 @@ where
                     .unwrap_or("")
                     .to_string();
                 let done = match kind.as_str() {
-                    "install_language_server" => crate::lsp_tool::start_install(&id),
-                    "uninstall_language_server" => crate::lsp_tool::uninstall(&id).await,
-                    _ => crate::lsp_tool::set_enabled(
+                    "install_language_server" => crate::tools::lsp::start_install(&id),
+                    "uninstall_language_server" => crate::tools::lsp::uninstall(&id).await,
+                    _ => crate::tools::lsp::set_enabled(
                         &id,
                         msg.get("enabled")
                             .and_then(serde_json::Value::as_bool)
@@ -1275,7 +1275,7 @@ where
                     ),
                 };
                 match done {
-                    Ok(()) => Ok(crate::lsp_tool::describe(&rpc_cwd(&rpc_providers)).await),
+                    Ok(()) => Ok(crate::tools::lsp::describe(&rpc_cwd(&rpc_providers)).await),
                     Err(error) => Err(error),
                 }
             }
@@ -2525,7 +2525,7 @@ async fn rpc_queue_message(
     .map_err(|error| error.to_string())?;
     if queue == "steer" {
         // Foreground subagents the run waits for let it go, so it reads this now.
-        crate::agent_tool::steered(&harness.session().storage().metadata().id);
+        crate::tools::agent::steered(&harness.session().storage().metadata().id);
     }
     Ok(serde_json::json!({
         "accepted": true,
@@ -2817,7 +2817,7 @@ async fn rpc_get_messages(
     }))
 }
 
-/// See [`crate::agent_tool::report_lost_background_agents`]; the ids queued.
+/// See [`crate::tools::agent::report_lost_background_agents`]; the ids queued.
 async fn rpc_report_lost_background_agents(harness: &AgentHarness) -> Vec<String> {
     use evo_harness::session::types::{BranchBounds, EntryOrder, EntryQuery};
     let entries = match harness
@@ -2837,7 +2837,7 @@ async fn rpc_report_lost_background_agents(harness: &AgentHarness) -> Vec<String
         return Vec::new();
     };
     let messages: Vec<serde_json::Value> = items.into_iter().map(|(_, value)| value).collect();
-    crate::agent_tool::report_lost_background_agents(harness, &messages).await
+    crate::tools::agent::report_lost_background_agents(harness, &messages).await
 }
 
 fn rpc_project_transcript(
@@ -3310,26 +3310,9 @@ async fn rpc_configure_external_tools(
     let mut registry = harness.get_tools().await.map_err(|e| e.to_string())?;
     registry.retain(|tool| !old_names.contains(&tool.tool.schema().name));
     // Reserve security/native names even when unavailable or disabled at launch.
-    let mut reserved = [
-        "read",
-        "write",
-        "edit",
-        "bash",
-        "powershell",
-        "docs",
-        "grep",
-        "find",
-        "ls",
-        "image",
-        "permissions",
-        "permission",
-        "ask_user",
-        "plan_mode_start",
-        "plan_mode_complete",
-    ]
-    .iter()
-    .map(|name| name.to_string())
-    .collect::<Vec<_>>();
+    let mut reserved = crate::tools::info::reserved_names()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     reserved.extend(registry.iter().map(|tool| tool.tool.schema().name.clone()));
     validate_external_tool_definitions(&definitions, &reserved).map_err(|e| e.to_string())?;
     let names = definitions

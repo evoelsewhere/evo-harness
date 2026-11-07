@@ -245,7 +245,7 @@ pub enum Command {
         #[serde(default)]
         content: String,
     },
-    /// Language servers (`lsp_tool.rs`).
+    /// Language servers (`tools/lsp.rs`).
     ListLanguageServers,
     InstallLanguageServer {
         server: String,

@@ -13,7 +13,7 @@
 //! What records here:
 //! - the chat's own agent loop, through [`UsageTap`] around the session's
 //!   event emitter (`source = chat`);
-//! - subagents (`agent_tool.rs`, `subagent`), plugin child runs
+//! - subagents (`tools/agent.rs`, `subagent`), plugin child runs
 //!   (`child_agents.rs`, `plugin`) and side questions (`side_questions.rs`,
 //!   `side`), which call [`record`] from their own observers.
 //!

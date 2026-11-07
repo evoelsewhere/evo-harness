@@ -39,7 +39,7 @@ fn repo() -> Option<(tempfile::TempDir, PathBuf)> {
 /// A parent whose built-in tools work in `cwd`, driven by `script`.
 async fn parent_in(cwd: &Path, script: FauxScript) -> AgentHarness {
     let provider = FauxProvider::new(script);
-    let tools = crate::session::builtin_tools_in(cwd);
+    let tools = crate::tools::builtin_tools_in(cwd);
     let active_tool_names = tools
         .iter()
         .map(|tool| tool.tool.schema().name.clone())
