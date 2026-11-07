@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test:shell": "bun scripts/test-shell.ts",
     "preview": "vite preview",
     "tauri": "tauri",
     "engine:sidecar": "bun scripts/prepare-sidecar.ts",
