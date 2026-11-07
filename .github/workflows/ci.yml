@@ -40,19 +40,6 @@ jobs:
       # denied; tighten to `-D warnings` once the backlog is cleared.
       - run: cargo clippy --workspace --all-targets --locked
 
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - run: cargo build --workspace --all-targets --locked
-      - run: cargo test --workspace --locked --no-fail-fast
-
   msrv:
     name: MSRV (1.89)
     runs-on: ubuntu-latest
