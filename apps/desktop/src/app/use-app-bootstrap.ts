@@ -6,6 +6,7 @@ import { applyZoom, reloadWindow, resetZoom, toggleDevtools, toggleFullscreen, z
 import { installErrorLogging } from "@/lib/db";
 import { hasMod, isMac } from "@/lib/platform";
 import { useHistoryStore } from "@/stores/history-store";
+import { startChatScope } from "@/stores/chat-scope";
 import { useEngineStore } from "@/stores/engine-store";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -20,6 +21,8 @@ export function useAppBootstrap() {
       .then((material) => document.documentElement.setAttribute("data-material", material))
       .catch(() => document.documentElement.setAttribute("data-material", "none"));
     applyZoom(useUiStore.getState().zoom);
+    // Side panel tabs, pages and terminals follow the chat showing.
+    startChatScope();
     // The main window runs scheduled tasks once the engine is connected.
     void useEngineStore
       .getState()
