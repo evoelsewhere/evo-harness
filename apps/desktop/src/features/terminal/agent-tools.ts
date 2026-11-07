@@ -5,7 +5,7 @@
 // Spec: docs/features/agent-terminal (FR-4 – FR-16, NFR-3 – NFR-5).
 
 import { useSessionStore } from "@/stores/session-store";
-import { terminalInstance, useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
+import { chatTabs, terminalInstance, useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
 import type { ShellInfo } from "./pty";
 import { tail } from "./output-log";
@@ -160,6 +160,11 @@ function header(tab: TerminalTab, chat: string): string {
 }
 
 const findTab = (key: unknown) => useTerminalStore.getState().tabs.find((tab) => tab.key === key);
+/** A tab of `chat`: an agent sees the terminals of its own chat, not those of other chats. */
+const chatTab = (key: unknown, chat: string) => {
+  const tab = findTab(key);
+  return tab && tab.chat === chat ? tab : undefined;
+};
 const tabName = (tab: TerminalTab) => `${tab.shell} tab ${tab.key}`;
 
 /** The last `count` lines of a tab's screen, trailing blank lines dropped. */
@@ -232,7 +237,7 @@ function waitLine(reason: string, elapsedMs: number, what: string, match?: strin
 // ── Handlers ────────────────────────────────────────────────────────────────
 
 function listTool(ctx: TerminalToolContext, shells: ShellInfo[]): TerminalToolResult {
-  const tabs = useTerminalStore.getState().tabs;
+  const tabs = chatTabs(useTerminalStore.getState().tabs, ctx.chat);
   const lines = ["Shells:"];
   if (shells.length === 0) lines.push("  (none found)");
   for (const shell of shells) lines.push(`  ${shell.id} · ${shell.name}${shell.isDefault ? " · default" : ""}`);
@@ -256,7 +261,7 @@ async function runTool(args: Record<string, any>, ctx: TerminalToolContext): Pro
 
   let tab: TerminalTab | undefined;
   if (args.tabId) {
-    tab = findTab(args.tabId);
+    tab = chatTab(args.tabId, ctx.chat);
     if (!tab) return text(`No terminal tab ${args.tabId}. Use terminal_list.`, true);
     if (tab.status !== "running") return text(`${tabName(tab)} has ${statusLabel(tab)}. Start a new tab instead.`, true);
   }
@@ -293,7 +298,7 @@ async function runTool(args: Record<string, any>, ctx: TerminalToolContext): Pro
   }
 
   if (!tab) {
-    useUiStore.getState().openPanel("terminal");
+    useUiStore.getState().openPanel("terminal", ctx.chat);
     await store.restore();
     const key = await store.create({ shell: shell?.id, cwd: cwd || undefined, owner: ctx.chat });
     tab = key ? findTab(key) : undefined;
@@ -360,7 +365,7 @@ async function runTool(args: Record<string, any>, ctx: TerminalToolContext): Pro
 }
 
 async function sendTool(args: Record<string, any>, ctx: TerminalToolContext): Promise<TerminalToolResult> {
-  const tab = findTab(args.tabId);
+  const tab = chatTab(args.tabId, ctx.chat);
   if (!tab) return text(`No terminal tab ${args.tabId}. Use terminal_list.`, true);
   if (tab.status !== "running") return text(`${tabName(tab)} has ${statusLabel(tab)}.`, true);
   const instance = terminalInstance(tab.key);
@@ -412,7 +417,7 @@ async function sendTool(args: Record<string, any>, ctx: TerminalToolContext): Pr
 
 async function readTool(args: Record<string, any>, ctx: TerminalToolContext): Promise<TerminalToolResult> {
   if (!args.tabId) return listTool(ctx, await useTerminalStore.getState().allShells());
-  const tab = findTab(args.tabId);
+  const tab = chatTab(args.tabId, ctx.chat);
   if (!tab) return text(`No terminal tab ${args.tabId}. Use terminal_list.`, true);
   const instance = terminalInstance(tab.key);
   if (!instance) return text(`${tabName(tab)} is gone.`, true);
@@ -465,7 +470,7 @@ async function readTool(args: Record<string, any>, ctx: TerminalToolContext): Pr
 }
 
 async function killTool(args: Record<string, any>, ctx: TerminalToolContext): Promise<TerminalToolResult> {
-  const tab = findTab(args.tabId);
+  const tab = chatTab(args.tabId, ctx.chat);
   if (!tab) return text(`No terminal tab ${args.tabId}. Use terminal_list.`, true);
   if (ownerOf(tab, ctx.chat) !== "this") {
     const decision = await confirm(

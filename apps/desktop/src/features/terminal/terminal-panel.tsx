@@ -37,7 +37,7 @@ import { isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
-import { tabLabel, terminalInstance, useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
+import { chatTabs, tabLabel, terminalInstance, useTerminalStore, type TerminalTab } from "@/stores/terminal-store";
 
 const COPY_KEYS = isMac ? "⌘C" : "Ctrl+Shift+C";
 const PASTE_KEYS = isMac ? "⌘V" : "Ctrl+V";
@@ -380,7 +380,10 @@ function TerminalView({ tab }: { tab: TerminalTab }) {
  * Terminal tool tab ends them.
  */
 export function TerminalPanel() {
-  const tabs = useTerminalStore((s) => s.tabs);
+  const allTabs = useTerminalStore((s) => s.tabs);
+  const chat = useTerminalStore((s) => s.chat);
+  // The showing chat's terminals; another chat's keep running, out of sight.
+  const tabs = React.useMemo(() => chatTabs(allTabs, chat), [allTabs, chat]);
   const activeKey = useTerminalStore((s) => s.activeKey);
   const findOpen = useTerminalStore((s) => s.findOpen);
   const error = useTerminalStore((s) => s.error);
@@ -393,7 +396,7 @@ export function TerminalPanel() {
     [],
   );
 
-  // Shells, the terminals that outlived a reload, then a first terminal if none.
+  // Shells, the terminals that outlived a reload, then a first terminal if the chat has none.
   React.useEffect(() => {
     let alive = true;
     void useTerminalStore
@@ -403,7 +406,7 @@ export function TerminalPanel() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [chat]);
 
   const { restart, close, setFindOpen } = useTerminalStore.getState();
   const instance = active ? terminalInstance(active.key) : undefined;

@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { attachPty, killPty, listExtraShells, listPtys, listShells, spawnPty, type PtyEvent, type ShellInfo } from "@/features/terminal/pty";
 import { shellIntegrationEnabled } from "@/features/terminal/settings";
+import { forgetTabChat, recalledTabChat, rememberTabChat } from "@/lib/tab-chats";
 import { TerminalInstance } from "@/features/terminal/terminal-instance";
 import { useUiStore } from "./ui-store";
 
@@ -24,11 +25,21 @@ export interface TerminalTab {
   owner: string | null;
   /** The shell reports command marks (OSC 133). */
   integration: boolean;
+  /**
+   * The chat (session) the tab belongs to: it shows only while that chat does.
+   * `null` for a tab found after a reload whose chat is unknown.
+   */
+  chat: string | null;
 }
 
 interface TerminalStore {
+  /** Every tab of every chat; the panel shows those of `chat` (`chatTabs`). */
   tabs: TerminalTab[];
+  /** The visible tab of the showing chat. */
   activeKey: string | null;
+  activeByChat: Record<string, string | null>;
+  /** The chat whose tabs show. */
+  chat: string | null;
   shells: ShellInfo[];
   /** Shell id new terminals start with; `null` = the first one found. */
   defaultShell: string | null;
@@ -43,15 +54,21 @@ interface TerminalStore {
   allShells(): Promise<ShellInfo[]>;
   /** Re-attach the ptys that outlived a reload; runs once per window. */
   restore(): Promise<void>;
-  /** Restore, load the shells, and start a terminal in `cwd` when none is open; `true` if it started one. */
+  /** Restore, load the shells, and start a terminal in `cwd` when the showing chat has none; `true` if it started one. */
   ensure(cwd?: string): Promise<boolean>;
-  /** Start a terminal (`shell` id, else the default) in `cwd`; resolves to its tab key. */
-  create(options?: { shell?: string; cwd?: string; owner?: string }): Promise<string | null>;
+  /** Show `chat`'s tabs; tabs whose chat is unknown go to the first chat shown. */
+  setChat(chat: string | null): void;
+  /**
+   * Start a terminal (`shell` id, else the default) in `cwd`; resolves to its tab key.
+   * It belongs to `chat`, else to `owner` (the agent's chat), else to the showing chat.
+   */
+  create(options?: { shell?: string; cwd?: string; owner?: string; chat?: string | null }): Promise<string | null>;
   restart(key: string): Promise<void>;
   /** Stop a tab's shell and what it started; the tab stays, showing it exited. */
   kill(key: string): void;
   close(key: string): void;
-  closeAll(): void;
+  /** Close every tab of `chat` (default: the showing one). */
+  closeAll(chat?: string | null): void;
   select(key: string): void;
   /** Show the next (`1`) or previous (`-1`) terminal. */
   cycle(step: 1 | -1): void;
@@ -62,6 +79,11 @@ interface TerminalStore {
 }
 
 const instances = new Map<string, TerminalInstance>();
+
+const keyOf = (chat: string | null) => chat ?? "";
+
+/** The tabs of `chat`. */
+export const chatTabs = (tabs: TerminalTab[], chat: string | null) => tabs.filter((tab) => tab.chat === chat);
 
 /** The xterm instance of a tab. */
 export const terminalInstance = (key: string) => instances.get(key);
@@ -86,6 +108,14 @@ let restored: Promise<void> | null = null;
 /** The background load of WSL distributions and profiles. */
 let extraLoad: Promise<void> = Promise.resolve();
 let ensuring: Promise<boolean> | null = null;
+
+/** Make `key` the visible tab of `chat`: remembered for the chat, shown when it is the showing one. */
+function activate(s: Pick<TerminalStore, "activeByChat" | "chat">, key: string | null, chat: string | null) {
+  return {
+    activeByChat: { ...s.activeByChat, [keyOf(chat)]: key },
+    ...(chat === s.chat ? { activeKey: key } : {}),
+  };
+}
 
 export const useTerminalStore = create<TerminalStore>()(
   persist(
@@ -116,6 +146,7 @@ export const useTerminalStore = create<TerminalStore>()(
         }
         instance.unbind();
         instance.log.close(event.code);
+        forgetTabChat("terminal", ptyId);
         // `exit` (or Ctrl+D) ends the terminal, as in most editors; a failure stays to be read.
         // An agent's tab stays, so the agent can read how it ended.
         if (event.code === 0 && !tab.owner && !killed.has(key)) {
@@ -145,6 +176,7 @@ export const useTerminalStore = create<TerminalStore>()(
             void killPty(info.id).catch(() => undefined);
             return;
           }
+          rememberTabChat("terminal", info.id, get().tabs.find((t) => t.key === key)?.chat ?? null);
           patch(key, {
             ptyId: info.id,
             shellId: info.shellId,
@@ -169,6 +201,8 @@ export const useTerminalStore = create<TerminalStore>()(
       return {
         tabs: [],
         activeKey: null,
+        activeByChat: {},
+        chat: null,
         shells: [],
         defaultShell: null,
         findOpen: false,
@@ -205,12 +239,16 @@ export const useTerminalStore = create<TerminalStore>()(
               return;
             }
             if (ptys.length === 0) return;
-            // The terminal tab was closed: nothing should be running.
-            if (!useUiStore.getState().openTabs.includes("terminal")) {
-              for (const pty of ptys) void killPty(pty.id).catch(() => undefined);
-              return;
-            }
+            // A chat whose terminal tab was closed: nothing of it should be running.
+            const ui = useUiStore.getState();
+            const panelOpen = (chat: string | null) =>
+              (chat === null || chat === ui.panelChat ? ui.openTabs : (ui.panelsByChat[chat]?.openTabs ?? [])).includes("terminal");
             for (const pty of ptys) {
+              const chat = recalledTabChat("terminal", pty.id) ?? pty.owner ?? null;
+              if (!panelOpen(chat)) {
+                void killPty(pty.id).catch(() => undefined);
+                continue;
+              }
               const key = newKey();
               const instance = instanceFor(key);
               set((s) => ({
@@ -226,9 +264,10 @@ export const useTerminalStore = create<TerminalStore>()(
                     status: "running",
                     owner: pty.owner ?? null,
                     integration: pty.integration ?? false,
+                    chat,
                   },
                 ],
-                activeKey: s.activeKey ?? key,
+                ...(s.activeByChat[keyOf(chat)] ? {} : activate(s, key, chat)),
               }));
               instance.bind(pty.id);
               try {
@@ -246,7 +285,7 @@ export const useTerminalStore = create<TerminalStore>()(
           ensuring ??= (async () => {
             const store = get();
             await Promise.all([store.shells.length ? null : store.loadShells(), store.restore()]);
-            if (get().tabs.length > 0) return false;
+            if (chatTabs(get().tabs, get().chat).length > 0) return false;
             await get().create({ cwd });
             return true;
           })().finally(() => {
@@ -255,8 +294,21 @@ export const useTerminalStore = create<TerminalStore>()(
           return ensuring;
         },
 
+        setChat(chat) {
+          if (chat === get().chat) return;
+          set((s) => {
+            // Tabs found after a reload with no known chat go to the first chat shown.
+            const tabs = chat && s.chat === null ? s.tabs.map((t) => (t.chat === null ? { ...t, chat } : t)) : s.tabs;
+            const mine = chatTabs(tabs, chat);
+            const wanted = s.activeByChat[keyOf(chat)];
+            const activeKey = wanted && mine.some((t) => t.key === wanted) ? wanted : (mine.at(-1)?.key ?? null);
+            return { tabs, chat, activeKey, findOpen: false, focusPending: activeKey !== null };
+          });
+        },
+
         async create(options = {}) {
           const key = newKey();
+          const chat = options.chat !== undefined ? options.chat : (options.owner ?? get().chat);
           const shell = options.shell ?? get().defaultShell ?? undefined;
           const known = get().shells.find((s) => s.id === shell) ?? get().shells[0];
           instanceFor(key);
@@ -273,11 +325,11 @@ export const useTerminalStore = create<TerminalStore>()(
                 status: "starting",
                 owner: options.owner ?? null,
                 integration: false,
+                chat,
               },
             ],
-            activeKey: key,
-            findOpen: false,
-            focusPending: true,
+            ...activate(s, key, chat),
+            ...(chat === s.chat ? { findOpen: false, focusPending: true } : {}),
           }));
           await start(key, shell, options.cwd, options.owner);
           return key;
@@ -305,7 +357,7 @@ export const useTerminalStore = create<TerminalStore>()(
         },
 
         close(key) {
-          const { tabs, activeKey } = get();
+          const { tabs } = get();
           const index = tabs.findIndex((t) => t.key === key);
           if (index < 0) return;
           const tab = tabs[index];
@@ -313,29 +365,45 @@ export const useTerminalStore = create<TerminalStore>()(
           instances.get(key)?.dispose();
           instances.delete(key);
           killed.delete(key);
+          if (tab.ptyId !== null) forgetTabChat("terminal", tab.ptyId);
           const rest = tabs.filter((t) => t.key !== key);
-          const next = activeKey === key ? (rest[Math.min(index, rest.length - 1)]?.key ?? null) : activeKey;
-          set({ tabs: rest, activeKey: next, findOpen: false, focusPending: next !== null });
+          // The next tab is one of the same chat.
+          const mates = chatTabs(rest, tab.chat);
+          const chatActive = get().activeByChat[keyOf(tab.chat)];
+          const mateIndex = chatTabs(tabs, tab.chat).findIndex((t) => t.key === key);
+          const next = chatActive === key || chatActive === undefined ? (mates[Math.min(mateIndex, mates.length - 1)]?.key ?? null) : chatActive;
+          set((s) => ({
+            tabs: rest,
+            ...activate(s, next, tab.chat),
+            ...(tab.chat === s.chat ? { findOpen: false, focusPending: next !== null } : {}),
+          }));
         },
 
-        closeAll() {
-          for (const tab of get().tabs) {
+        closeAll(chat = get().chat) {
+          for (const tab of chatTabs(get().tabs, chat)) {
             if (tab.ptyId !== null && tab.status === "running") void killPty(tab.ptyId).catch(() => undefined);
+            if (tab.ptyId !== null) forgetTabChat("terminal", tab.ptyId);
             instances.get(tab.key)?.dispose();
+            instances.delete(tab.key);
           }
-          instances.clear();
-          set({ tabs: [], activeKey: null, findOpen: false });
+          set((s) => ({
+            tabs: s.tabs.filter((t) => t.chat !== chat),
+            ...activate(s, null, chat),
+            findOpen: false,
+          }));
         },
 
         select(key) {
-          if (get().tabs.some((t) => t.key === key)) set({ activeKey: key, findOpen: false, focusPending: true });
+          const tab = get().tabs.find((t) => t.key === key);
+          if (tab) set((s) => ({ ...activate(s, key, tab.chat), findOpen: false, focusPending: true }));
         },
 
         cycle(step) {
-          const { tabs, activeKey } = get();
-          if (tabs.length < 2) return;
-          const index = tabs.findIndex((t) => t.key === activeKey);
-          get().select(tabs[(index + step + tabs.length) % tabs.length].key);
+          const { tabs, activeKey, chat } = get();
+          const mine = chatTabs(tabs, chat);
+          if (mine.length < 2) return;
+          const index = mine.findIndex((t) => t.key === activeKey);
+          get().select(mine[(index + step + mine.length) % mine.length].key);
         },
 
         setDefaultShell: (defaultShell) => set({ defaultShell }),
@@ -358,7 +426,8 @@ export const useTerminalStore = create<TerminalStore>()(
 // Closing the Terminal tool tab ends its shells; hiding the side panel or
 // switching tools keeps them running.
 useUiStore.subscribe((state, previous) => {
-  if (previous.openTabs.includes("terminal") && !state.openTabs.includes("terminal")) {
+  // A chat shows other tabs: the swap itself closes nothing.
+  if (state.panelChat === previous.panelChat && previous.openTabs.includes("terminal") && !state.openTabs.includes("terminal")) {
     useTerminalStore.getState().closeAll();
   }
 });
