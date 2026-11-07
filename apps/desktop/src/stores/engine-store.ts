@@ -61,6 +61,7 @@ import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log } from "@/lib/db";
 import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow } from "@/lib/windows";
 import { isUiTool, runUiTool, UI_TOOLS } from "@/features/browser/agent-tools";
+import { isTerminalTool, runTerminalTool, TERMINAL_TOOLS } from "@/features/terminal";
 import { isSchedulerTool, runSchedulerTool, SCHEDULER_TOOLS } from "@/features/scheduler/agent-tools";
 import { isUserTool, runUserTool, USER_TOOLS } from "@/features/chat/user-tools";
 import { APPROVAL_CHANGED, useUiStore } from "@/stores/ui-store";
@@ -193,11 +194,11 @@ interface EngineStore extends Mirrored {
   /** Make `model` (with the current effort) the one new chats start with; `null` goes back to automatic. */
   setDefaultModel(model: ModelDescriptor | null): Promise<void>;
   answerPermission(requestId: string, option: { title: string; permission?: string }, index: number): Promise<void>;
-  /** Answer the agent's questions (`ask_user`); `null` skips them. */
   /** Re-read the approval mode and `chat`'s grants from its engine (`get_approval_state`). */
   refreshApproval(chat?: string): Promise<void>;
   /** Drop what the person allowed for the rest of `chat` ("Allow commands for this chat"); prompts come back. */
   clearApprovalGrants(chat: string): Promise<void>;
+  /** Answer the agent's questions (`ask_user`); `null` skips them. */
   answerQuestions(requestId: string, answers: { selected: string[]; other?: string }[] | null): Promise<void>;
   refreshState(chat?: string): Promise<void>;
   loadContextBreakdown(): Promise<void>;
@@ -227,12 +228,12 @@ let client: EngineClient | null = null;
 
 /** Emitted by Settings → Sandbox after a change; every window restarts its idle engines. */
 export const SANDBOX_CHANGED = "sandbox://changed";
-/** The saved default, read once from the first engine that is ready. */
 /** No grants (a stable value for selectors). */
 const NO_GRANTS: ApprovalGrant[] = [];
 /** The kinds of call the person allowed for the rest of the active chat (chips next to the approval mode). */
 export const useApprovalGrants = (): ApprovalGrant[] => useEngineStore((s) => s.state.approval?.grants ?? NO_GRANTS);
 
+/** The saved default, read once from the first engine that is ready. */
 let defaultLoaded: Promise<void> | null = null;
 
 /** Working directory for chats that belong to no workspace. */
@@ -344,7 +345,6 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     }
   };
 
-  /** Close the engines of idle chats beyond the budget, least recently shown first. */
   /** An engine told us it does not know the approval commands: said once (NFR-2). */
   let approvalUnsupportedLogged = false;
   const approvalRequestFailed = (chat: string, command: string, error: unknown) => {
@@ -368,6 +368,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     }
   };
 
+  /** Close the engines of idle chats beyond the budget, least recently shown first. */
   const trimIdle = () => {
     const idle = Object.values(get().runtimes)
       .filter(
@@ -771,7 +772,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     const sessionTools = topLevel
       ? await invoke<Record<string, unknown>[]>("mesh_session_tools").catch((): Record<string, unknown>[] => [])
       : [];
-    const tools = [...(topLevel ? [...sessionTools, ...SCHEDULER_TOOLS] : []), ...USER_TOOLS, ...UI_TOOLS, ...connectorTools];
+    const tools = [...(topLevel ? [...sessionTools, ...SCHEDULER_TOOLS] : []), ...USER_TOOLS, ...UI_TOOLS, ...TERMINAL_TOOLS, ...connectorTools];
     await client
       .request(chat, "configure_external_tools", { tools })
       .then(() => toolsStale.delete(chat))
@@ -906,6 +907,8 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         message: { type: "ui_dialog_request", requestId, ui: { title, description, options: options.map((title) => ({ title })) } },
       });
     });
+  /** Terminal tool calls in flight, so a dropped call ends its waits. */
+  const terminalCalls = new Map<string, AbortController>();
   /** The engine gave up on a call (the run stopped): its open question is moot. */
   const dropApprovals = (externalId: string) => {
     for (const [requestId, approval] of appApprovals) {
@@ -993,6 +996,24 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
           ask: (title, description, options) => askApproval(chat, requestId, title, description, options),
         });
         return reply(result.text, result.structured, result.isError);
+      }
+      if (isTerminalTool(String(message.toolName))) {
+        // The terminal tools wait (for output, for an approval): the engine dropping the call ends them.
+        const controller = new AbortController();
+        terminalCalls.set(requestId, controller);
+        try {
+          const cwd = await chatFolder(chat).catch(() => "");
+          const result = await runTerminalTool(String(message.toolName), args, {
+            chat,
+            cwd,
+            signal: controller.signal,
+            ask: (title, description, options) => askApproval(chat, requestId, title, description, options),
+          });
+          if (controller.signal.aborted) return;
+          return client?.request(chat, "external_tool_response", { requestId, result }).catch(() => undefined);
+        } finally {
+          terminalCalls.delete(requestId);
+        }
       }
       if (isUiTool(String(message.toolName))) {
         const result = await runUiTool(String(message.toolName), args);
@@ -1083,7 +1104,10 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       return;
     }
     if (message.type === "external_tool_request_closed") {
-      if (typeof message.requestId === "string") dropApprovals(message.requestId);
+      if (typeof message.requestId === "string") {
+        terminalCalls.get(message.requestId)?.abort();
+        dropApprovals(message.requestId);
+      }
       return;
     }
     if (message.type === "office_file_changed") {
@@ -1180,6 +1204,16 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         onExit,
       });
       await client.attach();
+      // The approval mode is an app setting: read it before any engine starts
+      // (an older build's local value moves into it), and follow changes from
+      // any window by telling this window's engines.
+      await useUiStore.getState().loadApproval();
+      void listen<{ mode?: ApprovalMode }>(APPROVAL_CHANGED, ({ payload }) => {
+        const mode = payload?.mode;
+        if (mode !== "ask" && mode !== "auto-edits" && mode !== "auto") return;
+        useUiStore.getState().syncApproval(mode);
+        broadcastApprovalMode(mode);
+      });
       // Settings → Sandbox changed (in any window): idle engines restart with it.
       void listen(SANDBOX_CHANGED, () => void get().restartIdleEngines());
       // Connectors came, went or changed their tools: every ready chat hears.
@@ -1204,16 +1238,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       }
       // The hub starts a turn of a chat this window may show (a nested
       // session's brief, its parent's message): show it like a typed prompt.
-      // The approval mode is an app setting: read it before any engine starts
-      // (an older build's local value moves into it), and follow changes from
-      // any window by telling this window's engines.
-      await useUiStore.getState().loadApproval();
-      void listen<{ mode?: ApprovalMode }>(APPROVAL_CHANGED, ({ payload }) => {
-        const mode = payload?.mode;
-        if (mode !== "ask" && mode !== "auto-edits" && mode !== "auto") return;
-        useUiStore.getState().syncApproval(mode);
-        broadcastApprovalMode(mode);
-      });
       void listen<{ chat: string; text: string }>("mesh://prompted", ({ payload }) => {
         if (runtime(payload.chat)) dispatch(payload.chat, { type: "prompt", text: payload.text });
       });
@@ -1590,6 +1614,27 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
           answer: { value: option.title, values: [option.title], index, permission: option.permission },
         })
         .catch(() => undefined);
+      // "Allow … for this chat": the engine records the grant as it wakes the
+      // call; read it back (twice, in case the first read is ahead of it).
+      if (option.permission === "allow-chat") {
+        void get().refreshApproval(chat);
+        setTimeout(() => void get().refreshApproval(chat), 600);
+      }
+    },
+
+    async refreshApproval(chat = get().activeId ?? undefined) {
+      if (!client || !chat || runtime(chat)?.status !== "ready") return;
+      const approval = await client.request<ApprovalState>(chat, "get_approval_state").catch((error) => {
+        approvalRequestFailed(chat, "get_approval_state", error);
+        return undefined;
+      });
+      if (approval) update(chat, (rt) => ({ state: { ...rt.state, approval } }));
+    },
+
+    async clearApprovalGrants(chat) {
+      if (!client || runtime(chat)?.status !== "ready") return;
+      await client.request(chat, "clear_approval_grants").catch((error) => approvalRequestFailed(chat, "clear_approval_grants", error));
+      await get().refreshApproval(chat);
     },
 
     async loadContextBreakdown() {
@@ -1614,27 +1659,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
           resolve(null);
         }, COMPACT_TIMEOUT_MS);
       });
-      // "Allow … for this chat": the engine records the grant as it wakes the
-      // call; read it back (twice, in case the first read is ahead of it).
-      if (option.permission === "allow-chat") {
-        void get().refreshApproval(chat);
-        setTimeout(() => void get().refreshApproval(chat), 600);
-      }
-    },
-
-    async refreshApproval(chat = get().activeId ?? undefined) {
-      if (!client || !chat || runtime(chat)?.status !== "ready") return;
-      const approval = await client.request<ApprovalState>(chat, "get_approval_state").catch((error) => {
-        approvalRequestFailed(chat, "get_approval_state", error);
-        return undefined;
-      });
-      if (approval) update(chat, (rt) => ({ state: { ...rt.state, approval } }));
-    },
-
-    async clearApprovalGrants(chat) {
-      if (!client || runtime(chat)?.status !== "ready") return;
-      await client.request(chat, "clear_approval_grants").catch((error) => approvalRequestFailed(chat, "clear_approval_grants", error));
-      await get().refreshApproval(chat);
       try {
         await client.request(chat, "compact");
       } catch (error) {

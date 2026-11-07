@@ -85,6 +85,9 @@ const kinds: Record<string, Kind> = {
   document_preview: "read",
   terminal_run: "shell",
   terminal_read: "shell",
+  terminal_list: "shell",
+  terminal_send: "shell",
+  terminal_kill: "shell",
   browser_navigate: "browser",
   browser_tabs: "browser",
   browser_screenshot: "browser",
@@ -331,6 +334,40 @@ function subject(part: ToolPart): string | undefined {
   return undefined;
 }
 
+/** One terminal step in words: "Pressed Ctrl+C in Git Bash tab t3", "Read tab t2", "Stopped tab t3". */
+function terminalLabel(part: ToolPart, phase: ToolPart["phase"]): string {
+  const args = (part.args && typeof part.args === "object" ? part.args : {}) as Record<string, any>;
+  const live = phase === "preparing" || phase === "running";
+  const failed = phase === "error";
+  const quote = (value: unknown, max = 40) => {
+    const text = String(value ?? "");
+    return `"${text.length > max ? `${text.slice(0, max)}…` : text}"`;
+  };
+  // The result starts with "Tab t3 · Git Bash · …"; before it arrives, the tab id from the arguments.
+  const header = /^Tab (\S+) · ([^·]+?) ·/.exec(part.output ?? "");
+  const tab = header ? `${header[2]} tab ${header[1]}` : args.tabId ? `tab ${args.tabId}` : "a terminal";
+  const key = (name: unknown) =>
+    String(name)
+      .split("+")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join("+");
+  const keys = Array.isArray(args.keys) ? args.keys.map(key).join(", ") : "";
+  const sent = [args.text ? quote(args.text) : "", keys].filter(Boolean).join(" and ");
+  const shell = args.shell ? ` in ${args.shell}` : header ? ` in ${header[2]}` : "";
+  const words: Record<string, [string, string]> = {
+    terminal_list: ["Listing terminal tabs", "Listed terminal tabs"],
+    terminal_run: [
+      `Running ${quote(args.command, 60)}${args.tabId ? ` in ${tab}` : shell}`,
+      `Ran ${quote(args.command, 60)}${args.tabId ? ` in ${tab}` : shell}`,
+    ],
+    terminal_send: [`Sending ${sent || "keys"} to ${tab}`, `${keys && !args.text ? "Pressed" : "Sent"} ${sent || "keys"} in ${tab}`],
+    terminal_read: [`Reading ${tab}`, `Read ${tab}`],
+    terminal_kill: [`Stopping ${tab}`, `Stopped ${tab}${args.close ? " and closed it" : ""}`],
+  };
+  const [doing, did] = words[part.name] ?? ["Using the terminal", "Used the terminal"];
+  return failed ? `${did} (failed)` : live ? doing : did;
+}
+
 /** One browser step in words: "Opened localhost:3000", "Clicked ref_4", "Took a screenshot". */
 function browserLabel(part: ToolPart, phase: ToolPart["phase"]): string {
   const args = (part.args && typeof part.args === "object" ? part.args : {}) as Record<string, any>;
@@ -516,6 +553,8 @@ export function Tool({
           const [, server = "", ...rest] = name.split("__");
           return `${phase === "error" ? "Failed" : verbs.mcp[phase]} ${server} · ${rest.join("__")}`;
         })()
+      : part.name.startsWith("terminal_")
+      ? terminalLabel(part, phase)
       : kind === "agent" || kind === "skill"
       ? `${verbs[kind][phase]}${about ? ` · ${about}` : ""}`
       : kind === "browser"

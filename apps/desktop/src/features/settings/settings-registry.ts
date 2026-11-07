@@ -24,7 +24,7 @@ export const settingsPages: SettingsPage[] = [
     title: "General",
     icon: SlidersHorizontalIcon,
     group: "Application",
-    keywords: ["startup", "start", "login", "sign in", "boot", "launch", "tray", "menu bar", "notification area", "background", "close", "quit", "sleep", "awake", "power"],
+    keywords: ["startup", "start", "login", "sign in", "boot", "launch", "tray", "menu bar", "notification area", "background", "close", "quit", "sleep", "awake", "power", "terminal", "shell", "integration"],
     component: GeneralSettings,
   },
   {

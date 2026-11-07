@@ -8,6 +8,7 @@ import { AppIcon } from "@/features/shell/open-in-menu";
 import { useOpenApps, type OpenApp } from "@/lib/open-apps";
 import { inTauri, isMac } from "@/lib/platform";
 import { autoOpenGeneratedEnabled, setAutoOpenGenerated } from "@/stores/office-store";
+import { setShellIntegration, shellIntegrationEnabled } from "@/features/terminal";
 import { useUiStore } from "@/stores/ui-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
@@ -84,6 +85,20 @@ export function GeneralSettings() {
     });
   }
 
+  // Terminal: shell integration (app setting `terminal.shellIntegration`, read at each new tab).
+  const [integration, setIntegration] = React.useState<boolean | null>(inTauri ? null : true);
+  React.useEffect(() => {
+    if (inTauri) void shellIntegrationEnabled().then(setIntegration);
+  }, []);
+  function changeIntegration(enabled: boolean) {
+    setIntegration(enabled);
+    if (!inTauri) return;
+    setShellIntegration(enabled).catch((error: unknown) => {
+      setIntegration(!enabled);
+      notify({ source: "settings", level: "error", title: "Could not change the setting", body: String(error) });
+    });
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <SettingsHeader
@@ -133,6 +148,21 @@ export function GeneralSettings() {
               checked={autoOpen ?? true}
               disabled={autoOpen === null}
               onCheckedChange={changeAutoOpen}
+            />
+          }
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Terminal">
+        <SettingsRow
+          labelId="setting-terminalShellIntegration"
+          label="Shell integration"
+          description="Let new terminal tabs report where each command starts and ends, and its exit code, so the agent can tell when a command finished. Applies to the next new tab."
+          control={
+            <Switch
+              aria-labelledby="setting-terminalShellIntegration"
+              checked={integration ?? true}
+              disabled={integration === null}
+              onCheckedChange={changeIntegration}
             />
           }
         />

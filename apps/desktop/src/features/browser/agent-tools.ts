@@ -9,7 +9,6 @@ import { useEngineStore } from "@/stores/engine-store";
 import { openFile } from "@/stores/files-store";
 import { useUiStore } from "@/stores/ui-store";
 import { resolvePath } from "@/features/files/fs";
-import { tabLabel as terminalLabel, terminalInstance, useTerminalStore } from "@/stores/terminal-store";
 
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 export interface ToolResult {
@@ -165,33 +164,6 @@ export const UI_TOOLS = [
     inputSchema: {
       type: "object",
       properties: { limit: { type: "number" }, ...tabId },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "terminal_run",
-    description:
-      "Run a long-lived command (dev server, watcher, REPL) in a new tab of the app's terminal, which the user sees and can type into. It keeps running after your turn. Returns the tab id; read its output with terminal_read. For one-off commands use your shell tool instead.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        command: { type: "string", description: "One line, typed into the shell and run." },
-        cwd: { type: "string", description: "Folder to start in; default the working folder." },
-      },
-      required: ["command"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "terminal_read",
-    description: "Read the last lines on screen of a tab of the app's terminal (the user's tabs too). Without tabId, lists the tabs.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        tabId: { type: "string" },
-        lines: { type: "number", description: "Default 80." },
-        waitMs: { type: "number", description: "Wait this long for new output first (max 30000)." },
-      },
       additionalProperties: false,
     },
   },
@@ -621,7 +593,6 @@ export async function runUiTool(name: string, args: Record<string, any>): Promis
       await openFile(full, typeof args.line === "number" ? args.line : undefined);
       return text(`Showing ${full}${args.line ? ` at line ${args.line}` : ""} in the Files panel.`);
     }
-    if (name === "terminal_run" || name === "terminal_read") return await terminalTool(name, args);
     return await browserTool(name, args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -633,53 +604,4 @@ export async function runUiTool(name: string, args: Record<string, any>): Promis
     }
     return text(message, true);
   }
-}
-
-/** The last `count` lines of a terminal tab's buffer, trailing blank lines dropped. */
-function screenLines(key: string, count: number): string {
-  const term = terminalInstance(key)?.term;
-  if (!term) return "";
-  const buffer = term.buffer.active;
-  const lines: string[] = [];
-  for (let i = 0; i < buffer.length; i++) {
-    const line = buffer.getLine(i);
-    const value = line?.translateToString(true) ?? "";
-    // A line the terminal wrapped continues the one before it.
-    if (line?.isWrapped && lines.length) lines[lines.length - 1] += value;
-    else lines.push(value);
-  }
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  return lines.slice(-count).join("\n");
-}
-
-async function terminalTool(name: string, args: Record<string, any>): Promise<ToolResult> {
-  const terminals = useTerminalStore.getState();
-  if (name === "terminal_run") {
-    const command = String(args.command ?? "").replace(/[\r\n]+$/, "");
-    if (!command.trim()) return text("terminal_run needs a command.", true);
-    if (/[\r\n]/.test(command)) return text("terminal_run takes one line.", true);
-    useUiStore.getState().openPanel("terminal");
-    await terminals.restore();
-    const cwd = args.cwd ? String(args.cwd) : (useEngineStore.getState().cwd ?? undefined);
-    const key = await terminals.create({ cwd });
-    const tab = useTerminalStore.getState().tabs.find((t) => t.key === key);
-    if (!key || !tab || tab.status !== "running") return text(useTerminalStore.getState().error ?? "Could not start a terminal.", true);
-    // Let the shell print its prompt before typing.
-    await settle(800);
-    terminalInstance(key)?.send(`${command}\r`);
-    await settle(1500);
-    return text(`Started in terminal tab ${key} (${tab.shell}, ${tab.cwd}):\n${screenLines(key, 30)}`);
-  }
-  const tabs = useTerminalStore.getState().tabs;
-  if (!args.tabId) {
-    if (tabs.length === 0) return text("No terminal tabs are open.");
-    return text(tabs.map((t) => `${t.key}: ${terminalLabel(t)} — ${t.cwd} (${t.status})`).join("\n"));
-  }
-  const tab = tabs.find((t) => t.key === args.tabId);
-  if (!tab) return text(`No terminal tab ${args.tabId}.`, true);
-  const wait = Math.min(Math.max(0, Number(args.waitMs) || 0), 30_000);
-  if (wait) await settle(wait);
-  const lines = Math.min(Math.max(1, Number(args.lines) || 80), 1000);
-  const status = tab.status === "exited" ? ` (exited${tab.exitCode != null ? ` with code ${tab.exitCode}` : ""})` : "";
-  return text(`${terminalLabel(tab)} — ${tab.cwd}${status}\n${screenLines(tab.key, lines)}`);
 }
