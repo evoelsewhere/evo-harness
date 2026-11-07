@@ -287,8 +287,14 @@ const settle = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
  * When it was hidden, wait for the page to take its place and size (a page
  * laid out at another size puts elements somewhere else).
  */
-async function showBrowser() {
+async function showBrowser(chat?: string | null) {
   const ui = useUiStore.getState();
+  // An agent in a chat that is not showing cannot take the side panel: its page stays
+  // hidden and the tool opens in that chat's tabs, for when it shows again.
+  if (chat && chat !== useBrowserStore.getState().chat) {
+    ui.openPanel("browser", chat);
+    return;
+  }
   if (ui.rightPanelOpen && ui.activePanel === "browser") return;
   ui.openPanel("browser");
   await settle(350);
@@ -336,7 +342,7 @@ async function goHistory(tab: BrowserTab, action: "back" | "forward" | "reload")
       return null;
     }
   }
-  if (action === "reload") useBrowserStore.setState((s) => ({ tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, loading: true } : t)) }));
+  if (action === "reload") useBrowserStore.getState().patchTab(tab.id, { loading: true });
   useBrowserStore.getState().go(tab.id, action);
   await waitForNavigation(tab, before);
   return null;
@@ -350,13 +356,18 @@ async function consoleSince(tab: BrowserTab, after: number) {
 
 const quote = (value: string) => JSON.stringify(value.length > 60 ? `${value.slice(0, 60)}…` : value);
 
-async function browserTool(name: string, args: Record<string, any>): Promise<ToolResult> {
+async function browserTool(name: string, args: Record<string, any>, chat?: string | null): Promise<ToolResult> {
   const browser = useBrowserStore.getState();
+  // A chat's agent sees its own chat's tabs only (docs/features/session-panels).
+  const mine = (id?: string) => {
+    const tab = agentTab(id, chat);
+    return tab && (chat === undefined || tab.chat === chat) ? tab : undefined;
+  };
   if (name === "browser_navigate") {
     const url = String(args.url ?? "").trim();
     if (!url) return text("browser_navigate needs a url.", true);
-    await showBrowser();
-    let tab = args.newTab ? undefined : agentTab(args.tabId);
+    await showBrowser(chat);
+    let tab = args.newTab ? undefined : mine(args.tabId);
     if (["back", "forward", "reload"].includes(url)) {
       if (!tab) return text("No browser tab is open to go back, forward or reload.", true);
       const problem = await goHistory(tab, url as "back" | "forward" | "reload");
@@ -367,7 +378,7 @@ async function browserTool(name: string, args: Record<string, any>): Promise<Too
       if (error) return text(error, true);
       await waitForNavigation(tab, "");
     } else {
-      const id = await browser.newTab(url);
+      const id = await browser.newTab(url, { chat });
       if (!id) return text(useBrowserStore.getState().error ?? "Could not open a browser tab.", true);
       tab = agentTab(id);
       if (tab) await waitForNavigation(tab, "");
@@ -381,13 +392,16 @@ async function browserTool(name: string, args: Record<string, any>): Promise<Too
   if (name === "browser_tabs") {
     const action = args.action ?? "list";
     if (action === "select" || action === "close") {
-      const tab = agentTab(args.tabId);
+      const tab = mine(args.tabId);
       if (!tab || !args.tabId) return text(`No tab ${args.tabId ?? ""}.`, true);
       if (action === "select") browser.select(tab.id);
       else browser.closeTab(tab.id);
     }
-    if (!useBrowserStore.getState().tabs.length) await adoptTabs();
-    const { tabs, activeId } = useBrowserStore.getState();
+    if (!useBrowserStore.getState().all.length) await adoptTabs();
+    const state = useBrowserStore.getState();
+    const owner = chat === undefined ? state.chat : chat;
+    const tabs = state.all.filter((t) => t.chat === owner);
+    const activeId = mine()?.id ?? null;
     if (tabs.length === 0) return text("No browser tabs are open. Use browser_navigate to open one.");
     const lines = await Promise.all(
       tabs.map(async (t) => {
@@ -395,7 +409,7 @@ async function browserTool(name: string, args: Record<string, any>): Promise<Too
         const info = await pageInfo(t);
         const url = info?.error ? await nativeUrl(t) : (info?.href ?? t.url);
         const loading = info ? info.ready !== "complete" && !info.error : t.loading;
-        if (info && !loading && t.loading) useBrowserStore.setState((s) => ({ tabs: s.tabs.map((x) => (x.id === t.id ? { ...x, loading: false } : x)) }));
+        if (info && !loading && t.loading) useBrowserStore.getState().patchTab(t.id, { loading: false });
         const title = info?.error ? `failed to load: ${info.error}` : (info?.title ?? t.title) || "(untitled page)";
         return `${t.id === activeId ? "* " : "  "}${t.id}: ${title} — ${url}${loading ? " (loading)" : ""}`;
       }),
@@ -403,13 +417,13 @@ async function browserTool(name: string, args: Record<string, any>): Promise<Too
     return text(lines.join("\n"));
   }
 
-  let tab = agentTab(args.tabId);
-  if (!tab && !args.tabId && (await adoptTabs())) tab = agentTab();
+  let tab = mine(args.tabId);
+  if (!tab && !args.tabId && (await adoptTabs())) tab = mine();
   if (!tab) return text(args.tabId ? `No browser tab ${args.tabId}; see browser_tabs.` : "No browser tab is open. Use browser_navigate first.", true);
 
   switch (name) {
     case "browser_screenshot": {
-      await showBrowser();
+      await showBrowser(chat);
       if (!isWindows) return text("Screenshots are not available on this platform yet; use browser_read_page.", true);
       await settle(250);
       const shot = await cdp(tab, "Page.captureScreenshot", { format: "jpeg", quality: 80 });
@@ -496,7 +510,7 @@ async function browserTool(name: string, args: Record<string, any>): Promise<Too
  * a field unfocused) the element is clicked or focused by script instead.
  */
 async function click(tab: BrowserTab, args: Record<string, any>): Promise<ToolResult> {
-  await showBrowser();
+  await showBrowser(tab.chat);
   const before = await nativeUrl(tab);
   const notes: string[] = [];
   const ref = args.ref ? String(args.ref) : "";
@@ -583,7 +597,7 @@ async function type(tab: BrowserTab, args: Record<string, any>): Promise<ToolRes
   return text(`Typed ${quote(value)} ${where}${notes.length ? ` (${notes.join("; ")})` : ""}${args.submit ? `, then pressed Enter. Page: ${await pageSummary(tab)}` : "."}`);
 }
 
-export async function runUiTool(name: string, args: Record<string, any>): Promise<ToolResult> {
+export async function runUiTool(name: string, args: Record<string, any>, chat?: string | null): Promise<ToolResult> {
   try {
     if (name === "show_file") {
       const path = String(args.path ?? "");
@@ -593,7 +607,7 @@ export async function runUiTool(name: string, args: Record<string, any>): Promis
       await openFile(full, typeof args.line === "number" ? args.line : undefined);
       return text(`Showing ${full}${args.line ? ` at line ${args.line}` : ""} in the Files panel.`);
     }
-    return await browserTool(name, args);
+    return await browserTool(name, args, chat);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // The native page went away under the store: forget it.

@@ -1016,7 +1016,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         }
       }
       if (isUiTool(String(message.toolName))) {
-        const result = await runUiTool(String(message.toolName), args);
+        const result = await runUiTool(String(message.toolName), args, chat);
         return client?.request(chat, "external_tool_response", { requestId, result }).catch(() => undefined);
       }
       return reply(`Unknown tool ${String(message.toolName)}.`, undefined, true);
