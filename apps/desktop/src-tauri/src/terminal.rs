@@ -9,18 +9,26 @@
 //! re-attach (`terminal_list` + `terminal_attach`) instead of losing its
 //! shells. A session belongs to the window that started it: closing the window
 //! kills its shells.
+//!
+//! Spec: docs/features/agent-terminal (FR-3 shell ids, FR-4 list, FR-11 owner,
+//! FR-16 shell integration; plan 3.2-3.5). Shell discovery is in `shells`.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
+
+pub(crate) mod shells;
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Window};
+
+use crate::shell_integration;
+use shells::ShellInfo;
 
 /// Output kept per session for re-attaching after a reload.
 const BACKLOG_MAX: usize = 512 * 1024;
@@ -35,17 +43,6 @@ pub enum TerminalEvent {
     Exit { code: Option<u32> },
 }
 
-/// A shell the terminal can start.
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellInfo {
-    id: String,
-    name: String,
-    program: String,
-    #[serde(skip)]
-    args: Vec<String>,
-}
-
 /// A running session, as the UI lists it.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +52,10 @@ pub struct SessionInfo {
     shell: String,
     cwd: String,
     pid: Option<u32>,
+    /// Who started the tab (a chat id), if not the person.
+    owner: Option<String>,
+    /// Whether the shell reports prompt and command markers (OSC 133).
+    integration: bool,
 }
 
 struct Output {
@@ -75,9 +76,16 @@ struct Session {
 pub struct TerminalState {
     sessions: Mutex<HashMap<u32, Arc<Session>>>,
     next_id: AtomicU32,
+    /// Where the shell integration scripts were installed, if they were.
+    integration_dir: Mutex<Option<PathBuf>>,
 }
 
 impl TerminalState {
+    /// Remember the folder [`shell_integration::install`] wrote the scripts to.
+    pub fn set_integration_dir(&self, dir: PathBuf) {
+        *self.integration_dir.lock().expect("integration dir lock") = Some(dir);
+    }
+
     fn get(&self, id: u32) -> Result<Arc<Session>, String> {
         self.sessions
             .lock()
@@ -104,8 +112,40 @@ impl TerminalState {
 }
 
 impl Session {
+    /// End the shell and everything it started.
     fn kill(&self) {
+        if let Some(pid) = self.info.pid {
+            kill_tree(pid);
+        }
         let _ = self.killer.lock().expect("terminal killer lock").kill();
+    }
+}
+
+/// Kill the process tree rooted at `pid`: `taskkill /T /F` on Windows, the
+/// process group on Unix (the pty makes the shell a session leader).
+fn kill_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(0x0800_0000)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|mut child| std::thread::spawn(move || child.wait()));
+    }
+    #[cfg(unix)]
+    {
+        if let Ok(pid) = i32::try_from(pid) {
+            if pid > 1 {
+                // SAFETY: plain signal to the shell's own process group.
+                unsafe {
+                    libc::kill(-pid, libc::SIGKILL);
+                }
+            }
+        }
     }
 }
 
@@ -167,138 +207,52 @@ fn home_dir(app: &AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// `program` on PATH (with PATHEXT on Windows), as an absolute path.
-fn which(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    let exts: Vec<String> = if cfg!(windows) {
-        std::env::var("PATHEXT")
-            .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into())
-            .split(';')
-            .filter(|ext| !ext.is_empty())
-            .map(|ext| ext.to_ascii_lowercase())
-            .collect()
-    } else {
-        vec![String::new()]
-    };
-    std::env::split_paths(&path).find_map(|dir| {
-        let has_ext = Path::new(program).extension().is_some();
-        if has_ext || !cfg!(windows) {
-            let candidate = dir.join(program);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-        exts.iter()
-            .map(|ext| dir.join(format!("{program}{ext}")))
-            .find(|candidate| candidate.is_file())
-    })
-}
-
-fn shell(id: &str, name: &str, program: &Path, args: &[&str]) -> ShellInfo {
-    ShellInfo {
-        id: id.into(),
-        name: name.into(),
-        program: program.to_string_lossy().into_owned(),
-        args: args.iter().map(|arg| arg.to_string()).collect(),
-    }
-}
-
-/// The shells found on this computer, the default first.
-#[cfg(windows)]
-fn discover_shells() -> Vec<ShellInfo> {
-    let system_root = std::env::var_os("SystemRoot")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-    let system32 = system_root.join("System32");
-    let mut shells = Vec::new();
-    if let Some(pwsh) = which("pwsh.exe") {
-        shells.push(shell("pwsh", "PowerShell", &pwsh, &["-NoLogo"]));
-    }
-    let powershell = system32.join(r"WindowsPowerShell\v1.0\powershell.exe");
-    if powershell.is_file() {
-        shells.push(shell("powershell", "Windows PowerShell", &powershell, &["-NoLogo"]));
-    }
-    let cmd = std::env::var_os("ComSpec")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-        .unwrap_or_else(|| system32.join("cmd.exe"));
-    if cmd.is_file() {
-        shells.push(shell("cmd", "Command Prompt", &cmd, &[]));
-    }
-    // Git Bash: next to git.exe (…\Git\cmd\git.exe → …\Git\bin\bash.exe), or the usual install folders.
-    let git_bash = which("git.exe")
-        .and_then(|git| git.parent()?.parent().map(|root| root.join(r"bin\bash.exe")))
-        .filter(|path| path.is_file())
-        .or_else(|| {
-            ["ProgramFiles", "ProgramW6432", "LOCALAPPDATA"].iter().find_map(|var| {
-                let base = PathBuf::from(std::env::var_os(var)?);
-                [r"Git\bin\bash.exe", r"Programs\Git\bin\bash.exe"]
-                    .iter()
-                    .map(|rel| base.join(rel))
-                    .find(|path| path.is_file())
-            })
-        });
-    if let Some(bash) = git_bash {
-        shells.push(shell("git-bash", "Git Bash", &bash, &["--login", "-i"]));
-    }
-    let wsl = system32.join("wsl.exe");
-    if wsl.is_file() {
-        shells.push(shell("wsl", "WSL", &wsl, &[]));
-    }
-    shells
-}
-
-#[cfg(not(windows))]
-fn discover_shells() -> Vec<ShellInfo> {
-    // macOS terminals start login shells (the GUI app's PATH is minimal otherwise).
-    let args: &[&str] = if cfg!(target_os = "macos") { &["-l"] } else { &[] };
-    let mut shells: Vec<ShellInfo> = Vec::new();
-    let mut seen: Vec<PathBuf> = Vec::new();
-    let mut add = |path: PathBuf| {
-        if !path.is_file() {
-            return;
-        }
-        let real = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-        if seen.contains(&real) {
-            return;
-        }
-        seen.push(real);
-        let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let name = match file.as_str() {
-            "zsh" => "zsh",
-            "bash" => "bash",
-            "fish" => "fish",
-            "nu" => "Nushell",
-            "pwsh" => "PowerShell",
-            "sh" => "sh",
-            other => other,
-        };
-        let id = if shells.is_empty() { "default".to_string() } else { file.clone() };
-        let shell_args: &[&str] = if file == "sh" { &[] } else { args };
-        shells.push(shell(&id, name, &path, shell_args));
-    };
-    if let Some(user) = std::env::var_os("SHELL") {
-        add(PathBuf::from(user));
-    }
-    for candidate in ["/bin/zsh", "/bin/bash", "/usr/bin/zsh", "/usr/bin/bash", "/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish", "/bin/sh"] {
-        add(PathBuf::from(candidate));
-    }
-    for program in ["nu", "pwsh"] {
-        if let Some(path) = which(program) {
-            add(path);
-        }
-    }
-    shells
-}
-
 #[tauri::command]
 pub fn terminal_shells() -> Vec<ShellInfo> {
-    discover_shells()
+    shells::discover_shells()
+}
+
+/// The slow shell sources (WSL distributions, Windows Terminal profiles, Visual
+/// Studio developer shells); empty off Windows.
+#[tauri::command]
+pub async fn terminal_shells_extra() -> Vec<ShellInfo> {
+    tauri::async_runtime::spawn_blocking(shells::discover_extra)
+        .await
+        .unwrap_or_default()
+}
+
+/// The shell for `id`: the fast list first, then (for `wsl:`, `wt:`, `vs:`
+/// ids) the slow sources; no or an unknown id means the default shell.
+fn resolve_shell(id: Option<&str>) -> Result<ShellInfo, String> {
+    let list = shells::discover_shells();
+    if let Some(id) = id {
+        if let Some(found) = list.iter().find(|s| s.id == id) {
+            return Ok(found.clone());
+        }
+        #[cfg(windows)]
+        if let Some(distro) = id.strip_prefix("wsl:") {
+            // No listing needed: `wsl -d <distribution>` starts it.
+            if let Some(wsl) = shells::wsl_exe() {
+                return Ok(shells::wsl_shell(distro, &wsl));
+            }
+        }
+        if id.starts_with("wsl:") || id.starts_with("wt:") || id.starts_with("vs:") {
+            if let Some(found) = shells::discover_extra().into_iter().find(|s| s.id == id) {
+                return Ok(found);
+            }
+        }
+    }
+    list.iter()
+        .find(|s| s.is_default)
+        .or_else(|| list.first())
+        .cloned()
+        .ok_or_else(|| "no shell found on this computer".to_string())
 }
 
 /// Start a shell (`shell`: an id from `terminal_shells`, else the default) in
 /// `cwd` (else the home folder). Output streams to `on_event`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn terminal_spawn(
     app: AppHandle,
     window: Window,
@@ -307,15 +261,14 @@ pub async fn terminal_spawn(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
+    owner: Option<String>,
+    integration: Option<bool>,
     on_event: Channel<TerminalEvent>,
 ) -> Result<SessionInfo, String> {
-    let shells = discover_shells();
-    let chosen = shell
-        .as_deref()
-        .and_then(|id| shells.iter().find(|s| s.id == id))
-        .or_else(|| shells.first())
-        .cloned()
-        .ok_or_else(|| "no shell found on this computer".to_string())?;
+    // wsl:/wt:/vs: ids may query slow sources; keep that off the async executor.
+    let chosen = tauri::async_runtime::spawn_blocking(move || resolve_shell(shell.as_deref()))
+        .await
+        .map_err(|e| e.to_string())??;
     let cwd = cwd
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
@@ -323,10 +276,41 @@ pub async fn terminal_spawn(
         .unwrap_or_else(|| home_dir(&app));
 
     let pair = native_pty_system()
-        .openpty(PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: rows.max(2),
+            cols: cols.max(2),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| format!("could not open a terminal: {e}"))?;
+    let integrated = if integration.unwrap_or(true) {
+        let dir = state
+            .integration_dir
+            .lock()
+            .expect("integration dir lock")
+            .clone();
+        dir.and_then(|dir| {
+            let orig_zdotdir = std::env::var("ZDOTDIR")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| home_dir(&app).to_string_lossy().into_owned());
+            shell_integration::plan(&chosen, &dir, &orig_zdotdir)
+        })
+    } else {
+        None
+    };
     let mut command = CommandBuilder::new(&chosen.program);
-    command.args(&chosen.args);
+    match &integrated {
+        Some(plan) => {
+            command.args(&plan.args);
+            for (key, value) in &plan.env {
+                command.env(key, value);
+            }
+        }
+        None => {
+            command.args(&chosen.args);
+        }
+    }
     command.cwd(&cwd);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
@@ -349,8 +333,13 @@ pub async fn terminal_spawn(
         shell: chosen.name.clone(),
         cwd: cwd.to_string_lossy().into_owned(),
         pid: child.process_id(),
+        owner: owner.filter(|o| !o.is_empty()),
+        integration: integrated.is_some(),
     };
-    let output = Arc::new(Mutex::new(Output { channel: Some(on_event), backlog: String::new() }));
+    let output = Arc::new(Mutex::new(Output {
+        channel: Some(on_event),
+        backlog: String::new(),
+    }));
 
     // Keys and pastes, in order, off the main thread.
     let (input, keys) = mpsc::channel::<Vec<u8>>();
@@ -358,7 +347,11 @@ pub async fn terminal_spawn(
         .name(format!("terminal-{id}-in"))
         .spawn(move || {
             for bytes in keys {
-                if writer.write_all(&bytes).and_then(|()| writer.flush()).is_err() {
+                if writer
+                    .write_all(&bytes)
+                    .and_then(|()| writer.flush())
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -402,7 +395,11 @@ pub async fn terminal_spawn(
         killer: Mutex::new(killer),
         output: output.clone(),
     });
-    state.sessions.lock().expect("terminal sessions lock").insert(id, session);
+    state
+        .sessions
+        .lock()
+        .expect("terminal sessions lock")
+        .insert(id, session);
 
     // Wait for the shell to exit, then close the pty (on Windows the reader only
     // ends once the pseudo console closes), drain the output and report the exit.
@@ -421,7 +418,9 @@ pub async fn terminal_spawn(
             let _ = reading.join();
             let out = output.lock().expect("terminal output lock");
             if let Some(channel) = &out.channel {
-                let _ = channel.send(TerminalEvent::Exit { code: status.map(|s| s.exit_code()) });
+                let _ = channel.send(TerminalEvent::Exit {
+                    code: status.map(|s| s.exit_code()),
+                });
             }
         })
         .map_err(|e| e.to_string())?;
@@ -431,7 +430,11 @@ pub async fn terminal_spawn(
 
 /// Keys or pasted text for a session.
 #[tauri::command]
-pub fn terminal_write(state: State<'_, TerminalState>, id: u32, data: String) -> Result<(), String> {
+pub fn terminal_write(
+    state: State<'_, TerminalState>,
+    id: u32,
+    data: String,
+) -> Result<(), String> {
     state
         .get(id)?
         .input
@@ -440,11 +443,21 @@ pub fn terminal_write(state: State<'_, TerminalState>, id: u32, data: String) ->
 }
 
 #[tauri::command]
-pub fn terminal_resize(state: State<'_, TerminalState>, id: u32, cols: u16, rows: u16) -> Result<(), String> {
+pub fn terminal_resize(
+    state: State<'_, TerminalState>,
+    id: u32,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     let session = state.get(id)?;
     let master = session.master.lock().expect("terminal master lock");
     master
-        .resize(PtySize { rows: rows.max(2), cols: cols.max(2), pixel_width: 0, pixel_height: 0 })
+        .resize(PtySize {
+            rows: rows.max(2),
+            cols: cols.max(2),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| e.to_string())
 }
 
@@ -521,16 +534,24 @@ mod tests {
 
     #[test]
     fn finds_at_least_one_shell() {
-        assert!(!discover_shells().is_empty());
+        assert!(!shells::discover_shells().is_empty());
     }
 
     /// The same sequence `terminal_spawn` runs: a real shell echoes, exits, and
     /// the reader ends once the pty is dropped after the wait.
     #[test]
     fn shell_runs_echoes_and_exits() {
-        let shell = discover_shells().into_iter().next().expect("a shell");
+        let shell = shells::discover_shells()
+            .into_iter()
+            .next()
+            .expect("a shell");
         let pair = native_pty_system()
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .expect("pty");
         let mut command = CommandBuilder::new(&shell.program);
         command.args(&shell.args);

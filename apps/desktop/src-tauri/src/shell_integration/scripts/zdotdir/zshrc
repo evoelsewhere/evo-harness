@@ -1,0 +1,4 @@
+# evo: give ZDOTDIR back to the person, run their .zshrc, then add the hooks.
+ZDOTDIR="${EVO_ORIG_ZDOTDIR:-$HOME}"
+[[ -f "$ZDOTDIR/.zshrc" ]] && source "$ZDOTDIR/.zshrc"
+[[ -n "$EVO_INTEGRATION_DIR" && -f "$EVO_INTEGRATION_DIR/evo.zsh" ]] && source "$EVO_INTEGRATION_DIR/evo.zsh"

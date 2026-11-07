@@ -1157,6 +1157,7 @@ dependencies = [
  "evo-worktrees",
  "file_icon_provider",
  "ignore",
+ "libc",
  "png",
  "portable-pty",
  "serde",

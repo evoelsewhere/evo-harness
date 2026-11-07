@@ -1,0 +1,2 @@
+# evo: forward to the person's .zshenv (ZDOTDIR points here for this shell).
+[[ -f "${EVO_ORIG_ZDOTDIR:-$HOME}/.zshenv" ]] && source "${EVO_ORIG_ZDOTDIR:-$HOME}/.zshenv"

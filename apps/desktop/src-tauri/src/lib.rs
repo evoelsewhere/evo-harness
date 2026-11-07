@@ -14,6 +14,7 @@ mod files;
 mod mcp;
 mod mesh;
 mod plugins;
+mod shell_integration;
 mod system;
 mod worktrees;
 mod terminal;
@@ -48,7 +49,17 @@ pub fn run() {
         .setup(|app| {
             // The session mesh hub: mail between chats' engines.
             app.manage(mesh::MeshHub::new(app.handle().clone()));
+            // Shell integration scripts for terminal tabs, refreshed on every start.
+            match app
+                .path()
+                .app_data_dir()
+                .and_then(|dir| shell_integration::install(&dir).map_err(tauri::Error::Io))
+            {
+                Ok(dir) => app.state::<terminal::TerminalState>().set_integration_dir(dir),
+                Err(error) => eprintln!("could not install shell integration: {error}"),
+            }
             if let Some(main) = app.get_window("main") {
+                let _ = main.set_title(window::app_name());
                 let material = window::apply(&main, None);
                 *app.state::<window::MaterialState>()
                     .0
@@ -59,7 +70,6 @@ pub fn run() {
                 "info",
                 "shell",
                 format!("evo desktop {} started", env!("CARGO_PKG_VERSION")),
-                let _ = main.set_title(window::app_name());
             ));
             // The main window starts hidden (tauri.conf.json) and shows here,
             // unless evo was started at sign-in into the tray.
@@ -193,6 +203,7 @@ pub fn run() {
             browser::browser_eval,
             browser::browser_cdp,
             terminal::terminal_shells,
+            terminal::terminal_shells_extra,
             terminal::terminal_spawn,
             terminal::terminal_write,
             terminal::terminal_resize,
