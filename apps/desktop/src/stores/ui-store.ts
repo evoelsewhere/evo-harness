@@ -32,7 +32,15 @@ const legacy = (() => {
 export type SettingsSection = "general" | "appearance" | "providers" | "engine" | "sandbox" | "logs" | "about";
 export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "plugins" | "hooks" | "languages";
 
-export const SIDEBAR_WIDTH = { min: 220, default: 272, max: 420 } as const;
+/** The side panel's tabs of one chat. */
+export interface ChatPanels {
+  openTabs: PanelId[];
+  activePanel: PanelId | null;
+  /** The side panel is open for the chat (a new chat starts with it closed). */
+  open: boolean;
+}
+
+export const SIDEBAR_WIDTH ={ min: 220, default: 272, max: 420 } as const;
 export const SIDE_PANEL_WIDTH = { min: 300, default: 440 } as const;
 
 interface UiStore {
@@ -55,6 +63,16 @@ interface UiStore {
   openTabs: PanelId[];
   /** The visible tab; `null` shows the tool launcher. */
   activePanel: PanelId | null;
+  /**
+   * Tabs belong to a chat: `openTabs` and `activePanel` are those of
+   * `panelChat`; the other chats' are kept here until their chat shows again.
+   */
+  panelChat: string | null;
+  panelsByChat: Record<string, ChatPanels>;
+  /** Show `chat`'s tabs (a chat that never opened any shows none). */
+  enterChat(chat: string | null): void;
+  /** `chat` is gone (deleted, archived or an untouched draft discarded): drop its saved tabs. */
+  forgetChat(chat: string): void;
   commandOpen: boolean;
   /** The settings page replaces the sidebar and main column while open. */
   settingsOpen: boolean;
@@ -109,8 +127,12 @@ interface UiStore {
   setSidebarWidth(width: number): void;
   setSidePanelWidth(width: number): void;
   toggleRightPanel(open?: boolean): void;
-  /** Open `panel` as a tab (or focus it); `null` shows the launcher. */
-  openPanel(panel: PanelId | null): void;
+  /**
+   * Open `panel` as a tab (or focus it); `null` shows the launcher. With
+   * `chat` (an agent working in a chat that is not showing) the tab opens in
+   * that chat's tabs and the visible ones stay as they are.
+   */
+  openPanel(panel: PanelId | null, chat?: string | null): void;
   closeTab(panel: PanelId): void;
   /** Close every tab but `panel`, which becomes the visible one. */
   closeOtherTabs(panel: PanelId): void;
@@ -147,6 +169,8 @@ export const useUiStore = create<UiStore>()(
       setSummaryPeek: (summaryPeek) => set({ summaryPeek }),
       openTabs: [],
       activePanel: null,
+      panelChat: null,
+      panelsByChat: {},
       commandOpen: false,
       settingsOpen: false,
       customizeOpen: false,
@@ -205,12 +229,35 @@ export const useUiStore = create<UiStore>()(
       setSidebarWidth: (width) => set({ sidebarWidth: clampWidth(width) }),
       setSidePanelWidth: (width) => set({ sidePanelWidth: Math.max(SIDE_PANEL_WIDTH.min, Math.round(width)) }),
       toggleRightPanel: (open) => set({ rightPanelOpen: open ?? !get().rightPanelOpen }),
-      openPanel: (panel) =>
-        set((s) => ({
-          activePanel: panel,
-          rightPanelOpen: true,
-          openTabs: panel && !s.openTabs.includes(panel) ? [...s.openTabs, panel] : s.openTabs,
-        })),
+      openPanel: (panel, chat) =>
+        set((s) => {
+          if (chat && s.panelChat && chat !== s.panelChat) {
+            // Another chat's tabs: it sees the tab when it shows again.
+            const saved = s.panelsByChat[chat] ?? { openTabs: [], activePanel: null, open: false };
+            const openTabs = panel && !saved.openTabs.includes(panel) ? [...saved.openTabs, panel] : saved.openTabs;
+            return { panelsByChat: { ...s.panelsByChat, [chat]: { openTabs, activePanel: panel, open: true } } };
+          }
+          return {
+            activePanel: panel,
+            rightPanelOpen: true,
+            openTabs: panel && !s.openTabs.includes(panel) ? [...s.openTabs, panel] : s.openTabs,
+          };
+        }),
+      forgetChat: (chat) =>
+        set((s) => {
+          if (!(chat in s.panelsByChat)) return s;
+          const { [chat]: _gone, ...panelsByChat } = s.panelsByChat;
+          return { panelsByChat };
+        }),
+      enterChat: (chat) =>
+        set((s) => {
+          if (!chat || chat === s.panelChat) return s;
+          // Tabs saved before they belonged to chats go to the first chat shown.
+          if (s.panelChat === null) return { panelChat: chat };
+          const panelsByChat = { ...s.panelsByChat, [s.panelChat]: { openTabs: s.openTabs, activePanel: s.activePanel, open: s.rightPanelOpen } };
+          const next = panelsByChat[chat] ?? { openTabs: [], activePanel: null, open: false };
+          return { panelChat: chat, panelsByChat, openTabs: next.openTabs, activePanel: next.activePanel, rightPanelOpen: next.open };
+        }),
       closeTab: (panel) =>
         set((s) => {
           const index = s.openTabs.indexOf(panel);
@@ -263,7 +310,16 @@ export const useUiStore = create<UiStore>()(
         const { approval: _moved, ...saved } = (persisted ?? {}) as Partial<UiStore>;
         const openTabs = (saved.openTabs ?? current.openTabs).filter((id) => PANEL_IDS.includes(id));
         const activePanel = saved.activePanel && PANEL_IDS.includes(saved.activePanel) ? saved.activePanel : (openTabs[0] ?? null);
-        return { ...current, ...saved, openTabs, activePanel };
+        const panelsByChat: Record<string, ChatPanels> = {};
+        for (const [chat, panels] of Object.entries(saved.panelsByChat ?? {})) {
+          const tabs = (panels?.openTabs ?? []).filter((id) => PANEL_IDS.includes(id));
+          panelsByChat[chat] = {
+            openTabs: tabs,
+            activePanel: panels?.activePanel && tabs.includes(panels.activePanel) ? panels.activePanel : (tabs[0] ?? null),
+            open: panels?.open ?? tabs.length > 0,
+          };
+        }
+        return { ...current, ...saved, openTabs, activePanel, panelsByChat };
       },
       partialize: (state) => ({
         approvalNoteSeen: state.approvalNoteSeen,
@@ -282,6 +338,8 @@ export const useUiStore = create<UiStore>()(
         openTabs: state.openTabs,
         chatConnectorsOff: state.chatConnectorsOff,
         activePanel: state.activePanel,
+        panelChat: state.panelChat,
+        panelsByChat: state.panelsByChat,
       }),
     },
   ),
