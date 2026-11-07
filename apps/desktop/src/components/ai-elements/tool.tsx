@@ -37,81 +37,13 @@ import { openLink } from "@/features/shell/app-commands";
 import { TodoList } from "@/features/chat/todo-bar";
 import { SentFiles } from "./sent-files";
 import { WidgetFrame } from "@/components/widget-frame";
+import { kinds, type Kind } from "./tool-kinds";
 
 // shadcn/ui AI Elements · Tool on Trace, following a call through DeepSeek
 // Harness's phases: preparing (the model is still writing the arguments, so
 // the row already names the command or file), running, done, error. Each tool
 // has its own body — a terminal for shells, a diff for edits, the file for
 // reads — with the arguments and output as the fallback.
-
-type Kind =
-  | "shell"
-  | "read"
-  | "write"
-  | "edit"
-  | "search"
-  | "list"
-  | "web"
-  | "browser"
-  | "agent"
-  | "session"
-  | "skill"
-  | "memory"
-  | "ask"
-  | "todo"
-  | "code"
-  | "user"
-  | "mcp"
-  | "visual"
-  | "other";
-
-const kinds: Record<string, Kind> = {
-  bash: "shell",
-  powershell: "shell",
-  read: "read",
-  write: "write",
-  edit: "edit",
-  grep: "search",
-  find: "search",
-  ls: "list",
-  web_fetch: "web",
-  web_search: "web",
-  agent: "agent",
-  skill: "skill",
-  start_session: "session",
-  message_session: "session",
-  list_sessions: "session",
-  show_file: "read",
-  document_preview: "read",
-  terminal_run: "shell",
-  terminal_read: "shell",
-  terminal_list: "shell",
-  terminal_send: "shell",
-  terminal_kill: "shell",
-  browser_navigate: "browser",
-  browser_tabs: "browser",
-  browser_screenshot: "browser",
-  browser_read_page: "browser",
-  browser_find: "browser",
-  browser_click: "browser",
-  browser_type: "browser",
-  browser_key: "browser",
-  browser_form_input: "browser",
-  browser_scroll: "browser",
-  browser_eval: "browser",
-  browser_console: "browser",
-  browser_network: "browser",
-  memory: "memory",
-  ask_user: "ask",
-  update_todos: "todo",
-  lsp: "code",
-  send_file: "user",
-  notify: "user",
-  mcp_search_tools: "mcp",
-  mcp_call_tool: "mcp",
-  show_widget: "visual",
-  visualize_read_me: "visual",
-};
 
 const icons: Record<Kind, React.ComponentType<{ className?: string }>> = {
   shell: TerminalIcon,
@@ -394,7 +326,35 @@ function browserLabel(part: ToolPart, phase: ToolPart["phase"]): string {
     browser_scroll: [`Scrolling ${args.direction ?? ""}`, `Scrolled ${args.direction ?? ""}`],
     browser_eval: ["Running script in the page", "Ran script in the page"],
     browser_console: ["Reading the console", "Read the console"],
-    browser_network: ["Reading network requests", "Read network requests"],
+    browser_network: [args.requestId ? "Reading a network request" : "Reading network requests", args.requestId ? "Read a network request" : "Read network requests"],
+    browser_hover: [`Hovering ${target}`, `Hovered ${target}`],
+    browser_drag: [`Dragging ${args.ref ?? "an element"}`, `Dragged ${args.ref ?? "an element"}`],
+    browser_wait: [
+      args.text ? `Waiting for ${quote(args.text)}` : "Waiting on the page",
+      args.text ? `Waited for ${quote(args.text)}` : "Waited on the page",
+    ],
+    browser_dialog: [
+      args.action === "status" ? "Checking the page's dialog" : `${args.accept === false ? "Dismissing" : "Answering"} the page's dialog`,
+      args.action === "status" ? "Checked the page's dialog" : `${args.accept === false ? "Dismissed" : "Answered"} the page's dialog`,
+    ],
+    browser_upload: [`Attaching a file to ${args.ref ?? "the page"}`, `Attached a file to ${args.ref ?? "the page"}`],
+    browser_frames: ["Listing the page's frames", "Listed the page's frames"],
+    browser_batch: [
+      `Running ${Array.isArray(args.steps) ? args.steps.length : "several"} browser steps`,
+      `Ran ${Array.isArray(args.steps) ? args.steps.length : "several"} browser steps`,
+    ],
+    browser_viewport: [args.reset ? "Resetting the viewport" : "Changing the viewport", args.reset ? "Reset the viewport" : "Changed the viewport"],
+    browser_storage: ["Changing cookies or storage", "Changed cookies or storage"],
+    browser_storage_read: ["Reading cookies and storage", "Read cookies and storage"],
+    browser_mock: [
+      args.action === "clear" ? "Clearing request mocks" : "Mocking requests",
+      args.action === "clear" ? "Cleared request mocks" : "Mocked requests",
+    ],
+    browser_downloads: ["Listing downloads", "Listed downloads"],
+    browser_download_folder: ["Setting the download folder", "Set the download folder"],
+    browser_performance: ["Measuring page performance", "Measured page performance"],
+    browser_pdf: ["Saving the page as a PDF", "Saved the page as a PDF"],
+    browser_status: ["Checking the browser", "Checked the browser"],
   };
   const [doing, done] = words[part.name] ?? ["Using the browser", "Used the browser"];
   return failed ? `Browser: ${done.charAt(0).toLowerCase()}${done.slice(1)} failed` : live ? doing : done;
