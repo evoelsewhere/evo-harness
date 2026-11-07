@@ -1,7 +1,7 @@
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AtSignIcon, ChevronDownIcon, PaperclipIcon, PlugIcon, PlusIcon, ShieldCheckIcon, SlashIcon } from "lucide-react";
+import { AtSignIcon, ChevronDownIcon, PaperclipIcon, PlugIcon, PlusIcon, ShieldCheckIcon, SlashIcon, XIcon } from "lucide-react";
 import { ModelSelector } from "@/components/ai-elements/model-selector";
 import { PromptInput, type PromptAttachment } from "@/components/ai-elements/prompt-input";
 import {
@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 import { useAnnotationsStore } from "@/stores/annotations-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
-import { useEngineStore } from "@/stores/engine-store";
+import { useApprovalGrants, useEngineStore } from "@/stores/engine-store";
 import { useUiStore, type ApprovalMode } from "@/stores/ui-store";
 import { ComposerAnnotations } from "./annotation-chips";
 import { CommandMenu, commandItems, leadingCommand, matchCommands, type CommandItem } from "./command-menu";
@@ -44,10 +44,16 @@ import {
 import { QueuedMessages } from "./queued-messages";
 
 const approvals: { id: ApprovalMode; name: string; hint: string }[] = [
-  { id: "ask", name: "Ask every time", hint: "Approve each tool call" },
+  { id: "ask", name: "Ask every time", hint: "Asks before edits and commands" },
   { id: "auto-edits", name: "Approve edits", hint: "Edits run, commands ask" },
   { id: "auto", name: "Approve for me", hint: "Everything runs" },
 ];
+
+/** What a chat's grant is called in its chip next to the mode (docs/features/approval-modes/spec.md FR-7). */
+const grantChips = {
+  command: { long: "Commands allowed in this chat", short: "Commands" },
+  edit: { long: "Edits allowed in this chat", short: "Edits" },
+} as const;
 
 /** A draft the empty state or a suggestion can prefill. */
 export const composerDraft = {
@@ -80,6 +86,9 @@ export function ChatComposer() {
   const chatId = useEngineStore((s) => s.activeId);
   const approval = useUiStore((s) => s.approval);
   const setApproval = useUiStore((s) => s.setApproval);
+  const approvalNoteSeen = useUiStore((s) => s.approvalNoteSeen);
+  const grants = useApprovalGrants();
+  const [approvalMenuOpen, setApprovalMenuOpen] = React.useState(false);
   const ready = status === "ready";
   const customizations = useCustomizeStore((s) => s.data);
   const connectors = useConnectorsStore((s) => s.servers);
@@ -382,6 +391,31 @@ export function ChatComposer() {
             }}
           />
           <ComposerAnnotations chatId={chatId} />
+          {!approvalNoteSeen && (
+            <p role="note" className="mx-3 mb-1.5 flex items-start gap-2 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1">
+                Approvals now apply. {currentApproval.name}: {currentApproval.hint.toLowerCase()}.{" "}
+                <button
+                  type="button"
+                  className="text-foreground underline underline-offset-4"
+                  onClick={() => {
+                    useUiStore.getState().dismissApprovalNote();
+                    setApprovalMenuOpen(true);
+                  }}
+                >
+                  Change it
+                </button>
+              </span>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                className="shrink-0 rounded-sm p-0.5 hover:text-foreground"
+                onClick={() => useUiStore.getState().dismissApprovalNote()}
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            </p>
+          )}
           {problem && (
             <p role="alert" className="mx-3 mb-1.5 text-xs text-destructive">
               {problem}
@@ -430,7 +464,7 @@ export function ChatComposer() {
             onDefaultChange={(model) => void setDefaultModel(model)}
             onThinkingChange={(level) => void setThinkingLevel(level)}
           />
-          <DropdownMenu>
+          <DropdownMenu open={approvalMenuOpen} onOpenChange={setApprovalMenuOpen}>
             <DropdownMenuTrigger
               render={
                 <InputGroupButton
@@ -445,7 +479,7 @@ export function ChatComposer() {
               <span className="hidden @2xl:inline">{currentApproval.name}</span>
               <ChevronDownIcon className="hidden @2xl:block" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="w-56">
+            <DropdownMenuContent align="end" side="top" className="w-64">
               <DropdownMenuGroup>
                 <DropdownMenuLabel>Approvals</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={approval} onValueChange={(value) => setApproval(value as ApprovalMode)}>
@@ -461,6 +495,21 @@ export function ChatComposer() {
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {chatId &&
+            grants.filter((grant) => grant in grantChips).map((grant) => (
+              <InputGroupButton
+                key={grant}
+                size="xs"
+                variant="secondary"
+                aria-label={`${grantChips[grant].long}: clear`}
+                title={`${grantChips[grant].long} — clear`}
+                onClick={() => void useEngineStore.getState().clearApprovalGrants(chatId)}
+              >
+                <span className="hidden @2xl:inline">{grantChips[grant].long}</span>
+                <span className="@2xl:hidden">{grantChips[grant].short}</span>
+                <XIcon />
+              </InputGroupButton>
+            ))}
         </>
       }
     />

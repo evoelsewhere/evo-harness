@@ -11,11 +11,14 @@ export interface ConfirmationOption {
 export function Confirmation({
   title,
   description,
+  mono = false,
   options,
   onAnswer,
 }: {
   title: string;
   description?: string;
+  /** Show the description as code (a shell command). */
+  mono?: boolean;
   options: ConfirmationOption[];
   onAnswer(option: ConfirmationOption, index: number): void;
 }) {
@@ -24,9 +27,16 @@ export function Confirmation({
       <ItemMedia variant="icon">
         <ShieldQuestionIcon />
       </ItemMedia>
-      <ItemContent>
-        <ItemTitle>{title}</ItemTitle>
-        {description && <ItemDescription data-selectable>{description}</ItemDescription>}
+      <ItemContent className="min-w-64">
+        <ItemTitle className="line-clamp-2 w-auto break-words">{title}</ItemTitle>
+        {description && (
+          <ItemDescription
+            data-selectable
+            className={mono ? "line-clamp-none max-h-32 overflow-auto font-mono text-xs break-all whitespace-pre-wrap" : undefined}
+          >
+            {description}
+          </ItemDescription>
+        )}
       </ItemContent>
       <ItemActions className="self-center">
         {options.map((option, index) => {

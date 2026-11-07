@@ -10,6 +10,17 @@ export function usePendingPermission(): PermissionRequest | undefined {
   return useEngineStore((s) => s.transcript.turns.at(-1)?.permission);
 }
 
+/**
+ * What the prompt says. A subagent's call names the agent ("explore-2 wants to
+ * run a command"); engine prompts without `approval` read as they are.
+ */
+function approvalTitle(permission: PermissionRequest): string {
+  const agent = permission.approval?.agent;
+  if (!agent) return permission.title;
+  const what = permission.title.replace(/\?\s*$/, "");
+  return `${agent} wants to ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
+}
+
 const rejects = (option: { title: string; permission?: string }) =>
   option.permission?.startsWith("reject") || /^(deny|reject|no)\b/i.test(option.title);
 
@@ -46,8 +57,9 @@ export function ApprovalPanel({ permission }: { permission: PermissionRequest })
     return () => window.removeEventListener("keydown", onKey);
   }, [answer, allowIndex, rejectIndex]);
 
+  const title = approvalTitle(permission);
   return (
-    <div className="flex flex-col gap-2" role="alertdialog" aria-label={permission.title}>
+    <div className="flex flex-col gap-2" role="alertdialog" aria-label={title}>
       <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <StatusDot tone="warn" pulse />
         Waiting for your approval
@@ -65,8 +77,9 @@ export function ApprovalPanel({ permission }: { permission: PermissionRequest })
         </span>
       </div>
       <Confirmation
-        title={permission.title}
+        title={title}
         description={permission.description}
+        mono={permission.approval?.kind === "command"}
         options={permission.options}
         onAnswer={(_, index) => answer(index)}
       />
