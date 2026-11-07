@@ -1393,6 +1393,28 @@ where
                     .unwrap_or(false);
                 crate::hooks::set_disabled(disabled).map(|()| crate::hooks::describe())
             }
+            // Approval modes (docs/features/approval-modes): the mode applies
+            // from the next tool call, even in the middle of a run.
+            "set_approval_mode" => {
+                match msg
+                    .get("mode")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(crate::approval::ApprovalMode::parse)
+                {
+                    Some(mode) => {
+                        let state = crate::approval::global();
+                        state.set_mode(mode);
+                        Ok(state.snapshot())
+                    }
+                    None => Err("mode must be ask, auto-edits or auto".to_string()),
+                }
+            }
+            "get_approval_state" => Ok(crate::approval::global().snapshot()),
+            "clear_approval_grants" => {
+                let state = crate::approval::global();
+                state.clear_grants();
+                Ok(state.snapshot())
+            }
             "get_context_breakdown" => {
                 Ok(
                     crate::context_breakdown::breakdown(&lane, harness, oauth_snapshot.as_ref())
@@ -2019,6 +2041,7 @@ async fn rpc_get_state(lane: &Arc<dyn AgentLane>, harness: &AgentHarness) -> ser
         "leafId": leaf_id,
         "context": context,
         "sessionId": harness.session().storage().metadata().id,
+        "approval": crate::approval::global().snapshot(),
         "activeOperation": active_operation,
         "queue": {
             // Text-only view: these consumers render a single-line pending row.
@@ -3326,6 +3349,8 @@ async fn rpc_configure_external_tools(
         .await
         .map_err(|e| e.to_string())?;
     *old_names = names.clone();
+    // The app gates the tools it runs (approval modes spec, section 2.2).
+    crate::approval::global().set_external_tools(names.clone());
     Ok(serde_json::json!({"tools": names, "activeTools": active}))
 }
 
@@ -5404,6 +5429,42 @@ ok
         assert!(output.messages().iter().any(|message| {
             message["type"] == "agent_settled" && message["outcome"] == "completed"
         }));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rpc_changes_and_reports_the_approval_mode() {
+        use tokio::io::AsyncWriteExt;
+        let harness = AgentHarness::create(Default::default()).await.unwrap();
+        let (mut client, output, task) =
+            start_test_rpc(harness, evo_extensions::UiDialogMailbox::new());
+        output.wait_for(|m| m["type"] == "ready").await;
+        client
+            .write_all(
+                b"{\"type\":\"set_approval_mode\",\"id\":1,\"mode\":\"auto-edits\"}
+                  {\"type\":\"set_approval_mode\",\"id\":2,\"mode\":\"sometimes\"}
+                  {\"type\":\"get_approval_state\",\"id\":3}
+                  {\"type\":\"clear_approval_grants\",\"id\":4}
+                  {\"type\":\"get_state\",\"id\":5}
+                  {\"type\":\"set_approval_mode\",\"id\":6,\"mode\":\"auto\"}
+",
+            )
+            .await
+            .unwrap();
+        let set = output.wait_for(|m| m["id"] == 1).await;
+        assert_eq!(set["success"], true);
+        assert_eq!(set["data"]["mode"], "auto-edits");
+        let bad = output.wait_for(|m| m["id"] == 2).await;
+        assert_eq!(bad["success"], false);
+        let state = output.wait_for(|m| m["id"] == 3).await;
+        assert_eq!(state["data"]["mode"], "auto-edits");
+        assert_eq!(state["data"]["grants"], serde_json::json!([]));
+        let cleared = output.wait_for(|m| m["id"] == 4).await;
+        assert_eq!(cleared["success"], true);
+        let full = output.wait_for(|m| m["id"] == 5).await;
+        assert_eq!(full["data"]["approval"]["mode"], "auto-edits");
+        output.wait_for(|m| m["id"] == 6).await;
+        client.shutdown().await.unwrap();
+        assert_eq!(task.await.unwrap(), 0);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

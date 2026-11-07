@@ -290,6 +290,15 @@ pub enum Command {
         #[serde(default)]
         disabled: bool,
     },
+    /// Change the approval mode (`ask`, `auto-edits`, `auto`); it applies from
+    /// the next tool call (`approval.rs`).
+    SetApprovalMode {
+        mode: String,
+    },
+    /// The approval mode and this chat's "allow for this chat" grants.
+    GetApprovalState,
+    /// Forget this chat's grants, so the prompts come back.
+    ClearApprovalGrants,
     Stop,
 }
 
@@ -407,6 +416,9 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "reload_resources",
     "list_hooks",
     "set_hooks_disabled",
+    "set_approval_mode",
+    "get_approval_state",
+    "clear_approval_grants",
     "stop",
 ];
 
