@@ -10,16 +10,25 @@
 //! shells. A session belongs to the window that started it: closing the window
 //! kills its shells.
 //!
+//! The agent's terminal tools (`agent_tools/terminal.rs`) share this state: every
+//! session keeps a plain-text [`log::SharedLog`] fed by its reader thread, the
+//! chat it belongs to and the chat that started it (`owner`). A session a tool
+//! starts has no webview channel yet: its output waits in the backlog until the
+//! webview adopts the tab (`terminal://created`, then `terminal_attach`). A shell
+//! that exited stays listed for the tools until its tab is closed (`terminal_close`).
+//!
 //! Spec: docs/features/agent-terminal (FR-3 shell ids, FR-4 list, FR-11 owner,
-//! FR-16 shell integration; plan 3.2-3.5). Shell discovery is in `shells`.
+//! FR-16 shell integration; plan 3.2-3.5) and docs/features/agent-browser
+//! (ADR 0013, plan 3.2). Shell discovery is in `shells`, the output log in `log`.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
+pub(crate) mod log;
 pub(crate) mod shells;
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -28,34 +37,52 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Window};
 
 use crate::shell_integration;
+use log::SharedLog;
 use shells::ShellInfo;
 
 /// Output kept per session for re-attaching after a reload.
 const BACKLOG_MAX: usize = 512 * 1024;
 /// One read from the pty.
 const READ_CHUNK: usize = 16 * 1024;
+/// Shells that exited and whose tab is still open are kept for the tools, at most this many.
+const EXITED_KEPT: usize = 30;
+/// The size of a session no webview has shown yet.
+pub const DEFAULT_COLS: u16 = 120;
+pub const DEFAULT_ROWS: u16 = 30;
+/// App setting: start new terminals with shell integration (default on).
+const SHELL_INTEGRATION_KEY: &str = "terminal.shellIntegration";
 
 /// What a session sends its window.
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TerminalEvent {
-    Data { data: String },
-    Exit { code: Option<u32> },
+    Data {
+        data: String,
+    },
+    /// `killed`: the shell was stopped on purpose (a close or a tool), not exited by itself.
+    Exit {
+        code: Option<u32>,
+        killed: bool,
+    },
 }
 
 /// A running session, as the UI lists it.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
-    id: u32,
-    shell_id: String,
-    shell: String,
-    cwd: String,
-    pid: Option<u32>,
+    pub id: u32,
+    /// The tab's key: what the webview and the agent tools call it.
+    pub key: String,
+    pub shell_id: String,
+    pub shell: String,
+    pub cwd: String,
+    pub pid: Option<u32>,
     /// Who started the tab (a chat id), if not the person.
-    owner: Option<String>,
+    pub owner: Option<String>,
+    /// The chat whose tabs show it; the agent of that chat sees it.
+    pub chat: Option<String>,
     /// Whether the shell reports prompt and command markers (OSC 133).
-    integration: bool,
+    pub integration: bool,
 }
 
 struct Output {
@@ -63,13 +90,16 @@ struct Output {
     backlog: String,
 }
 
-struct Session {
+pub struct Session {
     window: String,
     info: SessionInfo,
-    input: Sender<Vec<u8>>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
+    chat: Mutex<Option<String>>,
+    input: Mutex<Option<Sender<Vec<u8>>>>,
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     output: Arc<Mutex<Output>>,
+    log: Arc<SharedLog>,
+    killed: AtomicBool,
 }
 
 #[derive(Default)]
@@ -78,12 +108,22 @@ pub struct TerminalState {
     next_id: AtomicU32,
     /// Where the shell integration scripts were installed, if they were.
     integration_dir: Mutex<Option<PathBuf>>,
+    /// The shell id the person chose in the panel, for tools that name no shell.
+    default_shell: Mutex<Option<String>>,
 }
 
 impl TerminalState {
     /// Remember the folder [`shell_integration::install`] wrote the scripts to.
     pub fn set_integration_dir(&self, dir: PathBuf) {
         *self.integration_dir.lock().expect("integration dir lock") = Some(dir);
+    }
+
+    /// The shell id the person made the default in the panel.
+    pub fn default_shell(&self) -> Option<String> {
+        self.default_shell
+            .lock()
+            .expect("default shell lock")
+            .clone()
     }
 
     fn get(&self, id: u32) -> Result<Arc<Session>, String> {
@@ -95,29 +135,149 @@ impl TerminalState {
             .ok_or_else(|| format!("terminal {id} is not running"))
     }
 
-    /// Kill every shell started by `window` (it closed).
-    pub fn kill_window(&self, window: &str) {
-        let sessions: Vec<Arc<Session>> = self
+    /// The newest session with tab key `key` (a restarted tab keeps its key).
+    pub fn find_by_key(&self, key: &str) -> Option<Arc<Session>> {
+        self.sessions
+            .lock()
+            .expect("terminal sessions lock")
+            .values()
+            .filter(|session| session.info.key == key)
+            .max_by_key(|session| session.info.id)
+            .cloned()
+    }
+
+    /// The sessions whose tabs belong to `chat` (running or exited), oldest first.
+    pub fn in_chat(&self, chat: &str) -> Vec<Arc<Session>> {
+        let mut sessions: Vec<Arc<Session>> = self
             .sessions
             .lock()
             .expect("terminal sessions lock")
             .values()
-            .filter(|session| session.window == window)
+            .filter(|session| session.chat().as_deref() == Some(chat))
             .cloned()
             .collect();
+        sessions.sort_by_key(|session| session.info.id);
+        sessions
+    }
+
+    /// Forget a session (its tab closed), ending its shell if it still runs.
+    pub fn close(&self, id: u32) {
+        let session = self
+            .sessions
+            .lock()
+            .expect("terminal sessions lock")
+            .remove(&id);
+        if let Some(session) = session {
+            if session.running() {
+                session.kill();
+            }
+        }
+    }
+
+    /// Add a session; the oldest exited ones beyond [`EXITED_KEPT`] are dropped.
+    fn insert(&self, session: Arc<Session>) {
+        let mut sessions = self.sessions.lock().expect("terminal sessions lock");
+        sessions.insert(session.info.id, session);
+        let mut exited: Vec<u32> = sessions
+            .values()
+            .filter(|s| !s.running())
+            .map(|s| s.info.id)
+            .collect();
+        if exited.len() > EXITED_KEPT {
+            exited.sort_unstable();
+            for id in &exited[..exited.len() - EXITED_KEPT] {
+                sessions.remove(id);
+            }
+        }
+    }
+
+    /// Kill every shell started by `window` (it closed) and forget its sessions.
+    pub fn kill_window(&self, window: &str) {
+        let sessions: Vec<Arc<Session>> = {
+            let mut all = self.sessions.lock().expect("terminal sessions lock");
+            let ids: Vec<u32> = all
+                .values()
+                .filter(|session| session.window == window)
+                .map(|session| session.info.id)
+                .collect();
+            ids.iter().filter_map(|id| all.remove(id)).collect()
+        };
         for session in sessions {
-            session.kill();
+            if session.running() {
+                session.kill();
+            }
         }
     }
 }
 
 impl Session {
     /// End the shell and everything it started.
-    fn kill(&self) {
+    pub fn kill(&self) {
+        self.killed.store(true, Ordering::SeqCst);
         if let Some(pid) = self.info.pid {
             kill_tree(pid);
         }
         let _ = self.killer.lock().expect("terminal killer lock").kill();
+    }
+
+    pub fn info(&self) -> SessionInfo {
+        SessionInfo {
+            chat: self.chat(),
+            ..self.info.clone()
+        }
+    }
+
+    pub fn id(&self) -> u32 {
+        self.info.id
+    }
+
+    pub fn key(&self) -> &str {
+        &self.info.key
+    }
+
+    pub fn shell(&self) -> &str {
+        &self.info.shell
+    }
+
+    pub fn cwd(&self) -> &str {
+        &self.info.cwd
+    }
+
+    pub fn owner(&self) -> Option<&str> {
+        self.info.owner.as_deref()
+    }
+
+    pub fn integration(&self) -> bool {
+        self.info.integration
+    }
+
+    pub fn chat(&self) -> Option<String> {
+        self.chat.lock().expect("session chat lock").clone()
+    }
+
+    pub fn log(&self) -> &Arc<SharedLog> {
+        &self.log
+    }
+
+    /// The shell has not exited.
+    pub fn running(&self) -> bool {
+        !self.log.with(|log| log.exited())
+    }
+
+    /// The exit code once the shell exited.
+    pub fn exit_code(&self) -> Option<i64> {
+        self.log.with(|log| log.exit_code())
+    }
+
+    /// Type bytes into the shell, in order with everything else the tab sends.
+    pub fn write(&self, data: Vec<u8>) -> Result<(), String> {
+        self.input
+            .lock()
+            .expect("session input lock")
+            .as_ref()
+            .ok_or_else(|| format!("terminal {} has exited", self.info.id))?
+            .send(data)
+            .map_err(|_| format!("terminal {} has exited", self.info.id))
     }
 }
 
@@ -249,22 +409,54 @@ fn resolve_shell(id: Option<&str>) -> Result<ShellInfo, String> {
         .ok_or_else(|| "no shell found on this computer".to_string())
 }
 
-/// Start a shell (`shell`: an id from `terminal_shells`, else the default) in
-/// `cwd` (else the home folder). Output streams to `on_event`.
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn terminal_spawn(
-    app: AppHandle,
-    window: Window,
-    state: State<'_, TerminalState>,
-    shell: Option<String>,
-    cwd: Option<String>,
-    cols: u16,
-    rows: u16,
-    owner: Option<String>,
-    integration: Option<bool>,
-    on_event: Channel<TerminalEvent>,
-) -> Result<SessionInfo, String> {
+/// Whether new terminals start with shell integration (the app setting, default on).
+pub fn integration_enabled(app: &AppHandle) -> bool {
+    app.state::<crate::db::Db>()
+        .with(|conn| evo_store::settings::all(conn))
+        .ok()
+        .and_then(|settings| settings.get(SHELL_INTEGRATION_KEY).cloned())
+        .is_none_or(|value| value != serde_json::Value::Bool(false))
+}
+
+/// How a session starts.
+pub struct SpawnOptions {
+    /// An id from `terminal_shells` (else the default shell).
+    pub shell: Option<String>,
+    /// The folder to start in (else the home folder).
+    pub cwd: Option<String>,
+    pub cols: u16,
+    pub rows: u16,
+    /// The chat that started the tab (an agent's), if not the person.
+    pub owner: Option<String>,
+    /// The chat whose tabs show it.
+    pub chat: Option<String>,
+    pub integration: bool,
+    /// The tab key the webview already uses for it; generated when absent or taken.
+    pub key: Option<String>,
+    /// Where output streams; without one the output waits in the backlog until `terminal_attach`.
+    pub channel: Option<Channel<TerminalEvent>>,
+}
+
+/// Start a shell for `window` (a window label) and register its session. The one
+/// body behind the `terminal_spawn` command (the webview) and the agent's
+/// terminal tools.
+pub async fn spawn_session(
+    app: &AppHandle,
+    window: &str,
+    options: SpawnOptions,
+) -> Result<Arc<Session>, String> {
+    let state = app.state::<TerminalState>();
+    let SpawnOptions {
+        shell,
+        cwd,
+        cols,
+        rows,
+        owner,
+        chat,
+        integration,
+        key,
+        channel,
+    } = options;
     // wsl:/wt:/vs: ids may query slow sources; keep that off the async executor.
     let chosen = tauri::async_runtime::spawn_blocking(move || resolve_shell(shell.as_deref()))
         .await
@@ -273,7 +465,7 @@ pub async fn terminal_spawn(
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .filter(|dir| dir.is_dir())
-        .unwrap_or_else(|| home_dir(&app));
+        .unwrap_or_else(|| home_dir(app));
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -283,7 +475,7 @@ pub async fn terminal_spawn(
             pixel_height: 0,
         })
         .map_err(|e| format!("could not open a terminal: {e}"))?;
-    let integrated = if integration.unwrap_or(true) {
+    let integrated = if integration {
         let dir = state
             .integration_dir
             .lock()
@@ -293,7 +485,7 @@ pub async fn terminal_spawn(
             let orig_zdotdir = std::env::var("ZDOTDIR")
                 .ok()
                 .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| home_dir(&app).to_string_lossy().into_owned());
+                .unwrap_or_else(|| home_dir(app).to_string_lossy().into_owned());
             shell_integration::plan(&chosen, &dir, &orig_zdotdir)
         })
     } else {
@@ -327,22 +519,37 @@ pub async fn terminal_spawn(
     let killer = child.clone_killer();
 
     let id = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+    // The webview's own key when it is free (a restarted tab reuses its key), else a new one.
+    let key = key
+        .filter(|wanted| !wanted.is_empty())
+        .filter(|wanted| {
+            state
+                .find_by_key(wanted)
+                .is_none_or(|session| !session.running())
+        })
+        .unwrap_or_else(|| format!("t{id}"));
+    let chat = chat.filter(|c| !c.is_empty());
     let info = SessionInfo {
         id,
+        key,
         shell_id: chosen.id.clone(),
         shell: chosen.name.clone(),
         cwd: cwd.to_string_lossy().into_owned(),
         pid: child.process_id(),
         owner: owner.filter(|o| !o.is_empty()),
+        chat: chat.clone(),
         integration: integrated.is_some(),
     };
     let output = Arc::new(Mutex::new(Output {
-        channel: Some(on_event),
+        channel,
         backlog: String::new(),
     }));
+    let log = Arc::new(SharedLog::new());
 
     // Keys and pastes, in order, off the main thread.
     let (input, keys) = mpsc::channel::<Vec<u8>>();
+    // The reader answers the pty's cursor-position query while no webview listens.
+    let queries = input.clone();
     std::thread::Builder::new()
         .name(format!("terminal-{id}-in"))
         .spawn(move || {
@@ -359,6 +566,7 @@ pub async fn terminal_spawn(
         .map_err(|e| e.to_string())?;
 
     let reader_output = output.clone();
+    let reader_log = log.clone();
     let reading = std::thread::Builder::new()
         .name(format!("terminal-{id}-out"))
         .spawn(move || {
@@ -373,6 +581,7 @@ pub async fn terminal_spawn(
                         if data.is_empty() {
                             continue;
                         }
+                        reader_log.feed(&data);
                         let mut out = reader_output.lock().expect("terminal output lock");
                         push_backlog(&mut out.backlog, &data);
                         if let Some(channel) = &out.channel {
@@ -380,6 +589,10 @@ pub async fn terminal_spawn(
                             if channel.send(TerminalEvent::Data { data }).is_err() {
                                 out.channel = None;
                             }
+                        } else if data.contains("\x1b[6n") {
+                            // ConPTY waits for an answer to its cursor query; xterm.js gives it
+                            // once a window shows the tab (it does not answer a replay).
+                            let _ = queries.send(b"\x1b[1;1R".to_vec());
                         }
                     }
                 }
@@ -388,44 +601,81 @@ pub async fn terminal_spawn(
         .map_err(|e| e.to_string())?;
 
     let session = Arc::new(Session {
-        window: window.label().to_string(),
-        info: info.clone(),
-        input,
-        master: Mutex::new(pair.master),
+        window: window.to_string(),
+        info,
+        chat: Mutex::new(chat),
+        input: Mutex::new(Some(input)),
+        master: Mutex::new(Some(pair.master)),
         killer: Mutex::new(killer),
         output: output.clone(),
+        log: log.clone(),
+        killed: AtomicBool::new(false),
     });
-    state
-        .sessions
-        .lock()
-        .expect("terminal sessions lock")
-        .insert(id, session);
+    state.insert(session.clone());
 
     // Wait for the shell to exit, then close the pty (on Windows the reader only
     // ends once the pseudo console closes), drain the output and report the exit.
-    let waiter_app = app.clone();
+    // The session stays listed (exited) until its tab is closed.
+    let waiting = session.clone();
     std::thread::Builder::new()
         .name(format!("terminal-{id}-wait"))
         .spawn(move || {
             let status = child.wait().ok();
-            let session = waiter_app
-                .state::<TerminalState>()
-                .sessions
-                .lock()
-                .expect("terminal sessions lock")
-                .remove(&id);
-            drop(session);
+            drop(waiting.master.lock().expect("terminal master lock").take());
+            drop(waiting.input.lock().expect("session input lock").take());
             let _ = reading.join();
+            let code = status.map(|s| s.exit_code());
+            // Under the output lock, so `terminal_attach` sees the exit once, either way round.
             let out = output.lock().expect("terminal output lock");
+            log.close(code.map(i64::from));
             if let Some(channel) = &out.channel {
                 let _ = channel.send(TerminalEvent::Exit {
-                    code: status.map(|s| s.exit_code()),
+                    code,
+                    killed: waiting.killed.load(Ordering::SeqCst),
                 });
             }
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(info)
+    Ok(session)
+}
+
+/// Start a shell (`shell`: an id from `terminal_shells`, else the default) in
+/// `cwd` (else the home folder). Output streams to `on_event`. `chat` is the
+/// chat whose tabs show it (the agent of that chat sees it); `key` the tab key
+/// the webview uses for it.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn terminal_spawn(
+    app: AppHandle,
+    window: Window,
+    shell: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    owner: Option<String>,
+    chat: Option<String>,
+    key: Option<String>,
+    integration: Option<bool>,
+    on_event: Channel<TerminalEvent>,
+) -> Result<SessionInfo, String> {
+    let session = spawn_session(
+        &app,
+        window.label(),
+        SpawnOptions {
+            shell,
+            cwd,
+            cols,
+            rows,
+            owner,
+            chat,
+            integration: integration.unwrap_or(true),
+            key,
+            channel: Some(on_event),
+        },
+    )
+    .await?;
+    Ok(session.info())
 }
 
 /// Keys or pasted text for a session.
@@ -435,11 +685,7 @@ pub fn terminal_write(
     id: u32,
     data: String,
 ) -> Result<(), String> {
-    state
-        .get(id)?
-        .input
-        .send(data.into_bytes())
-        .map_err(|_| format!("terminal {id} has exited"))
+    state.get(id)?.write(data.into_bytes())
 }
 
 #[tauri::command]
@@ -451,6 +697,9 @@ pub fn terminal_resize(
 ) -> Result<(), String> {
     let session = state.get(id)?;
     let master = session.master.lock().expect("terminal master lock");
+    let Some(master) = master.as_ref() else {
+        return Err(format!("terminal {id} has exited"));
+    };
     master
         .resize(PtySize {
             rows: rows.max(2),
@@ -469,6 +718,27 @@ pub fn terminal_kill(state: State<'_, TerminalState>, id: u32) {
     }
 }
 
+/// The tab of a session closed: stop its shell if it still runs and forget it.
+#[tauri::command]
+pub fn terminal_close(state: State<'_, TerminalState>, id: u32) {
+    state.close(id);
+}
+
+/// The chat whose tabs show a session changed (a tab found after a reload with
+/// no known chat joined the first chat shown).
+#[tauri::command]
+pub fn terminal_set_chat(state: State<'_, TerminalState>, id: u32, chat: Option<String>) {
+    if let Ok(session) = state.get(id) {
+        *session.chat.lock().expect("session chat lock") = chat.filter(|c| !c.is_empty());
+    }
+}
+
+/// The shell the person made the default in the panel: tools that name no shell start it.
+#[tauri::command]
+pub fn terminal_set_default_shell(state: State<'_, TerminalState>, shell: Option<String>) {
+    *state.default_shell.lock().expect("default shell lock") = shell.filter(|s| !s.is_empty());
+}
+
 /// The sessions this window started that are still running (after a reload).
 #[tauri::command]
 pub fn terminal_list(window: Window, state: State<'_, TerminalState>) -> Vec<SessionInfo> {
@@ -477,14 +747,15 @@ pub fn terminal_list(window: Window, state: State<'_, TerminalState>) -> Vec<Ses
         .lock()
         .expect("terminal sessions lock")
         .values()
-        .filter(|session| session.window == window.label())
-        .map(|session| session.info.clone())
+        .filter(|session| session.window == window.label() && session.running())
+        .map(|session| session.info())
         .collect();
     sessions.sort_by_key(|session| session.id);
     sessions
 }
 
 /// Send a running session's output to a new channel; returns the output so far.
+/// A shell that already exited reports its exit on the new channel at once.
 #[tauri::command]
 pub fn terminal_attach(
     state: State<'_, TerminalState>,
@@ -493,6 +764,14 @@ pub fn terminal_attach(
 ) -> Result<String, String> {
     let session = state.get(id)?;
     let mut out = session.output.lock().expect("terminal output lock");
+    if session.log.with(|log| log.exited()) {
+        let _ = on_event.send(TerminalEvent::Exit {
+            code: session
+                .exit_code()
+                .and_then(|code| u32::try_from(code).ok()),
+            killed: session.killed.load(Ordering::SeqCst),
+        });
+    }
     out.channel = Some(on_event);
     Ok(out.backlog.clone())
 }

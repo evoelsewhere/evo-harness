@@ -1150,6 +1150,7 @@ name = "evo-desktop"
 version = "4.0.0"
 dependencies = [
  "base64 0.23.1",
+ "chrono",
  "evo-mcp",
  "evo-mesh",
  "evo-plugins",
@@ -1160,6 +1161,7 @@ dependencies = [
  "libc",
  "png",
  "portable-pty",
+ "regex",
  "serde",
  "serde_json",
  "tauri",
@@ -1170,6 +1172,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "tokio-util",
  "webview2-com",
  "window-vibrancy",
  "windows 0.58.0",

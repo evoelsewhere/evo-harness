@@ -39,7 +39,13 @@ evo-mesh = { path = "../../../crates/evo-mesh" }
 evo-mcp = { path = "../../../crates/evo-mcp" }
 evo-plugins = { path = "../../../crates/evo-plugins" }
 serde_json = "1"
+# Agent tools the shell answers: cancel a call the engine dropped (src/agent_tools).
+tokio-util = "0.7"
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "time"] }
+# Terminal tools: regular expressions for waitFor, password prompts (src/agent_tools/terminal.rs).
+regex = "1"
+# Scheduler tools: next run of a schedule on the local clock (src/agent_tools/scheduler).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # "Open in" menu: app icons as PNG data URLs.
 base64 = "0.23"
 # Side panel terminal: a pseudo-terminal per tab (ConPTY on Windows).

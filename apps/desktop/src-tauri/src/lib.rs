@@ -6,6 +6,7 @@
 //! engine prints comes back as an `engine://message` event. Running the engine
 //! out of process means a crashing native extension cannot take the window down.
 
+mod agent_tools;
 mod apps;
 mod browser;
 mod db;
@@ -45,6 +46,7 @@ pub fn run() {
         .manage(window::MaterialState(Mutex::new(window::Material::None)))
         .manage(system::SystemState::default())
         .manage(terminal::TerminalState::default())
+        .manage(agent_tools::AgentTools::default())
         .manage(browser::BrowserState::default())
         .setup(|app| {
             // The session mesh hub: mail between chats' engines.
@@ -113,6 +115,12 @@ pub fn run() {
             mesh::mesh_hosted,
             mesh::mesh_configure,
             mesh::mesh_session_tools,
+            agent_tools::agent_tools_definitions,
+            agent_tools::agent_ask_answer,
+            agent_tools::agent_window_chat,
+            agent_tools::mcp::agent_mcp_chat_config,
+            agent_tools::app::panel::agent_panels_report,
+            agent_tools::user::agent_notify_muted,
             mesh::mesh_start_session,
             db::db_info,
             db::db_reveal,
@@ -152,8 +160,6 @@ pub fn run() {
             mcp::mcp_set_enabled,
             mcp::mcp_reconnect,
             mcp::mcp_set_permission,
-            mcp::mcp_chat_tools,
-            mcp::mcp_call,
             mcp::mcp_get_prompt,
             mcp::mcp_sign_in,
             mcp::mcp_sign_out,
@@ -199,9 +205,18 @@ pub fn run() {
             browser::browser_close,
             browser::browser_devtools,
             browser::browser_list,
+            browser::browser_select_tab,
+            browser::browser_set_chat,
             browser::browser_zoom,
             browser::browser_eval,
             browser::browser_cdp,
+            browser::browser_status,
+            browser::browser_cdp_subscribe,
+            browser::browser_cdp_events,
+            browser::browser_dialog_pending,
+            browser::browser_dialog_answer,
+            browser::browser_download_config,
+            browser::browser_downloads,
             terminal::terminal_shells,
             terminal::terminal_shells_extra,
             terminal::terminal_spawn,
@@ -210,6 +225,9 @@ pub fn run() {
             terminal::terminal_kill,
             terminal::terminal_list,
             terminal::terminal_attach,
+            terminal::terminal_close,
+            terminal::terminal_set_chat,
+            terminal::terminal_set_default_shell,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the evo desktop app")

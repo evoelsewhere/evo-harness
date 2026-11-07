@@ -4,8 +4,8 @@
 //! The pool reads `<agent dir>/mcp.json` (`~/.evo/agent/mcp.json`), connects
 //! the enabled servers in the background and emits `mcp://changed` whenever
 //! a status, tool list or setting changes; the UI then asks for `mcp_state`
-//! again and hands chats `mcp_chat_tools`. Chats call tools through
-//! `mcp_call` (the UI asks the person first for tools set to "ask").
+//! again. Chats get the connectors' tools and call them through the agent tools
+//! (`agent_tools/mcp.rs`), which ask the person first for tools set to "ask".
 
 use std::path::{Path, PathBuf};
 
@@ -99,26 +99,6 @@ pub fn mcp_set_permission(
     permission: Permission,
 ) -> Result<(), String> {
     state.0.set_permission(&name, &tool, permission)
-}
-
-/// The tools a chat in `cwd` gets (`mcp__<server>__<tool>`), with each one's
-/// permission: your connectors plus that project's approved servers.
-#[tauri::command]
-pub fn mcp_chat_tools(state: State<'_, McpState>, cwd: Option<String>) -> Vec<Value> {
-    state.0.chat_tools(cwd.as_deref().map(Path::new))
-}
-
-#[tauri::command]
-pub async fn mcp_call(
-    state: State<'_, McpState>,
-    name: String,
-    arguments: Option<Map<String, Value>>,
-    cwd: Option<String>,
-) -> Result<Value, String> {
-    state
-        .0
-        .call(&name, arguments, cwd.as_deref().map(Path::new))
-        .await
 }
 
 /// Sign in to a URL connector: the provider's page opens in the browser;

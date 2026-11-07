@@ -352,6 +352,7 @@ pub async fn engine_start(
                         json!({ "chat": out_chat, "generation": generation, "message": message }),
                     );
                     crate::mesh::on_line(&out_app, &out_chat, &message).await;
+                    crate::agent_tools::on_line(&out_app, &out_chat, &message).await;
                 }
                 Err(_) => {
                     out_app

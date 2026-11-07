@@ -1,0 +1,587 @@
+//! Agent tools the shell answers itself (ADR 0013).
+//!
+//! An engine asks for an app-side tool with an `external_tool_request` line.
+//! [`on_line`] (called from the engine's reader loop, beside the mesh hub) looks
+//! the tool up in the registry, runs it with the chat's [`ToolCtx`] and writes
+//! the `external_tool_response`. A call the engine drops (`external_tool_request_closed`)
+//! is cancelled. The webview only shows what the tools do (pages, shells,
+//! panels) and the questions they raise.
+//!
+//! Spec: docs/features/agent-browser (FR-22, FR-24), plan 3.1 – 3.5.
+
+pub mod app;
+pub mod browser;
+pub mod gate;
+pub mod mcp;
+pub mod scheduler;
+pub mod terminal;
+pub mod user;
+
+use std::collections::HashMap;
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
+
+use crate::db::Db;
+
+pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
+
+/// What a tool does to the page or the machine; the gate asks by class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Class {
+    /// Only reads: never asks.
+    Observe,
+    /// Moves the page on (clicks, typing, navigation).
+    Act,
+    /// Alters something the page or the person keeps (uploads, storage, mocks, scripts, commands).
+    Change,
+}
+
+/// One part of a tool's result.
+#[derive(Debug, Clone)]
+pub enum Content {
+    Text(String),
+    Image { data: String, mime_type: String },
+}
+
+/// A tool's result, as the engine reads it.
+#[derive(Debug, Clone)]
+pub struct ToolOutput {
+    pub content: Vec<Content>,
+    pub is_error: bool,
+    /// Data beside the text (`structuredContent`): what the transcript renders, e.g. the file cards.
+    pub structured: Option<Value>,
+}
+
+impl ToolOutput {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self { content: vec![Content::Text(text.into())], is_error: false, structured: None }
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self { content: vec![Content::Text(text.into())], is_error: true, structured: None }
+    }
+
+    /// The same result with `structuredContent` attached.
+    pub fn with_structured(mut self, structured: Value) -> Self {
+        self.structured = Some(structured);
+        self
+    }
+
+    /// An image followed by a line of text.
+    pub fn image(data: String, mime_type: &str, caption: impl Into<String>) -> Self {
+        Self {
+            content: vec![Content::Image { data, mime_type: mime_type.into() }, Content::Text(caption.into())],
+            is_error: false,
+            structured: None,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        let content: Vec<Value> = self
+            .content
+            .iter()
+            .map(|part| match part {
+                Content::Text(text) => json!({ "type": "text", "text": text }),
+                Content::Image { data, mime_type } => json!({ "type": "image", "data": data, "mimeType": mime_type }),
+            })
+            .collect();
+        let mut result = json!({ "content": content });
+        if let Some(structured) = &self.structured {
+            result["structuredContent"] = structured.clone();
+        }
+        if self.is_error {
+            result["isError"] = json!(true);
+        }
+        result
+    }
+}
+
+/// A tool: its definition for the engine, its class for the gate, and its body.
+pub struct Tool {
+    pub name: &'static str,
+    pub description: &'static str,
+    /// The JSON schema of its arguments.
+    pub schema: fn() -> Value,
+    pub class: Class,
+    /// The body. A tool that is not `Observe` must call [`ToolCtx::gate`] once it
+    /// knows the page or the folder it acts on, before it changes anything.
+    pub run: fn(ToolCtx, Value) -> BoxFuture<ToolOutput>,
+}
+
+/// Every tool the shell answers. Each group adds its `tools()` here.
+fn registry() -> &'static Vec<Tool> {
+    static REGISTRY: OnceLock<Vec<Tool>> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut tools = Vec::new();
+        // Groups register here, e.g. `tools.extend(browser::tools());`
+        tools.extend(app::tools());
+        tools.extend(browser::tools());
+        tools.extend(scheduler::tools());
+        tools.extend(terminal::tools());
+        tools.extend(user::tools());
+        tools.shrink_to_fit();
+        tools
+    })
+}
+
+fn find(name: &str) -> Option<&'static Tool> {
+    registry().iter().find(|tool| tool.name == name)
+}
+
+/// Tools that are not fixed: they depend on the chat (which connectors it has,
+/// which are switched off for it), so they are not in the static registry. A
+/// provider lists a chat's definitions and claims and runs the calls the
+/// registry does not know. The registry wins on a name both have.
+pub trait Provider: Send + Sync {
+    /// The extra tool definitions of `chat`, working in `folder` (the chat's own
+    /// folder when `None`), as `{name, description, inputSchema}`.
+    fn definitions_for(&self, app: AppHandle, chat: String, folder: Option<PathBuf>) -> BoxFuture<Vec<Value>>;
+    /// Whether this provider answers a call to `name`.
+    fn claims(&self, name: &str) -> bool;
+    /// Run a claimed call. The body may use [`ToolCtx::ask`]; it has no class, so
+    /// it does its own gating.
+    fn run(&self, ctx: ToolCtx, name: String, args: Value) -> BoxFuture<ToolOutput>;
+}
+
+/// Every dynamic provider. Each module adds itself here.
+static PROVIDERS: [&dyn Provider; 1] = [&mcp::Connectors];
+
+fn providers() -> &'static [&'static dyn Provider] {
+    &PROVIDERS
+}
+
+/// Who answers a call.
+enum Target<'a> {
+    Static(&'static Tool),
+    Dynamic(&'a dyn Provider),
+}
+
+/// The registry first, then the first provider that claims `name`.
+fn resolve<'a>(name: &str, providers: &'a [&'a dyn Provider]) -> Option<Target<'a>> {
+    if let Some(tool) = find(name) {
+        return Some(Target::Static(tool));
+    }
+    providers.iter().copied().find(|provider| provider.claims(name)).map(Target::Dynamic)
+}
+
+/// The registry's definitions followed by each provider's own, without a provider
+/// definition whose name the registry already has (or an earlier one has).
+fn merge_definitions(fixed: Vec<Value>, extra: Vec<Vec<Value>>) -> Vec<Value> {
+    let mut seen: std::collections::HashSet<String> =
+        fixed.iter().filter_map(|d| d.get("name").and_then(Value::as_str)).map(str::to_string).collect();
+    let mut all = fixed;
+    for definition in extra.into_iter().flatten() {
+        match definition.get("name").and_then(Value::as_str) {
+            Some(name) if seen.insert(name.to_string()) => all.push(definition),
+            _ => {}
+        }
+    }
+    all
+}
+
+pub(crate) fn static_definitions() -> Vec<Value> {
+    registry()
+        .iter()
+        .map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": (tool.schema)() }))
+        .collect()
+}
+
+/// What a running call knows: the app, the chat whose agent called, and when to stop.
+#[derive(Clone)]
+pub struct ToolCtx {
+    pub app: AppHandle,
+    pub chat: String,
+    /// The engine's id for the call (`requestId`).
+    pub request_id: String,
+    /// Cancelled when the engine drops the call (the run was stopped).
+    pub cancel: CancellationToken,
+    tool: &'static str,
+    class: Class,
+}
+
+impl ToolCtx {
+    /// Question the person in the chat's approval prompt: the chosen index, or -1
+    /// when the question became moot (the call was dropped).
+    pub async fn ask(&self, title: &str, description: &str, options: &[&str]) -> i32 {
+        ask_person(&self.app, &self.chat, &self.request_id, &self.cancel, title, description, options.iter().map(|o| o.to_string()).collect()).await
+    }
+
+    /// Run the approval gate for this call. `url` is the address it acts on
+    /// (empty when there is none); `summary` is a line for the person.
+    /// `Err` holds the result to return: the person declined, or the call ended.
+    pub async fn gate(&self, url: &str, summary: &str) -> Result<(), ToolOutput> {
+        let mode = self.approval_mode();
+        let ctx = self.clone();
+        let verdict = gate::check(self.tool, self.class, &mode, &self.chat, url, summary, move |title, description, options| {
+            let ctx = ctx.clone();
+            async move {
+                let options: Vec<&str> = options.iter().map(String::as_str).collect();
+                ctx.ask(&title, &description, &options).await
+            }
+        })
+        .await;
+        match verdict {
+            gate::Verdict::Allow => Ok(()),
+            gate::Verdict::Deny => Err(ToolOutput::error(format!("The person declined: {summary}"))),
+            gate::Verdict::Gone => Err(ToolOutput::text("")),
+        }
+    }
+
+    /// The approval mode now (`ask`, `auto-edits`, `auto`): read on every call, so a change applies at once.
+    pub fn approval_mode(&self) -> String {
+        crate::engine::approval_mode(&self.app.state::<Db>()).to_string()
+    }
+
+    /// Send an event to every window.
+    pub fn emit(&self, event: &str, payload: Value) {
+        let _ = self.app.emit(event, payload);
+    }
+
+    /// The window showing this chat (`main` when none reported it).
+    pub fn window(&self) -> String {
+        window_of_chat(&self.app, &self.chat)
+    }
+
+    /// The folder the chat works in: its worktree, else its workspace, else the home folder.
+    pub fn folder(&self) -> PathBuf {
+        chat_folder(&self.app, &self.chat)
+    }
+
+    /// Whether the call was dropped.
+    pub fn cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+}
+
+// ── The home folder of a chat ───────────────────────────────────────────────
+
+fn home() -> PathBuf {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The folder a chat works in.
+pub fn chat_folder(app: &AppHandle, chat: &str) -> PathBuf {
+    use evo_store::chats;
+    let db = app.state::<Db>();
+    let Ok(Some(row)) = db.with(|conn| chats::get_chat(conn, chat)) else {
+        return home();
+    };
+    if let Some(worktree) = row.worktree_path.filter(|p| !p.is_empty()) {
+        return PathBuf::from(worktree);
+    }
+    row.workspace_id
+        .and_then(|workspace| db.with(|conn| chats::get_workspace(conn, &workspace)).ok().flatten())
+        .map(|workspace| PathBuf::from(workspace.path))
+        .unwrap_or_else(home)
+}
+
+// ── State: calls in flight, open questions, which window shows which chat ───
+
+#[derive(Default)]
+pub struct AgentTools {
+    /// Calls in flight, by the engine's request id.
+    calls: Mutex<HashMap<String, CancellationToken>>,
+    /// Open questions, by question id: where to deliver the answer, and the chat.
+    asks: Mutex<HashMap<String, (oneshot::Sender<i32>, String)>>,
+    /// Which chat each window shows.
+    windows: Mutex<HashMap<String, String>>,
+    next: AtomicU64,
+}
+
+fn window_of_chat(app: &AppHandle, chat: &str) -> String {
+    app.state::<AgentTools>()
+        .windows
+        .lock()
+        .expect("windows lock")
+        .iter()
+        .find(|(_, shown)| shown.as_str() == chat)
+        .map(|(window, _)| window.clone())
+        .unwrap_or_else(|| "main".to_string())
+}
+
+/// A window shows `chat` now (or none): the webview reports it whenever its chat changes.
+#[tauri::command]
+pub fn agent_window_chat(state: State<'_, AgentTools>, window: Window, chat: Option<String>) {
+    let mut windows = state.windows.lock().expect("windows lock");
+    match chat {
+        Some(chat) => windows.insert(window.label().to_string(), chat),
+        None => windows.remove(window.label()),
+    };
+}
+
+/// The definitions of the tools the shell answers, for `configure_external_tools`:
+/// the registry's, plus (with a `chat`) the dynamic providers' for that chat
+/// (connector tools), the chat working in `folder` or else in its own folder.
+#[tauri::command]
+pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folder: Option<String>) -> Vec<Value> {
+    let mut extra = Vec::new();
+    if let Some(chat) = chat.filter(|c| !c.is_empty()) {
+        let folder = folder.filter(|f| !f.is_empty()).map(PathBuf::from);
+        for provider in providers() {
+            extra.push(provider.definitions_for(app.clone(), chat.clone(), folder.clone()).await);
+        }
+    }
+    merge_definitions(static_definitions(), extra)
+}
+
+/// The person's answer to a question a tool raised (`agent://ask`).
+#[tauri::command]
+pub fn agent_ask_answer(state: State<'_, AgentTools>, request_id: String, index: i32) {
+    if let Some((tx, _)) = state.asks.lock().expect("asks lock").remove(&request_id) {
+        let _ = tx.send(index);
+    }
+}
+
+async fn ask_person(
+    app: &AppHandle,
+    chat: &str,
+    call: &str,
+    cancel: &CancellationToken,
+    title: &str,
+    description: &str,
+    options: Vec<String>,
+) -> i32 {
+    let state = app.state::<AgentTools>();
+    let id = format!("agent-ask:{}", state.next.fetch_add(1, Ordering::Relaxed) + 1);
+    let (tx, rx) = oneshot::channel();
+    state.asks.lock().expect("asks lock").insert(id.clone(), (tx, chat.to_string()));
+    let _ = app.emit(
+        "agent://ask",
+        json!({ "chat": chat, "requestId": id, "callId": call, "title": title, "description": description, "options": options }),
+    );
+    tokio::select! {
+        answer = rx => answer.unwrap_or(-1),
+        _ = cancel.cancelled() => {
+            state.asks.lock().expect("asks lock").remove(&id);
+            let _ = app.emit("agent://ask-closed", json!({ "chat": chat, "requestId": id }));
+            -1
+        }
+    }
+}
+
+/// Run another registered tool inside this call (a batch step, a preview that
+/// starts a shell and opens a page): same chat and cancellation, the called
+/// tool's own class and gate.
+pub async fn call_tool(ctx: &ToolCtx, name: &str, args: Value) -> ToolOutput {
+    let Some(tool) = find(name) else {
+        return ToolOutput::error(format!("Unknown tool {name}."));
+    };
+    let inner = ToolCtx { tool: tool.name, class: tool.class, ..ctx.clone() };
+    (tool.run)(inner, args).await
+}
+
+// ── Dispatch ────────────────────────────────────────────────────────────────
+
+/// One stdout line of `chat`'s engine: answer an `external_tool_request` for a
+/// tool of the registry, cancel a call the engine dropped.
+pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
+    match line.get("type").and_then(Value::as_str) {
+        Some("external_tool_request") => {
+            let (Some(name), Some(request_id)) = (line.get("toolName").and_then(Value::as_str), line.get("requestId").and_then(Value::as_str)) else {
+                return;
+            };
+            // The registry first; a tool it does not know may be a provider's (connector tools).
+            let Some(target) = resolve(name, providers()) else {
+                return;
+            };
+            let args = line.get("arguments").cloned().unwrap_or(Value::Null);
+            let args = if args.is_null() { json!({}) } else { args };
+            let cancel = CancellationToken::new();
+            app.state::<AgentTools>().calls.lock().expect("calls lock").insert(request_id.to_string(), cancel.clone());
+            let (tool_name, class) = match &target {
+                Target::Static(tool) => (tool.name, tool.class),
+                Target::Dynamic(_) => ("dynamic", Class::Change),
+            };
+            let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id: request_id.to_string(), cancel: cancel.clone(), tool: tool_name, class };
+            let (app, chat, request_id, name) = (app.clone(), chat.to_string(), request_id.to_string(), name.to_string());
+            tauri::async_runtime::spawn(async move {
+                // The body runs in its own task so a panic becomes an error result, not a lost call.
+                let body = match target {
+                    Target::Static(tool) => tauri::async_runtime::spawn((tool.run)(ctx, args)),
+                    Target::Dynamic(provider) => tauri::async_runtime::spawn(provider.run(ctx, name, args)),
+                };
+                let output = match body.await {
+                    Ok(output) => output,
+                    Err(error) => ToolOutput::error(format!("The tool failed: {error}")),
+                };
+                app.state::<AgentTools>().calls.lock().expect("calls lock").remove(&request_id);
+                // The engine dropped the call (the run was stopped): nobody waits for an answer.
+                if cancel.is_cancelled() {
+                    return;
+                }
+                let answer = json!({
+                    "type": "external_tool_response",
+                    "id": format!("agent-tools-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1),
+                    "requestId": request_id,
+                    "result": output.to_json(),
+                });
+                let _ = app.state::<crate::engine::EngineState>().write(&chat, &answer).await;
+            });
+        }
+        Some("external_tool_request_closed") => {
+            if let Some(request_id) = line.get("requestId").and_then(Value::as_str) {
+                if let Some(cancel) = app.state::<AgentTools>().calls.lock().expect("calls lock").remove(request_id) {
+                    cancel.cancel();
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_result_reads_as_the_engine_expects() {
+        let ok = ToolOutput::text("done").to_json();
+        assert_eq!(ok["content"][0]["type"], "text");
+        assert_eq!(ok["content"][0]["text"], "done");
+        assert!(ok.get("isError").is_none());
+        let err = ToolOutput::error("no").to_json();
+        assert_eq!(err["isError"], true);
+        let image = ToolOutput::image("AAAA".into(), "image/jpeg", "a page").to_json();
+        assert_eq!(image["content"][0]["type"], "image");
+        assert_eq!(image["content"][0]["mimeType"], "image/jpeg");
+        assert_eq!(image["content"][1]["text"], "a page");
+        assert!(image.get("structuredContent").is_none());
+    }
+
+    #[test]
+    fn a_result_carries_structured_content_beside_its_text() {
+        let sent = ToolOutput::text("Sent 1 file to the chat: a.txt.").with_structured(json!({ "files": [{ "name": "a.txt" }] })).to_json();
+        assert_eq!(sent["content"][0]["text"], "Sent 1 file to the chat: a.txt.");
+        assert_eq!(sent["structuredContent"]["files"][0]["name"], "a.txt");
+        assert!(sent.get("isError").is_none());
+        let failed = ToolOutput::error("no").with_structured(json!({ "why": 1 })).to_json();
+        assert_eq!(failed["isError"], true);
+        assert_eq!(failed["structuredContent"]["why"], 1);
+    }
+
+    #[test]
+    fn every_registered_tool_has_a_unique_name_and_an_object_schema() {
+        let mut names = std::collections::HashSet::new();
+        for tool in registry() {
+            assert!(names.insert(tool.name), "duplicate tool {}", tool.name);
+            assert_eq!((tool.schema)()["type"], "object", "{}", tool.name);
+        }
+    }
+
+    /// A provider with one made-up tool and one that clashes with the registry.
+    struct Fake;
+
+    impl Provider for Fake {
+        fn definitions_for(&self, _app: AppHandle, chat: String, _folder: Option<PathBuf>) -> BoxFuture<Vec<Value>> {
+            let clash = registry().first().map(|t| t.name).unwrap_or("notify");
+            Box::pin(async move {
+                vec![
+                    json!({ "name": format!("fake_{chat}"), "description": "d", "inputSchema": { "type": "object" } }),
+                    json!({ "name": clash, "description": "shadow", "inputSchema": { "type": "object" } }),
+                ]
+            })
+        }
+
+        fn claims(&self, name: &str) -> bool {
+            name.starts_with("fake_") || registry().first().is_some_and(|t| t.name == name)
+        }
+
+        fn run(&self, _ctx: ToolCtx, name: String, _args: Value) -> BoxFuture<ToolOutput> {
+            Box::pin(async move { ToolOutput::text(name) })
+        }
+    }
+
+    #[test]
+    fn a_provider_answers_what_the_registry_does_not_know() {
+        let fake = Fake;
+        let providers: [&dyn Provider; 1] = [&fake];
+        assert!(matches!(resolve("fake_x", &providers), Some(Target::Dynamic(_))));
+        assert!(resolve("fake_x", &[]).is_none());
+        assert!(resolve("no_such_tool", &providers).is_none());
+    }
+
+    #[test]
+    fn the_registry_wins_a_name_a_provider_also_claims() {
+        let fake = Fake;
+        let providers: [&dyn Provider; 1] = [&fake];
+        let name = registry().first().expect("a registered tool").name;
+        assert!(fake.claims(name));
+        assert!(matches!(resolve(name, &providers), Some(Target::Static(tool)) if tool.name == name));
+    }
+
+    #[test]
+    fn the_first_claiming_provider_answers() {
+        struct Other;
+        impl Provider for Other {
+            fn definitions_for(&self, _: AppHandle, _: String, _: Option<PathBuf>) -> BoxFuture<Vec<Value>> {
+                Box::pin(async { Vec::new() })
+            }
+            fn claims(&self, name: &str) -> bool {
+                name == "fake_y"
+            }
+            fn run(&self, _: ToolCtx, _: String, _: Value) -> BoxFuture<ToolOutput> {
+                Box::pin(async { ToolOutput::text("other") })
+            }
+        }
+        let (other, fake) = (Other, Fake);
+        let providers: [&dyn Provider; 2] = [&other, &fake];
+        let Some(Target::Dynamic(provider)) = resolve("fake_y", &providers) else {
+            panic!("claimed");
+        };
+        assert!(provider.claims("fake_y") && !provider.claims("fake_z"));
+        let Some(Target::Dynamic(provider)) = resolve("fake_z", &providers) else {
+            panic!("claimed");
+        };
+        assert!(provider.claims("fake_z"));
+    }
+
+    #[test]
+    fn provider_definitions_follow_the_registrys_without_shadowing_it() {
+        let fixed = static_definitions();
+        let fixed_len = fixed.len();
+        let clash = registry().first().expect("a registered tool").name;
+        let extra = vec![
+            vec![
+                json!({ "name": "fake_c", "description": "d", "inputSchema": { "type": "object" } }),
+                json!({ "name": clash, "description": "shadow", "inputSchema": { "type": "object" } }),
+                json!({ "description": "nameless" }),
+            ],
+            vec![json!({ "name": "fake_c", "description": "again" }), json!({ "name": "fake_d" })],
+        ];
+        let all = merge_definitions(fixed, extra);
+        assert_eq!(all.len(), fixed_len + 2);
+        assert_eq!(all[fixed_len]["name"], "fake_c");
+        assert_eq!(all[fixed_len]["description"], "d");
+        assert_eq!(all[fixed_len + 1]["name"], "fake_d");
+        assert!(all.iter().filter(|d| d["name"] == clash).all(|d| d["description"] != "shadow"));
+    }
+
+    #[test]
+    fn without_a_provider_the_definitions_are_the_registrys() {
+        let all = merge_definitions(static_definitions(), Vec::new());
+        assert_eq!(all.len(), registry().len());
+        for (definition, tool) in all.iter().zip(registry()) {
+            assert_eq!(definition["name"], tool.name);
+            assert_eq!(definition["inputSchema"]["type"], "object");
+        }
+    }
+
+    #[test]
+    fn the_connector_provider_is_registered() {
+        assert!(providers().iter().any(|p| p.claims("mcp__github__create_issue")));
+        assert!(providers().iter().any(|p| p.claims("mcp_search_tools")));
+        // No static tool is named like a connector tool.
+        assert!(registry().iter().all(|t| !mcp::is_mcp_tool(t.name) && t.name != mcp::SEARCH_TOOL && t.name != mcp::CALL_TOOL));
+    }
+}
