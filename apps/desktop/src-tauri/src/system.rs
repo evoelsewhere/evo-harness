@@ -99,11 +99,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     if app.tray_by_id(TRAY_ID).is_some() {
         return Ok(());
     }
-    let open = MenuItem::with_id(app, "tray-open", "Open Evo Harness", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "tray-quit", "Quit Evo Harness", true, None::<&str>)?;
+    let name = crate::window::app_name();
+    let open = MenuItem::with_id(app, "tray-open", format!("Open {name}"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "tray-quit", format!("Quit {name}"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("Evo Harness")
+        .tooltip(name)
         .menu(&menu)
         // Left click opens the window; the menu is on right click.
         .show_menu_on_left_click(false)

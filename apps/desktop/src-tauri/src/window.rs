@@ -112,6 +112,16 @@ pub fn chat_window_focus(app: tauri::AppHandle, chat: String) -> bool {
 
 /// Show `chat` in a window of its own (or focus the one it has). Async: on
 /// Windows a window built from a synchronous command deadlocks.
+/// The name windows and the tray show. A debug build (`tauri dev`, `build:dev`)
+/// says "Dev", so it is not mistaken for the installed app.
+pub fn app_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "Evo Harness Dev"
+    } else {
+        "Evo Harness"
+    }
+}
+
 #[tauri::command]
 pub async fn chat_window_open(app: tauri::AppHandle, chat: String, title: String) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -120,7 +130,7 @@ pub async fn chat_window_open(app: tauri::AppHandle, chat: String, title: String
     }
     let id = serde_json::to_string(&chat).map_err(|e| e.to_string())?;
     let window = WebviewWindowBuilder::new(&app, chat_window_label(&chat), WebviewUrl::App("index.html".into()))
-        .title(if title.trim().is_empty() { "Evo Harness".to_string() } else { format!("{title} — Evo Harness") })
+        .title(if title.trim().is_empty() { app_name().to_string() } else { format!("{title} — {}", app_name()) })
         .inner_size(960.0, 780.0)
         .min_inner_size(520.0, 420.0)
         .decorations(false)

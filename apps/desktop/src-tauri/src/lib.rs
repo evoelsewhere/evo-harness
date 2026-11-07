@@ -59,6 +59,7 @@ pub fn run() {
                 "info",
                 "shell",
                 format!("evo desktop {} started", env!("CARGO_PKG_VERSION")),
+                let _ = main.set_title(window::app_name());
             ));
             // The main window starts hidden (tauri.conf.json) and shows here,
             // unless evo was started at sign-in into the tray.
