@@ -329,4 +329,18 @@ rules: they are fixed.
 
 ## 5. As-built notes
 
-Empty until `In progress`.
+Implemented 2026-11-07; verified in the running app the same day (tasks.md section 2); what could not be run there (WSL, pwsh 7, zsh, fish, Nushell, macOS) is marked `not run`.
+
+- **Output log and OSC 133.** The markers are parsed in `output-log.ts` from the raw pty stream (not in an xterm OSC handler), so a marker's offset matches the log exactly. Tests: `output-log.test.ts`, `tool-helpers.test.ts` (`bun test`; `tsconfig.json` excludes `*.test.ts`).
+- **Tool registration.** The terminal tools are registered by `engine-store.ts` from `features/terminal` (`TERMINAL_TOOLS`), not through `UI_TOOLS`; `browser/agent-tools.ts` no longer holds them. Calls run with an `AbortController` that the engine's `external_tool_request_closed` aborts.
+- **Per-chat read permission** lives in `features/terminal/agent-tools.ts` (module memory), not `engine-store.ts`.
+- **Shell list.** `terminal_shells` is fast; `terminal_shells_extra` (WSL, Windows Terminal profiles `wt:`, Visual Studio shells `vs:`) loads in the background and the store merges it. The `terminalShellIntegration` setting is stored as `terminal.shellIntegration` in the app settings and read at each spawn.
+- **Not implemented.** The sandbox `inheritEnv` rule for agent tabs (3.7) is not applied: agent tabs get the normal environment. Windows Terminal profiles are never integrated.
+- **Command Prompt** emits D without an exit code; its first prompt also emits D.
+- **Found and fixed while verifying (2026-11-07).**
+  - A fresh tab got its command before the shell was ready (the 300 ms quiet came during start-up), so `wait: true` fell back to "no shell integration" and PowerShell sometimes garbled the text. A tab with integration now waits for its first `B` marker (then 120 ms for the line editor); other tabs keep the quiet rule.
+  - `wait: true` looked for a `D` at or after the offset where the command was typed, and the previous command's `D` sits at exactly that offset, so back-to-back runs returned the old exit code at once. Markers now carry a sequence number (`OutputLog.markerSeq`, `commandSpan`); a shell that reports `C` ends a command only at the `D` after its own `C`.
+  - Bash's DEBUG trap never fires for a bare `( … )` or `{ …; }`, so those commands had no `C`/`D` and `wait: true` timed out. `evo.bash` now uses `PS0` (bash 4.4+) for `C` and reports `D` at every prompt after the first; older bash keeps the trap.
+  - `waitFor` matched the shell's echo of the typed command; the wait now starts after the echoed line (`afterEcho`), and falls back to scanning everything if the echo is not recognisable within 1.5 s.
+  - Command Prompt (ConPTY) moves to the next row with `ESC[row;1H`, not a line break; the log treats that as a line break.
+  - The output ring is trimmed to `LOG_MAX - 64 KiB` once over `LOG_MAX`, so it never holds more than 1 MiB.

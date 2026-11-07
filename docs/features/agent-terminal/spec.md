@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | desktop UI, desktop shell |
 | Created | 2026-11-07 |
 | Updated | 2026-11-07 |

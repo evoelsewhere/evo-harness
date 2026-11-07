@@ -27,7 +27,8 @@ Where these tools sit among everything a full desktop agent offers:
 | Subagents (`agent`, `message_agent`), nested sessions | built in |
 | Skills (`skill`), memory (`memory`) | built in |
 | Web search and fetch | built in (`web_search`, `web_fetch`) |
-| Browser, terminal, show a file in the app | desktop tools (`browser_*`, `terminal_*`, `show_file`) |
+| Browser, show a file in the app | desktop tools (`browser_*`, `show_file`) |
+| Terminal: list shells and tabs, run, send keys, read, wait, stop | desktop tools (`terminal_list`, `terminal_run`, `terminal_send`, `terminal_read`, `terminal_kill`); gated by the approval mode, see [agent terminal](../agent-terminal/spec.md) |
 | Connectors (MCP) and tool search | desktop |
 | Scheduled tasks | desktop (`create_scheduled_task`, …) |
 | Questions with options | `ask_user` |

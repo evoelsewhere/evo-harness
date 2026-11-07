@@ -10,7 +10,7 @@ header. Work still planned for a feature shows as unticked tasks in its
 
 | Feature | Status | Area | Docs |
 | --- | --- | --- | --- |
-| [Agent terminal: shell choice and interactive tools](agent-terminal/spec.md) — `terminal_*` tools, shell discovery, approvals, shell integration | Accepted | desktop UI, shell | [plan](agent-terminal/plan.md) · [tasks](agent-terminal/tasks.md) |
+| [Agent terminal: shell choice and interactive tools](agent-terminal/spec.md) — `terminal_*` tools, shell discovery, approvals, shell integration | In progress | desktop UI, shell | [plan](agent-terminal/plan.md) · [tasks](agent-terminal/tasks.md) |
 | [Agent tools for working with the person](agent-tools/spec.md) — `ask_user`, `update_todos`, `send_file`, `notify` | Implemented | engine, desktop UI | [plan](agent-tools/plan.md) · [tasks](agent-tools/tasks.md) |
 | [Application database and provider settings](app-database/spec.md) — `evo.db`, migrations, models.dev cache | Implemented | `evo-store`, engine, shell | [plan](app-database/plan.md) · [tasks](app-database/tasks.md) |
 | [Approval modes enforced in the engine](approval-modes/spec.md) — ask / approve edits / approve for me on every tool call, chat grants | In progress | engine, protocol, shell, desktop UI | [plan](approval-modes/plan.md) · [tasks](approval-modes/tasks.md) |
