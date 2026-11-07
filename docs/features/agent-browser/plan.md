@@ -173,4 +173,33 @@ Shell ↔ webview (additive, camelCase):
 
 ## 6. As-built notes
 
-n/a — empty until the status is `In progress`.
+Recorded 2026-11-08.
+
+- **Page dialogs (FR-4).** The app's dialog plugin replaces `window.alert` and
+  `window.confirm` in every webview and frame with promise-returning versions, and
+  its script runs before ours, so the real functions cannot be captured in the
+  page's own world (the hidden-iframe idea in the first draft does not work: the
+  helper frame is overridden too). The shell instead registers an isolated world
+  (`evo-dialogs`, `browser/hooks.rs`) holding the real functions; the page script's
+  replacements call into it through a synchronous DOM event, so the page blocks in a
+  real dialog that `ScriptDialogOpening` holds for `browser_dialog`. New-document
+  scripts need the Page domain enabled in WebView2, and a tab's first document is
+  created before the script is registered, so the world is also created in the
+  current document after every navigation. `prompt` was never overridden and needs
+  none of this. Without DevTools (other platforms) the page script's fallback log
+  answers dialogs instead.
+- **Mobile viewport (FR-11).** A page reads its viewport meta tag only when it loads,
+  so `browser_viewport` takes `reload` and says so in its result when a mobile
+  preset is applied without it.
+- **Downloads (FR-16).** The "download from an untrusted origin asks" rule is not
+  implemented: with no folder set every download is cancelled and listed as
+  blocked, and setting the folder (a command-class change that asks) is the
+  person's approval for pages to save there. The folder is one app-wide setting.
+- **Classes.** `Observe` / `Act` / `Change` became `Read` / `Edit` / `Command`
+  ([agent-tools-layers](../agent-tools-layers/spec.md), FR-7); behaviour is the same.
+- **Not done:** `preview_start` against a real `.evo/launch.json` was not run in the
+  app; the window-hidden case, element and region screenshots, `browser_mock`
+  blocking, the script path (non-Windows) and NFR-1 – NFR-3 are unverified (see the
+  verification table).
+- **Environment.** In the test environment `https://example.com` failed with
+  `ERR_QUIC_PROTOCOL_ERROR` inside WebView2 (not the tools); local pages were used.

@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | engine, desktop shell, desktop UI |
 | Created | 2026-11-08 |
 | Updated | 2026-11-08 |

@@ -113,11 +113,15 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   intent. Only `stores/engine-store.ts` talks to the engine client.
 - Some agent tools are implemented by the app and offered to the engine as
   **external tools** over the protocol; the engine still runs the loop and
-  the permission checks. The browser, terminal and app-control tools and the
-  session tools run in the Rust shell, which answers their requests itself
-  ([ADR 0013](decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md));
-  `show_file`, `send_file`, `notify` and the scheduler tools are answered by the
-  webview.
+  the permission checks. Every one of them runs in the Rust shell, which
+  answers the requests itself, so they work with the window hidden: the
+  browser, terminal, app-control, session, scheduler and connector tools and
+  `show_file`, `send_file` and `notify`
+  ([ADR 0013](decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md),
+  [ADR 0014](decisions/0014-agent-tools-by-layer.md)). The webview only shows
+  what they open and ask. The shell's tools share one registry
+  (`agent_tools/mod.rs`), the engine's classes (read / edit / command) and one
+  approval gate (`agent_tools/gate.rs`).
 
 ## 5. Building blocks
 

@@ -116,4 +116,19 @@ None.
 
 ## 6. As-built notes
 
-n/a — empty until the status is `In progress`.
+Recorded 2026-11-08.
+
+- **Classes.** The shell's `Class` is `Read` / `Edit` / `Command` (was `Observe` /
+  `Act` / `Change`); an edit asks only in "Ask every time" and only off this
+  machine, a command asks in "Ask every time" and "Approve edits".
+- **tool-kinds.ts** holds the tool-name → kind map and the `Kind` type only; the
+  per-kind icons, verbs and the label functions (`terminalLabel`, `browserLabel`)
+  stay in `tool.tsx` because they depend on its `ToolPart` type. FR-8 holds for
+  adding a tool's kind; its row wording still lives in `tool.tsx`.
+- **Webview.** `engine-store.ts` no longer answers external tool requests at all
+  (the early return is deliberate: the shell answers every one, an unknown name
+  included); `external_tool_request_closed` still drops a pending approval.
+- **Order of commits.** The shell move and the webview removal landed as two commits
+  (`feat(desktop): agent tools run in the Rust shell…`, `refactor(desktop): the
+  webview no longer runs agent tools`); the engine tool table and regrouping
+  landed earlier.

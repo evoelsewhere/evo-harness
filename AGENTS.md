@@ -111,7 +111,9 @@ bun run dev:app            # stage the engine sidecar, then tauri dev
 bun run build:dev          # debug build + NSIS installer
 ```
 
-Desktop shell Rust: `cd apps/desktop/src-tauri && cargo check`.
+Desktop shell Rust: `cd apps/desktop/src-tauri && cargo check`; its tests run
+with `bun run test:shell` (on Windows a bare `cargo test` there ends with
+0xc0000139: the script adds the Common Controls manifest the test exe needs).
 
 ## Running and verifying the desktop app
 
