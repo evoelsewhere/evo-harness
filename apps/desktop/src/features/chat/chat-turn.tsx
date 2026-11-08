@@ -276,12 +276,6 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
           </button>
         )}
 
-        {sentFiles.map((sent) => (
-          <div key={sent.key} className="@container -ml-7">
-            <SentFiles files={sent.files} caption={sent.caption} />
-          </div>
-        ))}
-
         {shown.map((segment, index) =>
           segment.kind === "text" ? (
             <Markdown key={segment.key} streaming={segment.streaming}>
@@ -300,6 +294,12 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
             />
           ),
         )}
+
+        {sentFiles.map((sent) => (
+          <div key={sent.key} className="@container -ml-7">
+            <SentFiles files={sent.files} caption={sent.caption} />
+          </div>
+        ))}
 
         {turn.error && (
           <div className="flex items-start gap-2 text-sm text-destructive" data-selectable>
