@@ -254,3 +254,25 @@ Phase 4 (bodies), 2026-11-08:
   Windows and the panel keeps its native page (NFR-3); not run here.
 - **Cards cascade tightly** (24 px across, 32 px down): a second card covers most of the
   first until it is dragged or minimized.
+
+Phase 5 and the virtual cursor (FR-17), 2026-11-08:
+
+- **Virtual cursor.** Every DevTools mouse event an agent tool sends goes through
+  `Page::cdp`, which now first tells the window (`browser://pointer { tab, chat, kind,
+  x, y }`, kind move / down / up / wheel; `browser/stage.rs::pointer_payload`). The
+  window keeps the newest pointer per page (`stage-stream.ts`) and the canvas draws
+  `AgentCursor` over the picture: an arrow that glides (150 ms) to the mapped point
+  (`toDisplayPoint`, the inverse of `toPagePoint`), a grey ring that spreads at each
+  press, hidden four seconds after the last event. Reduced motion is handled by the
+  app's global rule. Checked live: a click on the test page showed the arrow and
+  ring over the button with "Clicking ref_1" on the bar.
+- **Focus (FR-11).** With approvals on, a pending approval replaces the composer
+  (existing behaviour), so the composer loses focus then; a card appearing does not
+  take it (checked in Approve-for-me mode: the composer stayed focused).
+- Checked in the running app in two chats: FR-5 (a 710×432 layer kept the card inside),
+  FR-8 (a page marker and a typed value survived card → chip → card → panel),
+  FR-12 (an open menu overlapping a card was on top), FR-13 (three cards and a chip),
+  FR-15 (a page opened by the person got no card), FR-16 (closing the tab removed
+  card and chip), NFR-1 (about 10 frames a second during a drag, the card followed the
+  pointer exactly), NFR-2 (one webview per tab), NFR-4 (an approval showed in the chat
+  and in no card).

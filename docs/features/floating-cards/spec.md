@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | Implemented |
 | Area | desktop UI, desktop shell |
 | Created | 2026-11-08 |
 | Updated | 2026-11-08 |
@@ -123,6 +123,18 @@ Acceptance scenarios:
 2. **Given** a small card, **then** the page is shown scaled to fit, not reflowed.
 3. **Given** `browser_viewport` set a size, **then** that size wins.
 
+### US-7 See what the agent points at (priority P2)
+
+The person watches a card while the agent works and wants to see where it clicks,
+as with a person's mouse on a shared screen.
+
+Acceptance scenarios:
+
+1. **Given** a page card, **when** the agent clicks, hovers, drags or scrolls at a point,
+   **then** a cursor glides there over the picture and a ring spreads where it presses.
+2. **Given** the agent stops, **then** the cursor fades after a few seconds.
+3. **Given** the same page in the side panel, **then** the same cursor shows there.
+
 ### Edge cases
 
 - A menu or dialog open over the chat: cards hide behind it as pages in the
@@ -157,6 +169,7 @@ Acceptance scenarios:
 | FR-14 | A setting "Show cards while the agent works" (default on) turns automatic cards off; the chips remain and bring a card up on click. | Setting off: no card appears by itself. |
 | FR-15 | Cards appear only for tabs the agent opened or acted on; pages and shells the person opened stay in the panel. | A page opened by the person has no card. |
 | FR-16 | A card and its chip go when the tab closes. | Closing the tab removes both. |
+| FR-17 | An agent's pointer shows as a virtual cursor over the page's picture, in a card and in the panel: an arrow that glides to the point of each mouse action of a tool (move, press, release, wheel), a ring that spreads at a press, fading a few seconds after the last action. It is drawn over the picture only, never in the page, and is not the person's own mouse. | US-7: a click shows the arrow and the ring at the page's button. |
 
 ### 4.2 Non-functional
 
@@ -193,6 +206,7 @@ None.
 
 ## 7. History
 
+- 2026-11-08 — Added FR-17 (the virtual cursor) at the person's request, with a picture of the wanted look: a dark arrow and a grey click ring.
 - 2026-11-08 — Accepted by the person; plan and tasks written.
 - 2026-11-08 — Clarified: auto cards with a setting, interactive browser card, desktop viewport in the panel too.
 - 2026-11-08 — Draft: research on ChatGPT's desktop PiP (no primary source), then the person chose cards in the main window per session, for browser and terminal, with a desktop viewport.
