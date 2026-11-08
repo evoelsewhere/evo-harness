@@ -760,7 +760,8 @@ fn walk_archive(
             }
             for i in 0..zip.len() {
                 let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
-                let path = safe_entry_name(file.name())?;
+                let name = file.name().map_err(|e| e.to_string())?;
+                let path = safe_entry_name(&name)?;
                 if file
                     .unix_mode()
                     .is_some_and(|mode| mode & 0o170000 == 0o120000)
@@ -1755,27 +1756,24 @@ mod tests {
         // The headers now claim one byte for the sidecar that really holds 200.
         understate_entry(&mut archive, "runtime/main.mjs", 1);
 
-        // The walker sees a small entry, so only the read budget can stop the bytes.
+        // The walker sees a small entry. Since zip 9 the reader itself refuses an entry that holds
+        // more bytes than its header declares; before, only the read budget could stop the bytes.
+        // Either way the lying archive is rejected, with or without room in the budget.
         let exact = (library.len() + index.len() + worker.len()) as u64;
-        let limits = ArchiveLimits {
-            per_file: u64::MAX,
-            total: exact - 1,
-        };
-        let error = extract_contents_with_limits(&archive, "zip", "custom_runtime.dll", limits)
-            .err()
-            .unwrap();
-        assert!(
-            error.contains("expanded archive exceeds size limit"),
-            "{error}"
-        );
-
-        let limits = ArchiveLimits {
-            per_file: u64::MAX,
-            total: exact,
-        };
-        let contents =
-            extract_contents_with_limits(&archive, "zip", "custom_runtime.dll", limits).unwrap();
-        assert_eq!(contents.assets[0].bytes, worker);
+        for total in [exact - 1, exact] {
+            let limits = ArchiveLimits {
+                per_file: u64::MAX,
+                total,
+            };
+            let error = extract_contents_with_limits(&archive, "zip", "custom_runtime.dll", limits)
+                .err()
+                .unwrap();
+            assert!(
+                error.contains("larger than its declared uncompressed size")
+                    || error.contains("expanded archive exceeds size limit"),
+                "{error}"
+            );
+        }
     }
 
     #[test]

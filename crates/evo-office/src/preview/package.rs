@@ -47,7 +47,12 @@ impl Package {
             if entry.is_dir() {
                 continue;
             }
-            let name = entry.name().trim_start_matches('/').to_string();
+            // A part whose name the zip reader refuses (unsafe or not valid text) makes the package unreadable.
+            let name = entry
+                .name()
+                .map_err(|e| PreviewError::failed(format!("Could not read this document: {e}")))?
+                .trim_start_matches('/')
+                .to_string();
             let mut data = Vec::with_capacity(entry.size() as usize);
             entry
                 .read_to_end(&mut data)

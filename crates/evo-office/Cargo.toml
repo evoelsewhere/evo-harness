@@ -13,7 +13,7 @@ description = "Optional pinned LibreOffice runtime for evo: verified install and
 base64 = { workspace = true }
 regex = { workspace = true }
 roxmltree = "0.20"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 flate2 = "1"
 reqwest = { workspace = true }
 serde = { workspace = true }

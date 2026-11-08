@@ -49,7 +49,7 @@ percent-encoding = "2"
 ring = "0.17"
 flate2 = "1"
 tar = "0.4"
-zip = { version = "2.4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 dirs = { workspace = true }
 rpassword = { workspace = true }
 tempfile = { workspace = true }
