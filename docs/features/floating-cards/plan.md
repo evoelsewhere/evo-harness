@@ -287,3 +287,36 @@ Terminal cards dropped, 2026-11-08 (the person's request):
   the side panel (`terminal-store.ts`): it is in the Terminal tool when opened.
 - Checked in the app: `terminal_run` from an agent chat ran with the panel closed, no
   card and no chip, and the tab `t1` was running in the terminal store.
+
+Exploratory run as a person, 2026-11-08 (real mouse and keys over DevTools in the running app):
+
+- **Passed:** two pages opened by an agent with the panel closed (two cards); a login done
+  by hand on a card (click the fields on the picture, type, Tab, submit: the page said
+  "welcome bob"); a window reload (cards come back with their pictures); the person's own
+  tab that an agent then uses (the panel switches to the picture, 1280×800); the panel's
+  address bar, Back and Reload on a staged page; an agent's dev server with the panel
+  closed (the person opens the Terminal tool later and sees the output, including the
+  page's request log, types into it, the agent kills it); two chats (shells and cards stay
+  apart, come back on return); a denied command in Approve every time ran nothing and made
+  no card.
+- **Found and fixed:**
+  1. A still page showed "Waiting for the page…" for ever: a screencast sends a frame
+     only when the page changes, and a window that starts (or, after a reload, asks again
+     for) frames gets a picture taken at once (`send_still`).
+  2. After the first change, a still page's picture froze: the screencast ran with
+     `everyNthFrame` 5, which skips the single frame of a page that changes now and then.
+     The page now sends every frame and the shell keeps the rate itself (`Streams::offer`,
+     the newest frame is never lost: a timer sends it when the gap is over).
+  3. A card stayed busy for ever after a call that opened a page (it started on the page
+     in view and ended on the new one): the end now clears the card the start marked
+     (by request id), and the words of a finished call fade after 2.5 s.
+  4. A page dialog the person caused with a click on a card (a `confirm()`) was never shown:
+     the app's capabilities lacked `dialog:allow-ask` and `dialog:allow-message`, so the question
+     failed silently and the page waited for the shell's time limit; and while an agent drove
+     the page the window left every dialog to the agent. Both fixed: the permissions are
+     granted, a dialog right after the person pressed something on a picture is the person's
+     (`user-input.ts`), and a question that cannot be shown dismisses the dialog at once.
+     Checked: a click on the picture opened the app's own "This page asks" window and closing
+     it released the page with `confirm:false`.
+  5. "Open in side panel" minimized the card, so it did not come back after the panel closed;
+     now the card is only hidden while the panel shows its page.

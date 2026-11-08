@@ -99,7 +99,8 @@ Acceptance scenarios:
 2. **Given** a minimized card, **then** a chip with its icon and title is in the
    chat's chip row; clicking it brings the card back.
 3. **Given** a card, **when** "open in panel" is used, **then** the side panel opens
-   on that tab and the card goes away (no duplicate).
+   on that tab and the card is not drawn while the panel shows it (no duplicate);
+   **when** the panel closes or shows another tool, **then** the card is back.
 
 ### US-5 Take over a page (priority P2)
 
@@ -160,7 +161,7 @@ Acceptance scenarios:
 | FR-3 | Cards belong to a chat: only the showing chat's cards are visible; others keep running; positions, sizes and minimized state are kept per chat and tab. | US-3 |
 | FR-4 | Minimized or hidden cards are chips in a row above the composer, in the chat's order; a chip shows the tab's icon and title and brings its card back. | US-4.2 |
 | FR-5 | A card can be dragged and resized inside the chat area; it opens at a default place that does not cover the composer, stacking from the top right; a window resize keeps it inside. | US-4.1 |
-| FR-6 | "Open in panel" opens the side panel on that tab and removes its card; a tab shown in the panel has no card. | US-4.3 |
+| FR-6 | "Open in panel" opens the side panel on that tab; a page the panel is showing has no card, and the card returns when the panel closes or shows something else (also when the person opens the Browser tool on that page by hand). | US-4.3 |
 | FR-7 | A browser card is interactive: clicks, typing and scrolling reach the page. | US-5 |
 | FR-8 | Moving a page between card, chip and panel never reloads it. | Page state survives the moves. |
 | FR-9 | A page the agent drives lays out at a desktop viewport (default 1280×800) whether it is in a card, in the panel or hidden; cards and the panel show it scaled to fit. A size set with `browser_viewport` wins. | US-6 |
@@ -210,6 +211,7 @@ None.
 
 ## 7. History
 
+- 2026-11-08 — FR-6 changed at the person's question: a card is hidden only while the panel shows its page and comes back after.
 - 2026-11-08 — Dropped terminal cards at the person's request (US-2, FR-1, FR-2, FR-7, FR-8, FR-15, NFR-3 now about pages); FR-18: a shell runs silently.
 - 2026-11-08 — Added FR-17 (the virtual cursor) at the person's request, with a picture of the wanted look: a dark arrow and a grey click ring.
 - 2026-11-08 — Accepted by the person; plan and tasks written.
