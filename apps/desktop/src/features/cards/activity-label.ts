@@ -1,4 +1,4 @@
-// What the agent is doing, in a few words, for a card's bar. The shell sends the
+// What the agent is doing on a page, in a few words, for a card's bar. The shell sends the
 // tool's name and a few short arguments (`agent://activity`); the rows of the
 // transcript use their own, longer wording (components/ai-elements/tool.tsx).
 
@@ -38,19 +38,10 @@ const BROWSER: Record<string, (a: Args) => string> = {
   browser_frames: () => "Listing frames",
 };
 
-const TERMINAL: Record<string, (a: Args) => string> = {
-  terminal_run: (a) => `Running ${text(a.command, 40)}`,
-  terminal_send: () => "Sending input",
-  terminal_read: () => "Reading output",
-  terminal_kill: () => "Stopping",
-  terminal_list: () => "Listing shells",
-};
-
 /** The words for a tool call; `null` for a tool a card has nothing to say about. */
 export function activityLabel(tool: string, args: Args = {}): string | null {
-  const make = BROWSER[tool] ?? TERMINAL[tool];
+  const make = BROWSER[tool];
   if (make) return make(args);
   if (tool.startsWith("browser_")) return "Using the page";
-  if (tool.startsWith("terminal_")) return "Using the shell";
   return null;
 }

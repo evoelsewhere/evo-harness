@@ -1,11 +1,11 @@
-import { GlobeIcon, TerminalIcon } from "lucide-react";
+import { GlobeIcon } from "lucide-react";
 import { useEngineStore } from "@/stores/engine-store";
 import { useCardsStore, type Card } from "@/stores/cards-store";
 import { useCardTitle, useChatCards } from "./use-cards";
 
 function Chip({ chat, card }: { chat: string; card: Card }) {
   const title = useCardTitle(card);
-  const Icon = card.kind === "browser" ? GlobeIcon : TerminalIcon;
+  const Icon = GlobeIcon;
   return (
     <button
       type="button"

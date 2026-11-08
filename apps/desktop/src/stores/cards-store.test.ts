@@ -18,9 +18,8 @@ Reflect.deleteProperty(globalThis, "document");
 
 const { useUiStore } = await import("./ui-store");
 const { useBrowserStore } = await import("./browser-store");
-const { useTerminalStore } = await import("./terminal-store");
 await import("./cards-sync");
-const { useCardsStore, cardKey, clampRect, defaultSize, slotRect, split, MAX_VISIBLE } = await import("./cards-store");
+const { useCardsStore, clampRect, defaultSize, slotRect, split, MAX_VISIBLE } = await import("./cards-store");
 
 if (savedDocument !== undefined) Object.defineProperty(globalThis, "document", { value: savedDocument, configurable: true, writable: true });
 
@@ -29,7 +28,7 @@ const reset = () => {
   useUiStore.setState({ agentCards: true });
 };
 const cards = (chat: string) => useCardsStore.getState().cards[chat] ?? [];
-const ensure = (chat: string, id: string, kind: "browser" | "terminal" = "browser") => useCardsStore.getState().ensure(chat, kind, id);
+const ensure = (chat: string, id: string) => useCardsStore.getState().ensure(chat, "browser", id);
 
 describe("cards per chat", () => {
   beforeEach(reset);
@@ -44,9 +43,6 @@ describe("cards per chat", () => {
     ensure("a", "browser-1");
     ensure("a", "browser-1");
     expect(cards("a")).toHaveLength(1);
-    ensure("a", "browser-1", "terminal");
-    expect(cards("a")).toHaveLength(2);
-    expect(cards("a")[1].key).toBe(cardKey("terminal", "browser-1"));
   });
 
   test("a fourth tab is a chip, and the setting off makes every card a chip", () => {
@@ -99,7 +95,7 @@ describe("cards per chat", () => {
     expect(cards("b")).toEqual([]);
   });
 
-  test("closing a page or a shell in its store removes its card", () => {
+  test("closing a page in its store removes its card", () => {
     const tab = { id: "browser-7", url: "http://x.test/", title: "", loading: false, chat: "a" };
     useBrowserStore.setState({ all: [tab] });
     ensure("a", "browser-7");
@@ -109,11 +105,6 @@ describe("cards per chat", () => {
     ensure("a", "browser-8");
     useBrowserStore.setState({ all: [] });
     expect(cards("a")).toHaveLength(1);
-    const shell = { key: "t1", ptyId: 1, shellId: "pwsh", shell: "PowerShell", cwd: "", title: "", status: "running" as const, owner: "a", integration: false, chat: "a" };
-    useTerminalStore.setState({ tabs: [shell] });
-    ensure("a", "t1", "terminal");
-    useTerminalStore.setState({ tabs: [] });
-    expect(cards("a").map((c) => c.key)).toEqual(["browser:browser-8"]);
   });
 
   test("a chat that is gone forgets its cards", () => {
@@ -145,9 +136,8 @@ describe("placement", () => {
     expect(clampRect({ x: -50, y: -50, w: 360, h: 261 }, layer)).toMatchObject({ x: 0, y: 0 });
   });
 
-  test("a page card is 16:10 under its bar and a shell card is not", () => {
+  test("a page card is 16:10 under its bar", () => {
     const page = defaultSize("browser");
-    expect(Math.round((page.h - 32) / page.w * 160)).toBe(100);
-    expect(defaultSize("terminal").h).not.toBe(page.h);
+    expect(Math.round(((page.h - 32) / page.w) * 160)).toBe(100);
   });
 });

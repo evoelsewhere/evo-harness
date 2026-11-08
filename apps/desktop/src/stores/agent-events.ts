@@ -19,7 +19,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notify } from "@/features/notifications/notify";
 import { inTauri } from "@/lib/platform";
 import { activityLabel } from "@/features/cards/activity-label";
-import type { CreatedPty } from "@/features/terminal/pty";
 import { cardKey, useCardsStore } from "./cards-store";
 import { openFile } from "./files-store";
 import { useNotificationStore } from "./notification-store";
@@ -58,7 +57,7 @@ export function applyDrivenEvent(event: AgentDrivenEvent) {
   useCardsStore.getState().ensure(event.chat, "browser", event.tab);
 }
 
-/** `agent://activity`: a browser or terminal tool of `chat` started or ended. */
+/** `agent://activity`: a browser or terminal tool of `chat` started or ended (only a page has a card). */
 export interface AgentActivityEvent {
   chat: string;
   kind: "browser" | "terminal";
@@ -74,22 +73,9 @@ export function applyActivityEvent(event: AgentActivityEvent) {
   const label = activityLabel(event.tool, event.args ?? {});
   if (!label) return;
   const cards = useCardsStore.getState();
-  if (event.kind === "browser") {
-    if (!event.tab) return;
-    cards.ensure(event.chat, "browser", event.tab);
-    cards.setActivity(event.chat, cardKey("browser", event.tab), label, event.phase === "start");
-    return;
-  }
-  // A terminal call without a tab id works on the chat's latest shell the agent started.
-  const tab = event.tab ?? cards.cards[event.chat]?.filter((c) => c.kind === "terminal").at(-1)?.id;
-  if (tab) cards.setActivity(event.chat, cardKey("terminal", tab), label, event.phase === "start");
-}
-
-/** A shell an agent started gets a card (FR-1); the person's own shells do not (FR-15). */
-export function applyTerminalCreated(created: Pick<CreatedPty, "key" | "chat" | "owner">) {
-  const chat = created.owner ?? null;
-  if (!chat) return;
-  useCardsStore.getState().ensure(created.chat ?? chat, "terminal", created.key);
+  if (event.kind !== "browser" || !event.tab) return;
+  cards.ensure(event.chat, "browser", event.tab);
+  cards.setActivity(event.chat, cardKey("browser", event.tab), label, event.phase === "start");
 }
 
 /** An event for one window: the one showing the chat, or any when it names none. */
@@ -210,7 +196,6 @@ export function startAgentEvents() {
 
   void listen<AgentDrivenEvent>("browser://driven", (event) => applyDrivenEvent(event.payload)).catch(() => undefined);
   void listen<AgentActivityEvent>("agent://activity", (event) => applyActivityEvent(event.payload)).catch(() => undefined);
-  void listen<CreatedPty>("terminal://created", (event) => applyTerminalCreated(event.payload)).catch(() => undefined);
   void listen<AgentNotifyEvent>("agent://notify", (event) => applyNotifyEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentShowFileEvent>("agent://show-file", (event) => applyShowFileEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentFileSentEvent>("agent://file-sent", (event) => applyFileSentEvent(event.payload, label)).catch(() => undefined);

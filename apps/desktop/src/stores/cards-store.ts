@@ -11,7 +11,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useUiStore } from "./ui-store";
 
-export type CardKind = "browser" | "terminal";
+/** Only a page has a card: an agent's shell runs without one (docs/features/floating-cards FR-18). */
+export type CardKind = "browser";
 export type CardMode = "card" | "chip";
 
 export interface Rect {
@@ -25,7 +26,7 @@ export interface Card {
   /** `kind:id`, stable for the tab's life. */
   key: string;
   kind: CardKind;
-  /** The browser tab's id or the terminal tab's key. */
+  /** The browser tab's id. */
   id: string;
   mode: CardMode;
   /** Where the person put it (layer pixels); `null` until moved: it sits in its slot. */
@@ -49,10 +50,10 @@ export const MIN_WIDTH = 220;
 
 export const cardKey = (kind: CardKind, id: string) => `${kind}:${id}`;
 
-/** A new card's size: a page is 16:10 under the bar, a shell is a little taller than wide. */
-export function defaultSize(kind: CardKind): { w: number; h: number } {
+/** A new card's size: a page is 16:10 under the bar. */
+export function defaultSize(_kind: CardKind): { w: number; h: number } {
   const w = 360;
-  return kind === "browser" ? { w, h: Math.round(w * 0.625) + BAR_HEIGHT } : { w, h: 230 };
+  return { w, h: Math.round(w * 0.625) + BAR_HEIGHT };
 }
 
 /** Keep `rect` inside a layer of `layer` pixels (it is never larger than the layer less its margin). */
@@ -165,6 +166,12 @@ export const useCardsStore = create<CardsStore>()(
       name: "evo.cards",
       storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({ cards: state.cards }),
+      // Cards of shells, which an earlier build kept, are dropped.
+      merge: (persisted, current) => {
+        const saved = (persisted as { cards?: Record<string, Card[]> } | undefined)?.cards ?? {};
+        const cards = Object.fromEntries(Object.entries(saved).map(([chat, list]) => [chat, list.filter((c) => c.kind === "browser")]));
+        return { ...current, cards };
+      },
     },
   ),
 );

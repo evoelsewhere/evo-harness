@@ -1,17 +1,15 @@
 import * as React from "react";
-import { GlobeIcon, MinusIcon, PanelRightOpenIcon, TerminalIcon } from "lucide-react";
+import { GlobeIcon, MinusIcon, PanelRightOpenIcon } from "lucide-react";
 import { BAR_HEIGHT, MIN_WIDTH, clampRect, slotRect, useCardsStore, type Card as CardData, type Rect } from "@/stores/cards-store";
 import { useBrowserStore } from "@/stores/browser-store";
-import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import { useCardTitle } from "./use-cards";
 
 /** Show the card's tab in the side panel (the card, and its chip, go while it shows there). */
 export function openInPanel(chat: string, card: CardData) {
-  useUiStore.getState().openPanel(card.kind, chat);
-  if (card.kind === "browser") useBrowserStore.getState().select(card.id);
-  else useTerminalStore.getState().select(card.id);
+  useUiStore.getState().openPanel("browser", chat);
+  useBrowserStore.getState().select(card.id);
   useCardsStore.getState().setMode(chat, card.key, "chip");
 }
 
@@ -23,7 +21,7 @@ const fit = (card: CardData, rect: Rect): Rect => (card.kind === "browser" ? { .
 /**
  * One floating card: a bar (kind, title, what the agent is doing, minimize,
  * open in panel) that drags it, a body, and a corner that resizes it. The body
- * is the tab's own view (browser-body / terminal-body).
+ * is the page's picture (browser-canvas).
  */
 export function Card({ chat, card, slot, layer, children }: { chat: string; card: CardData; slot: number; layer: Layer; children: React.ReactNode }) {
   const title = useCardTitle(card);
@@ -50,10 +48,10 @@ export function Card({ chat, card, slot, layer, children }: { chat: string; card
     if (drag.current?.pointer === event.pointerId) drag.current = null;
   };
 
-  const Icon = card.kind === "browser" ? GlobeIcon : TerminalIcon;
+  const Icon = GlobeIcon;
   return (
     <section
-      aria-label={`${card.kind === "browser" ? "Page" : "Terminal"} card: ${title}`}
+      aria-label={`Page card: ${title}`}
       data-slot="agent-card"
       onPointerDown={() => raise(chat, card.key)}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: card.z }}
