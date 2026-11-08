@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | Accepted |
 | Area | desktop UI, desktop shell |
 | Created | 2026-11-08 |
 | Updated | 2026-11-08 |
@@ -192,5 +192,6 @@ Acceptance scenarios:
 
 ## 7. History
 
+- 2026-11-08 — Accepted by the person; plan and tasks written.
 - 2026-11-08 — Clarified: auto cards with a setting, interactive browser card, desktop viewport in the panel too.
 - 2026-11-08 — Draft: research on ChatGPT's desktop PiP (no primary source), then the person chose cards in the main window per session, for browser and terminal, with a desktop viewport.
