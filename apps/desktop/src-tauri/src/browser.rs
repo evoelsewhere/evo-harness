@@ -456,6 +456,16 @@ fn park(app: &AppHandle, tab: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// An agent tool is about to send a mouse event to `tab`: tell the window where its virtual cursor
+/// goes (`browser://pointer`).
+pub fn emit_pointer(app: &AppHandle, tab: &str, method: &str, params: &Value) {
+    let state = app.state::<BrowserState>();
+    let chat = state.tabs.lock().expect("browser tabs lock").chat_of(tab).map(str::to_string);
+    if let Some(payload) = stage::pointer_payload(tab, chat.as_deref(), method, params) {
+        state.emit_owner(app, tab, "browser://pointer", payload);
+    }
+}
+
 /// Whether `tab` is on the stage.
 pub fn is_staged(app: &AppHandle, tab: &str) -> bool {
     app.state::<BrowserState>().tabs.lock().expect("browser tabs lock").is_staged(tab)

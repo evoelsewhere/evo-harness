@@ -23,6 +23,17 @@ export function toPagePoint(clientX: number, clientY: number, box: { left: numbe
   return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
 }
 
+/**
+ * Where a point of the page shows in `box` (the canvas element's size): the inverse of
+ * [`toPagePoint`], measured from the box's top left. The virtual cursor sits there.
+ */
+export function toDisplayPoint(x: number, y: number, box: { width: number; height: number }, page: Size): { x: number; y: number } {
+  const scale = Math.min(box.width / page.w, box.height / page.h);
+  const offsetX = (box.width - page.w * scale) / 2;
+  const offsetY = (box.height - page.h * scale) / 2;
+  return { x: offsetX + x * scale, y: offsetY + y * scale };
+}
+
 const BUTTONS = ["left", "middle", "right"] as const;
 
 /** `Input.dispatchMouseEvent` parameters for a mouse event on the picture. */

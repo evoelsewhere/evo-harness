@@ -235,6 +235,8 @@ impl Page {
 
     /// A DevTools Protocol command (Windows).
     pub async fn cdp(&self, method: &str, params: Value) -> Result<Value, String> {
+        // The agent's pointer shows as a virtual cursor over the page's picture (floating-cards FR-17).
+        shell::emit_pointer(&self.app, &self.tab, method, &params);
         self.guard(shell::cdp(&self.app, &self.tab, method, params)).await
     }
 

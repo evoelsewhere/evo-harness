@@ -1,6 +1,6 @@
 // Run with `bun test` from apps/desktop. Spec: docs/features/floating-cards (FR-7, FR-9).
 import { describe, expect, test } from "bun:test";
-import { keyEvents, modifiers, mouseParams, toPagePoint, wheelParams } from "./input";
+import { keyEvents, modifiers, mouseParams, toDisplayPoint, toPagePoint, wheelParams } from "./input";
 
 const page = { w: 1280, h: 800 };
 const none = { shiftKey: false, ctrlKey: false, altKey: false, metaKey: false };
@@ -28,6 +28,23 @@ describe("a point on the picture", () => {
 
   test("an empty box maps nothing", () => {
     expect(toPagePoint(1, 1, { left: 0, top: 0, width: 0, height: 0 }, page)).toBeNull();
+  });
+});
+
+describe("a page point on the picture", () => {
+  test("the page's corners and centre land on the picture, margins included", () => {
+    const box = { width: 1000, height: 400 }; // the picture is 640x400, centred
+    expect(toDisplayPoint(0, 0, box, page)).toEqual({ x: 180, y: 0 });
+    expect(toDisplayPoint(1280, 800, box, page)).toEqual({ x: 820, y: 400 });
+    expect(toDisplayPoint(640, 400, box, page)).toEqual({ x: 500, y: 200 });
+  });
+
+  test("it undoes toPagePoint", () => {
+    const rect = { left: 40, top: 30, width: 358, height: 223 };
+    const at = toPagePoint(40 + 120, 30 + 90, rect, page)!;
+    const back = toDisplayPoint(at.x, at.y, rect, page);
+    expect(back.x).toBeCloseTo(120, 0);
+    expect(back.y).toBeCloseTo(90, 0);
   });
 });
 

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
+import { AgentCursor } from "./agent-cursor";
 import { keyEvents, mouseParams, toPagePoint, wheelParams } from "./input";
 import { lastFrame, subscribeFrames, type Frame } from "./stage-stream";
 
@@ -21,6 +22,19 @@ export function BrowserCanvas({ tab, interactive = true, className }: { tab: str
   const canvas = React.useRef<HTMLCanvasElement>(null);
   const size = React.useRef({ w: 1280, h: 800 });
   const [seen, setSeen] = React.useState(() => lastFrame(tab) !== undefined);
+  // The canvas element's box and the picture's size, for the virtual cursor.
+  const [box, setBox] = React.useState({ width: 0, height: 0 });
+  const [pageSize, setPageSize] = React.useState({ w: 1280, h: 800 });
+
+  React.useLayoutEffect(() => {
+    const element = canvas.current;
+    if (!element) return;
+    const measure = () => setBox({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     const element = canvas.current;
@@ -45,6 +59,7 @@ export function BrowserCanvas({ tab, interactive = true, className }: { tab: str
           element.height = image.naturalHeight;
         }
         size.current = { w: image.naturalWidth, h: image.naturalHeight };
+        setPageSize((now) => (now.w === image.naturalWidth && now.h === image.naturalHeight ? now : { w: image.naturalWidth, h: image.naturalHeight }));
         context.drawImage(image, 0, 0);
         setSeen(true);
         if (pending) {
@@ -125,6 +140,7 @@ export function BrowserCanvas({ tab, interactive = true, className }: { tab: str
           dispatch(tab, "Input.insertText", { text });
         }}
       />
+      {seen && <AgentCursor tab={tab} box={box} page={pageSize} />}
       {!seen && <p className="absolute text-xs text-muted-foreground">Waiting for the page…</p>}
     </div>
   );

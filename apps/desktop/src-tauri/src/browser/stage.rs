@@ -119,6 +119,24 @@ pub fn frame_payload(tab: &str, seq: u64, frame: &Value) -> Option<Value> {
     }))
 }
 
+/// The `browser://pointer` payload for a DevTools call of an agent tool: where its virtual
+/// cursor goes (docs/features/floating-cards, FR-17). Only mouse events have one: a move, a
+/// press, a release or a wheel turn at a point of the page.
+pub fn pointer_payload(tab: &str, chat: Option<&str>, method: &str, params: &Value) -> Option<Value> {
+    if method != "Input.dispatchMouseEvent" {
+        return None;
+    }
+    let kind = match params.get("type").and_then(Value::as_str)? {
+        "mouseMoved" => "move",
+        "mousePressed" => "down",
+        "mouseReleased" => "up",
+        "mouseWheel" => "wheel",
+        _ => return None,
+    };
+    let (x, y) = (params.get("x").and_then(Value::as_f64)?, params.get("y").and_then(Value::as_f64)?);
+    Some(json!({ "tab": tab, "chat": chat, "kind": kind, "x": x, "y": y }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +181,27 @@ mod tests {
         assert_eq!((streams.next_seq("a"), streams.next_seq("a"), streams.next_seq("b")), (1, 2, 1));
         streams.remove("a");
         assert_eq!(streams.next_seq("a"), 1);
+    }
+
+    #[test]
+    fn a_mouse_call_of_a_tool_moves_the_virtual_cursor() {
+        let press = json!({ "type": "mousePressed", "x": 700, "y": 430.5, "button": "left", "clickCount": 1 });
+        assert_eq!(
+            pointer_payload("browser-2", Some("chat-a"), "Input.dispatchMouseEvent", &press),
+            Some(json!({ "tab": "browser-2", "chat": "chat-a", "kind": "down", "x": 700.0, "y": 430.5 }))
+        );
+        for (kind, name) in [("mouseMoved", "move"), ("mouseReleased", "up"), ("mouseWheel", "wheel")] {
+            let payload = pointer_payload("t", None, "Input.dispatchMouseEvent", &json!({ "type": kind, "x": 1, "y": 2 })).unwrap();
+            assert_eq!(payload["kind"], name);
+            assert!(payload["chat"].is_null());
+        }
+    }
+
+    #[test]
+    fn other_calls_and_pointless_mouse_events_move_nothing() {
+        assert!(pointer_payload("t", None, "Input.dispatchKeyEvent", &json!({ "type": "keyDown", "x": 1, "y": 2 })).is_none());
+        assert!(pointer_payload("t", None, "Input.dispatchMouseEvent", &json!({ "type": "mouseMoved" })).is_none(), "no point");
+        assert!(pointer_payload("t", None, "Input.dispatchMouseEvent", &json!({ "type": "dragCancelled", "x": 1, "y": 2 })).is_none());
     }
 
     #[test]

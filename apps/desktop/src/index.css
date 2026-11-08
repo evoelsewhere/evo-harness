@@ -424,6 +424,19 @@
   }
 }
 
+/* The agent's virtual cursor over a page's picture (features/cards/agent-cursor.tsx):
+   a ring spreads where it clicks. */
+@keyframes agent-cursor-ripple {
+  from {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(0.35);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.5);
+  }
+}
+
 /* Chart series colours (Usage page): one hue per model, always in this order,
    validated for colour-vision deficiency on the light and dark surfaces
    (adjacent ΔE ≥ 8). Models past the fourth fold into a neutral "Other". */
