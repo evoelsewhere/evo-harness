@@ -56,8 +56,8 @@ Done when: FR-6 and FR-8 hold.
 | --- | --- | --- |
 | FR-1 | `cargo test -p evo-engine` (table, approval, read-only, reserved names); `rg` for name lists | passed (2026-11-08): `cargo test -p evo-engine` 724 passed |
 | FR-2 | `cargo test -p evo-engine`; `session.rs` has no per-tool code | passed (2026-11-08): `cargo test -p evo-engine`; `session.rs` registers through `tools::register_all` |
-| FR-3 | Hidden window: notification and file card | partly (2026-11-08): `notify`, `send_file`, `show_file` returned success from the shell in a real chat; the card and the Files panel were not inspected, and the hidden-window case was not run |
-| FR-4 | Connector set to Ask / Block / Allow, hidden window | not run (the connector tools are covered by unit tests; no connector was set to Ask / Block in the app) |
+| FR-3 | Hidden window: notification and file card | partly (2026-11-08): `notify`, `send_file`, `show_file` returned success from the shell in real chats, `notify` also with the main window hidden by the OS; the file card and the Files panel were not inspected |
+| FR-4 | Connector set to Ask / Block / Allow, hidden window | passed (2026-11-08): a stdio test connector's tool set to Ask showed the approval (Allow once / Always allow / Deny) and ran, set to Block it was not offered to the agent, set to Allow it ran without a question; hidden-window case not run |
 | FR-5 | Agent creates a task, the page shows it | passed (2026-11-08): an agent created, listed and deleted a task; each change asked in the composer |
 | FR-6 | `rg "external_tool_request" apps/desktop/src` finds no dispatch | passed (2026-11-08): the webview answers no external tool request (`engine-store.ts` returns at `external_tool_request`) |
 | FR-7 | `cargo test agent_tools` | passed (2026-11-08): `bun run test:shell` 422 passed with the gate tests on `Class::{Read, Edit, Command}` |
