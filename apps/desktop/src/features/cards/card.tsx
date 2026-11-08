@@ -57,7 +57,10 @@ export function Card({ chat, card, slot, layer, children }: { chat: string; card
       data-slot="agent-card"
       onPointerDown={() => raise(chat, card.key)}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: card.z }}
-      className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl border border-border/70 bg-popover text-popover-foreground shadow-lg"
+      className={cn(
+        "pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl border border-border/70 bg-popover text-popover-foreground shadow-lg transition-shadow",
+        card.busy && "ring-2 ring-ring/50",
+      )}
     >
       <header
         onPointerDown={begin("move")}

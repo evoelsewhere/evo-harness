@@ -495,13 +495,19 @@ pub fn button_mask(button: &str) -> u32 {
 
 // ── Showing the panel ───────────────────────────────────────────────────────
 
-/// Show the Browser tool: the agent works on a page the person can watch.
+/// Where the agent works on a page the person can watch. On Windows its pages are on the stage and
+/// nothing opens; elsewhere it shows the Browser tool:
 /// When the panel was hidden, ask the webview to open it (`agent://panel`)
 /// and wait for the page to take its place and size (a page laid out at
 /// another size puts elements somewhere else): up to 600 ms for the panel's
 /// bounds. With no page yet (`tab` is `None`) the wait is a fixed 350 ms.
 /// A chat the webview does not show gets its panel opened for later; the wait ends at the limit.
 pub async fn show_browser(ctx: &ToolCtx, tab: Option<&str>) {
+    // The agent's pages live on the stage (a card or the panel shows their picture), so there is no
+    // panel to wait for: a page already on it, or a page about to be made (which is parked at once).
+    if cfg!(windows) && tab.is_none_or(|tab| shell::is_staged(&ctx.app, tab)) {
+        return;
+    }
     if shell::any_shown(&ctx.app, &ctx.chat) {
         return;
     }

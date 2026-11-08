@@ -5,12 +5,17 @@
 // the browser and terminal stores; the card layer imports this for its effect.
 
 import { useBrowserStore } from "./browser-store";
+import { forgetFrames } from "@/features/cards/stage-stream";
 import { useCardsStore } from "./cards-store";
 import { useTerminalStore } from "./terminal-store";
 
 useBrowserStore.subscribe((state, previous) => {
   const now = new Set(state.all.map((t) => t.id));
-  for (const tab of previous.all) if (!now.has(tab.id)) useCardsStore.getState().removeTab("browser", tab.id);
+  for (const tab of previous.all) {
+    if (now.has(tab.id)) continue;
+    useCardsStore.getState().removeTab("browser", tab.id);
+    forgetFrames(tab.id);
+  }
 });
 useTerminalStore.subscribe((state, previous) => {
   const now = new Set(state.tabs.map((t) => t.key));

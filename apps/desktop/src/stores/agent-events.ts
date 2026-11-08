@@ -77,12 +77,12 @@ export function applyActivityEvent(event: AgentActivityEvent) {
   if (event.kind === "browser") {
     if (!event.tab) return;
     cards.ensure(event.chat, "browser", event.tab);
-    cards.setActivity(event.chat, cardKey("browser", event.tab), label);
+    cards.setActivity(event.chat, cardKey("browser", event.tab), label, event.phase === "start");
     return;
   }
   // A terminal call without a tab id works on the chat's latest shell the agent started.
   const tab = event.tab ?? cards.cards[event.chat]?.filter((c) => c.kind === "terminal").at(-1)?.id;
-  if (tab) cards.setActivity(event.chat, cardKey("terminal", tab), label);
+  if (tab) cards.setActivity(event.chat, cardKey("terminal", tab), label, event.phase === "start");
 }
 
 /** A shell an agent started gets a card (FR-1); the person's own shells do not (FR-15). */

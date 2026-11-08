@@ -36,6 +36,8 @@ export interface Card {
   z: number;
   /** What the agent last did with the tab, in words ("Clicking ref_4"). */
   activity: string | null;
+  /** A tool call is working on the tab right now. */
+  busy: boolean;
 }
 
 /** The most cards a chat shows at once; more tabs are chips (FR-13). */
@@ -88,7 +90,7 @@ interface CardsStore {
   raise(chat: string, key: string): void;
   /** The person moved or resized a card. */
   place(chat: string, key: string, rect: Rect): void;
-  setActivity(chat: string, key: string, activity: string | null): void;
+  setActivity(chat: string, key: string, activity: string | null, busy?: boolean): void;
   /** The tab closed (or the card is not wanted): drop its card and chip. */
   remove(chat: string, key: string): void;
   /** Drop the cards of tabs that closed, wherever they are. */
@@ -111,7 +113,7 @@ export const useCardsStore = create<CardsStore>()(
           if (list.some((c) => c.key === key)) return s;
           const room = list.filter((c) => c.mode === "card").length < MAX_VISIBLE;
           const mode: CardMode = useUiStore.getState().agentCards && room ? "card" : "chip";
-          const card: Card = { key, kind, id, mode, rect: null, size: defaultSize(kind), z: nextZ(list), activity: null };
+          const card: Card = { key, kind, id, mode, rect: null, size: defaultSize(kind), z: nextZ(list), activity: null, busy: false };
           return { cards: { ...s.cards, [chat]: [...list, card] } };
         });
       },
@@ -134,11 +136,11 @@ export const useCardsStore = create<CardsStore>()(
       place(chat, key, rect) {
         set((s) => ({ cards: update(s.cards, chat, (list) => list.map((c) => (c.key === key ? { ...c, rect, size: { w: rect.w, h: rect.h } } : c))) }));
       },
-      setActivity(chat, key, activity) {
+      setActivity(chat, key, activity, busy = false) {
         set((s) => {
           const card = s.cards[chat]?.find((c) => c.key === key);
-          if (!card || card.activity === activity) return s;
-          return { cards: update(s.cards, chat, (list) => list.map((c) => (c.key === key ? { ...c, activity } : c))) };
+          if (!card || (card.activity === activity && card.busy === busy)) return s;
+          return { cards: update(s.cards, chat, (list) => list.map((c) => (c.key === key ? { ...c, activity, busy } : c))) };
         });
       },
       remove(chat, key) {

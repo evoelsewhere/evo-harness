@@ -25,7 +25,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { inTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { BrowserCanvas } from "@/features/cards/browser-canvas";
+import { isWindows } from "@/lib/platform";
 import { useBrowserStore, type BrowserTab } from "@/stores/browser-store";
+import { useCardsStore } from "@/stores/cards-store";
 import { useUiStore } from "@/stores/ui-store";
 
 const QUICK = ["localhost:3000", "localhost:5173", "localhost:8080"];
@@ -261,6 +264,8 @@ export function BrowserPanel() {
   const error = useBrowserStore((s) => s.error);
   const { newTab, go } = useBrowserStore.getState();
   const tab = tabs.find((t) => t.id === activeId) ?? null;
+  // A page an agent uses lives on the stage: the panel shows its picture (docs/features/floating-cards).
+  const staged = useCardsStore((s) => !!tab && isWindows && Object.values(s.cards).some((list) => list.some((c) => c.kind === "browser" && c.id === tab.id)));
 
   if (!inTauri) {
     return <p className="p-4 text-xs text-muted-foreground">The browser runs in the desktop app.</p>;
@@ -324,7 +329,7 @@ export function BrowserPanel() {
         </DropdownMenu>
       </div>
       {error && <p className="shrink-0 border-b border-border/60 px-3 py-1.5 text-xs text-destructive">{error}</p>}
-      <div className="relative min-h-0 flex-1 bg-background">{tab ? <PageArea /> : <StartPage />}</div>
+      <div className="relative min-h-0 flex-1 bg-background">{tab ? staged ? <BrowserCanvas key={tab.id} tab={tab.id} /> : <PageArea /> : <StartPage />}</div>
     </div>
   );
 }

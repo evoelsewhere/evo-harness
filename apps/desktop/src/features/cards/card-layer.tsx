@@ -3,6 +3,7 @@ import "@/stores/cards-sync";
 import { useEngineStore } from "@/stores/engine-store";
 import { Card } from "./card";
 import { CardBody } from "./card-body";
+import { StageController } from "./stage-controller";
 import { useChatCards } from "./use-cards";
 
 /**
@@ -29,6 +30,7 @@ export function CardLayer() {
 
   return (
     <div ref={ref} data-slot="agent-card-layer" className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
+      <StageController chat={chat} />
       {chat &&
         layer.w > 0 &&
         shown.map((card, index) => (

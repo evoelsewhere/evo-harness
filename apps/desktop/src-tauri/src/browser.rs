@@ -388,6 +388,8 @@ pub fn create_for_chat(app: &AppHandle, window: &str, chat: &str, url: &str, bac
     let bounds = state.tabs.lock().expect("browser tabs lock").bounds().unwrap_or(tabs::Bounds::FALLBACK);
     let owner = host.label().to_string();
     let id = open_page(app, host, url.clone(), Some(chat.to_string()), bounds, false)?;
+    // The agent's page lives on the stage; a card or the panel shows its picture.
+    let _ = park(app, &id);
     if !background {
         state.tabs.lock().expect("browser tabs lock").select(chat, &id);
     }
@@ -433,6 +435,32 @@ pub fn browser_visible(app: AppHandle, state: tauri::State<'_, BrowserState>, ta
     Ok(())
 }
 
+/// Park `tab` on the stage: a visible webview of the desktop size outside the window, marked staged
+/// so the panel's placement calls leave it alone (stage.rs). Windows only: elsewhere a page stays
+/// where the panel puts it.
+fn park(app: &AppHandle, tab: &str) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Err("the stage needs the DevTools protocol (Windows)".into());
+    }
+    let view = webview(app, tab)?;
+    view.set_bounds(tauri::Rect {
+        position: LogicalPosition::new(stage::PARK_X, stage::PARK_Y).into(),
+        size: LogicalSize::new(stage::WIDTH, stage::HEIGHT).into(),
+    })
+    .map_err(|e| e.to_string())?;
+    view.show().map_err(|e| e.to_string())?;
+    let state = app.state::<BrowserState>();
+    let mut tabs = state.tabs.lock().expect("browser tabs lock");
+    tabs.set_staged(tab, true);
+    tabs.set_shown(tab, false);
+    Ok(())
+}
+
+/// Whether `tab` is on the stage.
+pub fn is_staged(app: &AppHandle, tab: &str) -> bool {
+    app.state::<BrowserState>().tabs.lock().expect("browser tabs lock").is_staged(tab)
+}
+
 /// Put a page on the stage (`on`) or take it off, and start, change or stop its frames: `fps`
 /// frames per second, none for no stream. A staged page is a visible webview of the desktop size
 /// parked outside the window (see `stage.rs`); taking it off hides it, and the panel places it
@@ -445,14 +473,7 @@ pub async fn browser_stage(app: AppHandle, tab: String, on: bool, fps: Option<u3
     let view = webview(&app, &tab)?;
     let state = app.state::<BrowserState>();
     if on {
-        view.set_bounds(tauri::Rect {
-            position: LogicalPosition::new(stage::PARK_X, stage::PARK_Y).into(),
-            size: LogicalSize::new(stage::WIDTH, stage::HEIGHT).into(),
-        })
-        .map_err(|e| e.to_string())?;
-        view.show().map_err(|e| e.to_string())?;
-        state.tabs.lock().expect("browser tabs lock").set_staged(&tab, true);
-        state.tabs.lock().expect("browser tabs lock").set_shown(&tab, false);
+        park(&app, &tab)?;
     }
     let change = state.stage.lock().expect("browser stage lock").want(&tab, if on { fps } else { None });
     match change {
@@ -606,6 +627,7 @@ pub fn resolve_tab(app: &AppHandle, chat: &str, tab_id: Option<&str>) -> Result<
 
 /// Tell the windows an agent is involved with `tab` (once per page): `browser://driven`.
 fn announce_driven(app: &AppHandle, tab: &str, chat: &str) {
+    let _ = park(app, tab);
     let _ = app.emit("browser://driven", json!({ "tab": tab, "chat": chat }));
 }
 
