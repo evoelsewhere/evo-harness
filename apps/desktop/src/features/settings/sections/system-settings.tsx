@@ -2,7 +2,8 @@ import * as React from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { version as packageVersion } from "../../../../package.json";
 import { invoke } from "@tauri-apps/api/core";
-import { BookOpenIcon, BugIcon, CopyIcon, CpuIcon, ExternalLinkIcon, FolderOpenIcon, InfoIcon, RotateCwIcon } from "lucide-react";
+import { BookOpenIcon, BugIcon, CopyIcon, CpuIcon, ExternalLinkIcon, FolderOpenIcon, RotateCwIcon } from "lucide-react";
+import { EvoLogo } from "@/components/icons/evo-logo";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { REPOSITORY_URL, openLink } from "@/features/shell/app-commands";
@@ -146,15 +147,17 @@ export function AboutSettings() {
 
   return (
     <div className="flex flex-col gap-8">
-      <SettingsHeader
-        icon={InfoIcon}
-        title="About Evo Harness"
-        description={
-          <>
-            A desktop coding agent, version <span className="font-mono">{version ?? "…"}</span>. MIT licensed.
-          </>
-        }
-      />
+      <header className="flex items-center gap-4">
+        <EvoLogo className="size-16 rounded-2xl shadow-sm ring-1 ring-border" />
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold tracking-tight">Evo Harness</h1>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">A desktop coding agent.</p>
+          <p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-0.5 font-mono">v{version ?? "…"}</span>
+            <span>MIT licensed</span>
+          </p>
+        </div>
+      </header>
       <SettingsGroup title="Help">
         <SettingsRow
           label="Documentation"
