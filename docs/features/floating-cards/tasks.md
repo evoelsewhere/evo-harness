@@ -32,12 +32,12 @@ Done when: FR-9, FR-10 and the events of FR-1, FR-2, FR-15 hold; `bun run test:s
 
 Done when: FR-1 – FR-6, FR-11 – FR-14 and FR-16 hold with placeholder bodies.
 
-- [ ] T9 [FR-3, FR-4, FR-5, FR-13, FR-16] Tests for the cards store (per chat, three visible, chips, keep positions, remove with the tab, reload) — `stores/cards-store.test.ts` — check: `bun test`
-- [ ] T10 [FR-3, FR-4, FR-5, FR-13, FR-16] The cards store — `stores/cards-store.ts` — check: T9 passes
-- [ ] T11 [FR-14] `agentCards` setting and its switch — `stores/ui-store.ts`, `features/settings/sections/general-settings.tsx` — check: off: no card by itself, chips remain
-- [ ] T12 [FR-1, FR-2, FR-15] Apply `browser://driven`, `agent://activity` and agent-owned `terminal://created` — `stores/agent-events.ts` — check: a tool-opened page makes a card, a person-opened page does not
-- [ ] T13 [FR-2, FR-5, FR-11, FR-12] Card layer, card (bar, drag, resize, minimize, hide), no focus stealing — `features/cards/card-layer.tsx`, `card.tsx` — check: drag in the app; a menu over a card shows the menu
-- [ ] T14 [FR-4, FR-6] Chip row above the composer and open-in-panel — `features/cards/chip-row.tsx`, `features/chat/chat-view.tsx`, `stores/ui-store.ts` — check: minimize → chip → card; open in panel removes the card
+- [x] T9 [FR-3, FR-4, FR-5, FR-13, FR-16] Tests for the cards store (per chat, three visible, chips, keep positions, remove with the tab, reload) — `stores/cards-store.test.ts` — check: `bun test`
+- [x] T10 [FR-3, FR-4, FR-5, FR-13, FR-16] The cards store — `stores/cards-store.ts` — check: T9 passes
+- [x] T11 [FR-14] `agentCards` setting and its switch — `stores/ui-store.ts`, `features/settings/sections/general-settings.tsx` — check: off: no card by itself, chips remain
+- [x] T12 [FR-1, FR-2, FR-15] Apply `browser://driven`, `agent://activity` and agent-owned `terminal://created` — `stores/agent-events.ts` — check: a tool-opened page makes a card, a person-opened page does not
+- [x] T13 [FR-2, FR-5, FR-11, FR-12] Card layer, card (bar, drag, resize, minimize, hide), no focus stealing — `features/cards/card-layer.tsx`, `card.tsx` — check: drag in the app; a menu over a card shows the menu
+- [x] T14 [FR-4, FR-6] Chip row above the composer and open-in-panel — `features/cards/chip-row.tsx`, `features/chat/chat-view.tsx`, `stores/ui-store.ts` — check: minimize → chip → card; open in panel removes the card
 
 ### Phase 4 — Bodies
 

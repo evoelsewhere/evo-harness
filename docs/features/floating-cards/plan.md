@@ -198,3 +198,29 @@ Phase 2 (shell), 2026-11-08:
   and end of every browser and terminal tool call (`agent_tools/activity.rs`); `tab`
   is the browser tab as the tool resolves it (null before `browser_navigate` has
   opened one, filled in at the end), and a terminal call's own `tabId`.
+
+Phase 3 (cards store and layer), 2026-11-08:
+
+- **Hide is minimize.** The spec lists a minimize and a hide button, but both leave
+  the tab as a chip, so the card has one: Minimize. Open in panel is the other.
+- **An agent's shell no longer opens the side panel** (`terminal-store.ts`, it did
+  before): the tab shows as a card, or as a chip when the setting is off or three
+  cards are already shown. A page the agent opens still opens the Browser panel
+  until phase 4, because `show_browser` (`agent_tools/browser/driver.rs`) asks for
+  the panel to place a native page; once pages are staged in phase 4 that call
+  returns at once for a staged page and the panel stays closed.
+- **`stores/cards-sync.ts`** removes a card when its page or shell closes. It is a
+  separate module (the card layer imports it) so `cards-store` and `agent-events`
+  do not load the browser and terminal stores, which touch the DOM when they load.
+- **A card of a tab in the panel is not drawn**, derived from the panel state rather
+  than stored (`features/cards/use-cards.ts`), so showing the tab elsewhere in the
+  panel needs no bookkeeping; "open in panel" minimizes the card and opens the tab.
+- **Resize** keeps a page card 16:10 after the layer clamps its width.
+- A shell card's bar shows the shell's name (as the panel's tab does), not the title
+  the shell sets.
+- Checked in the app (2026-11-08): an agent chat with the panel not showing the page
+  or shell got a card each, cascading from the top right, with "Opening …" and
+  "Running echo card-test" on their bars; minimize → chip → click → card; open in
+  panel made the card go and the panel show that tab; a drag moved the card and a
+  corner drag resized it at 16:10; a new chat showed none and the first chat's
+  cards came back in place; with the setting off a tab became a chip.
