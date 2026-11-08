@@ -178,13 +178,14 @@ Acceptance scenarios:
 
 ### 6.1 Open
 
-1. [NEEDS CLARIFICATION: when a turn ends, do cards stay?] — proposed answer: they stay until closed, so the person can read the result; they can minimize them.
-2. [NEEDS CLARIFICATION: how many cards at once?] — proposed answer: three (FR-13), the rest as chips.
-3. [NEEDS CLARIFICATION: is the card's "hide" the same as closing the tab?] — proposed answer: no, hide only removes the card (the chip stays); closing the tab is in the panel or the tab's menu.
+None.
 
 ### 6.2 Resolved
 
 - 2026-11-08 — Q: floating card in the main window or an OS window? → A: a card in the main window, per session (person's choice).
+- 2026-11-08 — Q: when a turn ends, do cards stay? → A: yes, until closed (accepted with the spec).
+- 2026-11-08 — Q: how many cards at once? → A: three, the rest as chips (FR-13, accepted with the spec).
+- 2026-11-08 — Q: is hiding a card closing the tab? → A: no, it removes the card and keeps the chip (FR-2, accepted with the spec).
 - 2026-11-08 — Q: do cards appear by themselves? → A: yes, with a setting to turn it off (FR-14).
 - 2026-11-08 — Q: is a browser card interactive? → A: yes; a terminal card is view-only (FR-7).
 - 2026-11-08 — Q: does the desktop viewport apply in the panel too? → A: yes for pages the agent drives, scaled to fit; pages the person opens keep their real size (FR-9).
