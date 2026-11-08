@@ -48,11 +48,11 @@ export function AgentCursor({ tab, box, page }: { tab: string; box: { width: num
         {clicks > 0 && (
           <span
             key={clicks}
-            className="absolute top-0 left-0 size-5 rounded-full border-2 border-[#9aa0ab]"
+            className="absolute top-0 left-0 size-4 rounded-full border-[1.5px] border-[#9aa0ab]"
             style={{ animation: "agent-cursor-ripple 450ms ease-out forwards" }}
           />
         )}
-        <svg width="16" height="16" viewBox="0 0 17 17" className="relative" style={{ marginLeft: -2, marginTop: -2, filter: "drop-shadow(0 0 2.5px rgba(96, 165, 250, 0.65))" }}>
+        <svg width="11" height="11" viewBox="0 0 17 17" className="relative" style={{ marginLeft: -1.5, marginTop: -1.5, filter: "drop-shadow(0 0 2px rgba(96, 165, 250, 0.65))" }}>
           {/* A small, symmetric arrowhead with softly rounded corners: a light blue outline under a dark shape, both with round joins, and a faint blue glow. */}
           <path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#9ccbff" stroke="#9ccbff" strokeWidth="3.4" strokeLinejoin="round" />
           <path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#1c2033" stroke="#1c2033" strokeWidth="1.8" strokeLinejoin="round" />
