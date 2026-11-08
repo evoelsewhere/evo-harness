@@ -25,11 +25,13 @@ const LAUNCH_FILE: &str = ".evo/launch.json";
 /// The largest launch file read.
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 /// What a dev server usually prints when it can be used.
-pub const DEFAULT_READY: &str = r"ready|listening|running|started|localhost:\d+";
-/// How long to wait for the ready line.
-pub const READY_TIMEOUT_MS: u64 = 60_000;
-/// How long to wait for the port to accept connections once the ready line came.
-const PORT_WAIT: Duration = Duration::from_secs(15);
+pub const DEFAULT_READY: &str = r"(?i)ready|listening|running|started|serving|localhost:\d+";
+/// How long to wait for the ready line. The engine gives an app tool 60 s in all
+/// (the question to the person included), so the two waits together stay below that.
+pub const READY_TIMEOUT_MS: u64 = 20_000;
+/// How long to wait for the port to accept connections once the ready line came, or
+/// after it did not (a server may print nothing the pattern knows).
+const PORT_WAIT: Duration = Duration::from_secs(20);
 
 const EXAMPLE: &str = r#"{
   "configurations": [
@@ -266,20 +268,19 @@ async fn run(ctx: ToolCtx, args: Value) -> ToolOutput {
         report.push_str("\n\nNo port is set for this configuration, so no page was opened.");
         return ToolOutput::text(report);
     };
-    if timed_out(&started_text) {
-        report.push_str(&format!(
-            "\n\nThe ready line did not appear within {} s, so the page was not opened. The tab keeps running: read it with terminal_read, then open {} with browser_navigate.",
-            READY_TIMEOUT_MS / 1000,
-            page_url(port)
-        ));
-        return ToolOutput::text(report);
-    }
+    // No ready line is not the end: the port may open anyway (the server's own words are not known).
+    let no_ready_line = timed_out(&started_text);
     if !wait_for_port(&ctx, port).await {
         if ctx.cancelled() {
             return ToolOutput::text("");
         }
+        let why = if no_ready_line {
+            format!("The ready line did not appear within {} s and nothing accepts connections on port {port} yet", READY_TIMEOUT_MS / 1000)
+        } else {
+            format!("Nothing accepts connections on port {port} yet")
+        };
         report.push_str(&format!(
-            "\n\nNothing accepts connections on port {port} yet, so the page was not opened. Check the tab with terminal_read, then open {} with browser_navigate.",
+            "\n\n{why}, so the page was not opened. The tab keeps running: read it with terminal_read, then open {} with browser_navigate.",
             page_url(port)
         ));
         return ToolOutput::text(report);
@@ -301,7 +302,7 @@ fn run_tool(ctx: ToolCtx, args: Value) -> BoxFuture<ToolOutput> {
 pub fn tools() -> Vec<Tool> {
     vec![Tool {
         name: "preview_start",
-        description: "Start the project's dev server from a saved launch configuration (`.evo/launch.json`: {\"configurations\": [{\"name\", \"command\", \"cwd\"?, \"port\"?, \"ready\"? (regular expression), \"shell\"?}]}) in a terminal tab, wait for its ready line (up to 60 s), then open http://localhost:<port> in the browser tool and return the tab id and the page summary. `name` picks a configuration (default the first). The command runs in the terminal tool, so it asks like terminal_run does; the file is never changed.",
+        description: "Start the project's dev server from a saved launch configuration (`.evo/launch.json`: {\"configurations\": [{\"name\", \"command\", \"cwd\"?, \"port\"?, \"ready\"? (regular expression), \"shell\"?}]}) in a terminal tab, wait for its ready line (up to 20 s) and for the port (up to 20 s more), then open http://localhost:<port> in the browser tool and return the tab id and the page summary. `name` picks a configuration (default the first). The command runs in the terminal tool, so it asks like terminal_run does; the file is never changed.",
         schema,
         // Runs a command: gated by the terminal tool it calls, once, with the command shown.
         class: Class::Command,
@@ -368,7 +369,7 @@ mod tests {
         let web = terminal_args(&configs[0], folder).unwrap();
         assert_eq!(web["command"], "npm run dev");
         assert_eq!(web["waitFor"], DEFAULT_READY);
-        assert_eq!(web["timeoutMs"], 60_000);
+        assert_eq!(web["timeoutMs"], 20_000);
         assert_eq!(web["cwd"], "proj");
         assert!(web.get("shell").is_none());
         let api = terminal_args(&configs[1], folder).unwrap();
@@ -391,7 +392,7 @@ mod tests {
     #[test]
     fn the_default_ready_pattern_matches_what_dev_servers_print() {
         // The pattern is handed to the terminal tool; check its alternatives are the documented ones.
-        assert_eq!(DEFAULT_READY.split('|').collect::<Vec<_>>(), ["ready", "listening", "running", "started", r"localhost:\d+"]);
+        assert_eq!(DEFAULT_READY.split('|').collect::<Vec<_>>(), ["(?i)ready", "listening", "running", "started", "serving", r"localhost:\d+"]);
         assert_eq!(page_url(5173), "http://localhost:5173");
     }
 
