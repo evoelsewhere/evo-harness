@@ -22,11 +22,11 @@ Done when: the decision (stage mode or fallback) and its numbers are in the plan
 
 Done when: FR-9, FR-10 and the events of FR-1, FR-2, FR-15 hold; `bun run test:shell` passes.
 
-- [ ] T4 [FR-9, FR-10] Tests for the stage plan (override applied, rate capped, stop on close, reset keeps 1280×800, a `browser_viewport` size wins) — `browser/stage.rs` — check: `bun run test:shell browser::stage`
-- [ ] T5 [FR-9] `browser_stage` and `browser://frame` — `browser/stage.rs`, `browser.rs`, `lib.rs` — check: frames reach the webview on the test page
-- [ ] T6 [FR-9] `browser_viewport` reset and size on a staged page — `agent_tools/browser/viewport.rs` — check: T4 passes; `browser_status` says 1280×800 with the panel closed
-- [ ] T7 [FR-1, FR-15] `browser://driven` once per page on its first tool use or creation — `browser/tabs.rs`, `browser.rs` — check: unit test; event seen in the app
-- [ ] T8 [FR-2] `agent://activity` around browser and terminal tool calls — `agent_tools/mod.rs` — check: unit test for the resolved tab; event seen in the app
+- [x] T4 [FR-9, FR-10] Tests for the stage (constants, rate to frame divider, stream start / change / stop, frame events) — `browser/stage.rs` — check: `bun run test:shell browser::stage`
+- [x] T5 [FR-9] `browser_stage` and `browser://frame` — `browser/stage.rs`, `browser.rs`, `lib.rs` — check: frames reach the webview on the test page
+- [x] T6 [FR-9] A reset or a size on a staged page — no change needed: the stage is a real 1280×800 webview — `browser/stage.rs` — check: a viewport override then a reset gives 1280×800 on a staged page
+- [x] T7 [FR-1, FR-15] `browser://driven` once per page on its first tool use or creation — `browser/tabs.rs`, `browser.rs` — check: unit test; event seen in the app
+- [x] T8 [FR-2] `agent://activity` around browser and terminal tool calls — `agent_tools/mod.rs` — check: unit test for the resolved tab; event seen in the app
 
 ### Phase 3 — Cards store and layer
 

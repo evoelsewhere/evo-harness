@@ -61,9 +61,9 @@ The agent's page must be 1280×800 whatever size it is shown at and a card must
 sit under menus, which a native webview cannot do. The design therefore draws
 the agent's pages **as a picture**:
 
-- **Stage mode (recommended).** A page the agent is involved in is kept at an
-  emulated 1280×800 viewport (`Emulation.setDeviceMetricsOverride`, scale 1) and
-  its webview stays visible but parked off-screen (a hidden webview does not render, see the spike). While a card or the panel shows it, the shell runs
+- **Stage mode (recommended).** A page the agent is involved in gets a webview of
+  the real size 1280×800 (so its viewport is the desktop size with no emulation, and
+  a `browser_viewport` reset returns to it) and stays visible but parked off-screen (a hidden webview does not render, see the spike). While a card or the panel shows it, the shell runs
   `Page.startScreencast` and emits the frames; the webview paints them on a
   `<canvas>` scaled to fit. The person's mouse, wheel and keys on the canvas are
   sent back as `Input.dispatchMouseEvent` / `dispatchKeyEvent` in 1280×800
@@ -90,10 +90,10 @@ shell emits `browser://driven` once per page).
 
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
-| shell | `src-tauri/src/browser.rs`, `browser/stage.rs` (new) | `browser_stage(tab, on)`: apply / clear the 1280×800 override and start / stop the screencast; ack frames, cap to the wanted rate, emit `browser://frame` to the owner window; stop when the tab closes. | FR-9, FR-10 |
+| shell | `src-tauri/src/browser.rs`, `browser/stage.rs` (new) | `browser_stage(tab, on, fps)`: park a visible 1280×800 webview off-screen (or take it off the stage) and start / change / stop the screencast; ack frames, cap to the wanted rate, emit `browser://frame` to the owner window; stop when the tab closes. | FR-9, FR-10 |
 | shell | `src-tauri/src/browser/tabs.rs`, `browser.rs` | Emit `browser://driven` the first time a tool marks a page. | FR-1, FR-15 |
 | shell | `src-tauri/src/agent_tools/mod.rs` | Emit `agent://activity { chat, kind, id, tool, phase }` around every browser and terminal tool call (the tab it resolved to). | FR-2 |
-| shell | `src-tauri/src/agent_tools/browser/viewport.rs` | A reset on a staged page returns to 1280×800, not to no override; a size set by the tool wins over the stage default. | FR-9 |
+| shell | `src-tauri/src/agent_tools/browser/viewport.rs` | No change: the stage's real 1280×800 size is what a reset returns to; a size set by the tool is an override that wins. | FR-9 |
 | desktop UI | `src/stores/cards-store.ts` (new) | Per chat: the cards (kind, id, placement x/y/w/h, mode `card` / `chip` / `panel` / `hidden`, order, activity line); the three-visible rule; positions kept for the session and across a reload; selectors for the showing chat. | FR-3, FR-4, FR-5, FR-13, FR-16 |
 | desktop UI | `src/stores/ui-store.ts`, `features/settings/sections/` | The `agentCards` setting (default on) and its switch. | FR-14 |
 | desktop UI | `src/stores/agent-events.ts` | Apply `browser://driven`, `agent://activity` and `terminal://created` (agent-owned) to the cards store. | FR-1, FR-2, FR-15 |
@@ -174,3 +174,27 @@ Recorded 2026-11-08.
   off-screen and visible, not hidden, whether or not a card shows them; the stage
   mode is the same call without frames.
 - Decision: stage mode, no native-webview fallback needed.
+
+Phase 2 (shell), 2026-11-08:
+
+- **Real size, not emulation.** The staged webview is 1280×800 itself, parked at
+  (−10000, −10000), so no `Emulation` call is made and `browser_viewport` needed no
+  change. Checked live: the page sees 1280×800 on the stage, a mobile override
+  changes it and `clearDeviceMetricsOverride` (what a reset sends) returns it to
+  1280×800.
+- **`browser_stage` is opt-in.** Nothing stages a page by itself yet: the window asks
+  (phase 4), because a staged page ignores `browser_bounds` / `browser_visible` (the
+  panel's placement calls are no-ops for it) and would show nothing in the panel
+  until the canvas exists. Checked live: before staging a hidden page's
+  `requestAnimationFrame` advanced 0 per second, staged 60; with `fps` 10 about 9.8
+  frames per second of 1280×800 (16 KB); `fps` 5 gave about 4.3; no `fps` stops the
+  frames while the page keeps running; the panel's calls left the page where it was.
+- **Frames bypass the event ring.** `Page.screencastFrame` events are acknowledged at
+  once and sent to the owner window as `browser://frame { tab, seq, data, width, height }`
+  only while the page streams; they are not stored in the ring (a frame is 16 KB and
+  more).
+- **Events.** `browser://driven { tab, chat }` once per page on the first tool use;
+  `agent://activity { chat, kind, tool, requestId, phase, tab, args }` at the start
+  and end of every browser and terminal tool call (`agent_tools/activity.rs`); `tab`
+  is the browser tab as the tool resolves it (null before `browser_navigate` has
+  opened one, filled in at the end), and a terminal call's own `tabId`.
