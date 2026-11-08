@@ -164,7 +164,7 @@ Safety and structure.
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | NFR-1 | A tool that needs DevTools access says so on macOS and Linux instead of failing; no tool hangs the UI. | Run each tool on a platform without DevTools: a clear message, UI responsive. |
-| NFR-2 | A tool result is at most 20,000 characters (screenshots excepted, scaled to at most 1568 px on the long side) and says when it was cut. | A long page read is cut with a note. |
+| NFR-2 | A tool result is at most 20,000 characters, except a page read (`browser_read_page`: 30,000 by default, `maxChars` up to 200,000) and says when it was cut; screenshots are scaled to at most 1568 px on the long side. | A long page read is cut with a note. |
 | NFR-3 | Waiting tools end when the turn is stopped, as the terminal's do. | Stop a turn during `browser_wait`: it returns at once. |
 
 ## 5. Success criteria
@@ -202,5 +202,6 @@ Safety and structure.
   Evo's current tools.
 - 2026-11-07 — Accepted with the clarified answers; the bridge back end moved to its own feature, built later.
 - 2026-11-08 — Decision: the tools run in the Rust shell, not the webview ([ADR 0013](../../architecture/decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md)); plan and tasks rewritten for it.
+- 2026-11-08 — Changed: NFR-2 allows the page read its existing 30,000-character default; FR-16's "asks" is the approval of `browser_download_folder` for the showing page's site (downloads from other sites stay blocked).
 - 2026-11-07 — Clarified: all three waves, approvals by class, the bridge as its own
   feature with FR-25 here.

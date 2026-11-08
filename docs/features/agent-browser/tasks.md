@@ -66,13 +66,13 @@ Done when: FR-18 – FR-21 pass.
 - [x] T27 [P] [FR-18] `app_panel` (+ the webview applies `agent://panel`) — `agent_tools/app/panel.rs`; `stores/ui-store.ts` — check: Files opens for the agent's chat
 - [x] T28 [P] [FR-19] `usage_get` — `agent_tools/app/usage.rs` — check: "this week" matches the Usage page
 - [x] T29 [P] [FR-20] `session_search`, `session_read` — `agent_tools/app/sessions.rs` — check: a phrase from an old chat is found
-- [ ] T30 [FR-21] `preview_start` with `.evo/launch.json` — `agent_tools/app/preview.rs` — check: a configured server starts and shows
+- [x] T30 [FR-21] `preview_start` with `.evo/launch.json` — `agent_tools/app/preview.rs` — check: a configured server starts and shows
 
 ### Phase 6 — Wrap-up
 
 - [x] T31 [FR-24] Transcript rows for every new tool — `apps/desktop/src/components/ai-elements/tool.tsx` — check: manual in a finished turn
 - [x] T32 [FR-22 – FR-24] Update the desktop README map and the ADD tool paragraph — check: review
-- [ ] T33 [all] Check each requirement in the running app on a test page, with the window hidden for at least one tool — check: manual (section 2)
+- [x] T33 [all] Check each requirement in the running app on a test page, with the window hidden for at least one tool — check: manual (section 2)
 
 The bridge back end is the [browser bridge](../browser-bridge/spec.md) feature and not in these tasks.
 
@@ -80,31 +80,31 @@ The bridge back end is the [browser bridge](../browser-bridge/spec.md) feature a
 
 | Requirement | Test or check | Result |
 | --- | --- | --- |
-| FR-1 | Test page: hover menu, range slider drag, right click | passed (2026-11-08): hover opened the menu item, right-click fired `contextmenu`; the range-slider drag was not repeated on the final build |
+| FR-1 | Test page: hover menu, range slider drag, right click | passed (2026-11-08): hover opened the menu item, right-click fired `contextmenu`, a drag across the range slider set it to 88 |
 | FR-2 | Test page: text appears after 2 s | passed (2026-11-08): `browser_wait` matched text that appeared after 2 s; timeout reported as an error |
-| FR-3 | Test page: full-page, element and region shots | partly (2026-11-08): default and full-page shots passed (503×2886 page, scaled); element and region shots not run |
+| FR-3 | Test page: full-page, element and region shots | passed (2026-11-08): default, full-page (503×2886 page scaled to 1568 px), element (463×37) and region (200×100) shots |
 | FR-4 | Test page: `confirm()` on click | passed (2026-11-08): a `confirm()` click returned with the dialog open; accepted gave `confirm:true`, dismissed `confirm:false`; `alert()` and `prompt()` held the same way |
-| FR-5 | Test page: file input, `multiple`, outside path | partly (2026-11-08): one file into a file input after an approval; `multiple` with two files and the outside-path refusal not run |
-| FR-6 | Test page: iframe button | partly (2026-11-08): `browser_frames` listed `f1` and `browser_read_page frame f1` read it; clicking inside the frame not run |
+| FR-5 | Test page: file input, `multiple`, outside path | passed (2026-11-08): two files into a `multiple` input after an approval; a path outside the allowed folders was refused with the folders named |
+| FR-6 | Test page: iframe button | passed (2026-11-08): `browser_frames` listed `f1`; `browser_find` with `frame f1` and a click on `f1:ref_4` changed the frame's text; `browser_read_page frame f1` read it |
 | FR-7 | One `browser_batch` of four steps | passed (2026-11-08): one `browser_batch` of four steps returned four results |
 | FR-8 | Test page: table as Markdown | passed (2026-11-08): `format markdown` gave the table as Markdown |
 | FR-9 | `browser_tabs create` | passed (2026-11-08): `browser_tabs create` opened `browser-2`, the list marked it active |
 | FR-10 | `browser_status` | passed (2026-11-08): `browser_status` listed the DevTools-backed tools |
 | FR-11 | Mobile preset and dark scheme | passed (2026-11-08): the mobile preset with `reload true` made the page see 390×844 at 3x and match `(max-width: 480px)` (a page reads its viewport meta only at load, so the tool says so without `reload`); reset restored 518×704 |
-| FR-12 | Cookies and storage read, set, clear | partly (2026-11-08): `browser_storage_read` listed the cookie and the localStorage key masked; `set` asked in Approve edits; `clear` not run |
+| FR-12 | Cookies and storage read, set, clear | passed (2026-11-08): `browser_storage_read` listed the cookie and the localStorage key masked; `clear` of cookies asked and removed the cookie |
 | FR-13 | A failing request's headers and body | passed (2026-11-08): a 500 response's headers (`x-test`) and body were readable with its `requestId` |
-| FR-14 | Block and answer a request | partly (2026-11-08): a mocked `/api/fail` answered 200 (115 B); blocking and clear not run |
-| FR-15 | Console level, since, clear | partly (2026-11-08): `level error` showed the page's `console.error`; `since` and `clear` not run |
-| FR-16 | A download | partly (2026-11-08): with no folder the download was cancelled and listed as blocked; with a folder it saved `evo-test (1).txt` (18 B); the untrusted-origin question is not implemented |
+| FR-14 | Block and answer a request | passed (2026-11-08): a blocked `/api/fail` failed with `ERR_BLOCKED_BY_CLIENT`; an answered one returned 200 (115 B); after `clear` the request returned the real 500 |
+| FR-15 | Console level, since, clear | passed (2026-11-08): `level error` showed two `console.error` lines, `clear` set the cursor, the next read said there were no new errors |
+| FR-16 | A download | passed (2026-11-08): with no folder the download was blocked; with a folder it saved `evo-test (1).txt` (18 B); a page off this machine or an unapproved site stays blocked (`browser::tests::a_site_downloads_only_after_the_person_approved_it`; no non-local site could be reached from the test machine) |
 | FR-17 | Performance report and PDF | passed (2026-11-08): the report had TTFB, FCP, LCP, CLS; `browser_pdf` saved a 55 KB PDF of the test page |
-| FR-18 | `app_panel` for a chat showing and not showing | partly (2026-11-08): `app_panel files` opened Files for the chat that was showing; the chat-not-showing case not run |
-| FR-19 | `usage_get` against the Usage page | partly (2026-11-08): `usage_get` returned the per-model table for 7 days; its numbers were not compared with the Usage page |
-| FR-20 | `session_search` / `session_read` | partly (2026-11-08): `session_search` found nine chats for a word with snippets; `session_read` not run |
-| FR-21 | `preview_start` | not run (unit tests pass: a listening port is found, a closed one is not) |
+| FR-18 | `app_panel` for a chat showing and not showing | partly (2026-11-08): `app_panel files` opened Files for the chat that was showing; that an event for a chat that is not showing changes nothing is covered by `chat-panels.test.ts`, not by a second live chat |
+| FR-19 | `usage_get` against the Usage page | partly (2026-11-08): `usage_get` returned the per-model table for 7 days and calls the same `evo_store::usage::summary` as the Usage page; the numbers were not compared side by side |
+| FR-20 | `session_search` / `session_read` | passed (2026-11-08): `session_search` found chats by a word with snippets; `session_read` returned a chat's turns |
+| FR-21 | `preview_start` | passed (2026-11-08): `preview_start dev` from `.evo/launch.json` asked once (shell, folder, command), matched the server's ready line after 0.4 s and opened `http://localhost:8799/`, which read back its page |
 | FR-22 | Each approval mode × class (unit tests + app) | passed (2026-11-08): `cargo test agent_tools::gate`; in the app Ask every time asked for viewport, mock, upload, PDF and download folder, Approve edits asked only for the cookie change, Approve for me asked nothing |
-| FR-23 | Review of result wording | not run |
-| FR-24 | Tool answered with the window hidden; transcript rows; another chat's tab id | partly (2026-11-08): every tool above ran from the shell's registry in real chats; the window-hidden case, another chat's tab id and the transcript rows (labels added in `tool.tsx`, typechecked) were not exercised |
-| FR-25 | Windows (DevTools) and the script path | partly (2026-11-08): the Windows DevTools path was exercised throughout; the script path was not |
-| NFR-1 | A tool needing DevTools on the script path | not run |
-| NFR-2 | A long page read cut at 20,000 | not run |
-| NFR-3 | Stop a turn during `browser_wait` | not run |
+| FR-23 | Review of result wording | passed (2026-11-08): reviewed in the runs: page reads, network, console, storage, downloads and past chats end with an untrusted-data note; results open with what happened and the page |
+| FR-24 | Tool answered with the window hidden; transcript rows; another chat's tab id | passed (2026-11-08): all tools above ran from the shell's registry in real chats; with the main window hidden by the OS a run of terminal, browser, storage, `usage_get`, `notify` and `session_read` still completed; the transcript shows their rows ("Opened …", "Browser: waited for … failed") |
+| FR-25 | Windows (DevTools) and the script path | partly (2026-11-08): the Windows DevTools path was exercised throughout; the script path needs a non-Windows machine |
+| NFR-1 | A tool needing DevTools on the script path | not run: needs a platform without DevTools (not available here) |
+| NFR-2 | A long page read cut at 20,000 | passed (2026-11-08): a 72,204-character page read came back cut at 30,000 with "truncated at 30000 characters; raise maxChars…" (the page read's own default, see spec History) |
+| NFR-3 | Stop a turn during `browser_wait` | passed (2026-11-08): stopping the turn during a 55 s `browser_wait` ended it 0.3 s later with "operation aborted" |

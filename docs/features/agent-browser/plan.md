@@ -191,15 +191,21 @@ Recorded 2026-11-08.
 - **Mobile viewport (FR-11).** A page reads its viewport meta tag only when it loads,
   so `browser_viewport` takes `reload` and says so in its result when a mobile
   preset is applied without it.
-- **Downloads (FR-16).** The "download from an untrusted origin asks" rule is not
-  implemented: with no folder set every download is cancelled and listed as
-  blocked, and setting the folder (a command-class change that asks) is the
-  person's approval for pages to save there. The folder is one app-wide setting.
+- **Downloads (FR-16).** With no folder set every download is cancelled and listed
+  as blocked. Setting the folder (a command-class change that asks, naming the
+  showing page's site) approves that site: a page on this machine or on an approved
+  site saves into the folder, a download from another site stays blocked until the
+  folder is set again while that site's page shows. The folder is one app-wide
+  setting; cancelling it forgets the approved sites.
 - **Classes.** `Observe` / `Act` / `Change` became `Read` / `Edit` / `Command`
   ([agent-tools-layers](../agent-tools-layers/spec.md), FR-7); behaviour is the same.
-- **Not done:** `preview_start` against a real `.evo/launch.json` was not run in the
-  app; the window-hidden case, element and region screenshots, `browser_mock`
-  blocking, the script path (non-Windows) and NFR-1 – NFR-3 are unverified (see the
-  verification table).
+- **`preview_start`.** The engine gives an app tool 60 s in all, so the ready line
+  is waited for 20 s and the port 20 s more (a server whose output the pattern
+  does not know is found by its port). The default pattern is case-insensitive and
+  includes "serving".
+- **Page reads** end with an untrusted-data note (FR-23) and keep their 30,000
+  character default (NFR-2 in the spec says so).
+- **Not verified:** the script path (non-Windows, FR-25 / NFR-1) and `app_panel` for
+  a chat that is not showing (covered by a store test only).
 - **Environment.** In the test environment `https://example.com` failed with
   `ERR_QUIC_PROTOCOL_ERROR` inside WebView2 (not the tools); local pages were used.
