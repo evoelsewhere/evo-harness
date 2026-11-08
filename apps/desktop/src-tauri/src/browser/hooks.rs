@@ -206,7 +206,8 @@ unsafe fn route_downloads(app: &AppHandle, tab: &str, core: &ICoreWebView2) -> R
         }
         let (url, proposed) = (take_pwstr(url), take_pwstr(proposed));
         let state = app.state::<BrowserState>();
-        let record = state.begin_download(&tab, &url, &proposed);
+        let page = crate::browser::native_url(&app, &tab).unwrap_or_default();
+        let record = state.begin_download(&tab, &url, &proposed, &page);
         // The record exists in either case: a blocked one tells the agent why.
         state.emit_owner(&app, &tab, "browser://download", record.clone());
         if record.state == State::Blocked {

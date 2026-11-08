@@ -70,6 +70,8 @@ pub struct BrowserState {
     downloads: Mutex<downloads::DownloadLog>,
     /// Where downloads go; `None` cancels them.
     download_dir: Mutex<Option<PathBuf>>,
+    /// Sites the person approved saving downloads for (FR-16): origins; pages on this machine need none.
+    download_origins: Mutex<std::collections::HashSet<String>>,
 }
 
 /// Milliseconds on a monotonic clock, for dialog expiry.
@@ -178,8 +180,21 @@ impl BrowserState {
 
     /// A page started a download: where it goes (or `blocked`), recorded.
     #[cfg_attr(not(windows), allow(dead_code))]
-    fn begin_download(&self, tab: &str, url: &str, suggested: &str) -> downloads::Download {
+    /// A page on this machine, or on a site the person approved with `browser_download_folder`
+    /// (the page's own origin or the file's), may save downloads.
+    fn download_allowed(&self, page_url: &str, file_url: &str) -> bool {
+        use crate::agent_tools::gate::{is_local_origin, origin_of};
+        if is_local_origin(page_url) {
+            return true;
+        }
+        let origins = self.download_origins.lock().expect("browser download origins lock");
+        [page_url, file_url].iter().any(|url| !url.is_empty() && origins.contains(&origin_of(url)))
+    }
+
+    /// `page_url` is the page the tab shows when the download starts.
+    fn begin_download(&self, tab: &str, url: &str, suggested: &str, page_url: &str) -> downloads::Download {
         let folder = self.download_dir.lock().expect("browser download dir lock").clone();
+        let folder = folder.filter(|_| self.download_allowed(page_url, url));
         // The folder may have been removed since it was configured.
         let folder = folder.filter(|f| std::fs::create_dir_all(f).is_ok());
         self.downloads.lock().expect("browser downloads lock").begin(tab, url, suggested, folder.as_deref(), &|p| p.exists())
@@ -893,19 +908,28 @@ pub fn browser_dialog_answer(app: AppHandle, tab: String, accept: bool, text: Op
 }
 
 /// Set (for every tab) the folder downloads are saved into; `None` cancels
-/// downloads, which is the default.
-pub fn download_config(app: &AppHandle, folder: Option<&str>) -> Result<(), String> {
+/// downloads and forgets the approved sites, which is the default. `site` is
+/// the page whose downloads the person approved (the approval asked about it).
+pub fn download_config(app: &AppHandle, folder: Option<&str>, site: &str) -> Result<(), String> {
     let folder = match folder.map(str::trim).filter(|f| !f.is_empty()) {
         Some(folder) => Some(downloads::prepare_folder(folder)?),
         None => None,
     };
-    *app.state::<BrowserState>().download_dir.lock().expect("browser download dir lock") = folder;
+    let state = app.state::<BrowserState>();
+    let mut origins = state.download_origins.lock().expect("browser download origins lock");
+    if folder.is_none() {
+        origins.clear();
+    } else if !site.is_empty() {
+        origins.insert(crate::agent_tools::gate::origin_of(site));
+    }
+    drop(origins);
+    *state.download_dir.lock().expect("browser download dir lock") = folder;
     Ok(())
 }
 
 #[tauri::command]
-pub fn browser_download_config(app: AppHandle, folder: Option<String>) -> Result<(), String> {
-    download_config(&app, folder.as_deref())
+pub fn browser_download_config(app: AppHandle, folder: Option<String>, site: Option<String>) -> Result<(), String> {
+    download_config(&app, folder.as_deref(), site.as_deref().unwrap_or(""))
 }
 
 /// Downloads pages started, oldest first, of one tab or of all.
@@ -960,6 +984,25 @@ mod tests {
     }
 
     #[test]
+    fn a_site_downloads_only_after_the_person_approved_it() {
+        let state = BrowserState::default();
+        let dir = std::env::temp_dir().join(format!("evo-browser-origins-{}", std::process::id()));
+        *state.download_dir.lock().unwrap() = Some(dir.clone());
+        // A folder is set but nobody approved this site: blocked; a page on this machine is fine.
+        let blocked = state.begin_download("browser-1", "https://files.example/a.zip", "a.zip", "https://example.com/page");
+        assert_eq!(blocked.state, downloads::State::Blocked);
+        let local = state.begin_download("browser-1", "https://files.example/a.zip", "b.zip", "http://127.0.0.1:8765/");
+        assert_eq!(local.state, downloads::State::Started);
+        // Approving the page's site lets it (and a file it links from elsewhere) save.
+        state.download_origins.lock().unwrap().insert("https://example.com".to_string());
+        let approved = state.begin_download("browser-1", "https://files.example/a.zip", "c.zip", "https://example.com/page");
+        assert_eq!(approved.state, downloads::State::Started);
+        let other = state.begin_download("browser-1", "https://files.example/a.zip", "d.zip", "https://other.example/");
+        assert_eq!(other.state, downloads::State::Blocked);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn closing_a_tab_dismisses_its_dialog() {
         let state = state_with_tab("browser-1");
         let (tx, rx) = std::sync::mpsc::channel();
@@ -973,18 +1016,18 @@ mod tests {
     #[test]
     fn downloads_are_blocked_until_a_folder_is_set_and_never_overwrite() {
         let state = BrowserState::default();
-        let blocked = state.begin_download("browser-1", "https://x.test/a.txt", r"C:\Users\me\Downloads\a.txt");
+        let blocked = state.begin_download("browser-1", "https://x.test/a.txt", r"C:\Users\me\Downloads\a.txt", "http://localhost:3000/");
         assert_eq!(blocked.state, downloads::State::Blocked);
         assert_eq!(blocked.name, "a.txt");
 
         let dir = std::env::temp_dir().join(format!("evo-browser-downloads-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         *state.download_dir.lock().unwrap() = Some(dir.clone());
-        let first = state.begin_download("browser-1", "https://x.test/a.txt", "a.txt");
+        let first = state.begin_download("browser-1", "https://x.test/a.txt", "a.txt", "http://localhost:3000/");
         assert_eq!(first.state, downloads::State::Started);
         assert!(dir.is_dir(), "the folder is created");
         std::fs::write(&first.path, b"x").unwrap();
-        let second = state.begin_download("browser-1", "https://x.test/a.txt", "a.txt");
+        let second = state.begin_download("browser-1", "https://x.test/a.txt", "a.txt", "http://localhost:3000/");
         assert_eq!(second.name, "a (1).txt");
         assert_eq!(state.downloads.lock().unwrap().list(Some("browser-1")).len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
