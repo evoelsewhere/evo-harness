@@ -27,13 +27,21 @@ const OFFICE_DOCUMENT = /\.(pptx|docx|xlsx)$/i;
 const opened = new Map<string, Set<string>>();
 
 /** Decide whether a newly created document should take over the side panel. */
-export async function shouldOpenGeneratedDocument(chat: string): Promise<boolean> {
+export async function shouldOpenGeneratedDocument(chat: string, takeOver = false): Promise<boolean> {
   const engine = useEngineStore.getState();
   if (engine.activeId !== chat || !engine.runtimes[chat]?.transcript.busy) return false;
   if (!(await autoOpenGeneratedEnabled())) return false;
   const ui = useUiStore.getState();
-  // Never pull the person out of another tool they are looking at.
+  // Never pull the person out of another tool they are looking at (unless the agent handed the file over).
+  if (takeOver) return true;
   return !ui.rightPanelOpen || ui.activePanel === null || ui.activePanel === "files";
+}
+
+/** A document the agent hands over (send_file) opens too, even when it was written outside the watched folder. */
+export async function openDeliveredDocument(chat: string, path: string): Promise<void> {
+  if (!OFFICE_DOCUMENT.test(path) || !(await shouldOpenGeneratedDocument(chat, true))) return;
+  const files = useFilesStore.getState();
+  void files.open(path);
 }
 
 function handleChanges(chat: string, changes: OfficeFileChange[]): void {
