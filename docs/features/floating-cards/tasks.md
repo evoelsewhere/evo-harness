@@ -43,10 +43,10 @@ Done when: FR-1 – FR-6, FR-11 – FR-14 and FR-16 hold with placeholder bodies
 
 Done when: FR-7 – FR-10 hold.
 
-- [ ] T15 [FR-7, FR-8, FR-9] Browser body: canvas, frames, scale to fit, input forwarding, activity ring, stale-frame state — `features/cards/browser-body.tsx` — check: click, type, scroll a page in a card; the page does not reload moving to the panel
-- [ ] T16 [FR-7, FR-8] Terminal body: move the xterm element in, fit, view-only, "Open in panel" — `features/cards/terminal-body.tsx` — check: output scrolls; scrollback survives the move
-- [ ] T17 [FR-6, FR-9] A staged page in the panel shows as the same canvas, letterboxed; a tab shown in the panel has no card — `features/browser/browser-panel.tsx`, `stores/browser-store.ts` — check: expand a card into the panel
-- [ ] T18 [FR-10] Browser tools with no card and no panel showing — check: the agent-browser batch of checks with the panel closed (screenshot, click, dialog, download)
+- [x] T15 [FR-7, FR-8, FR-9] Browser body: canvas, frames, scale to fit, input forwarding, activity ring, stale-frame state — `features/cards/browser-body.tsx` — check: click, type, scroll a page in a card; the page does not reload moving to the panel
+- [x] T16 [FR-7, FR-8] Terminal body: move the xterm element in, fit, view-only, "Open in panel" — `features/cards/terminal-body.tsx` — check: output scrolls; scrollback survives the move
+- [x] T17 [FR-6, FR-9] A staged page in the panel shows as the same canvas, letterboxed; a tab shown in the panel has no card — `features/browser/browser-panel.tsx`, `stores/browser-store.ts` — check: expand a card into the panel
+- [x] T18 [FR-10] Browser tools with no card and no panel showing — check: the agent-browser batch of checks with the panel closed (screenshot, click, dialog, download)
 
 ### Phase 5 — Docs and verification
 

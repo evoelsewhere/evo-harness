@@ -224,3 +224,33 @@ Phase 3 (cards store and layer), 2026-11-08:
   panel made the card go and the panel show that tab; a drag moved the card and a
   corner drag resized it at 16:10; a new chat showed none and the first chat's
   cards came back in place; with the setting off a tab became a chip.
+
+Phase 4 (bodies), 2026-11-08:
+
+- **Pages are staged by the shell, not asked for by the window.** A page a tool
+  creates is parked on the stage at once (`create_for_chat`), and a page the person
+  opened is parked the first time a tool uses it (`browser://driven` handler), on
+  Windows. `show_browser` therefore returns at once for a staged page (and for a
+  page about to be made), so an agent never opens the side panel for a page. A
+  person's page the agent starts using switches from the native view to the
+  picture in the panel at that moment (its viewport becomes 1280×800).
+- **Frames only for what is shown.** `StageController` (in the card layer) asks the
+  shell for ~10 fps for the shown cards' pages and for the page the panel shows
+  when it is one the agent uses; everything else stays parked without frames.
+  Checked: 19 frames in 2 s with a card shown, 0 with every card minimized, 19 in the
+  panel after "open in panel".
+- **The picture** is a `<canvas>` (`browser-canvas.tsx`) painting the newest frame,
+  scaled to fit and letterboxed, in the card and in the panel. Mouse, wheel, typing
+  and paste are sent as `Input.dispatch*` in page coordinates (`input.ts`, tested).
+  Checked on the card's picture with real input events: a click on the button set the
+  page's title, typing filled the field, a wheel turn scrolled the page by 430 px.
+  The page's mouse cursor shape is not shown.
+- **Terminal card**: the tab's own xterm element is moved into the card and fitted
+  (`terminal-body.tsx`), view-only (`pointer-events: none`); the panel takes it back
+  when the tab is opened there. Its output showed `echo p4-card` and its result.
+- **Busy ring.** The shell's activity events set `busy` on a card while a tool works on
+  its tab; the card gets a ring.
+- **Off Windows** a staged page does not exist: the browser card says a live view needs
+  Windows and the panel keeps its native page (NFR-3); not run here.
+- **Cards cascade tightly** (24 px across, 32 px down): a second card covers most of the
+  first until it is dragged or minimized.
