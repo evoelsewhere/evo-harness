@@ -83,7 +83,7 @@ function Breakdown({ breakdown }: { breakdown: ContextBreakdown }) {
   const compact = useEngineStore((s) => s.compact);
   const busy = useEngineStore((s) => s.transcript.busy);
   const updatedAt = useEngineStore((s) => s.contextBreakdownAt);
-  const [compacting, setCompacting] = React.useState(false);
+  const compacting = useEngineStore((s) => !!s.activeId && !!s.compactingChats[s.activeId]);
   const usedPercent = breakdown.window ? (breakdown.total / breakdown.window) * 100 : 0;
   const builtin = breakdown.tools.filter((t) => t.source === "builtin");
   const plugin = breakdown.tools.filter((t) => t.source === "plugin");
@@ -128,8 +128,7 @@ function Breakdown({ breakdown }: { breakdown: ContextBreakdown }) {
           variant="secondary"
           disabled={busy || compacting}
           onClick={() => {
-            setCompacting(true);
-            void compact().finally(() => setCompacting(false));
+            void compact();
           }}
         >
           {compacting && <LoaderCircleIcon className="animate-spin" />}
