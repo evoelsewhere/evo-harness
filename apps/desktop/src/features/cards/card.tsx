@@ -6,11 +6,13 @@ import { useUiStore } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 import { useCardTitle } from "./use-cards";
 
-/** Show the card's tab in the side panel (the card, and its chip, go while it shows there). */
-export function openInPanel(chat: string, card: CardData) {
-  useUiStore.getState().openPanel("browser", chat);
+/**
+ * Show the card's page in the side panel. The card is not drawn while the panel shows its page
+ * (use-cards.ts) and is back when the panel closes or shows another tab.
+ */
+export function openInPanel(_chat: string, card: CardData) {
+  useUiStore.getState().openPanel("browser", _chat);
   useBrowserStore.getState().select(card.id);
-  useCardsStore.getState().setMode(chat, card.key, "chip");
 }
 
 type Layer = { w: number; h: number };

@@ -20,25 +20,24 @@ pub const HEIGHT: f64 = 800.0;
 /// Where a staged page is parked (window logical pixels, far outside the window).
 pub const PARK_X: f64 = -10_000.0;
 pub const PARK_Y: f64 = -10_000.0;
-/// The page's own frame rate, which `everyNthFrame` divides.
-const PAGE_FPS: u32 = 60;
 /// The most frames per second the window may ask for.
 pub const MAX_FPS: u32 = 30;
 
-/// `everyNthFrame` for about `fps` frames per second.
-pub fn every_nth(fps: u32) -> u32 {
-    let fps = fps.clamp(1, MAX_FPS);
-    (PAGE_FPS / fps).max(1)
+/// The shortest time between two frames sent to the window at about `fps` (ms).
+pub fn min_interval_ms(fps: u32) -> u64 {
+    1000 / u64::from(fps.clamp(1, MAX_FPS))
 }
 
-/// The parameters of `Page.startScreencast` at about `fps`.
-pub fn screencast_params(fps: u32) -> Value {
+/// The parameters of `Page.startScreencast`. Every frame of the page is taken (`everyNthFrame`
+/// 1): dividing them would drop the one frame of a page that changes only now and then, and a
+/// still page after a change would stay as it was. The rate is kept by [`Streams::offer`].
+pub fn screencast_params() -> Value {
     json!({
         "format": "jpeg",
         "quality": 60,
         "maxWidth": WIDTH as u32,
         "maxHeight": HEIGHT as u32,
-        "everyNthFrame": every_nth(fps),
+        "everyNthFrame": 1,
     })
 }
 
@@ -55,10 +54,27 @@ pub enum Change {
 
 /// Which staged pages stream, at what rate, and the sequence number of the
 /// next frame of each.
+/// What to do with a frame that arrived.
+#[derive(Debug, PartialEq)]
+pub enum Offer {
+    /// Send it now.
+    Emit(Value),
+    /// Too soon after the last one: it waits, and a timer of this many ms sends the newest then.
+    Later(u64),
+    /// Too soon, and a timer is already waiting (or nothing streams): nothing more to do.
+    Held,
+}
+
 #[derive(Default)]
 pub struct Streams {
     fps: HashMap<String, u32>,
     seq: HashMap<String, u64>,
+    /// When the last frame went to the window (ms on the caller's clock).
+    last: HashMap<String, u64>,
+    /// The newest frame that was too soon, waiting for its timer.
+    pending: HashMap<String, Value>,
+    /// A timer is waiting for the page.
+    timer: std::collections::HashSet<String>,
 }
 
 impl Streams {
@@ -73,6 +89,7 @@ impl Streams {
             }
             (Some(_), None) => {
                 self.fps.remove(tab);
+                self.pending.remove(tab);
                 Change::Stop
             }
             (None, None) => Change::Keep,
@@ -91,10 +108,48 @@ impl Streams {
         *seq
     }
 
+    /// A frame of `tab` arrived at `now_ms`: send it, or keep the newest for a timer, so the window
+    /// gets at most the asked rate and the last change of a page is never lost.
+    pub fn offer(&mut self, tab: &str, now_ms: u64, frame: Value) -> Offer {
+        let Some(fps) = self.fps.get(tab).copied() else {
+            return Offer::Held;
+        };
+        let interval = min_interval_ms(fps);
+        match self.last.get(tab).copied() {
+            Some(last) if now_ms.saturating_sub(last) < interval => {
+                self.pending.insert(tab.to_string(), frame);
+                if self.timer.insert(tab.to_string()) {
+                    Offer::Later(interval - now_ms.saturating_sub(last))
+                } else {
+                    Offer::Held
+                }
+            }
+            _ => {
+                self.pending.remove(tab);
+                self.last.insert(tab.to_string(), now_ms);
+                Offer::Emit(frame)
+            }
+        }
+    }
+
+    /// The timer of `tab` fired at `now_ms`: the frame it waited for, if the page still streams.
+    pub fn flush(&mut self, tab: &str, now_ms: u64) -> Option<Value> {
+        self.timer.remove(tab);
+        let frame = self.pending.remove(tab)?;
+        if !self.fps.contains_key(tab) {
+            return None;
+        }
+        self.last.insert(tab.to_string(), now_ms);
+        Some(frame)
+    }
+
     /// The page closed.
     pub fn remove(&mut self, tab: &str) {
         self.fps.remove(tab);
         self.seq.remove(tab);
+        self.last.remove(tab);
+        self.pending.remove(tab);
+        self.timer.remove(tab);
     }
 }
 
@@ -148,17 +203,35 @@ mod tests {
     }
 
     #[test]
-    fn a_frame_rate_becomes_a_frame_divider_within_limits() {
-        assert_eq!(every_nth(60), 2, "60 is above the cap of 30 frames per second");
-        assert_eq!(every_nth(30), 2);
-        assert_eq!(every_nth(12), 5);
-        assert_eq!(every_nth(0), 60, "zero counts as the lowest rate, 1 frame per second");
-        assert_eq!(every_nth(1), 60);
-        assert_eq!(every_nth(1000), 2, "capped at the most frames per second");
-        let params = screencast_params(12);
-        assert_eq!(params["everyNthFrame"], 5);
+    fn a_frame_rate_becomes_a_minimum_gap_within_limits() {
+        assert_eq!(min_interval_ms(10), 100);
+        assert_eq!(min_interval_ms(30), 33);
+        assert_eq!(min_interval_ms(60), 33, "60 is above the cap of 30 frames per second");
+        assert_eq!(min_interval_ms(0), 1000, "zero counts as the lowest rate, 1 frame per second");
+        let params = screencast_params();
+        assert_eq!(params["everyNthFrame"], 1, "no frame of the page is skipped by the page");
         assert_eq!(params["format"], "jpeg");
         assert_eq!((params["maxWidth"].as_u64(), params["maxHeight"].as_u64()), (Some(1280), Some(800)));
+    }
+
+    #[test]
+    fn frames_come_at_most_at_the_rate_and_the_last_one_is_never_lost() {
+        let mut streams = Streams::default();
+        let frame = |n: i64| json!({ "sessionId": n });
+        assert_eq!(streams.offer("t", 0, frame(1)), Offer::Held, "nothing streams yet");
+        streams.want("t", Some(10)); // one frame per 100 ms
+        assert_eq!(streams.offer("t", 1_000, frame(1)), Offer::Emit(frame(1)), "the first goes at once");
+        assert_eq!(streams.offer("t", 1_030, frame(2)), Offer::Later(70), "too soon: wait for the rest of the gap");
+        assert_eq!(streams.offer("t", 1_060, frame(3)), Offer::Held, "a timer is already waiting");
+        // The timer fires: the newest frame goes, not the first that waited.
+        assert_eq!(streams.flush("t", 1_100), Some(frame(3)));
+        assert_eq!(streams.flush("t", 1_101), None, "nothing is left");
+        // A frame after a quiet time goes at once.
+        assert_eq!(streams.offer("t", 5_000, frame(4)), Offer::Emit(frame(4)));
+        // Stopping or closing drops what waited.
+        assert_eq!(streams.offer("t", 5_010, frame(5)), Offer::Later(90));
+        streams.want("t", None);
+        assert_eq!(streams.flush("t", 5_100), None);
     }
 
     #[test]

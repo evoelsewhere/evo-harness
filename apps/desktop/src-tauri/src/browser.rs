@@ -173,13 +173,28 @@ impl BrowserState {
                 let _ = cdp(&app, &tab, "Page.screencastFrameAck", ack).await;
             });
         }
-        let seq = {
-            let mut streams = self.stage.lock().expect("browser stage lock");
-            if !streams.streaming(tab) {
-                return;
+        let offer = self.stage.lock().expect("browser stage lock").offer(tab, now_ms(), frame.clone());
+        match offer {
+            stage::Offer::Emit(frame) => self.emit_frame(app, tab, &frame),
+            stage::Offer::Later(delay) => {
+                // Too soon after the last one: the newest frame goes when the gap is over.
+                let (app, tab) = (app.clone(), tab.to_string());
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    let state = app.state::<BrowserState>();
+                    let due = state.stage.lock().expect("browser stage lock").flush(&tab, now_ms());
+                    if let Some(frame) = due {
+                        state.emit_frame(&app, &tab, &frame);
+                    }
+                });
             }
-            streams.next_seq(tab)
-        };
+            stage::Offer::Held => {}
+        }
+    }
+
+    /// Number a frame of a staged page and send it to the window that owns the page.
+    fn emit_frame(&self, app: &AppHandle, tab: &str, frame: &Value) {
+        let seq = self.stage.lock().expect("browser stage lock").next_seq(tab);
         if let Some(payload) = stage::frame_payload(tab, seq, frame) {
             self.emit_owner(app, tab, "browser://frame", payload);
         }
@@ -471,6 +486,28 @@ pub fn is_staged(app: &AppHandle, tab: &str) -> bool {
     app.state::<BrowserState>().tabs.lock().expect("browser tabs lock").is_staged(tab)
 }
 
+/// A screencast sends a frame only when the page changes, so a still page would show nothing:
+/// send one picture of it now (`browser://frame`), when a window starts or asks again for frames.
+fn send_still(app: &AppHandle, tab: &str) {
+    let (app, tab) = (app.clone(), tab.to_string());
+    tauri::async_runtime::spawn(async move {
+        let Ok(shot) = cdp(&app, &tab, "Page.captureScreenshot", json!({ "format": "jpeg", "quality": 60 })).await else {
+            return;
+        };
+        let state = app.state::<BrowserState>();
+        let seq = {
+            let mut streams = state.stage.lock().expect("browser stage lock");
+            if !streams.streaming(&tab) {
+                return;
+            }
+            streams.next_seq(&tab)
+        };
+        if let Some(payload) = stage::frame_payload(&tab, seq, &shot) {
+            state.emit_owner(&app, &tab, "browser://frame", payload);
+        }
+    });
+}
+
 /// Put a page on the stage (`on`) or take it off, and start, change or stop its frames: `fps`
 /// frames per second, none for no stream. A staged page is a visible webview of the desktop size
 /// parked outside the window (see `stage.rs`); taking it off hides it, and the panel places it
@@ -487,14 +524,17 @@ pub async fn browser_stage(app: AppHandle, tab: String, on: bool, fps: Option<u3
     }
     let change = state.stage.lock().expect("browser stage lock").want(&tab, if on { fps } else { None });
     match change {
-        stage::Change::Start(rate) => {
+        stage::Change::Start(_) => {
             cdp_subscribe(&app, &tab, vec!["Page.screencastFrame".to_string()]).await?;
             let _ = cdp(&app, &tab, "Page.stopScreencast", json!({})).await;
-            cdp(&app, &tab, "Page.startScreencast", stage::screencast_params(rate)).await?;
+            cdp(&app, &tab, "Page.startScreencast", stage::screencast_params()).await?;
+            send_still(&app, &tab);
         }
         stage::Change::Stop => {
             let _ = cdp(&app, &tab, "Page.stopScreencast", json!({})).await;
         }
+        // Already streaming (the window reloaded and asks again): a still page sends nothing by itself, so it gets its picture again.
+        stage::Change::Keep if on && fps.is_some_and(|f| f > 0) => send_still(&app, &tab),
         stage::Change::Keep => {}
     }
     if !on {

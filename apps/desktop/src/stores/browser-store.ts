@@ -17,6 +17,7 @@ import { ask, message } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { recentUserInput } from "@/features/cards/user-input";
 import { forgetTabChat, recalledTabChat, rememberTabChat } from "@/lib/tab-chats";
 import { inTauri } from "@/lib/platform";
 import { useUiStore } from "./ui-store";
@@ -357,22 +358,29 @@ if (inTauri) {
     }
   });
   // The shell holds a page's dialog (alert, confirm, prompt, leave-page) until it is answered.
-  // While an agent drives the tab it answers with browser_dialog; otherwise the person does.
+  // While an agent drives the tab it answers with browser_dialog; otherwise the person does, and a dialog
+  // that opens right after the person pressed something on the page's picture is theirs too.
   const unlistenDialog = listen<{ tab: string; kind: string; message: string; url: string; agentDriven?: boolean }>("browser://dialog", async ({ payload }) => {
-    if (payload.agentDriven) return;
+    if (payload.agentDriven && !recentUserInput(payload.tab)) return;
     let accept = false;
     let text: string | undefined;
-    if (payload.kind === "alert") {
-      await message(payload.message, { title: "This page says" });
-      accept = true;
-    } else if (payload.kind === "prompt") {
-      const pending = await invoke<{ defaultText?: string } | null>("browser_dialog_pending", { tab: payload.tab }).catch(() => null);
-      const answer = window.prompt(payload.message, pending?.defaultText ?? "");
-      accept = answer !== null;
-      text = answer ?? undefined;
-    } else {
-      // A confirm or a leave-page question: the app's own dialog does not block the window's script.
-      accept = await ask(payload.message, { title: payload.kind === "beforeunload" ? "Leave this page?" : "This page asks", kind: "info" });
+    try {
+      if (payload.kind === "alert") {
+        await message(payload.message, { title: "This page says" });
+        accept = true;
+      } else if (payload.kind === "prompt") {
+        const pending = await invoke<{ defaultText?: string } | null>("browser_dialog_pending", { tab: payload.tab }).catch(() => null);
+        const answer = window.prompt(payload.message, pending?.defaultText ?? "");
+        accept = answer !== null;
+        text = answer ?? undefined;
+      } else {
+        // A confirm or a leave-page question: the app's own dialog does not block the window's script.
+        accept = await ask(payload.message, { title: payload.kind === "beforeunload" ? "Leave this page?" : "This page asks", kind: "info" });
+      }
+    } catch {
+      // The dialog could not be shown (not allowed, closed): the page must not wait for it, so it is dismissed.
+      accept = false;
+      text = undefined;
     }
     await invoke("browser_dialog_answer", { tab: payload.tab, accept, text }).catch(() => undefined);
   });

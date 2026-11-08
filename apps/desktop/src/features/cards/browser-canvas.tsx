@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { cn } from "@/lib/utils";
 import { AgentCursor } from "./agent-cursor";
 import { keyEvents, mouseParams, toPagePoint, wheelParams } from "./input";
+import { noteUserInput } from "./user-input";
 import { lastFrame, subscribeFrames, type Frame } from "./stage-stream";
 
 /** DevTools input of one page, one call at a time and in order. */
@@ -107,6 +108,7 @@ export function BrowserCanvas({ tab, interactive = true, className }: { tab: str
     if (!interactive) return;
     const at = point(event);
     if (!at) return;
+    if (type !== "mouseMoved") noteUserInput(tab);
     if (type === "mousePressed") event.currentTarget.focus({ preventScroll: true });
     dispatch(tab, "Input.dispatchMouseEvent", mouseParams(type, at, event));
   };
@@ -129,6 +131,7 @@ export function BrowserCanvas({ tab, interactive = true, className }: { tab: str
           const keys = keyEvents(event);
           if (!keys) return;
           event.preventDefault();
+          noteUserInput(tab);
           dispatch(tab, "Input.dispatchKeyEvent", keys.down);
           dispatch(tab, "Input.dispatchKeyEvent", keys.up);
         }}

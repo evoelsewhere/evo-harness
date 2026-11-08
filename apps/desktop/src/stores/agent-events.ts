@@ -67,15 +67,48 @@ export interface AgentActivityEvent {
   args?: Record<string, unknown>;
 }
 
+/** The card a call marked busy when it started, by the call's id, so its end clears that one. */
+const busyCalls = new Map<string, { chat: string; key: string; before: string | null }>();
+
+/** How long the words of a finished call stay on a card. */
+const WORDS_LINGER_MS = 2500;
+const fading = new Map<string, ReturnType<typeof setTimeout>>();
+
 /** Say on the card of the tab what the agent is doing (FR-2); a page a tool works on gets a card too. */
-export function applyActivityEvent(event: AgentActivityEvent) {
+export function applyActivityEvent(event: AgentActivityEvent & { requestId?: string }) {
   if (!event.chat) return;
   const label = activityLabel(event.tool, event.args ?? {});
   if (!label) return;
   const cards = useCardsStore.getState();
-  if (event.kind !== "browser" || !event.tab) return;
+  if (event.kind !== "browser") return;
+  // The tab a call starts on can differ from the one it ends on (a call that opens a page), so the
+  // end first clears what the start marked.
+  if (event.phase === "end" && event.requestId) {
+    const before = busyCalls.get(event.requestId);
+    busyCalls.delete(event.requestId);
+    // A call that moved to another page (it opened one): the card it started on gets its old words back.
+    const moved = before && event.tab && before.key !== cardKey("browser", event.tab);
+    if (before) cards.setActivity(before.chat, before.key, moved ? before.before : (cards.cards[before.chat]?.find((c) => c.key === before.key)?.activity ?? null), false);
+  }
+  if (!event.tab) return;
   cards.ensure(event.chat, "browser", event.tab);
-  cards.setActivity(event.chat, cardKey("browser", event.tab), label, event.phase === "start");
+  const key = cardKey("browser", event.tab);
+  if (event.phase === "start" && event.requestId) busyCalls.set(event.requestId, { chat: event.chat, key, before: cards.cards[event.chat]?.find((c) => c.key === key)?.activity ?? null });
+  clearTimeout(fading.get(key));
+  cards.setActivity(event.chat, key, label, event.phase === "start");
+  if (event.phase === "end") {
+    // The words of a call that has finished fade away, so a card never keeps saying "Waiting for…".
+    const { chat } = event;
+    fading.set(
+      key,
+      setTimeout(() => {
+        fading.delete(key);
+        const now = useCardsStore.getState();
+        const card = now.cards[chat]?.find((c) => c.key === key);
+        if (card && !card.busy && card.activity === label) now.setActivity(chat, key, null);
+      }, WORDS_LINGER_MS),
+    );
+  }
 }
 
 /** An event for one window: the one showing the chat, or any when it names none. */
