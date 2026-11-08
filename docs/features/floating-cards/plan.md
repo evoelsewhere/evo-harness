@@ -63,7 +63,7 @@ the agent's pages **as a picture**:
 
 - **Stage mode (recommended).** A page the agent is involved in is kept at an
   emulated 1280×800 viewport (`Emulation.setDeviceMetricsOverride`, scale 1) and
-  its webview stays hidden. While a card or the panel shows it, the shell runs
+  its webview stays visible but parked off-screen (a hidden webview does not render, see the spike). While a card or the panel shows it, the shell runs
   `Page.startScreencast` and emits the frames; the webview paints them on a
   `<canvas>` scaled to fit. The person's mouse, wheel and keys on the canvas are
   sent back as `Input.dispatchMouseEvent` / `dispatchKeyEvent` in 1280×800
@@ -145,4 +145,32 @@ window reload keeps positions (as `lib/tab-chats.ts` does for ownership). The
 
 ## 6. As-built notes
 
-n/a — empty until the status is `In progress`.
+Recorded 2026-11-08.
+
+- **Spike result: stage mode works.** Run on Windows (WebView2) with the animated
+  test page (a full-canvas 60 fps animation, the worst case):
+  - A webview made with `visible: false` does **not** render: its
+    `requestAnimationFrame` stalled after the first frame and no screencast frame
+    arrived (S1 failed for that placement).
+  - A webview that is *visible* but parked off-screen (bounds at −5000, −5000) or
+    1×1 renders normally: the page ran at ~60 fps and `Page.startScreencast`
+    delivered ~50 frames/s (one frame per page frame at `everyNthFrame` 1, JPEG
+    quality 60, about 16 KB per frame; ~12 fps at `everyNthFrame` 5). So the stage is
+    "visible, off-screen", not "hidden".
+  - S2: with `Emulation.setDeviceMetricsOverride` 1280×800 the page sees 1280×800
+    whatever the webview's bounds are (400×300, then 640×400: still 1280×800), and
+    `Input.dispatchMouseEvent` at 1280×800 coordinates hit the right element (button
+    click, wheel scroll 400 px), `Input.dispatchKeyEvent` with `text` and
+    `Input.insertText` typed into a focused field (the field has to be clicked first;
+    no focus emulation was needed).
+  - S3: three staged pages at ~12 fps each (a worst-case animation, plus the spike's
+    own JavaScript polling) used about 95 % of one core against about 50 % for the
+    same pages animating with no screencast; idle after: about 1 %. Real pages are
+    mostly static, the production path acks frames in Rust, and only pages a card or
+    the panel shows are streamed.
+- **Consequence for FR-10.** A page parked with `visible: false` is throttled
+  (animations and rAF-driven pages stall), which is what happens today to a page
+  whose tab is not the shown one. Agent pages should therefore be parked
+  off-screen and visible, not hidden, whether or not a card shows them; the stage
+  mode is the same call without frames.
+- Decision: stage mode, no native-webview fallback needed.

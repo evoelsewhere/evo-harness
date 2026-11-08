@@ -14,9 +14,9 @@ Shell paths are under `apps/desktop/src-tauri/src/`, UI paths under `apps/deskto
 
 Done when: the decision (stage mode or fallback) and its numbers are in the plan's as-built notes.
 
-- [ ] T1 [FR-9] S1: frames from a hidden (or off-screen `visible`) webview with `Page.startScreencast` on the local test page and a video page; record frames per second and latency — scratch script, not committed — check: ≥ 8 fps, or the fallback is chosen
-- [ ] T2 [FR-7, FR-9] S2: with a 1280×800 emulation, a click, wheel and typed text sent as `Input.dispatch*` from picture coordinates land where `browser_click` would — check: slider drag, text field, scroll on the test page
-- [ ] T3 [FR-9] S3: CPU with three staged pages at the chosen rate — check: noted in the plan
+- [x] T1 [FR-9] S1: frames from a hidden (or off-screen `visible`) webview with `Page.startScreencast` on the local test page and a video page; record frames per second and latency — scratch script, not committed — check: ≥ 8 fps, or the fallback is chosen
+- [x] T2 [FR-7, FR-9] S2: with a 1280×800 emulation, a click, wheel and typed text sent as `Input.dispatch*` from picture coordinates land where `browser_click` would — check: slider drag, text field, scroll on the test page
+- [x] T3 [FR-9] S3: CPU with three staged pages at the chosen rate — check: noted in the plan
 
 ### Phase 2 — Shell
 
