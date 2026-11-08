@@ -253,10 +253,9 @@ export const useTerminalStore = create<TerminalStore>()(
       // The agent's terminal tools (the shell) start and close tabs; this window shows them.
       onCreated = async (pty: CreatedPty) => {
         if (pty.window !== getCurrentWindow().label) return;
-        // Adding the tab is synchronous: the panel that opens next finds it and starts no shell of its own.
-        const adopted = adopt(pty, pty.chat, { activate: true });
-        if (pty.chat) useUiStore.getState().openPanel("terminal", pty.chat);
-        await adopted;
+        // The side panel is not opened for it: the tab shows as a card over the chat, or waits as a chip
+        // (stores/cards-store.ts, docs/features/floating-cards).
+        await adopt(pty, pty.chat, { activate: true });
       };
       onClosed = (key: string) => get().close(key);
 

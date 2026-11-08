@@ -72,6 +72,8 @@ export function GeneralSettings() {
   const toggle = (id: Key) => <Toggle id={id} settings={settings} pending={pending} onChange={change} />;
 
   // Files: open a document the agent creates (app setting `files.autoOpenGenerated`, read when one appears).
+  const agentCards = useUiStore((s) => s.agentCards);
+  const setAgentCards = useUiStore((s) => s.setAgentCards);
   const [autoOpen, setAutoOpen] = React.useState<boolean | null>(inTauri ? null : true);
   React.useEffect(() => {
     if (inTauri) void autoOpenGeneratedEnabled().then(setAutoOpen);
@@ -150,6 +152,14 @@ export function GeneralSettings() {
               onCheckedChange={changeAutoOpen}
             />
           }
+        />
+      </SettingsGroup>
+      <SettingsGroup title="Agent view">
+        <SettingsRow
+          labelId="setting-agentCards"
+          label="Show cards while the agent works"
+          description="Pages and shells the agent uses float over the chat as small cards, so you can watch without opening the side panel. When off, they wait as chips above the message box and open when you click them."
+          control={<Switch aria-labelledby="setting-agentCards" checked={agentCards} onCheckedChange={setAgentCards} />}
         />
       </SettingsGroup>
       <SettingsGroup title="Terminal">

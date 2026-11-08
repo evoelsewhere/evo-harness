@@ -18,6 +18,9 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notify } from "@/features/notifications/notify";
 import { inTauri } from "@/lib/platform";
+import { activityLabel } from "@/features/cards/activity-label";
+import type { CreatedPty } from "@/features/terminal/pty";
+import { cardKey, useCardsStore } from "./cards-store";
 import { openFile } from "./files-store";
 import { useNotificationStore } from "./notification-store";
 import { useUiStore, type PanelId } from "./ui-store";
@@ -41,6 +44,52 @@ export function applyPanelEvent(event: AgentPanelEvent, windowLabel?: string) {
   const ui = useUiStore.getState();
   if (event.action === "close") ui.closeChatPanel(event.chat, event.panel);
   else if (event.action === "open") ui.openPanel(event.panel, event.chat);
+}
+
+/** `browser://driven`: a tool of `chat` used `tab` for the first time. */
+export interface AgentDrivenEvent {
+  tab: string;
+  chat: string;
+}
+
+/** The page an agent uses gets a card (FR-1). */
+export function applyDrivenEvent(event: AgentDrivenEvent) {
+  if (!event.tab || !event.chat) return;
+  useCardsStore.getState().ensure(event.chat, "browser", event.tab);
+}
+
+/** `agent://activity`: a browser or terminal tool of `chat` started or ended. */
+export interface AgentActivityEvent {
+  chat: string;
+  kind: "browser" | "terminal";
+  tool: string;
+  phase: "start" | "end";
+  tab: string | null;
+  args?: Record<string, unknown>;
+}
+
+/** Say on the card of the tab what the agent is doing (FR-2); a page a tool works on gets a card too. */
+export function applyActivityEvent(event: AgentActivityEvent) {
+  if (!event.chat) return;
+  const label = activityLabel(event.tool, event.args ?? {});
+  if (!label) return;
+  const cards = useCardsStore.getState();
+  if (event.kind === "browser") {
+    if (!event.tab) return;
+    cards.ensure(event.chat, "browser", event.tab);
+    cards.setActivity(event.chat, cardKey("browser", event.tab), label);
+    return;
+  }
+  // A terminal call without a tab id works on the chat's latest shell the agent started.
+  const tab = event.tab ?? cards.cards[event.chat]?.filter((c) => c.kind === "terminal").at(-1)?.id;
+  if (tab) cards.setActivity(event.chat, cardKey("terminal", tab), label);
+}
+
+/** A shell an agent started gets a card (FR-1); the person's own shells do not (FR-15). */
+export function applyTerminalCreated(created: Pick<CreatedPty, "key" | "chat" | "owner">) {
+  const chat = created.owner ?? null;
+  if (!chat) return;
+  useCardsStore.getState().ensure(created.chat ?? chat, "terminal", created.key);
 }
 
 /** An event for one window: the one showing the chat, or any when it names none. */
@@ -159,6 +208,9 @@ export function startAgentEvents() {
   report(useUiStore.getState());
   useUiStore.subscribe((state, previous) => report(state, previous));
 
+  void listen<AgentDrivenEvent>("browser://driven", (event) => applyDrivenEvent(event.payload)).catch(() => undefined);
+  void listen<AgentActivityEvent>("agent://activity", (event) => applyActivityEvent(event.payload)).catch(() => undefined);
+  void listen<CreatedPty>("terminal://created", (event) => applyTerminalCreated(event.payload)).catch(() => undefined);
   void listen<AgentNotifyEvent>("agent://notify", (event) => applyNotifyEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentShowFileEvent>("agent://show-file", (event) => applyShowFileEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentFileSentEvent>("agent://file-sent", (event) => applyFileSentEvent(event.payload, label)).catch(() => undefined);

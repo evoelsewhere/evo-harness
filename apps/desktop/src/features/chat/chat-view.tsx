@@ -1,4 +1,5 @@
 import { MessageScrollerProvider } from "@/components/ui/message-scroller";
+import { CardLayer, ChipRow } from "@/features/cards";
 import { ApprovalPanel, usePendingPermission } from "./approval-panel";
 import { ChatComposer } from "./chat-composer";
 import { ChatThread } from "./chat-thread";
@@ -11,7 +12,7 @@ export function ChatView() {
   const permission = usePendingPermission();
   return (
     <MessageScrollerProvider autoScroll>
-      <div className="@container flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="@container relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
         <div className="min-h-0 flex-1">
           <ChatThread />
         </div>
@@ -20,6 +21,7 @@ export function ChatView() {
           {/* A permission request takes the composer's place until it is answered. */}
           {/* (The composer stays mounted so a draft survives the prompt.) */}
           <TodoBar />
+          <ChipRow />
           {permission?.kind === "questions" ? (
             <QuestionsPanel key={permission.requestId} permission={permission} />
           ) : (
@@ -29,6 +31,7 @@ export function ChatView() {
             <ChatComposer />
           </div>
         </div>
+        <CardLayer />
       </div>
     </MessageScrollerProvider>
   );

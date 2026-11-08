@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { startAgentEvents } from "./agent-events";
 import { useBrowserStore } from "./browser-store";
+import { useCardsStore } from "./cards-store";
 import { useEngineStore } from "./engine-store";
 import { useSessionStore } from "./session-store";
 import { useTerminalStore } from "./terminal-store";
@@ -26,6 +27,7 @@ function releaseChat(chat: string) {
   const browser = useBrowserStore.getState();
   for (const tab of browser.all.filter((t) => t.chat === chat)) browser.closeTab(tab.id);
   useUiStore.getState().forgetChat(chat);
+  useCardsStore.getState().forgetChat(chat);
 }
 
 let started = false;

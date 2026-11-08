@@ -113,6 +113,9 @@ interface UiStore {
   /** The app "Open in" always uses (Settings → General); null follows the one used last. */
   openInDefault: string | null;
   setOpenInDefault(id: string | null): void;
+  /** Floating cards of the agent's pages and shells appear by themselves (otherwise only chips). */
+  agentCards: boolean;
+  setAgentCards(on: boolean): void;
   /** Agents may start nested sessions without asking (otherwise they propose). */
   autoStartSessions: boolean;
   setAutoStartSessions(on: boolean): void;
@@ -220,6 +223,8 @@ export const useUiStore = create<UiStore>()(
       setOpenInApp: (openInApp) => set({ openInApp }),
       openInDefault: null,
       setOpenInDefault: (openInDefault) => set({ openInDefault }),
+      agentCards: true,
+      setAgentCards: (agentCards) => set({ agentCards }),
       autoStartSessions: false,
       setAutoStartSessions: (autoStartSessions) => set({ autoStartSessions }),
       proposals: {},
@@ -343,6 +348,7 @@ export const useUiStore = create<UiStore>()(
         zoom: state.zoom,
         openInApp: state.openInApp,
         openInDefault: state.openInDefault,
+        agentCards: state.agentCards,
         autoStartSessions: state.autoStartSessions,
         proposals: state.proposals,
         settledWorktrees: state.settledWorktrees,
