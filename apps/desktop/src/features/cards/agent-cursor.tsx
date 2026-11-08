@@ -48,12 +48,14 @@ export function AgentCursor({ tab, box, page }: { tab: string; box: { width: num
         {clicks > 0 && (
           <span
             key={clicks}
-            className="absolute top-0 left-0 size-7 rounded-full border-[3px] border-[#9aa0ab]"
+            className="absolute top-0 left-0 size-5 rounded-full border-2 border-[#9aa0ab]"
             style={{ animation: "agent-cursor-ripple 450ms ease-out forwards" }}
           />
         )}
-        <svg width="22" height="26" viewBox="0 0 22 26" className="relative drop-shadow-sm" style={{ marginLeft: -1, marginTop: -1 }}>
-          <path d="M1.5 1.5 L20 9.5 Q21.4 10.2 20.2 11.2 L13.6 14.6 L9.4 24 Q8.7 25.4 8 24 Z" fill="#1c2033" stroke="#ffffff" strokeWidth="1.4" strokeLinejoin="round" />
+        <svg width="16" height="16" viewBox="0 0 17 17" className="relative" style={{ marginLeft: -2, marginTop: -2, filter: "drop-shadow(0 0 2.5px rgba(96, 165, 250, 0.65))" }}>
+          {/* A small, symmetric arrowhead with softly rounded corners: a light blue outline under a dark shape, both with round joins, and a faint blue glow. */}
+          <path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#9ccbff" stroke="#9ccbff" strokeWidth="3.4" strokeLinejoin="round" />
+          <path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#1c2033" stroke="#1c2033" strokeWidth="1.8" strokeLinejoin="round" />
         </svg>
       </div>
     </div>
