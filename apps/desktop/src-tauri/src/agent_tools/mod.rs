@@ -11,6 +11,7 @@
 
 pub mod app;
 pub mod browser;
+pub mod activity;
 pub mod gate;
 pub mod mcp;
 pub mod scheduler;
@@ -409,6 +410,10 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
             let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id: request_id.to_string(), cancel: cancel.clone(), tool: tool_name, class };
             let (app, chat, request_id, name) = (app.clone(), chat.to_string(), request_id.to_string(), name.to_string());
             tauri::async_runtime::spawn(async move {
+                // The cards over the chat show what a browser or terminal tool is doing.
+                activity::announce(&app, &chat, &name, &request_id, "start", &args);
+                let shown_args = args.clone();
+                let tool_label = name.clone();
                 // The body runs in its own task so a panic becomes an error result, not a lost call.
                 let body = match target {
                     Target::Static(tool) => tauri::async_runtime::spawn((tool.run)(ctx, args)),
@@ -419,6 +424,7 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
                     Err(error) => ToolOutput::error(format!("The tool failed: {error}")),
                 };
                 app.state::<AgentTools>().calls.lock().expect("calls lock").remove(&request_id);
+                activity::announce(&app, &chat, &tool_label, &request_id, "end", &shown_args);
                 // The engine dropped the call (the run was stopped): nobody waits for an answer.
                 if cancel.is_cancelled() {
                     return;

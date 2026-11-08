@@ -199,6 +199,7 @@ pub fn run() {
             browser::browser_create,
             browser::browser_bounds,
             browser::browser_visible,
+            browser::browser_stage,
             browser::browser_navigate,
             browser::browser_history,
             browser::browser_url,

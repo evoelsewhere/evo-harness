@@ -53,6 +53,10 @@ pub struct Tabs {
     bounds_seq: u64,
     /// Page → when a tool last used it (ms on the caller's clock).
     driven: HashMap<String, u64>,
+    /// Pages the window was told an agent is involved with (once each).
+    announced: HashSet<String>,
+    /// Pages on the stage (stage.rs): the panel no longer places or hides them.
+    staged: HashSet<String>,
 }
 
 /// `browser-12` → 12 (unknown labels sort first).
@@ -72,6 +76,8 @@ impl Tabs {
     pub fn remove(&mut self, label: &str) -> Option<Tab> {
         self.shown.remove(label);
         self.driven.remove(label);
+        self.announced.remove(label);
+        self.staged.remove(label);
         self.visible.retain(|_, tab| tab != label);
         self.tabs.remove(label)
     }
@@ -213,11 +219,31 @@ impl Tabs {
         self.bounds_seq
     }
 
-    /// A tool used `tab` at `now_ms`.
-    pub fn mark_driven(&mut self, tab: &str, now_ms: u64) {
-        if self.tabs.contains_key(tab) {
-            self.driven.insert(tab.to_string(), now_ms);
+    /// A tool used `tab` at `now_ms`. True the first time for a page: the
+    /// window learns that an agent is involved with it (`browser://driven`).
+    pub fn mark_driven(&mut self, tab: &str, now_ms: u64) -> bool {
+        if !self.tabs.contains_key(tab) {
+            return false;
         }
+        self.driven.insert(tab.to_string(), now_ms);
+        self.announced.insert(tab.to_string())
+    }
+
+    /// The chat a page belongs to.
+    pub fn chat_of(&self, tab: &str) -> Option<&str> {
+        self.tabs.get(tab).and_then(|t| t.chat.as_deref())
+    }
+
+    pub fn set_staged(&mut self, tab: &str, staged: bool) {
+        if staged && self.tabs.contains_key(tab) {
+            self.staged.insert(tab.to_string());
+        } else {
+            self.staged.remove(tab);
+        }
+    }
+
+    pub fn is_staged(&self, tab: &str) -> bool {
+        self.staged.contains(tab)
     }
 
     /// Whether a tool used `tab` within [`DRIVEN_MS`] of `now_ms`.
@@ -332,6 +358,37 @@ mod tests {
         tabs.set_bounds(one);
         tabs.set_bounds(one);
         assert_eq!((tabs.bounds(), tabs.bounds_seq()), (Some(one), 2), "an identical report still counts: it says the panel is there");
+    }
+
+    #[test]
+    fn the_window_hears_once_that_an_agent_is_involved_with_a_page() {
+        let mut tabs = Tabs::default();
+        tabs.insert("browser-1", "main", Some("chat-a".into()), "about:blank");
+        assert!(tabs.mark_driven("browser-1", 10), "the first use is announced");
+        assert!(!tabs.mark_driven("browser-1", 20), "the second is not");
+        assert!(!tabs.mark_driven("browser-9", 30), "an unknown page is not");
+        assert_eq!(tabs.chat_of("browser-1"), Some("chat-a"));
+        assert_eq!(tabs.chat_of("browser-9"), None);
+        // A page that closed and a new one with the same label would be announced again.
+        tabs.remove("browser-1");
+        tabs.insert("browser-1", "main", None, "about:blank");
+        assert!(tabs.mark_driven("browser-1", 40));
+    }
+
+    #[test]
+    fn a_staged_page_is_remembered_until_it_closes() {
+        let mut tabs = Tabs::default();
+        tabs.insert("browser-1", "main", None, "about:blank");
+        assert!(!tabs.is_staged("browser-1"));
+        tabs.set_staged("browser-1", true);
+        assert!(tabs.is_staged("browser-1"));
+        tabs.set_staged("browser-9", true);
+        assert!(!tabs.is_staged("browser-9"), "an unknown page cannot be staged");
+        tabs.set_staged("browser-1", false);
+        assert!(!tabs.is_staged("browser-1"));
+        tabs.set_staged("browser-1", true);
+        tabs.remove("browser-1");
+        assert!(!tabs.is_staged("browser-1"));
     }
 
     #[test]

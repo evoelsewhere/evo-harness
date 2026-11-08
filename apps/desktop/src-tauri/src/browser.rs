@@ -28,6 +28,7 @@ pub mod downloads;
 #[cfg(windows)]
 mod hooks;
 pub mod ring;
+pub mod stage;
 pub mod tabs;
 
 use std::collections::{HashMap, HashSet};
@@ -72,6 +73,8 @@ pub struct BrowserState {
     download_dir: Mutex<Option<PathBuf>>,
     /// Sites the person approved saving downloads for (FR-16): origins; pages on this machine need none.
     download_origins: Mutex<std::collections::HashSet<String>>,
+    /// Which staged pages stream their frames, and at what rate (stage.rs).
+    stage: Mutex<stage::Streams>,
 }
 
 /// Milliseconds on a monotonic clock, for dialog expiry.
@@ -109,6 +112,7 @@ impl BrowserState {
     fn forget(&self, tab: &str) {
         self.rings.lock().expect("browser rings lock").remove(tab);
         self.subscribed.lock().expect("browser subscriptions lock").retain(|(t, _)| t != tab);
+        self.stage.lock().expect("browser stage lock").remove(tab);
         let pending = self.dialogs.lock().expect("browser dialogs lock").clear(tab);
         if let Some(complete) = pending {
             complete(dismissal());
@@ -149,8 +153,35 @@ impl BrowserState {
     /// A DevTools event arrived: keep it and tell the window.
     #[cfg_attr(not(windows), allow(dead_code))]
     fn cdp_event(&self, app: &AppHandle, tab: &str, method: &str, params: Value) {
+        // Frames of a staged page are pictures, not events to keep: acknowledge and forward.
+        if method == "Page.screencastFrame" {
+            self.stage_frame(app, tab, &params);
+            return;
+        }
         if let Some(seq) = self.record_event(tab, method, params.clone()) {
             self.emit_owner(app, tab, "browser://cdp", json!({ "tab": tab, "seq": seq, "method": method, "params": params }));
+        }
+    }
+
+    /// A frame of a staged page: acknowledged at once (the page sends the next), and sent to the
+    /// window that owns the page while something shows it.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn stage_frame(&self, app: &AppHandle, tab: &str, frame: &Value) {
+        if let Some(ack) = stage::ack_params(frame) {
+            let (app, tab) = (app.clone(), tab.to_string());
+            tauri::async_runtime::spawn(async move {
+                let _ = cdp(&app, &tab, "Page.screencastFrameAck", ack).await;
+            });
+        }
+        let seq = {
+            let mut streams = self.stage.lock().expect("browser stage lock");
+            if !streams.streaming(tab) {
+                return;
+            }
+            streams.next_seq(tab)
+        };
+        if let Some(payload) = stage::frame_payload(tab, seq, frame) {
+            self.emit_owner(app, tab, "browser://frame", payload);
         }
     }
 
@@ -370,6 +401,10 @@ pub fn create_for_chat(app: &AppHandle, window: &str, chat: &str, url: &str, bac
 /// The panel reported where pages show. Remembered for pages a tool creates.
 #[tauri::command]
 pub fn browser_bounds(app: AppHandle, state: tauri::State<'_, BrowserState>, tab: String, x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
+    // A staged page stays where the stage put it; the window shows its picture.
+    if state.tabs.lock().expect("browser tabs lock").is_staged(&tab) {
+        return Ok(());
+    }
     state.tabs.lock().expect("browser tabs lock").set_bounds(tabs::Bounds { x, y, width, height });
     let webview = webview(&app, &tab)?;
     webview
@@ -382,6 +417,9 @@ pub fn browser_bounds(app: AppHandle, state: tauri::State<'_, BrowserState>, tab
 
 #[tauri::command]
 pub fn browser_visible(app: AppHandle, state: tauri::State<'_, BrowserState>, tab: String, visible: bool, focus: Option<bool>) -> Result<(), String> {
+    if state.tabs.lock().expect("browser tabs lock").is_staged(&tab) {
+        return Ok(());
+    }
     let webview = webview(&app, &tab)?;
     if visible {
         webview.show().map_err(|e| e.to_string())?;
@@ -392,6 +430,46 @@ pub fn browser_visible(app: AppHandle, state: tauri::State<'_, BrowserState>, ta
         webview.hide().map_err(|e| e.to_string())?;
     }
     state.tabs.lock().expect("browser tabs lock").set_shown(&tab, visible);
+    Ok(())
+}
+
+/// Put a page on the stage (`on`) or take it off, and start, change or stop its frames: `fps`
+/// frames per second, none for no stream. A staged page is a visible webview of the desktop size
+/// parked outside the window (see `stage.rs`); taking it off hides it, and the panel places it
+/// again. Windows only (it needs DevTools).
+#[tauri::command]
+pub async fn browser_stage(app: AppHandle, tab: String, on: bool, fps: Option<u32>) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Err("the stage needs the DevTools protocol (Windows)".into());
+    }
+    let view = webview(&app, &tab)?;
+    let state = app.state::<BrowserState>();
+    if on {
+        view.set_bounds(tauri::Rect {
+            position: LogicalPosition::new(stage::PARK_X, stage::PARK_Y).into(),
+            size: LogicalSize::new(stage::WIDTH, stage::HEIGHT).into(),
+        })
+        .map_err(|e| e.to_string())?;
+        view.show().map_err(|e| e.to_string())?;
+        state.tabs.lock().expect("browser tabs lock").set_staged(&tab, true);
+        state.tabs.lock().expect("browser tabs lock").set_shown(&tab, false);
+    }
+    let change = state.stage.lock().expect("browser stage lock").want(&tab, if on { fps } else { None });
+    match change {
+        stage::Change::Start(rate) => {
+            cdp_subscribe(&app, &tab, vec!["Page.screencastFrame".to_string()]).await?;
+            let _ = cdp(&app, &tab, "Page.stopScreencast", json!({})).await;
+            cdp(&app, &tab, "Page.startScreencast", stage::screencast_params(rate)).await?;
+        }
+        stage::Change::Stop => {
+            let _ = cdp(&app, &tab, "Page.stopScreencast", json!({})).await;
+        }
+        stage::Change::Keep => {}
+    }
+    if !on {
+        state.tabs.lock().expect("browser tabs lock").set_staged(&tab, false);
+        let _ = view.hide();
+    }
     Ok(())
 }
 
@@ -518,8 +596,17 @@ pub fn resolve_tab(app: &AppHandle, chat: &str, tab_id: Option<&str>) -> Result<
     let state = app.state::<BrowserState>();
     let mut tabs = state.tabs.lock().expect("browser tabs lock");
     let tab = tabs.resolve(chat, tab_id)?;
-    tabs.mark_driven(&tab, now_ms());
+    let first = tabs.mark_driven(&tab, now_ms());
+    drop(tabs);
+    if first {
+        announce_driven(app, &tab, chat);
+    }
     Ok(tab)
+}
+
+/// Tell the windows an agent is involved with `tab` (once per page): `browser://driven`.
+fn announce_driven(app: &AppHandle, tab: &str, chat: &str) {
+    let _ = app.emit("browser://driven", json!({ "tab": tab, "chat": chat }));
 }
 
 /// Like [`resolve_tab`] for a `tab_id` that may be wrong: `None` instead of an error (no marking).
@@ -529,7 +616,15 @@ pub fn find_tab(app: &AppHandle, chat: &str, tab_id: Option<&str>) -> Option<Str
 
 /// A tool is using `tab`: dialogs it opens are the agent's to answer for two minutes.
 pub fn mark_driven(app: &AppHandle, tab: &str) {
-    app.state::<BrowserState>().tabs.lock().expect("browser tabs lock").mark_driven(tab, now_ms());
+    let state = app.state::<BrowserState>();
+    let (first, chat) = {
+        let mut tabs = state.tabs.lock().expect("browser tabs lock");
+        let first = tabs.mark_driven(tab, now_ms());
+        (first, tabs.chat_of(tab).map(str::to_string))
+    };
+    if first {
+        announce_driven(app, tab, chat.as_deref().unwrap_or(""));
+    }
 }
 
 /// The panel shows `tab`.
