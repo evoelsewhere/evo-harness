@@ -1,4 +1,4 @@
-﻿# Floating cards for the agent's browser pages and terminals â€” Plan
+# Floating cards for the agent's browser pages — Plan
 
 | | |
 | --- | --- |
@@ -36,7 +36,7 @@
 | --- | --- | --- |
 | The engine owns agent logic; the shell relays and provides native features | ok | The shell adds a stage mode and two events (activity, driven); the webview draws cards. No agent decision moves. |
 | Layers point down; library crates stay free of engine/desktop concerns | n/a | Desktop only. |
-| Protocol changes update `evo-protocol`, the engine and the desktop together | n/a | Shell â†” webview events only. |
+| Protocol changes update `evo-protocol`, the engine and the desktop together | n/a | Shell ↔ webview events only. |
 | Models come from models.dev; no hardcoded model facts | n/a | |
 | Real engine in the app; settings reload live | ok | The card setting applies at once. |
 | Untrusted input stays untrusted; permissions stay in the path | ok | A card forwards the person's own input; the agent's approvals stay in the chat (NFR-4); page text shown in a card is the page as the person sees it. |
@@ -48,25 +48,25 @@
 
 ```text
 shell (Rust)                                   webview (React)
-browser/tabs.rs  â”€â”€ first tool use of a page â”€â–¶ browser://driven {tab}   â”
-agent_tools/mod  â”€â”€ a tool starts / ends â”€â”€â”€â”€â”€â–¶ agent://activity         â”œâ–¶ stores/cards-store.ts â”€â–¶ features/cards/
-browser.rs       â”€â”€ browser_stage(tab, on) â—€â”€â”€ card / panel shows it     â”‚      (per chat: placement, mode, order)
-                 â”€â”€ Page.screencastFrame â”€â”€â”€â”€â”€â–¶ browser://frame {tab,jpeg}â”˜   card-layer Â· card Â· chip-row
-terminal/*       â”€â”€ terminal://created (owner) â”€â–¶ (existing event)            browser body (canvas) Â· terminal body (xterm)
+browser/tabs.rs  ── first tool use of a page ─▶ browser://driven {tab}   ┐
+agent_tools/mod  ── a tool starts / ends ─────▶ agent://activity         ├▶ stores/cards-store.ts ─▶ features/cards/
+browser.rs       ── browser_stage(tab, on) ◀── card / panel shows it     │      (per chat: placement, mode, order)
+                 ── Page.screencastFrame ─────▶ browser://frame {tab,jpeg}┘   card-layer · card · chip-row
+terminal/*       ── terminal://created (owner) ─▶ (existing event)            browser body (canvas) · terminal body (xterm)
 ```
 
-### 3.2 How a page is drawn (decided by the spike, T1 â€“ T3)
+### 3.2 How a page is drawn (decided by the spike, T1 – T3)
 
-The agent's page must be 1280Ã—800 whatever size it is shown at and a card must
+The agent's page must be 1280×800 whatever size it is shown at and a card must
 sit under menus, which a native webview cannot do. The design therefore draws
 the agent's pages **as a picture**:
 
 - **Stage mode (recommended).** A page the agent is involved in gets a webview of
-  the real size 1280Ã—800 (so its viewport is the desktop size with no emulation, and
+  the real size 1280×800 (so its viewport is the desktop size with no emulation, and
   a `browser_viewport` reset returns to it) and stays visible but parked off-screen (a hidden webview does not render, see the spike). While a card or the panel shows it, the shell runs
   `Page.startScreencast` and emits the frames; the webview paints them on a
   `<canvas>` scaled to fit. The person's mouse, wheel and keys on the canvas are
-  sent back as `Input.dispatchMouseEvent` / `dispatchKeyEvent` in 1280Ã—800
+  sent back as `Input.dispatchMouseEvent` / `dispatchKeyEvent` in 1280×800
   coordinates, the same coordinates the agent's tools use.
 - **Fallback (if the spike fails).** If a hidden webview produces no frames or
   the latency is poor, keep the native webview: the card is a transparent frame
@@ -76,7 +76,7 @@ the agent's pages **as a picture**:
 
 The spike answers three questions on a real page (the local test page and a
 video page): S1 frames arrive from a webview that is hidden (or kept
-`visible` but off-screen) at â‰¥ 8 per second; S2 a click, wheel and typed text
+`visible` but off-screen) at ≥ 8 per second; S2 a click, wheel and typed text
 sent from canvas coordinates land where the agent's tools would put them;
 S3 CPU stays reasonable with three staged pages. The decision and numbers go
 into section 6.
@@ -90,10 +90,10 @@ shell emits `browser://driven` once per page).
 
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
-| shell | `src-tauri/src/browser.rs`, `browser/stage.rs` (new) | `browser_stage(tab, on, fps)`: park a visible 1280Ã—800 webview off-screen (or take it off the stage) and start / change / stop the screencast; ack frames, cap to the wanted rate, emit `browser://frame` to the owner window; stop when the tab closes. | FR-9, FR-10 |
+| shell | `src-tauri/src/browser.rs`, `browser/stage.rs` (new) | `browser_stage(tab, on, fps)`: park a visible 1280×800 webview off-screen (or take it off the stage) and start / change / stop the screencast; ack frames, cap to the wanted rate, emit `browser://frame` to the owner window; stop when the tab closes. | FR-9, FR-10 |
 | shell | `src-tauri/src/browser/tabs.rs`, `browser.rs` | Emit `browser://driven` the first time a tool marks a page. | FR-1, FR-15 |
 | shell | `src-tauri/src/agent_tools/mod.rs` | Emit `agent://activity { chat, kind, id, tool, phase }` around every browser and terminal tool call (the tab it resolved to). | FR-2 |
-| shell | `src-tauri/src/agent_tools/browser/viewport.rs` | No change: the stage's real 1280Ã—800 size is what a reset returns to; a size set by the tool is an override that wins. | FR-9 |
+| shell | `src-tauri/src/agent_tools/browser/viewport.rs` | No change: the stage's real 1280×800 size is what a reset returns to; a size set by the tool is an override that wins. | FR-9 |
 | desktop UI | `src/stores/cards-store.ts` (new) | Per chat: the cards (kind, id, placement x/y/w/h, mode `card` / `chip` / `panel` / `hidden`, order, activity line); the three-visible rule; positions kept for the session and across a reload; selectors for the showing chat. | FR-3, FR-4, FR-5, FR-13, FR-16 |
 | desktop UI | `src/stores/ui-store.ts`, `features/settings/sections/` | The `agentCards` setting (default on) and its switch. | FR-14 |
 | desktop UI | `src/stores/agent-events.ts` | Apply `browser://driven`, `agent://activity` and `terminal://created` (agent-owned) to the cards store. | FR-1, FR-2, FR-15 |
@@ -106,7 +106,7 @@ shell emits `browser://driven` once per page).
 ### 3.4 Interfaces
 
 - Commands: `browser_stage(tab: String, on: bool, fps: Option<u32>)`.
-- Events (shell â†’ webview): `browser://frame { tab, seq, jpeg (base64), width, height }`,
+- Events (shell → webview): `browser://frame { tab, seq, jpeg (base64), width, height }`,
   `browser://driven { tab, chat }`, `agent://activity { chat, kind: "browser" | "terminal", id, tool, phase: "start" | "end" }`.
 - No engine protocol change.
 
@@ -124,7 +124,7 @@ window reload keeps positions (as `lib/tab-chats.ts` does for ownership). The
 | No frame for 2 s from a staged page | The card shows the last frame dimmed with "waiting for the page"; the screencast restarts once. |
 | The tab closes while a card shows | Card and chip go (FR-16); the screencast stops. |
 | A fourth card is wanted | It becomes a chip (FR-13). |
-| The chat is not showing | Its stages keep running without frames (the screencast stops; the page keeps its 1280Ã—800); frames resume when it is shown. |
+| The chat is not showing | Its stages keep running without frames (the screencast stops; the page keeps its 1280×800); frames resume when it is shown. |
 
 ## 4. Alternatives considered
 
@@ -137,11 +137,11 @@ window reload keeps positions (as `lib/tab-chats.ts` does for ownership). The
 
 ## 5. Phases (to become tasks)
 
-1. **Spike** â€” the three questions; decide stage mode or fallback.
-2. **Shell** â€” stage mode and frames, driven and activity events, viewport reset.
-3. **Cards store and layer** â€” state, setting, layer, cards, chips, events.
-4. **Bodies** â€” browser canvas with input, terminal body, panel canvas.
-5. **Verify and docs** â€” each requirement in the running app, README map.
+1. **Spike** — the three questions; decide stage mode or fallback.
+2. **Shell** — stage mode and frames, driven and activity events, viewport reset.
+3. **Cards store and layer** — state, setting, layer, cards, chips, events.
+4. **Bodies** — browser canvas with input, terminal body, panel canvas.
+5. **Verify and docs** — each requirement in the running app, README map.
 
 ## 6. As-built notes
 
@@ -152,14 +152,14 @@ Recorded 2026-11-08.
   - A webview made with `visible: false` does **not** render: its
     `requestAnimationFrame` stalled after the first frame and no screencast frame
     arrived (S1 failed for that placement).
-  - A webview that is *visible* but parked off-screen (bounds at âˆ’5000, âˆ’5000) or
-    1Ã—1 renders normally: the page ran at ~60 fps and `Page.startScreencast`
+  - A webview that is *visible* but parked off-screen (bounds at −5000, −5000) or
+    1×1 renders normally: the page ran at ~60 fps and `Page.startScreencast`
     delivered ~50 frames/s (one frame per page frame at `everyNthFrame` 1, JPEG
     quality 60, about 16 KB per frame; ~12 fps at `everyNthFrame` 5). So the stage is
     "visible, off-screen", not "hidden".
-  - S2: with `Emulation.setDeviceMetricsOverride` 1280Ã—800 the page sees 1280Ã—800
-    whatever the webview's bounds are (400Ã—300, then 640Ã—400: still 1280Ã—800), and
-    `Input.dispatchMouseEvent` at 1280Ã—800 coordinates hit the right element (button
+  - S2: with `Emulation.setDeviceMetricsOverride` 1280×800 the page sees 1280×800
+    whatever the webview's bounds are (400×300, then 640×400: still 1280×800), and
+    `Input.dispatchMouseEvent` at 1280×800 coordinates hit the right element (button
     click, wheel scroll 400 px), `Input.dispatchKeyEvent` with `text` and
     `Input.insertText` typed into a focused field (the field has to be clicked first;
     no focus emulation was needed).
@@ -177,17 +177,17 @@ Recorded 2026-11-08.
 
 Phase 2 (shell), 2026-11-08:
 
-- **Real size, not emulation.** The staged webview is 1280Ã—800 itself, parked at
-  (âˆ’10000, âˆ’10000), so no `Emulation` call is made and `browser_viewport` needed no
-  change. Checked live: the page sees 1280Ã—800 on the stage, a mobile override
+- **Real size, not emulation.** The staged webview is 1280×800 itself, parked at
+  (−10000, −10000), so no `Emulation` call is made and `browser_viewport` needed no
+  change. Checked live: the page sees 1280×800 on the stage, a mobile override
   changes it and `clearDeviceMetricsOverride` (what a reset sends) returns it to
-  1280Ã—800.
+  1280×800.
 - **`browser_stage` is opt-in.** Nothing stages a page by itself yet: the window asks
   (phase 4), because a staged page ignores `browser_bounds` / `browser_visible` (the
   panel's placement calls are no-ops for it) and would show nothing in the panel
   until the canvas exists. Checked live: before staging a hidden page's
   `requestAnimationFrame` advanced 0 per second, staged 60; with `fps` 10 about 9.8
-  frames per second of 1280Ã—800 (16 KB); `fps` 5 gave about 4.3; no `fps` stops the
+  frames per second of 1280×800 (16 KB); `fps` 5 gave about 4.3; no `fps` stops the
   frames while the page keeps running; the panel's calls left the page where it was.
 - **Frames bypass the event ring.** `Page.screencastFrame` events are acknowledged at
   once and sent to the owner window as `browser://frame { tab, seq, data, width, height }`
@@ -219,8 +219,8 @@ Phase 3 (cards store and layer), 2026-11-08:
 - A shell card's bar shows the shell's name (as the panel's tab does), not the title
   the shell sets.
 - Checked in the app (2026-11-08): an agent chat with the panel not showing the page
-  or shell got a card each, cascading from the top right, with "Opening â€¦" and
-  "Running echo card-test" on their bars; minimize â†’ chip â†’ click â†’ card; open in
+  or shell got a card each, cascading from the top right, with "Opening …" and
+  "Running echo card-test" on their bars; minimize → chip → click → card; open in
   panel made the card go and the panel show that tab; a drag moved the card and a
   corner drag resized it at 16:10; a new chat showed none and the first chat's
   cards came back in place; with the setting off a tab became a chip.
@@ -233,7 +233,7 @@ Phase 4 (bodies), 2026-11-08:
   Windows. `show_browser` therefore returns at once for a staged page (and for a
   page about to be made), so an agent never opens the side panel for a page. A
   person's page the agent starts using switches from the native view to the
-  picture in the panel at that moment (its viewport becomes 1280Ã—800).
+  picture in the panel at that moment (its viewport becomes 1280×800).
 - **Frames only for what is shown.** `StageController` (in the card layer) asks the
   shell for ~10 fps for the shown cards' pages and for the page the panel shows
   when it is one the agent uses; everything else stays parked without frames.
@@ -269,10 +269,21 @@ Phase 5 and the virtual cursor (FR-17), 2026-11-08:
 - **Focus (FR-11).** With approvals on, a pending approval replaces the composer
   (existing behaviour), so the composer loses focus then; a card appearing does not
   take it (checked in Approve-for-me mode: the composer stayed focused).
-- Checked in the running app in two chats: FR-5 (a 710Ã—432 layer kept the card inside),
-  FR-8 (a page marker and a typed value survived card â†’ chip â†’ card â†’ panel),
+- Checked in the running app in two chats: FR-5 (a 710×432 layer kept the card inside),
+  FR-8 (a page marker and a typed value survived card → chip → card → panel),
   FR-12 (an open menu overlapping a card was on top), FR-13 (three cards and a chip),
   FR-15 (a page opened by the person got no card), FR-16 (closing the tab removed
   card and chip), NFR-1 (about 10 frames a second during a drag, the card followed the
   pointer exactly), NFR-2 (one webview per tab), NFR-4 (an approval showed in the chat
   and in no card).
+
+Terminal cards dropped, 2026-11-08 (the person's request):
+
+- A card is only ever a page's. `CardKind` is `"browser"`; the terminal body, the
+  terminal branches of the store, the sync, the title and panel checks, the chip icon
+  and the activity words are gone, and a saved card of a shell from an earlier build
+  is dropped when the store loads. The shell still sends `agent://activity` for
+  terminal tools (the window ignores it) and an agent's shell tab still does not open
+  the side panel (`terminal-store.ts`): it is in the Terminal tool when opened.
+- Checked in the app: `terminal_run` from an agent chat ran with the panel closed, no
+  card and no chip, and the tab `t1` was running in the terminal store.
