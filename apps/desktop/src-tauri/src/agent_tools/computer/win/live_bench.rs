@@ -36,10 +36,62 @@ pub(super) struct Launch {
     pub(super) blank: &'static [&'static str],
     /// Keys that leave nothing for the app to restore next time.
     pub(super) cleanup: &'static [&'static str],
+    /// Text the new, empty window's title must start with ("" for any). The
+    /// harness never takes a window that may be the person's: a Word started
+    /// while they open a document showed that document first (Phase 6 smoke
+    /// run), and the benchmark typed into it.
+    pub(super) title: &'static str,
+    /// Text the window's title must start with once `blank` opened the empty
+    /// surface ("" for any). Otherwise the surface in front may be the
+    /// person's work, restored by the app (Notepad reopened a person's
+    /// unsaved tab in the Phase 6 smoke run, and the cleanup keys emptied
+    /// it), and the harness does nothing in it.
+    pub(super) blank_title: &'static str,
+}
+
+/// Why the app would show the person's work rather than an empty surface,
+/// so the harness must not start it.
+fn restores_the_persons_work(launch: &Launch) -> Option<&'static str> {
+    if !launch.exe.eq_ignore_ascii_case("notepad.exe") {
+        return None;
+    }
+    let tabs = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
+        .join(r"Packages\Microsoft.WindowsNotepad_8wekyb3d8bbwe\LocalState\TabState");
+    let saved = std::fs::read_dir(tabs).map(|entries| entries.count()).unwrap_or(0);
+    (saved > 0).then_some("Notepad would reopen the person's saved tabs")
+}
+
+/// Whether the window shows the harness's empty surface.
+fn shows_blank(launch: &Launch, window_id: u64) -> bool {
+    window_title(to_hwnd(window_id as isize)).trim_start_matches('*').starts_with(launch.blank_title)
+}
+
+/// End the instance the harness started, unless its process holds another
+/// window as well (one the person opened in the same app): then it is left
+/// running, and only the harness's own window is left behind.
+pub(super) fn end_private(pid: u32, own: u64) {
+    let others: Vec<String> = top_level_windows()
+        .into_iter()
+        .filter(|hwnd| window_pid(*hwnd) == pid && hwnd.0 as u64 != own && unsafe { IsWindowVisible(*hwnd) }.as_bool())
+        .map(window_title)
+        .filter(|title| !title.trim().is_empty())
+        .collect();
+    if !others.is_empty() {
+        eprintln!("left running: process {pid} also holds {others:?}");
+        return;
+    }
+    super::benchmark::harness_pause(|| {
+        let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status();
+    });
 }
 
 /// Top-level windows of `exe`: (window id, pid).
 pub(super) fn app_windows(exe: &str) -> Vec<(u64, u32)> {
+    app_windows_titled(exe).into_iter().map(|(id, pid, _)| (id, pid)).collect()
+}
+
+/// Top-level windows of `exe`: (window id, pid, title).
+fn app_windows_titled(exe: &str) -> Vec<(u64, u32, String)> {
     let stem = exe.trim_end_matches(".exe");
     list_windows("live-bench", &json!({ "query": stem }))["windows"]
         .as_array()
@@ -47,13 +99,27 @@ pub(super) fn app_windows(exe: &str) -> Vec<(u64, u32)> {
         .unwrap_or_default()
         .iter()
         .filter(|window| window["app"].as_str().unwrap_or("").eq_ignore_ascii_case(exe))
-        .map(|window| (window["id"].as_u64().unwrap_or(0), window["pid"].as_u64().unwrap_or(0) as u32))
+        .map(|window| {
+            (
+                window["id"].as_u64().unwrap_or(0),
+                window["pid"].as_u64().unwrap_or(0) as u32,
+                window["title"].as_str().unwrap_or("").to_string(),
+            )
+        })
         .collect()
 }
 
 /// Start an instance of the app of its own: its window id and pid, or
 /// `None` when the app is not installed or showed no new window.
 pub(super) fn start_private(launch: &Launch) -> Option<(u64, u32)> {
+    super::benchmark::harness_pause(|| start_private_now(launch))
+}
+
+fn start_private_now(launch: &Launch) -> Option<(u64, u32)> {
+    if let Some(reason) = restores_the_persons_work(launch) {
+        eprintln!("skipped {}: {reason}", launch.exe);
+        return None;
+    }
     let before: Vec<u32> = app_windows(launch.exe).into_iter().map(|(_, pid)| pid).collect();
     let mut args = vec!["/C", "start", "", "/min", launch.run];
     args.extend(launch.args);
@@ -63,10 +129,13 @@ pub(super) fn start_private(launch: &Launch) -> Option<(u64, u32)> {
     }
     for _ in 0..100 {
         pause(300);
-        if let Some(launched) = app_windows(launch.exe).into_iter().find(|(_, pid)| !before.contains(pid)) {
+        let launched = app_windows_titled(launch.exe)
+            .into_iter()
+            .find(|(_, pid, title)| !before.contains(pid) && title.starts_with(launch.title));
+        if let Some((id, pid, _)) = launched {
             // An app paints its first window a moment after showing it.
             pause(2500);
-            return Some(launched);
+            return Some((id, pid));
         }
     }
     None
@@ -74,7 +143,7 @@ pub(super) fn start_private(launch: &Launch) -> Option<(u64, u32)> {
 
 /// Run `body` on a private, parked instance of the app with an empty
 /// surface, then end that instance only.
-fn with_private_app(launch: &Launch, session: &str, body: impl FnOnce(&dyn Fn(Value))) {
+pub(super) fn with_private_app(launch: &Launch, session: &str, body: impl FnOnce(&dyn Fn(Value))) {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
@@ -83,27 +152,43 @@ fn with_private_app(launch: &Launch, session: &str, body: impl FnOnce(&dyn Fn(Va
         return;
     };
     let emit = |_: Value| {};
+    let blank = std::cell::Cell::new(false);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         act(&emit, session, "attach", json!({ "window_id": window_id, "hide": true })).unwrap();
         for key in launch.blank {
             let _ = act(&emit, session, "key", json!({ "key": key }));
         }
         pause(3000);
+        if !shows_blank(launch, window_id) {
+            eprintln!(
+                "skipped {}: it shows {:?}, not an empty surface; nothing done, left running",
+                launch.exe,
+                window_title(to_hwnd(window_id as isize))
+            );
+            return;
+        }
+        blank.set(true);
         body(&emit);
     }));
-    for key in launch.cleanup {
-        let _ = act(&emit, session, "key", json!({ "key": key }));
-        pause(200);
+    // Only on the harness's own surface, never on what the app restored.
+    if blank.get() && shows_blank(launch, window_id) {
+        for key in launch.cleanup {
+            let _ = act(&emit, session, "key", json!({ "key": key }));
+            pause(200);
+        }
     }
     detach(session);
-    let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status();
+    if !blank.get() {
+        return;
+    }
+    end_private(pid, window_id);
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);
     }
 }
 
 fn act(emit: &dyn Fn(Value), session: &str, action: &str, params: Value) -> Result<Value, String> {
-    dispatch(emit, session, action.parse()?, &params)
+    super::benchmark::timed(emit, session, action.parse()?, &params)
 }
 
 /// Pass/fail rows, printed as they come and as a table at the end.
@@ -117,6 +202,9 @@ impl Rows {
     }
 
     fn print(&self, surface: &str, app: &str) {
+        for (case, pass) in &self.0 {
+            super::benchmark::record(&format!("{surface} in {app}"), case, *pass);
+        }
         let passed = self.0.iter().filter(|(_, pass)| *pass).count();
         eprintln!("\n{surface} in {app}: {passed} of {} passed", self.0.len());
         for (case, pass) in &self.0 {
@@ -318,7 +406,7 @@ impl Grid<'_> {
     }
 }
 
-fn measure_grid(launch: &Launch) {
+pub(super) fn measure_grid(launch: &Launch) {
     let session = "live-bench-grid";
     let mut rows = Rows::default();
     with_private_app(launch, session, |emit| {
@@ -557,7 +645,7 @@ unsafe fn doubles(array: *mut SAFEARRAY) -> Vec<f64> {
     values
 }
 
-fn measure_document(launch: &Launch) {
+pub(super) fn measure_document(launch: &Launch) {
     let session = "live-bench-document";
     let mut rows = Rows::default();
     with_private_app(launch, session, |emit| {
@@ -657,7 +745,7 @@ fn measure_document(launch: &Launch) {
 
 /// Whether typed text arrives whole and in order: the same line typed a
 /// number of times, then each line of the document compared with it.
-fn measure_typing(launch: &Launch) {
+pub(super) fn measure_typing(launch: &Launch) {
     let session = "live-bench-typing";
     with_private_app(launch, session, |emit| {
         let doc = Document { emit, session };
@@ -672,6 +760,7 @@ fn measure_typing(launch: &Launch) {
         let text = doc.text();
         let wrong: Vec<&str> = text.split(['\r', '\n']).filter(|line| !line.is_empty() && *line != SENTENCE).collect();
         eprintln!("TYPING {}: {} of {LINES} lines wrong in {took} ms: {wrong:?}", launch.exe, wrong.len());
+        super::benchmark::record(&format!("long typing in {}", launch.exe), &format!("{LINES} lines typed in order"), wrong.is_empty());
     });
 }
 
@@ -690,7 +779,7 @@ fn measures_typing_in_word() {
 /// A command that opens a modal dialog, clicked at its position: the dialog
 /// must leave the user's screen with the parked window, the next action
 /// must reach it promptly, and Escape must close it.
-fn measure_modal_dialog(launch: &Launch, tab: &str, command: &str) {
+pub(super) fn measure_modal_dialog(launch: &Launch, tab: &str, command: &str) {
     let session = "live-bench-dialog";
     let mut rows = Rows::default();
     with_private_app(launch, session, |emit| {
@@ -751,8 +840,18 @@ fn measures_a_modal_dialog_in_excel() {
 // ── The apps measured ───────────────────────────────────────────────────
 
 pub(super) const EXCEL: Launch =
-    Launch { exe: "excel.exe", run: "excel.exe", args: &["/x", "/e"], blank: &["ctrl+n"], cleanup: &[] };
-const WORD: Launch = Launch { exe: "winword.exe", run: "winword.exe", args: &["/w", "/q"], blank: &[], cleanup: &[] };
+    Launch { exe: "excel.exe", run: "excel.exe", args: &["/x", "/e"],
+    blank: &["ctrl+n"],
+    cleanup: &[],
+    title: "Excel",
+    blank_title: "Book",
+};
+pub(super) const WORD: Launch =
+    Launch { exe: "winword.exe", run: "winword.exe", args: &["/w", "/q"], blank: &[],
+    cleanup: &[],
+    title: "Document",
+    blank_title: "Document",
+};
 /// A browser instance of its own (a separate profile), so the user's
 /// windows and tabs are never touched.
 const EDGE: Launch = Launch {
@@ -767,6 +866,8 @@ const EDGE: Launch = Launch {
     ],
     blank: &[],
     cleanup: &[],
+    title: "",
+    blank_title: "",
 };
 /// A code editor instance of its own (a separate profile), so the user's
 /// windows and projects are never touched.
@@ -783,8 +884,10 @@ const VSCODE: Launch = Launch {
     ],
     blank: &[],
     cleanup: &[],
+    title: "",
+    blank_title: "",
 };
-const NOTEPAD: Launch = Launch {
+pub(super) const NOTEPAD: Launch = Launch {
     exe: "notepad.exe",
     run: "notepad.exe",
     args: &[],
@@ -792,6 +895,8 @@ const NOTEPAD: Launch = Launch {
     // empty and close it at the end.
     blank: &["ctrl+n"],
     cleanup: &["ctrl+a", "delete", "ctrl+w"],
+    title: "",
+    blank_title: "Untitled",
 };
 
 // ── Scenarios: tasks as an agent would do them ──────────────────────────

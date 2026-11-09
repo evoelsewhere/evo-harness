@@ -586,3 +586,33 @@ Phase 5 (2026-11-10):
     Stop, Allow again, Show the app and Close; Settings → Computer apps.
   - The surface guides are unchanged, apart from the page channel in
     `web-content.md`. They still mention macOS in places, for phase 7.
+
+Phase 6 (2026-11-09, in progress):
+
+- **Benchmark harness.** `computer/win/benchmark.rs` (test only) runs the
+  live bench and live test cases as recorded cases, times every action
+  through `benchmark::timed`, and samples the person's input every 10 ms
+  (`InputMonitor`: pointer, front window, modifier keys,
+  `GetLastInputInfo`). A change within 100 ms of the person's own input is
+  theirs; the harness pauses the monitor while it starts or ends a process
+  (`harness_pause`).
+- **Only the harness's own windows.** `live_bench::start_private` takes a new
+  process's window only when its title starts with the launch's `title`
+  hint, and `end_private` ends the process only when it holds no other
+  window. Word started for the bench can reopen a document the person was
+  working on.
+- **Apps activate their own windows (FR-30).** Driven by background input,
+  Excel activates a new workbook and its dialogs, and WinForms activates a
+  modal dialog; the front window then left the person's window. evo makes
+  no foreground call for the agent (ADR 0015); instead `win/front.rs` holds
+  `LockSetForegroundWindow(LSFW_LOCK)` while an action runs and for 1.5 s
+  after. Holds are counted across chats and the page channel's start, so
+  the lock lifts only when the last one ends. The lock blocks programs, not
+  the person: their clicks and Alt+Tab still move the front window. A
+  process that is not in front can take the lock (checked on Windows 11).
+  Measured (smoke run 4): the lock did not stop Excel's "Create Table"
+  dialog, opened by a UI Automation invoke, from taking the front, so FR-30
+  is not met yet.
+- **Latency.** The by-ref medians (about 1 – 2 s) miss NFR-4's 300 ms. Most of
+  it is the read-back tree walk after each action, the 250 ms settle and the
+  200 ms pointer travel shown on the card.

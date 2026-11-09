@@ -13,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 /// Dispatch by wire name, the way the agent's calls arrive.
 fn run_action(emit: &dyn Fn(Value), session: &str, action: &str, params: &Value) -> Result<Value, String> {
-    dispatch(emit, session, action.parse()?, params)
+    super::benchmark::timed(emit, session, action.parse()?, params)
 }
 
 fn notepad_windows() -> Vec<(u64, u32)> {
@@ -136,6 +136,10 @@ fn wait_for_free_profile() {
 /// harness waits on them for as long as any of its children lives.
 /// Returns its process id.
 fn spawn_quiet(command: &mut std::process::Command) -> u32 {
+    super::benchmark::harness_pause(|| spawn_quiet_now(command))
+}
+
+fn spawn_quiet_now(command: &mut std::process::Command) -> u32 {
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -238,7 +242,15 @@ fn with_probe_page(
         // and parking it hands the foreground on; the claim under test is
         // that the user's own window keeps it.
         if foreground != hwnd {
-            assert_eq!(foreground, unsafe { GetForegroundWindow() }, "the foreground window changed");
+            let now = unsafe { GetForegroundWindow() };
+            assert_eq!(
+                foreground,
+                now,
+                "the foreground window changed from {:?} to {:?} (the probe is {:?})",
+                window_title(foreground),
+                window_title(now),
+                window_title(hwnd)
+            );
         }
     }));
 
@@ -256,7 +268,7 @@ fn with_probe_page(
 /// `cargo test probes_chromium -- --ignored --nocapture`
 #[test]
 #[ignore = "opens an Edge window on the local desktop"]
-fn probes_chromium_fields() {
+pub(super) fn probes_chromium_fields() {
     probe_fields(ProbeHost::Edge);
 }
 
@@ -271,7 +283,7 @@ fn probes_webview2_fields() {
 /// pickable.
 #[test]
 #[ignore = "opens an Edge window on the local desktop"]
-fn works_in_a_select_popup() {
+pub(super) fn works_in_a_select_popup() {
     let session = "probe-popup";
     // Parked, as every attached window is in evo 4 (spec FR-6): the list
     // opens next to the window, off the person's screen.
@@ -394,7 +406,7 @@ fn probe_fields(host: ProbeHost) {
 /// itself saw.
 #[test]
 #[ignore = "opens an Edge window on the local desktop"]
-fn probes_chromium_pointer() {
+pub(super) fn probes_chromium_pointer() {
     probe_pointer(ProbeHost::Edge);
 }
 
@@ -515,13 +527,17 @@ fn with_winforms_probe(fixture: &str, title: &str, session: &str, body: impl FnO
         .join("tests")
         .join("fixtures")
         .join(fixture);
-    let mut child = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script)
-        // CREATE_NO_WINDOW: no console, only the form.
-        .creation_flags(0x0800_0000)
-        .spawn()
-        .expect("start the WinForms probe");
+    // The harness starting and ending the probe may move the front window;
+    // the benchmark's input monitor does not count that against evo.
+    let mut child = super::benchmark::harness_pause(|| {
+        std::process::Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&script)
+            // CREATE_NO_WINDOW: no console, only the form.
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .expect("start the WinForms probe")
+    });
     let mut window = None;
     for _ in 0..50 {
         pause(200);
@@ -539,10 +555,12 @@ fn with_winforms_probe(fixture: &str, title: &str, session: &str, body: impl FnO
         body(&emit, session, to_hwnd(window_id as isize));
     }));
     detach(session);
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &child.id().to_string(), "/T", "/F"])
-        .output();
-    let _ = child.wait();
+    super::benchmark::harness_pause(|| {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .output();
+        let _ = child.wait();
+    });
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);
     }
@@ -565,7 +583,7 @@ fn wait_for_title(session: &str, title: &str) {
 
 #[test]
 #[ignore = "opens a WinForms window on the local desktop"]
-fn refuses_refs_behind_a_modal_dialog() {
+pub(super) fn refuses_refs_behind_a_modal_dialog() {
     with_dialog_probe(|emit, session, _| {
         let open = ref_for(emit, session, "Open dialog 1");
         // A posted click: Invoke would not return while the dialog is open.
@@ -613,7 +631,7 @@ fn opened_window(title: &str) -> HWND {
 
 #[test]
 #[ignore = "opens a WinForms window on the local desktop"]
-fn keeps_a_parked_apps_dialogs_off_screen() {
+pub(super) fn keeps_a_parked_apps_dialogs_off_screen() {
     with_dialog_probe(|emit, session, probe| {
         // WinForms keeps a dialog on a monitor; the dialog watcher moves
         // it over its parked owner as it opens, before any action runs.
@@ -686,7 +704,7 @@ fn grid_title(hwnd: HWND, wanted: &str) -> String {
 
 #[test]
 #[ignore = "opens a WinForms window on the local desktop"]
-fn types_across_cells_that_open_their_own_editor() {
+pub(super) fn types_across_cells_that_open_their_own_editor() {
     with_winforms_probe("computer_app_grid.ps1", "grid-probe", "live-grid", |emit, session, probe| {
         // One type across cells: every Tab lands in a new cell, whose
         // first character opens its editor and takes the focus there.
@@ -866,6 +884,8 @@ fn drives_vscode_by_its_keys() {
         ],
         blank: &[],
         cleanup: &[],
+        title: "",
+        blank_title: "",
     };
     let (window_id, pid) = start_private(&launch).expect("VS Code did not open");
     let session = "live-test-vscode";
@@ -975,7 +995,9 @@ fn drives_vscode_by_its_keys() {
         .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
         .unwrap_or_default();
     if command_line.contains(&*profile.file_name().unwrap().to_string_lossy()) {
-        let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
+        super::benchmark::harness_pause(|| {
+            let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
+        });
     } else {
         eprintln!("NOT killing pid {pid}: {command_line}");
     }
@@ -1162,7 +1184,7 @@ fn drives_notepad_in_the_background() {
 /// puts the window back where it was.
 #[test]
 #[ignore = "opens an Edge window on the local desktop"]
-fn corner_pixel_keeps_chromium_painting() {
+pub(super) fn corner_pixel_keeps_chromium_painting() {
     let session = "probe-corner";
     let mut window = None;
     with_probe_page(session, ProbeHost::Edge, true, |emit, hwnd| {
@@ -1263,7 +1285,7 @@ fn window_of_pid(session: &str, pid: u32) -> Option<u64> {
 /// DevTools input here (spec FR-16, plan R4, R5).
 #[test]
 #[ignore = "opens a VS Code window (its own profile) on the local desktop"]
-fn drives_an_electron_app_through_the_page_channel() {
+pub(super) fn drives_an_electron_app_through_the_page_channel() {
     let profile = std::env::temp_dir().join(format!("evo-page-code-{}", std::process::id()));
     let code = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap()).join(r"Programs\Microsoft VS Code\Code.exe");
     assert!(code.is_file(), "VS Code is not installed for this user");
@@ -1341,7 +1363,7 @@ fn drives_an_electron_app_through_the_page_channel() {
 /// reaches the page through the channel and the picture shows it (FR-16, NFR-3).
 #[test]
 #[ignore = "opens an Edge window (its own profile) on the local desktop"]
-fn edge_with_page_channel_stays_fresh_off_screen() {
+pub(super) fn edge_with_page_channel_stays_fresh_off_screen() {
     let profile = std::env::temp_dir().join(format!("evo-page-edge-{}", std::process::id()));
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);

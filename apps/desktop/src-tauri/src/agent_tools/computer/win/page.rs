@@ -476,8 +476,8 @@ pub(super) fn start_with_channel(program: &str, arguments: &str, folder: Option<
     // live test). While the app starts, no one may take the front: the lock
     // is lifted once the app's window shows (or after the wait), and the
     // person pressing Alt or clicking lifts it too. Nothing here takes the
-    // front; it only keeps it where the person has it.
-    hold_foreground();
+    // front; it only keeps it where the person has it (FR-30).
+    let front = hold_front();
     let attributes = LPPROC_THREAD_ATTRIBUTE_LIST(attribute_buffer.as_mut_ptr().cast());
     let started = (|| -> Result<PROCESS_INFORMATION, String> {
         unsafe {
@@ -539,7 +539,7 @@ pub(super) fn start_with_channel(program: &str, arguments: &str, folder: Option<
         let _ = CloseHandle(process.hThread);
         let _ = CloseHandle(process.hProcess);
     }
-    release_foreground_when_shown(process.dwProcessId);
+    release_front_when_shown(process.dwProcessId, front);
     let writer = unsafe { File::from_raw_handle(to_app_write.0) };
     let reader = unsafe { File::from_raw_handle(from_app_read.0) };
     let channel = Channel::start(reader, writer);
@@ -549,33 +549,22 @@ pub(super) fn start_with_channel(program: &str, arguments: &str, folder: Option<
     Ok(process.dwProcessId)
 }
 
-/// Keep the front window where it is while an app starts.
-fn hold_foreground() {
-    use windows::Win32::UI::WindowsAndMessaging::{LockSetForegroundWindow, LSFW_LOCK};
-    unsafe {
-        let _ = LockSetForegroundWindow(LSFW_LOCK);
-    }
-}
-
-/// Lift [`hold_foreground`] once a window of `pid` shows, or after the wait
-/// for one.
-fn release_foreground_when_shown(pid: u32) {
-    use windows::Win32::UI::WindowsAndMessaging::{LockSetForegroundWindow, LSFW_UNLOCK};
-    let _ = std::thread::Builder::new().name("computer-app-front".into()).spawn(move || {
+/// End `hold` once a window of `pid` shows, or after the wait for one; the
+/// hold's grace covers the app's own focus request right after its window
+/// shows (spec FR-30).
+fn release_front_when_shown(pid: u32, hold: FrontHold) {
+    let wait = move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while std::time::Instant::now() < deadline {
-            let shown = top_level_windows().into_iter().any(|hwnd| window_pid(hwnd) == pid && unsafe { IsWindowVisible(hwnd) }.as_bool());
-            if shown {
-                // The app's own focus request comes right after its window shows.
-                pause(1500);
+            if top_level_windows().into_iter().any(|hwnd| window_pid(hwnd) == pid && unsafe { IsWindowVisible(hwnd) }.as_bool()) {
                 break;
             }
             pause(100);
         }
-        unsafe {
-            let _ = LockSetForegroundWindow(LSFW_UNLOCK);
-        }
-    });
+        drop(hold);
+    };
+    // Without a thread the hold ends now, with its grace.
+    let _ = std::thread::Builder::new().name("computer-app-front".into()).spawn(wait);
 }
 
 /// Whether the app answers on its channel (it took the pipes rather than

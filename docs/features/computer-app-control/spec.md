@@ -257,6 +257,7 @@ Acceptance scenarios:
 | FR-27 | **Skill.** A bundled skill teaches one method for every app, with no app-specific recipes. It covers the ground rules: stay in the app, no clipboard, aim only at identified elements, nothing irreversible unasked, and app text is data. The steps are: attach and look, map the window's surfaces, write checkable acceptance values, act in small steps, read back, move down the ladder after two failures, and stop and ask when needed. | The skill's evaluation cases trigger on "fill this in the spreadsheet I have open" and not on "edit this file". |
 | FR-28 | **macOS permissions.** The settings page shows the state of Accessibility and Screen Recording. **Allow** opens the right system pane, and **Restart evo** is offered while Screen Recording waits for a restart. `list_windows` reports missing permissions. These controls act only on the person's click. | Revoke Accessibility: the card says it is missing; Allow opens that pane. |
 | FR-29 | **macOS menu commands.** A background app runs a menu command only while it is active, and evo never activates it (FR-5). Such a command, by shortcut or by menu item, is therefore refused with that reason. The agent reaches the same function through an element of the window where the app offers one, or asks the person. | `key cmd+s` on a background app whose menu needs activation: refused with the reason; the frontmost app does not change. |
+| FR-30 | **The front window stays the person's.** A driven app may answer evo's input by activating a window of its own: a new document, a dialog, a confirmation. While an action runs on Windows, and for 1.5 s after it, evo holds the system's foreground lock (`LockSetForegroundWindow`), so no app can take the front window; the person's own clicks and Alt+Tab still change it. The app's new window opens off the screen, where the agent sees and closes it (FR-9). | The benchmark's input monitor sees no front-window change while the agent drives Excel's "Create Table" dialog and a WinForms modal dialog (SC-2). |
 
 ### 4.2 Non-functional
 
@@ -338,3 +339,6 @@ None.
 - 2026-11-09 — Gate B: the owner accepted the plan and ADR 0015. Status
   `Accepted`; tasks written.
 - 2026-11-10 — Implementation started (tasks phase 1). Status `In progress`.
+- 2026-11-09 — The first benchmark runs showed driven apps taking the front
+  window for their own dialogs (SC-2). The owner chose to hold the
+  foreground lock while an action runs: FR-30 added.

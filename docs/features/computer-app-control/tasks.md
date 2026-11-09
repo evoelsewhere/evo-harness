@@ -242,11 +242,58 @@ Done when: SC-1 – SC-5 and NFR-2 – NFR-8 are recorded in the verification
 table. This phase includes spike 3 from [research.md](research.md): v3's
 failing cases.
 
-- [ ] T36 [NFR-2, SC-2, SC-3] Input monitor: samples the person's pointer, foreground, focus and key state every 10 ms during a run, and a typing robot in another app counts lost or misdirected keys — `computer/win/live_bench.rs` — check: it reports a planted `SetCursorPos` from the test itself
-- [ ] T37 [SC-1] Port `live_bench` with 10 runs per case. Surface kinds: grid, text document, forms and dialogs, menus, evo-started web app, already-open web app. Include v3's failing cases (grid ctrl+click, ribbon toggle, right click, long typing) — `computer/win/live_bench.rs` — check: produces the per-case rate table
+- [x] T36 [NFR-2, SC-2, SC-3] Input monitor: samples the person's pointer, foreground, focus and key state every 10 ms during a run, and a typing robot in another app counts lost or misdirected keys — `computer/win/live_bench.rs` — check: it reports a planted `SetCursorPos` from the test itself
+- [x] T37 [SC-1] Port `live_bench` with 10 runs per case. Surface kinds: grid, text document, forms and dialogs, menus, evo-started web app, already-open web app. Include v3's failing cases (grid ctrl+click, ribbon toggle, right click, long typing) — `computer/win/live_bench.rs` — check: produces the per-case rate table
 - [ ] T38 [P] [SC-5] "Impossible" cases (hover-only menu, drag a file between apps, key tips) expect an honest limit — `computer/win/live_bench.rs` — check: every case reports the limit
 - [ ] T39 [NFR-4, NFR-7, NFR-8] Timing (median per action), a run at 150 % scaling, CPU with the card minimized — `computer/win/live_bench.rs` — check: numbers in the table
 - [ ] T40 [SC-1 – SC-5] Run the benchmark and record the results — `tasks.md` section 2, plan section 5 — check: every row filled
+- [ ] T45 [FR-30, SC-2] Hold the foreground lock while an action runs and 1.5 s after, counted across chats — `computer/win/front.rs`, `computer/win/mod.rs`, `computer/win/page.rs` — check: unit test of the hold count; the benchmark's modal dialog and forms cases with no front-window change
+
+Phase 6 results so far (2026-11-09):
+
+- Done: T36, T37. The benchmark is the ignored test
+  `computer::win::benchmark::benchmark_windows` (`EVO_BENCH_RUNS`, default
+  10); it writes `%TEMP%\evo-computer-app-benchmark.md`. The input monitor
+  test `the_input_monitor_sees_a_planted_cursor_move` passed. The typing
+  robot runs only with `EVO_BENCH_ROBOT=1`: **not run** (it takes the
+  keyboard).
+- Smoke run, 1 run per case (not the 10 SC-1 asks for): 40 of 41 cases
+  passed. The failure is "web app already open / fields": the foreground
+  window changed during the case; the assertion now names both windows.
+  Word was skipped (below).
+- Harness safety. A Word the harness starts reopens the person's recovered
+  document instead of an empty one. In the first smoke run the harness
+  typed into that document and ended Word, losing the recovered copy. The
+  harness now takes only a new window whose title starts with the launch's
+  hint (`Document`, `Excel`), and leaves a process running when it holds
+  any other window.
+- SC-2 / NFR-2 not met: the monitor saw 8 front-window changes without the
+  person's input, all from windows the driven app activated itself in
+  answer to evo's input: Excel's new workbook after `ctrl+n`, Excel's
+  "Create Table" dialog (after its `escape` the front went back to the
+  person's window), and the WinForms probes' dialogs. evo's own code never
+  sets the front window (T1); the apps do. A fix needs a decision (spec
+  change), see plan section 5.
+- NFR-4 not met: medians are Snapshot 135 ms, Attach 328 ms, Click 1121 ms,
+  Key 1776 ms, Type 1722 ms, Invoke 2005 ms. The read-back walk after each
+  action, the 250 ms settle and the 200 ms pointer travel dominate.
+- FR-30 (T45, 2026-11-09): with the foreground lock, smoke run 4 passed
+  47 of 52 cases. The monitor now names the window that lost the front and
+  counts only the person's: 3 of 13 changes. One came from an action: the
+  person's window lost the front when evo invoked Excel's "Table" button and
+  "Create Table" opened, although the lock was held. The other two followed
+  the harness starting Word and Excel. The lock alone does not meet SC-2.
+  The cases that failed (cell editor, `<select>` popup) fail about 1 in 4
+  with and without the lock (`EVO_TEST_NO_FRONT_LOCK=1`).
+- Harness safety, second incident: in smoke run 4 Notepad reopened a
+  person's unsaved tab instead of the new one, the cases ran in it, and the
+  cleanup keys (`ctrl+a`, `delete`, `ctrl+w`) emptied and closed it; its
+  text is lost. The harness now does not start Notepad while Notepad has
+  saved tabs, acts only when the window's title shows its own empty surface
+  (`Launch::blank_title`), and runs the cleanup keys only there.
+- T38: key tips and a window that reads the physical mouse report a limit;
+  the hover-only menu and the drag between apps are not written yet. T39:
+  the 150 % scaling run and the CPU check are not run.
 
 ### Phase 7 — macOS (NFR-1, later)
 
@@ -265,7 +312,7 @@ Done when: the same checks pass on macOS 14+.
 | FR-2 | T13 `computer::tool`; T32 transcript | passed (2026-11-10) |
 | FR-3 | `controlled_elsewhere` assertions in live `drives_notepad_in_the_background` (T14) | passed (2026-11-10) |
 | FR-4 | `computer::policy` (T3); a block mid-run releases (T14) | not run |
-| FR-5 | T1 grep test; T36 input monitor | T1 passed (2026-11-10); T36 not run |
+| FR-5 | T1 grep test; T36 input monitor | T1 passed (2026-11-10); T36 failed (2026-11-09): apps activate their own dialogs |
 | FR-6 | live `drives_excel_on_the_stage` (T9), `corner_pixel_keeps_chromium_painting` (T10) | passed (2026-11-10) |
 | FR-7 | live `returns_the_window_at_the_end_of_the_turn` (T16); every release trigger in the app | live test passed (2026-11-10); in the app not run |
 | FR-8 | `cargo test -p evo-store computer` (T8); live `puts_back_a_window_parked_by_a_run_that_crashed` (T9) | passed (2026-11-10) |
@@ -279,7 +326,7 @@ Done when: the same checks pass on macOS 14+.
 | FR-16 | live `drives_an_electron_app_through_the_page_channel`, `edge_with_page_channel_stays_fresh_off_screen` (T24) | passed (2026-11-10) |
 | FR-17 | `computer::readback` (T18); read-back assertion in live `drives_notepad_in_the_background` (T19) | passed (2026-11-10) |
 | FR-18 | `computer::tool` ladder test (T20) | passed (2026-11-10) |
-| FR-19 | live `tells_toolkits_that_drop_posted_input` (T21); impossible cases (T38) | not run |
+| FR-19 | live `tells_toolkits_that_drop_posted_input` (T21); impossible cases (T38) | impossible cases written so far passed (2026-11-09, 1 run) |
 | FR-20 | `computer::zoom`; live `marks_controls_and_zooms_a_region` (T23) | passed (2026-11-10) |
 | FR-21 | live typing tests (T7); a password field is refused | not run |
 | FR-22 | `computer::keys` (T2) | passed (2026-11-10) |
@@ -290,16 +337,17 @@ Done when: the same checks pass on macOS 14+.
 | FR-27 | `skills_require_tools`, `bundled_computer_app_skill_requires_its_tool` (T34, T35) | passed (2026-11-10); trigger cases not run |
 | FR-28 | T43 on a Mac | not run |
 | FR-29 | live `refuses_menu_commands_that_need_activation` (T42) | not run |
+| FR-30 | `front` hold count (T45); input monitor on the dialog cases (T45, T40) | not run |
 | NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | not run |
-| NFR-2 | input monitor during the benchmark (T36, T40) | not run |
+| NFR-2 | input monitor during the benchmark (T36, T40) | failed (2026-11-09): 8 front-window changes by driven apps |
 | NFR-3 | T10, T24, T25; benchmark freshness column (T40) | not run |
-| NFR-4 | timing table (T39) | not run |
+| NFR-4 | timing table (T39) | failed (2026-11-09): by-ref medians 1.1 – 2 s |
 | NFR-5 | quit with a hung app (T16) | not run |
 | NFR-6 | T24 (pipe only, no network listener: `netstat` during the test); security review | not run |
 | NFR-7 | run at 150 % scaling (T39) | not run |
 | NFR-8 | CPU with the card minimized (T39) | not run |
-| SC-1 | benchmark rate table (T37, T40) | not run |
-| SC-2 | input monitor: 0 events (T36, T40) | not run |
+| SC-1 | benchmark rate table (T37, T40) | 1 run only (2026-11-09): 40/41; 10 runs not run |
+| SC-2 | input monitor: 0 events (T36, T40) | failed (2026-11-09): 8 events |
 | SC-3 | typing robot: 0 lost or misdirected keys (T36, T40) | not run |
 | SC-4 | crash restore (T9, T40) | not run |
-| SC-5 | impossible cases (T38, T40) | not run |
+| SC-5 | impossible cases (T38, T40) | 2 of 4 cases written, both passed (2026-11-09) |

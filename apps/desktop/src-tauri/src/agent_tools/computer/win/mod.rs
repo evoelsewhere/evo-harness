@@ -16,6 +16,7 @@
 //! | `parking`      | Off-screen stage for an app; putting it back (also on crash)   |
 //! | `listing`      | Enumerating windows and processes; what may never be attached  |
 //! | `catalog`      | Installed and running apps (Settings picker, `search_apps`)    |
+//! | `front`        | The foreground lock held while an action runs (FR-30)          |
 //! | `attachment`   | `status`, `attach`, `detach`                                   |
 //! | `lifecycle`    | `search_apps`, `open_app`, `close_app`, `kill_app`             |
 //! | `target`       | The window an action addresses; web-content hosts              |
@@ -131,6 +132,7 @@ use super::workers::{on_worker, post as post_to_worker};
 mod attachment;
 mod capture;
 mod catalog;
+mod front;
 mod keyboard;
 mod lifecycle;
 mod listing;
@@ -150,6 +152,8 @@ mod uia_tree;
 mod web_fill;
 
 #[cfg(test)]
+mod benchmark;
+#[cfg(test)]
 mod live_bench;
 #[cfg(test)]
 use live_bench::*;
@@ -161,6 +165,7 @@ mod tests;
 use attachment::*;
 use capture::*;
 use catalog::*;
+use front::*;
 use keyboard::*;
 use lifecycle::*;
 use listing::*;
@@ -242,6 +247,9 @@ fn reads_back(action: Action) -> bool {
 }
 
 fn dispatch(emit: &dyn Fn(Value), session_id: &str, action: Action, params: &Value) -> Result<Value, String> {
+    // The app may answer with a window of its own; the person keeps the
+    // front window (FR-30).
+    let _front = holds_front(action).then(hold_front);
     if !reads_back(action) {
         return dispatch_action(emit, session_id, action, params);
     }
