@@ -40,6 +40,11 @@ const BROWSER: Record<string, (a: Args) => string> = {
 
 /** The words for a tool call; `null` for a tool a card has nothing to say about. */
 export function activityLabel(tool: string, args: Args = {}): string | null {
+  if (tool === "computer_app") {
+    // The shell sends the batch's first acting step as the person reads it ("click e12").
+    const step = typeof args.action === "string" && args.action ? args.action : "";
+    return step ? step.charAt(0).toUpperCase() + step.slice(1) : "Looking at the app";
+  }
   const make = BROWSER[tool];
   if (make) return make(args);
   if (tool.startsWith("browser_")) return "Using the page";

@@ -518,3 +518,51 @@ Phase 3 (2026-11-10):
   tree change with an unchanged picture sets `picture_may_be_late`, and
   screenshots carry "this picture may be late" until a later action shows a
   fresh picture.
+
+Phase 4 (2026-11-10):
+
+- **Frames.** An app's pictures are captured, not pushed, so they do not go
+  through the browser's `Streams` as the plan had it. `computer_stage`
+  (`src/computer.rs`) runs one task per chat:
+  - it captures `preview_frame` (1280 px wide at most) at the asked rate
+    (8 per second from `StageController`, 15 at most);
+  - it skips a picture whose bytes did not change;
+  - it emits `computer://frame {surface, chat, seq, data, width, height, title}`;
+  - it stops when the card is not shown (NFR-8), and when the app is no
+    longer attached: then it emits `released` with reason `gone`, unless
+    control was stopped.
+- **Events.** The module emits the following through an `AppHandle` set at
+  start-up:
+  - `computer://attached` from the tool after a successful attach;
+  - `computer://released` on detach, turn end or engine stop (`turn`),
+    Close or Show the app (`close`), a window that went away (`gone`),
+    resume without an app (`resume`), and evo quitting or the feature off
+    (`chat: null`);
+  - `computer://state` on Stop and Allow again.
+- **Close and Show the app.** Both refuse `attach` until the turn ends
+  (`computer::mark_closed`, cleared by `release_chat`). Show the app first
+  restores the window (the backend's `reveal`), then hands it back, then
+  brings it to the front from `src/computer.rs` on the person's click. The
+  `SetForegroundWindow` call lives outside `agent_tools/computer`, so T1
+  still holds.
+- **The person's input** (`computer_input`) goes through the same backend
+  actions as the agent's, without approval:
+  - clicks and wheel carry fractions of the picture (`"fraction": true`,
+    mapped in `pointer_target`);
+  - keys use the key parser's names (`features/cards/app-input.ts`);
+  - printable characters go as text.
+- **The pointer** reaches the card as fractions. `AgentCursor` scales them by
+  the picture's size (`Pointer.fraction`).
+- **Reload.** App cards come back from the session storage. `restoreAppCards`
+  asks `computer_status` for each, and drops a card whose chat has no app
+  attached or stopped.
+- **Transcript.** Kind `computer` uses the `AppWindowIcon` and a one-line
+  label such as "Used an app · click e12, key ctrl+s", and shows screenshots.
+  The tool sends no `structuredContent`: it showed as raw JSON under each
+  step.
+- **Settings → Computer apps** (`sections/computer-apps-settings.tsx`):
+  - the switch, Approval, and an app list from `computer_list_apps` with
+    Default / Allowed / Blocked per app;
+  - a typed executable can be blocked;
+  - on platforms other than Windows the page says the feature is not
+    available there.

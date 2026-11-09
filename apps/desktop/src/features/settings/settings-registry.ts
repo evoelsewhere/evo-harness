@@ -1,7 +1,8 @@
 import type * as React from "react";
-import { CpuIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
+import { AppWindowIcon, CpuIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
 import type { SettingsSection } from "@/stores/ui-store";
 import { AppearanceSettings } from "./sections/appearance-settings";
+import { ComputerAppsSettings } from "./sections/computer-apps-settings";
 import { GeneralSettings } from "./sections/general-settings";
 import { ProviderSettings } from "./sections/provider-settings";
 import { LogsSettings } from "./sections/logs-settings";
@@ -42,6 +43,14 @@ export const settingsPages: SettingsPage[] = [
     group: "Application",
     keywords: ["provider", "api key", "key", "model", "models", "connect", "openai", "anthropic", "claude", "gemini", "openrouter", "deepseek", "ollama", "base url"],
     component: ProviderSettings,
+  },
+  {
+    id: "computer-apps",
+    title: "Computer apps",
+    icon: AppWindowIcon,
+    group: "Application",
+    keywords: ["computer", "app", "apps", "control", "desktop", "window", "automation", "excel", "word", "allow", "block", "background"],
+    component: ComputerAppsSettings,
   },
   {
     id: "engine",

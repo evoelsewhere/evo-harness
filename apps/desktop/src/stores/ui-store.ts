@@ -29,7 +29,7 @@ const legacy = (() => {
     return { existing: false, approval: undefined };
   }
 })();
-export type SettingsSection = "general" | "appearance" | "providers" | "engine" | "sandbox" | "logs" | "about";
+export type SettingsSection = "general" | "appearance" | "providers" | "computer-apps" | "engine" | "sandbox" | "logs" | "about";
 export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "plugins" | "hooks" | "languages";
 
 /** The side panel's tabs of one chat. */

@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  AppWindowIcon,
   FileIcon,
   FilePenIcon,
   FolderSearchIcon,
@@ -54,6 +55,7 @@ const icons: Record<Kind, React.ComponentType<{ className?: string }>> = {
   list: FolderSearchIcon,
   web: GlobeIcon,
   browser: BrowserIcon,
+  computer: AppWindowIcon,
   agent: AgentIcon,
   session: MessagesSquareIcon,
   skill: ScrollTextIcon,
@@ -76,6 +78,7 @@ const verbs: Record<Kind, Record<ToolPart["phase"], string>> = {
   list: { preparing: "Listing", running: "Listing", done: "Listed", error: "Failed to list" },
   web: { preparing: "Fetching", running: "Fetching", done: "Fetched", error: "Failed to fetch" },
   browser: { preparing: "Using the browser", running: "Using the browser", done: "Used the browser", error: "Browser step failed" },
+  computer: { preparing: "Using an app", running: "Using an app", done: "Used an app", error: "App step failed" },
   agent: { preparing: "Starting agent", running: "Agent", done: "Agent", error: "Agent failed" },
   session: { preparing: "Session", running: "Session", done: "Session", error: "Session failed" },
   skill: { preparing: "Loading skill", running: "Loading skill", done: "Skill", error: "Skill failed" },
@@ -99,6 +102,7 @@ export const activity: Record<Kind, { live: string; done: string }> = {
   list: { live: "Listing files", done: "listed files" },
   web: { live: "Browsing the web", done: "browsed the web" },
   browser: { live: "Using the browser", done: "used the browser" },
+  computer: { live: "Working in an app", done: "worked in an app" },
   agent: { live: "Running agents", done: "ran agents" },
   session: { live: "Working with sessions", done: "worked with sessions" },
   skill: { live: "Loading skills", done: "loaded skills" },
@@ -111,6 +115,29 @@ export const activity: Record<Kind, { live: string; done: string }> = {
   visual: { live: "Drawing widgets", done: "drew widgets" },
   other: { live: "Using tools", done: "used tools" },
 };
+
+/**
+ * A computer app call in one line: the verb and its steps, e.g. "Used an app ·
+ * click e12, type "Dear team…", key ctrl+s" (docs/features/computer-app-control).
+ */
+function computerLabel(part: ToolPart, phase: ToolPart["phase"]): string {
+  const actions = Array.isArray((part.args as any)?.actions) ? ((part.args as any).actions as Record<string, unknown>[]) : [];
+  const short = (value: unknown, max = 24) => {
+    const text = String(value ?? "");
+    return text.length > max ? `${text.slice(0, max)}…` : text;
+  };
+  const step = (a: Record<string, unknown>) => {
+    const name = String(a.action ?? "");
+    if (name === "type") return `type "${short(a.text)}"`;
+    if (name === "key") return `key ${short(a.key)}`;
+    if (name === "attach") return `attach ${short(a.app ?? a.title ?? a.window_id ?? "")}`.trim();
+    if (name === "open_app") return `open ${short(a.app)}`;
+    const target = a.ref ? ` ${a.ref}` : a.x !== undefined && a.y !== undefined ? ` (${a.x}, ${a.y})` : "";
+    return `${name.replace("_", " ")}${target}`;
+  };
+  const steps = actions.slice(0, 3).map(step).join(", ") + (actions.length > 3 ? `, +${actions.length - 3}` : "");
+  return `${verbs.computer[phase]}${steps ? ` · ${steps}` : ""}`;
+}
 
 export const toolKind = (name: string): Kind => kinds[name] ?? (name.startsWith("mcp__") ? "mcp" : "other");
 
@@ -519,6 +546,8 @@ export function Tool({
       ? `${verbs[kind][phase]}${about ? ` · ${about}` : ""}`
       : kind === "browser"
       ? browserLabel(part, phase)
+      : kind === "computer"
+      ? computerLabel(part, phase)
       : kind === "web"
       ? webLabel(part, phase)
       : kind === "visual"
@@ -607,11 +636,11 @@ export function Tool({
   if (phase === "running" && !part.output) return line;
 
   let body: React.ReactNode;
-  if (kind === "browser")
+  if (kind === "browser" || kind === "computer")
     body = (
       <div className="flex flex-col gap-2">
         {part.images?.map((src, index) => (
-          <img key={index} src={src} alt="Browser screenshot" className="max-h-96 w-auto self-start rounded-md ring-1 ring-border" />
+          <img key={index} src={src} alt={kind === "computer" ? "App screenshot" : "Browser screenshot"} className="max-h-96 w-auto self-start rounded-md ring-1 ring-border" />
         ))}
         {part.output && <Plain text={part.output} failed={failed} />}
       </div>

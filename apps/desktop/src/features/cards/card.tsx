@@ -1,5 +1,7 @@
 import * as React from "react";
-import { GlobeIcon, MinusIcon, PanelRightOpenIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { AppWindowIcon, GlobeIcon, MinusIcon, MonitorUpIcon, PanelRightOpenIcon, PlayIcon, XIcon } from "lucide-react";
+import { useComputerStore } from "@/stores/computer-store";
 import { BAR_HEIGHT, MIN_WIDTH, clampRect, slotRect, useCardsStore, type Card as CardData, type Rect } from "@/stores/cards-store";
 import { useBrowserStore } from "@/stores/browser-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -16,6 +18,38 @@ export function openInPanel(_chat: string, card: CardData) {
 }
 
 type Layer = { w: number; h: number };
+
+const barButton = "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground";
+
+/**
+ * The person's controls of an app card (docs/features/computer-app-control
+ * FR-12): Stop (or Allow again after it), Show the app, Close. Each acts in the
+ * shell on this click; none is the agent's.
+ */
+function AppControls({ chat, stopped }: { chat: string; stopped: boolean }) {
+  const call = (command: string) => () => void invoke(command, { chat }).catch(() => undefined);
+  const stop = (event: React.PointerEvent) => event.stopPropagation();
+  return (
+    <>
+      {stopped ? (
+        <button type="button" onPointerDown={stop} onClick={call("computer_resume")} className="flex h-5 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-foreground hover:bg-foreground/10" title="Let the agent control apps again">
+          <PlayIcon className="size-3" />
+          Allow again
+        </button>
+      ) : (
+        <button type="button" onPointerDown={stop} onClick={call("computer_stop")} className="flex h-5 shrink-0 items-center rounded-sm px-1.5 text-[11px] font-medium text-destructive hover:bg-destructive/10" title="Stop the agent controlling the app">
+          Stop
+        </button>
+      )}
+      <button type="button" aria-label="Show the app" title="Show the app: bring it back to your screen" onPointerDown={stop} onClick={call("computer_reveal")} className={barButton}>
+        <MonitorUpIcon className="size-3.5" />
+      </button>
+      <button type="button" aria-label="Close" title="Close: hand the app back" onPointerDown={stop} onClick={call("computer_close")} className={barButton}>
+        <XIcon className="size-3.5" />
+      </button>
+    </>
+  );
+}
 
 /** Keep a page card 16:10 under its bar. */
 const fit = (card: CardData, rect: Rect): Rect => (card.kind === "browser" ? { ...rect, h: Math.round(rect.w * 0.625) + BAR_HEIGHT } : rect);
@@ -50,10 +84,12 @@ export function Card({ chat, card, slot, layer, children }: { chat: string; card
     if (drag.current?.pointer === event.pointerId) drag.current = null;
   };
 
-  const Icon = GlobeIcon;
+  const Icon = card.kind === "app" ? AppWindowIcon : GlobeIcon;
+  const app = useComputerStore((s) => (card.kind === "app" ? s.apps[card.id] : undefined));
+  const stopped = app?.state === "stopped";
   return (
     <section
-      aria-label={`Page card: ${title}`}
+      aria-label={card.kind === "app" ? `App card: ${title}` : `Page card: ${title}`}
       data-slot="agent-card"
       onPointerDown={() => raise(chat, card.key)}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: card.z }}
@@ -74,6 +110,8 @@ export function Card({ chat, card, slot, layer, children }: { chat: string; card
         <span className="min-w-0 truncate font-medium">{title}</span>
         {card.activity && <span className="min-w-0 flex-1 truncate text-muted-foreground">· {card.activity}</span>}
         {!card.activity && <span className="flex-1" />}
+        {card.kind === "app" && <AppControls chat={card.id} stopped={stopped} />}
+        {card.kind === "browser" && (
         <button
           type="button"
           aria-label="Open in side panel"
@@ -84,6 +122,7 @@ export function Card({ chat, card, slot, layer, children }: { chat: string; card
         >
           <PanelRightOpenIcon className="size-3.5" />
         </button>
+        )}
         <button
           type="button"
           aria-label="Minimize"

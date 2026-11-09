@@ -1,12 +1,15 @@
 import type { Card } from "@/stores/cards-store";
 import { isWindows } from "@/lib/platform";
+import { AppCanvas } from "./app-canvas";
 import { BrowserCanvas } from "./browser-canvas";
 
 /**
- * The inside of a card: a page's picture. Without DevTools
- * (not Windows) a page has no live picture: the card says so and offers the panel.
+ * The inside of a card: a page's picture, or the picture of the app the chat's
+ * agent controls. Without DevTools (not Windows) a page has no live picture:
+ * the card says so and offers the panel.
  */
 export function CardBody({ card }: { card: Card }) {
+  if (card.kind === "app") return <AppCanvas chat={card.id} />;
   if (!isWindows) {
     return <p className="flex h-full items-center justify-center px-3 text-center text-xs text-muted-foreground">A live view of the page needs Windows; open it in the side panel.</p>;
   }

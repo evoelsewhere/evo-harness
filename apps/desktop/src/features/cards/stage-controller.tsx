@@ -8,6 +8,8 @@ import { useChatCards } from "./use-cards";
 
 /** Frames per second asked for a page something shows (about what a person follows without cost). */
 const FPS = 10;
+/** An app's pictures are captured, not pushed: a little fewer (FR-10: 6–10). */
+const APP_FPS = 8;
 
 /**
  * Tells the shell which staged pages to stream: the pages of the showing chat's
@@ -29,6 +31,24 @@ export function StageController({ chat }: { chat: string | null }) {
     if (panelTab && all?.some((c) => c.kind === "browser" && c.id === panelTab)) ids.add(panelTab);
     return ids;
   }, [shown, all, panelOpen, activePanel, panelChat, chat, activeTab]);
+
+  // The chat's app streams while its card shows (docs/features/computer-app-control FR-10, NFR-8).
+  const appShown = !!chat && shown.some((c) => c.kind === "app");
+  const appStreaming = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!inTauri || !isWindows) return;
+    const want = appShown ? chat : null;
+    if (appStreaming.current && appStreaming.current !== want) void invoke("computer_stage", { chat: appStreaming.current, on: false }).catch(() => undefined);
+    if (want && appStreaming.current !== want) void invoke("computer_stage", { chat: want, on: true, fps: APP_FPS }).catch(() => undefined);
+    appStreaming.current = want;
+  }, [appShown, chat]);
+  React.useEffect(
+    () => () => {
+      if (appStreaming.current) void invoke("computer_stage", { chat: appStreaming.current, on: false }).catch(() => undefined);
+      appStreaming.current = null;
+    },
+    [],
+  );
 
   const streaming = React.useRef(new Set<string>());
   React.useEffect(() => {

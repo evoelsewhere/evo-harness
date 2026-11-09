@@ -38,7 +38,8 @@ export function AgentCursor({ tab, box, page }: { tab: string; box: { width: num
   }, [visible, pointer]);
 
   if (!pointer || box.width <= 0) return null;
-  const at = toDisplayPoint(pointer.x, pointer.y, box, page);
+  // An app's pointer comes as fractions of its picture.
+  const at = pointer.fraction ? toDisplayPoint(pointer.x * page.w, pointer.y * page.h, box, page) : toDisplayPoint(pointer.x, pointer.y, box, page);
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" data-slot="agent-cursor">
       <div

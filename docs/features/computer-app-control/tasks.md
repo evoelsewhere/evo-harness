@@ -83,7 +83,7 @@ live (FR-1 – FR-4, FR-7, FR-24 – FR-26).
 - [x] T12 [FR-24] `Class::Control` in the gate — `agent_tools/{gate,mod}.rs` — check: T11 passes
 - [x] T13 [FR-2, FR-25, FR-26] Tests for the batch runner (skip after failure, `detach` still runs), per-action approval summaries (`click e12`, `type "…" (240 chars) into e5`), untrusted wrapping, timeouts — `computer/mod.rs` — check: `bun run test:shell computer::tool`
 - [x] T14 [FR-2, FR-3, FR-25, FR-26] The `computer_app` tool: schema (plan 3.3), batch runner, one window per chat and one chat per window, results — `computer/mod.rs`, `agent_tools/mod.rs` — check: T13 passes; live `two_chats_cannot_share_a_window`
-- [ ] T15 [FR-1] Settings keys, tool registered only while enabled, `configure_external_tools` re-sent on change, disabling releases every app — `agent_tools/mod.rs`, `computer.rs`, `stores/engine-store.ts` — check: in the app, the tool appears and disappears without a restart
+- [x] T15 [FR-1] Settings keys, tool registered only while enabled, `configure_external_tools` re-sent on change, disabling releases every app — `agent_tools/mod.rs`, `computer.rs`, `stores/engine-store.ts` — check: in the app, the tool appears and disappears without a restart
 - [ ] T16 [FR-7] Release on `agent_end`, chat close and quit (3 s cap, own threads) — `engine.rs`, `computer.rs`, `lib.rs` — check: live `returns_the_window_at_the_end_of_the_turn`; quit with a hung app returns within 3 s
 - [x] T17 [P] [FR-11] `computer_` activity kind and pointer events emitted before each pointer action — `agent_tools/activity.rs`, `computer/mod.rs` — check: unit test for the payload
 
@@ -166,13 +166,52 @@ Phase 3 results (2026-11-10):
 Done when: FR-1 and FR-10 – FR-13 hold in the running app (driven through
 WebView2 DevTools), and `bun run typecheck` and `bun test` pass.
 
-- [ ] T27 [FR-10, NFR-8] `Streams` keyed by surface id; `computer_stage`; `computer://frame` and `computer://pointer` — `browser/stage.rs`, `computer.rs` — check: `bun run test:shell browser::stage` still passes, plus a new surface test
-- [ ] T28 [FR-10, FR-12] Tests, then `computer-store`, `CardKind` `"app"`, events in `agent-events`, removal in `cards-sync` — `stores/{computer-store,cards-store,agent-events,cards-sync}.ts`, `*.test.ts` — check: `bun test stores`
-- [ ] T29 [FR-10, FR-11, FR-13] App card body: frames, `AgentCursor`, the person's input through `computer_input` — `features/cards/{app-canvas,card-body,stage-controller,stage-stream}.tsx/ts`, `computer.rs` — check: in the app, a card shows Notepad live and a click in the card reaches it
-- [ ] T30 [FR-12] **Stop**, **Allow again**, **Show the app**, **Close** and their commands — `features/cards/card.tsx`, `computer.rs` — check: Stop during a long `type` stops within one character, and the next `attach` is refused until Allow again
+- [x] T27 [FR-10, NFR-8] `Streams` keyed by surface id; `computer_stage`; `computer://frame` and `computer://pointer` — `browser/stage.rs`, `computer.rs` — check: `bun run test:shell browser::stage` still passes, plus a new surface test
+- [x] T28 [FR-10, FR-12] Tests, then `computer-store`, `CardKind` `"app"`, events in `agent-events`, removal in `cards-sync` — `stores/{computer-store,cards-store,agent-events,cards-sync}.ts`, `*.test.ts` — check: `bun test stores`
+- [x] T29 [FR-10, FR-11, FR-13] App card body: frames, `AgentCursor`, the person's input through `computer_input` — `features/cards/{app-canvas,card-body,stage-controller,stage-stream}.tsx/ts`, `computer.rs` — check: in the app, a card shows Notepad live and a click in the card reaches it
+- [x] T30 [FR-12] **Stop**, **Allow again**, **Show the app**, **Close** and their commands — `features/cards/card.tsx`, `computer.rs` — check: Stop during a long `type` stops within one character, and the next `attach` is refused until Allow again
 - [ ] T31 [FR-1] **Settings → Computer apps**: switch, approval, app picker (`computer_list_apps`) — `features/settings/sections/computer-apps-settings.tsx`, `settings-registry.ts` — check: in the app
-- [ ] T32 [P] [FR-2] Transcript kind `computer`, one line per action — `components/ai-elements/{tool-kinds.ts,tool.tsx}` — check: `bun run typecheck`, and a call renders in the app
-- [ ] T33 [P] UI map: the app card and the settings section — `apps/desktop/README.md` — check: review
+- [x] T32 [P] [FR-2] Transcript kind `computer`, one line per action — `components/ai-elements/{tool-kinds.ts,tool.tsx}` — check: `bun run typecheck`, and a call renders in the app
+- [x] T33 [P] UI map: the app card and the settings section — `apps/desktop/README.md` — check: review
+
+Phase 4 results (2026-11-10):
+
+- Done and checked: T27–T30, T32, T33, and T15's in-app check. T31 (the
+  Settings page) is built and type-checks, but the e2e run switched the
+  feature with `settings_set` and never opened the page: not ticked.
+  - `bun run test:shell`: 494 passed. `bun test`: 95 passed, including
+    `stores/computer-store.test.ts` and `features/cards/app-input.test.ts`.
+  - `bun run typecheck` passed.
+- **In the running app.** A debug build with the identifier
+  `com.evoelsewhere.evo.e2e` ran beside the person's installed copy, on a
+  scratch copy of `evo.db` (`EVO_CODING_AGENT_DIR`). It was driven over
+  WebView2 DevTools, with the agent on Claude Sonnet 5.5 working on the
+  WinForms dialog probe. Seen:
+  - Turning the feature on offered the tool. Turning it off while a chat
+    was open removed `computer_app` from that chat: the agent said it no
+    longer had the tool, and no restart was needed (T15, FR-1).
+  - The approval prompt came up in "Approve for me" with "Ask every time"
+    (FR-24).
+  - An app card appeared on attach, titled by the window, and its picture
+    painted within about 3 s. Its line said "Click e2". The picture turned
+    to the modal dialog when the agent opened it. The card went when the
+    turn ended (FR-7, FR-10, FR-11).
+  - **Stop:** the window came back to its place (120,120 420×220 from
+    4040,29 on the stage), and the card stayed with "You stopped app
+    control…" and Allow again. Allow again brought back Stop (FR-12).
+  - A click on "Close dialog 1" in the card's picture closed the dialog in
+    the app: the picture went from the 322×172 dialog to the 1280×800
+    window (FR-13).
+  - **Show the app** handed the window back and closed the card.
+  - **Close** closed the card. The agent's next `attach` in the same turn
+    was refused with "The person closed the app's card during this turn…",
+    and the agent stopped there (FR-12).
+- Fixed during the run:
+  - after Allow again with no app attached, the card stayed. Resuming now
+    releases the card;
+  - the transcript showed the tool's `structuredContent` as raw JSON under
+    each step. It is no longer sent.
+- **T16** stays open: quitting evo with a hung app (3 s cap) has not run.
 
 ### Phase 5 — Skill
 
@@ -207,8 +246,8 @@ Done when: the same checks pass on macOS 14+.
 
 | Requirement | Test or check | Result |
 | --- | --- | --- |
-| FR-1 | T15 in the app; T31 settings page | not run |
-| FR-2 | T13 `computer::tool`; T32 transcript | not run |
+| FR-1 | T15 in the app; T31 settings page | T15 passed (2026-11-10, e2e app); the page itself not run |
+| FR-2 | T13 `computer::tool`; T32 transcript | passed (2026-11-10) |
 | FR-3 | `controlled_elsewhere` assertions in live `drives_notepad_in_the_background` (T14) | passed (2026-11-10) |
 | FR-4 | `computer::policy` (T3); a block mid-run releases (T14) | not run |
 | FR-5 | T1 grep test; T36 input monitor | T1 passed (2026-11-10); T36 not run |
@@ -216,10 +255,10 @@ Done when: the same checks pass on macOS 14+.
 | FR-7 | live `returns_the_window_at_the_end_of_the_turn` (T16); every release trigger in the app | live test passed (2026-11-10); in the app not run |
 | FR-8 | `cargo test -p evo-store computer` (T8); live `puts_back_a_window_parked_by_a_run_that_crashed` (T9) | passed (2026-11-10) |
 | FR-9 | live `keeps_a_parked_apps_dialogs_off_screen` (T9) | passed (2026-11-10) |
-| FR-10 | T27 surface test; T29 in the app | not run |
-| FR-11 | T17 payload test; cursor seen in the app (T29) | not run |
-| FR-12 | T30 in the app | not run |
-| FR-13 | T29 click in the card | not run |
+| FR-10 | `computer-store.test.ts`; card in the e2e app | passed (2026-11-10) |
+| FR-11 | T17 payload test; activity line in the e2e app | passed (2026-11-10); cursor not checked by eye |
+| FR-12 | Stop, Allow again, Show the app, Close in the e2e app | passed (2026-11-10) |
+| FR-13 | click in the card in the e2e app | passed (2026-11-10) |
 | FR-14 | live `refuses_refs_behind_a_modal_dialog` (T7); `computer::marks`, live `marks_controls_and_zooms_a_region` (T22) | passed (2026-11-10) |
 | FR-15 | live `drives_notepad_in_the_background` (T7), the channel named in results | not run |
 | FR-16 | live `drives_an_electron_app_through_the_page_channel`, `edge_with_page_channel_stays_fresh_off_screen` (T24) | passed (2026-11-10) |
@@ -230,7 +269,7 @@ Done when: the same checks pass on macOS 14+.
 | FR-21 | live typing tests (T7); a password field is refused | not run |
 | FR-22 | `computer::keys` (T2) | passed (2026-11-10) |
 | FR-23 | live `opens_closes_and_kills_from_the_catalog_only` (T26); `computer::apps` path refusal | passed (2026-11-10) |
-| FR-24 | `agent_tools::gate` (T11) | passed (2026-11-10) |
+| FR-24 | `agent_tools::gate` (T11); prompt in Approve for me in the e2e app | passed (2026-11-10) |
 | FR-25 | `computer::tool` untrusted wrapping (T13) | passed (2026-11-10) |
 | FR-26 | `computer::tool` timeouts (T13); quit with a hung app (T16) | not run |
 | FR-27 | `skills_require_tools` (T34); evaluation cases (T35) | not run |

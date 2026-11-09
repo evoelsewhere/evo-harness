@@ -49,11 +49,68 @@ pub(crate) mod tool;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
+
 use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter};
 
 pub(crate) use action::Action;
 use backend::backend;
 use interrupt::{generation, interrupt, with_ticket};
+
+// ── Events for the card (docs/features/computer-app-control FR-10, FR-12) ────
+
+/// An app was attached: `{chat, surface, app, title, windowId, web}`.
+pub(crate) const ATTACHED_EVENT: &str = "computer://attached";
+/// The chat's app was handed back: `{chat, surface, reason}`; `chat` null for all.
+pub(crate) const RELEASED_EVENT: &str = "computer://released";
+/// Control was stopped or allowed again: `{chat, state: "active" | "stopped"}`.
+pub(crate) const STATE_EVENT: &str = "computer://state";
+
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+/// The app handle the module emits its events through (set at start-up).
+pub(crate) fn set_app(app: AppHandle) {
+    let _ = APP.set(app);
+}
+
+pub(crate) fn notify(event: &str, payload: Value) {
+    if let Some(app) = APP.get() {
+        let _ = app.emit(event, payload);
+    }
+}
+
+pub(crate) fn surface(chat: &str) -> String {
+    format!("app:{chat}")
+}
+
+fn notify_released(chat: Option<&str>, reason: &str) {
+    notify(RELEASED_EVENT, json!({ "chat": chat, "surface": chat.map(surface), "reason": reason }));
+}
+
+/// Chats whose card the person closed: `attach` is refused until their turn
+/// ends (FR-12).
+static CLOSED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+pub(crate) fn mark_closed(chat: &str) {
+    CLOSED.lock().expect("closed lock").get_or_insert_with(HashSet::new).insert(chat.to_string());
+}
+
+pub(crate) fn is_closed(chat: &str) -> bool {
+    CLOSED.lock().expect("closed lock").as_ref().is_some_and(|set| set.contains(chat))
+}
+
+fn clear_closed(chat: &str) {
+    if let Some(set) = CLOSED.lock().expect("closed lock").as_mut() {
+        set.remove(chat);
+    }
+}
+
+/// Whether `chat` has an app attached.
+pub(crate) fn is_attached(chat: &str) -> bool {
+    backend().is_attached(chat)
+}
 
 /// Run one agent action against `chat`'s attached window. `emit` carries the
 /// virtual pointer to the card (FR-11).
@@ -93,6 +150,7 @@ pub(crate) async fn preview_frame(chat: String, max_width: u32) -> Result<Value,
 pub(crate) fn stop(chat: &str) -> Result<Value, String> {
     interrupt(chat);
     backend().stop(chat)?;
+    notify(STATE_EVENT, json!({ "chat": chat, "state": "stopped" }));
     Ok(json!({ "stopped": true }))
 }
 
@@ -104,6 +162,12 @@ pub(crate) fn interrupt_action(chat: &str) {
 /// The person allowed control again after stopping it (FR-12).
 pub(crate) fn resume(chat: &str) -> Result<Value, String> {
     backend().resume(chat)?;
+    notify(STATE_EVENT, json!({ "chat": chat, "state": "active" }));
+    // Stop handed the app back; allowing again does not attach it, so a card
+    // kept for its Allow again goes now.
+    if !backend().is_attached(chat) {
+        notify_released(Some(chat), "resume");
+    }
     Ok(json!({ "stopped": false }))
 }
 
@@ -118,14 +182,33 @@ pub(crate) fn reveal(chat: &str) -> Result<Value, String> {
 /// Refusals the person gave in its run are forgotten with it (FR-24).
 pub(crate) async fn release_chat(chat: &str) {
     crate::agent_tools::gate::forget_refusals(chat);
+    clear_closed(chat);
+    if backend().is_attached(chat) {
+        let _ = act(chat, Action::Detach, json!({}), |_| {}).await;
+        notify_released(Some(chat), "turn");
+    }
+}
+
+/// The person closed the card (FR-12): hand the app back and refuse
+/// attaching until the chat's turn ends.
+pub(crate) async fn close(chat: &str) {
+    mark_closed(chat);
+    interrupt(chat);
     if backend().is_attached(chat) {
         let _ = act(chat, Action::Detach, json!({}), |_| {}).await;
     }
+    notify_released(Some(chat), "close");
+}
+
+/// The window is gone, or the agent detached: tell the card.
+pub(crate) fn released(chat: &str, reason: &str) {
+    notify_released(Some(chat), reason);
 }
 
 /// Hand every controlled window back. Called when evo quits (FR-7).
 pub(crate) fn release_all() {
     backend().release_all();
+    notify_released(None, "all");
 }
 
 /// Where windows moved off screen are recorded until they are back, so a run

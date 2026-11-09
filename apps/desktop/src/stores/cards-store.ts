@@ -11,8 +11,12 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useUiStore } from "./ui-store";
 
-/** Only a page has a card: an agent's shell runs without one (docs/features/floating-cards FR-18). */
-export type CardKind = "browser";
+/**
+ * A page has a card, and so does the app a chat's agent controls
+ * (docs/features/computer-app-control FR-10); an agent's shell runs without one
+ * (docs/features/floating-cards FR-18). An app card's id is its chat's id.
+ */
+export type CardKind = "browser" | "app";
 export type CardMode = "card" | "chip";
 
 export interface Rect {
@@ -26,7 +30,7 @@ export interface Card {
   /** `kind:id`, stable for the tab's life. */
   key: string;
   kind: CardKind;
-  /** The browser tab's id. */
+  /** The browser tab's id; for an app card, the chat's. */
   id: string;
   mode: CardMode;
   /** Where the person put it (layer pixels); `null` until moved: it sits in its slot. */
@@ -166,10 +170,11 @@ export const useCardsStore = create<CardsStore>()(
       name: "evo.cards",
       storage: createJSONStorage(() => sessionStorage),
       partialize: (state) => ({ cards: state.cards }),
-      // Cards of shells, which an earlier build kept, are dropped.
+      // Cards of shells, which an earlier build kept, are dropped; an app card
+      // comes back only if the shell still has the app attached (agent-events).
       merge: (persisted, current) => {
         const saved = (persisted as { cards?: Record<string, Card[]> } | undefined)?.cards ?? {};
-        const cards = Object.fromEntries(Object.entries(saved).map(([chat, list]) => [chat, list.filter((c) => c.kind === "browser")]));
+        const cards = Object.fromEntries(Object.entries(saved).map(([chat, list]) => [chat, list.filter((c) => c.kind === "browser" || c.kind === "app")]));
         return { ...current, cards };
       },
     },

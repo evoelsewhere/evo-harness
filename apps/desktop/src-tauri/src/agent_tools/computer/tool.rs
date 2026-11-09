@@ -446,7 +446,9 @@ async fn run_call(ctx: ToolCtx, args: Value) -> ToolOutput {
     ToolOutput {
         content,
         is_error: failed.is_some() && summary.iter().all(|s| s["ok"] == json!(false)),
-        structured: Some(json!({ "actions": summary })),
+        // No structured part: the transcript showed it as raw JSON under each
+        // step, and the row's one-line label already names the steps.
+        structured: None,
     }
 }
 
@@ -540,6 +542,13 @@ async fn backend(ctx: &ToolCtx, action: Action, params: Value) -> Result<Value, 
 async fn act(ctx: &ToolCtx, policy: &Policy, action: Action, params: Value) -> Result<Reply, String> {
     match action {
         Action::Attach => attach(ctx, policy, &params).await.map(|value| Reply::Text(summarize(action, &value))),
+        Action::Detach => {
+            let value = backend(ctx, action, params).await?;
+            if value.get("detached") == Some(&json!(true)) {
+                super::released(&ctx.chat, "detach");
+            }
+            Ok(Reply::Text(summarize(action, &value)))
+        }
         Action::ListWindows => {
             let value = backend(ctx, action, params).await?;
             let windows: Vec<Value> = value
@@ -612,7 +621,30 @@ async fn act(ctx: &ToolCtx, policy: &Policy, action: Action, params: Value) -> R
 }
 
 /// Resolve the window here, so the policy is checked before anything attaches.
+/// After the person closed the card, attaching waits for the next turn (FR-12).
 async fn attach(ctx: &ToolCtx, policy: &Policy, params: &Value) -> Result<Value, String> {
+    if super::is_closed(&ctx.chat) {
+        return Err("The person closed the app's card during this turn, which ends app control until the turn is over. \
+                    Do not attach again: finish without the app, or ask them whether you may use it."
+            .into());
+    }
+    let value = attach_window(ctx, policy, params).await?;
+    let window = value.get("window").cloned().unwrap_or(Value::Null);
+    super::notify(
+        super::ATTACHED_EVENT,
+        json!({
+            "chat": ctx.chat,
+            "surface": super::surface(&ctx.chat),
+            "app": window.get("app"),
+            "title": window.get("title"),
+            "windowId": window.get("id"),
+            "web": window.get("web_content"),
+        }),
+    );
+    Ok(value)
+}
+
+async fn attach_window(ctx: &ToolCtx, policy: &Policy, params: &Value) -> Result<Value, String> {
     let listing = backend(ctx, Action::ListWindows, json!({})).await?;
     let windows = listing.get("windows").and_then(Value::as_array).cloned().unwrap_or_default();
     let window_id = params.get("window_id").filter(|v| !v.is_null());

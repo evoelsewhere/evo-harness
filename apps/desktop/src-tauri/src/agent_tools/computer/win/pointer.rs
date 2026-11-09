@@ -55,8 +55,14 @@ fn pointer_target(target: &Target, params: &Value) -> Result<POINT, String> {
             y: (rect.top + rect.bottom) / 2,
         });
     }
-    let x = params.get("x").and_then(Value::as_f64);
-    let y = params.get("y").and_then(Value::as_f64);
+    let mut x = params.get("x").and_then(Value::as_f64);
+    let mut y = params.get("y").and_then(Value::as_f64);
+    // The person's input in the card gives fractions of the picture (FR-13).
+    if params.get("fraction").and_then(Value::as_bool) == Some(true) {
+        let (width, height) = target.screenshot_size();
+        x = x.map(|x| (x * f64::from(width)).clamp(0.0, f64::from(width) - 1.0));
+        y = y.map(|y| (y * f64::from(height)).clamp(0.0, f64::from(height) - 1.0));
+    }
     match (x, y) {
         (Some(x), Some(y)) => target.screen_point(x, y),
         _ => Err("Give either a ref or both x and y (screenshot pixels).".into()),

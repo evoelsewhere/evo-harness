@@ -13,6 +13,7 @@ export type Kind =
   | "list"
   | "web"
   | "browser"
+  | "computer"
   | "agent"
   | "session"
   | "skill"
@@ -77,6 +78,7 @@ export const kinds: Record<string, Kind> = {
   browser_performance: "browser",
   browser_pdf: "browser",
   browser_status: "browser",
+  computer_app: "computer",
   session_read: "session",
   session_search: "session",
   memory: "memory",

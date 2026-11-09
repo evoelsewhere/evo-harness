@@ -24,8 +24,13 @@ pub fn kind_of(tool: &str) -> Option<&'static str> {
     }
 }
 
-/// The arguments worth showing on a card, each cut short.
+/// The arguments worth showing on a card, each cut short. For the computer app
+/// tool, the batch's first acting step as the person reads it.
 pub fn brief_args(args: &Value) -> Value {
+    if let Some(actions) = args.get("actions").and_then(Value::as_array) {
+        let step = super::computer::tool::approval_lines(actions).into_iter().next();
+        return json!({ "action": step.map(|s| s.chars().take(40).collect::<String>()) });
+    }
     const KEYS: [(&str, usize); 11] = [
         ("ref", 40),
         ("url", 120),

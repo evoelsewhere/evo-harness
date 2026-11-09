@@ -1,13 +1,16 @@
 import * as React from "react";
 import { useBrowserStore } from "@/stores/browser-store";
 import { split, useCardsStore, type Card } from "@/stores/cards-store";
+import { useComputerStore } from "@/stores/computer-store";
 import { useUiStore } from "@/stores/ui-store";
 
 const NONE: Card[] = [];
 
-/** What a card shows in its bar: the page's title or host. */
+/** What a card shows in its bar: the page's title or host, or the app's window title. */
 export function useCardTitle(card: Card): string {
-  const tab = useBrowserStore((s) => s.all.find((t) => t.id === card.id));
+  const tab = useBrowserStore((s) => (card.kind === "browser" ? s.all.find((t) => t.id === card.id) : undefined));
+  const app = useComputerStore((s) => (card.kind === "app" ? s.apps[card.id] : undefined));
+  if (card.kind === "app") return app?.title || app?.app || "App";
   if (!tab) return "Page";
   if (tab.title) return tab.title;
   try {

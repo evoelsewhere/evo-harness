@@ -18,6 +18,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notify } from "@/features/notifications/notify";
 import { inTauri } from "@/lib/platform";
+import { useComputerStore, type AttachedEvent, type ReleasedEvent, type StateEvent } from "./computer-store";
 import { activityLabel } from "@/features/cards/activity-label";
 import { cardKey, useCardsStore } from "./cards-store";
 import { openFile } from "./files-store";
@@ -57,10 +58,58 @@ export function applyDrivenEvent(event: AgentDrivenEvent) {
   useCardsStore.getState().ensure(event.chat, "browser", event.tab);
 }
 
+// ── The app a chat's agent controls (docs/features/computer-app-control FR-10, FR-12) ──
+
+/** `computer://attached`: the chat's app gets a card. */
+export function applyComputerAttached(event: AttachedEvent) {
+  if (!event.chat) return;
+  useComputerStore.getState().attached(event);
+  useCardsStore.getState().ensure(event.chat, "app", event.chat);
+}
+
+/** `computer://released`: the app went back; its card goes too, unless control was stopped (Allow again). */
+export function applyComputerReleased(event: ReleasedEvent) {
+  const store = useComputerStore.getState();
+  const cards = useCardsStore.getState();
+  const chats = event.chat === null ? Object.keys(store.apps) : [event.chat];
+  store.released(event);
+  const after = useComputerStore.getState().apps;
+  for (const chat of event.chat === null ? Object.keys(cards.cards) : chats) {
+    if (!after[chat]) cards.remove(chat, cardKey("app", chat));
+  }
+}
+
+/**
+ * After a reload the cards come back from the session storage but the apps do
+ * not: ask the shell for each app card whether its chat still has an app
+ * attached (or stopped), and drop the cards that have none.
+ */
+export async function restoreAppCards() {
+  const cards = useCardsStore.getState().cards;
+  for (const [chat, list] of Object.entries(cards)) {
+    if (!list.some((c) => c.kind === "app")) continue;
+    const status = await invoke<{ attached?: boolean; stopped?: boolean; window?: { app?: string; title?: string; id?: number } } | null>("computer_status", { chat }).catch(() => null);
+    if (status?.attached && status.window) {
+      useComputerStore.getState().attached({ chat, app: status.window.app, title: status.window.title, windowId: status.window.id ?? null });
+      if (status.stopped) useComputerStore.getState().setState({ chat, state: "stopped" });
+    } else if (status?.stopped) {
+      useComputerStore.getState().attached({ chat, app: "", title: "App" });
+      useComputerStore.getState().setState({ chat, state: "stopped" });
+    } else {
+      useCardsStore.getState().remove(chat, cardKey("app", chat));
+    }
+  }
+}
+
+/** `computer://state`: Stop or Allow again. */
+export function applyComputerState(event: StateEvent) {
+  useComputerStore.getState().setState(event);
+}
+
 /** `agent://activity`: a browser or terminal tool of `chat` started or ended (only a page has a card). */
 export interface AgentActivityEvent {
   chat: string;
-  kind: "browser" | "terminal";
+  kind: "browser" | "terminal" | "computer";
   tool: string;
   phase: "start" | "end";
   tab: string | null;
@@ -80,6 +129,26 @@ export function applyActivityEvent(event: AgentActivityEvent & { requestId?: str
   const label = activityLabel(event.tool, event.args ?? {});
   if (!label) return;
   const cards = useCardsStore.getState();
+  if (event.kind === "computer") {
+    // The app card of the chat says what the agent does in the app.
+    const key = cardKey("app", event.chat);
+    if (!cards.cards[event.chat]?.some((c) => c.key === key)) return;
+    clearTimeout(fading.get(key));
+    cards.setActivity(event.chat, key, label, event.phase === "start");
+    if (event.phase === "end") {
+      const { chat } = event;
+      fading.set(
+        key,
+        setTimeout(() => {
+          fading.delete(key);
+          const now = useCardsStore.getState();
+          const card = now.cards[chat]?.find((c) => c.key === key);
+          if (card && !card.busy && card.activity === label) now.setActivity(chat, key, null);
+        }, WORDS_LINGER_MS),
+      );
+    }
+    return;
+  }
   if (event.kind !== "browser") return;
   // The tab a call starts on can differ from the one it ends on (a call that opens a page), so the
   // end first clears what the start marked.
@@ -229,6 +298,10 @@ export function startAgentEvents() {
 
   void listen<AgentDrivenEvent>("browser://driven", (event) => applyDrivenEvent(event.payload)).catch(() => undefined);
   void listen<AgentActivityEvent>("agent://activity", (event) => applyActivityEvent(event.payload)).catch(() => undefined);
+  void listen<AttachedEvent>("computer://attached", (event) => applyComputerAttached(event.payload)).catch(() => undefined);
+  void listen<ReleasedEvent>("computer://released", (event) => applyComputerReleased(event.payload)).catch(() => undefined);
+  void listen<StateEvent>("computer://state", (event) => applyComputerState(event.payload)).catch(() => undefined);
+  void restoreAppCards();
   void listen<AgentNotifyEvent>("agent://notify", (event) => applyNotifyEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentShowFileEvent>("agent://show-file", (event) => applyShowFileEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentFileSentEvent>("agent://file-sent", (event) => applyFileSentEvent(event.payload, label)).catch(() => undefined);

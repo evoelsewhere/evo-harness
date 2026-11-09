@@ -232,6 +232,14 @@ pub fn run() {
             terminal::terminal_close,
             terminal::terminal_set_chat,
             terminal::terminal_set_default_shell,
+            computer::computer_stage,
+            computer::computer_status,
+            computer::computer_stop,
+            computer::computer_resume,
+            computer::computer_reveal,
+            computer::computer_close,
+            computer::computer_input,
+            computer::computer_list_apps,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the evo desktop app")
