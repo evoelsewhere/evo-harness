@@ -144,7 +144,7 @@ function AccentPicker() {
     <SettingsRow
       labelId="accent-label"
       label="Accent"
-      description="Links, focus rings, text selection, check marks, progress and active tabs. Buttons stay neutral."
+      description="Selected items, active tabs and panels, the send button, links, focus rings, text selection, check marks and progress. Other buttons stay neutral."
       control={<span className="font-mono text-xs text-muted-foreground">{current}</span>}
     >
       <RadioGroup

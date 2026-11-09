@@ -1263,7 +1263,7 @@ export function OfficeViewer({ path, kind, root, size, mtime, onLiveDeckChange, 
                   aria-current={activeIndex === entry.index ? "page" : undefined}
                   className={cn(
                     "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] transition-colors",
-                    activeIndex === entry.index ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent",
+                    activeIndex === entry.index ? "bg-brand/14 font-medium text-foreground" : "text-muted-foreground hover:bg-accent",
                   )}
                 >
                   <span className={cn("w-4 shrink-0 text-right text-[10px] tabular-nums", activeIndex === entry.index && "text-brand")}>

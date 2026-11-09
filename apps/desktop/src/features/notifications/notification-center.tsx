@@ -164,7 +164,7 @@ export function NotificationCenter() {
               onClick={() => setFilter(value)}
               className={cn(
                 "rounded-md px-2 py-0.5 text-xs transition-colors",
-                filter === value ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
+                filter === value ? "bg-brand/14 text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {value === "all" ? "All" : `Unread${unread ? ` · ${unread}` : ""}`}

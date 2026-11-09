@@ -90,7 +90,7 @@ function TabButton({ tab, active }: { tab: BrowserTab; active: boolean }) {
       }}
       className={cn(
         "group/btab relative flex h-6 max-w-44 min-w-16 shrink cursor-default items-center gap-1.5 rounded-md pr-6 pl-2 text-xs transition-colors",
-        active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+        active ? "bg-brand/14 text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
       )}
     >
       {tab.loading ? <Spinner className="size-3 shrink-0" /> : <GlobeIcon className="size-3 shrink-0" />}

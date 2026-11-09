@@ -113,7 +113,7 @@ function TerminalTabButton({ tab, active }: { tab: TerminalTab; active: boolean 
             className={cn(
               "group/term relative flex h-6 max-w-40 shrink-0 cursor-default items-center gap-1.5 rounded-md pr-6 pl-2 text-xs transition-colors outline-none",
               active
-                ? "bg-accent text-foreground"
+                ? "bg-brand/14 text-foreground"
                 : "text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:bg-accent/60",
             )}
           />

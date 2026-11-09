@@ -397,7 +397,7 @@ export function ChatComposer() {
                 Approvals now apply. {currentApproval.name}: {currentApproval.hint.toLowerCase()}.{" "}
                 <button
                   type="button"
-                  className="text-foreground underline underline-offset-4"
+                  className="text-link underline-offset-4 hover:underline"
                   onClick={() => {
                     useUiStore.getState().dismissApprovalNote();
                     setApprovalMenuOpen(true);

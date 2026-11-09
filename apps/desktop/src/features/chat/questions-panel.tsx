@@ -222,7 +222,7 @@ export function QuestionsPanel({ permission }: { permission: PermissionRequest }
                     className={cn(
                       "flex h-6 max-w-40 shrink-0 items-center gap-1 rounded-md px-2 text-[11.5px] transition-colors",
                       i === step
-                        ? "bg-accent text-foreground ring-1 ring-border"
+                        ? "bg-brand/14 text-foreground"
                         : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
                   >

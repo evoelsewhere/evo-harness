@@ -199,6 +199,8 @@ export function PromptInput({
               aria-label={busy ? "Send now" : "Send"}
               title={busy ? "Send now (Enter) · queue for later (Ctrl+Enter)" : "Send"}
               disabled={!canSend}
+              // Ready to send: the accent colour (Settings → Appearance); idle it stays neutral.
+              className={cn(canSend && "bg-brand text-brand-foreground hover:bg-brand/85")}
             >
               <ArrowUpIcon />
             </InputGroupButton>

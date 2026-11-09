@@ -107,7 +107,7 @@ function SettingsNav() {
                       onClick={() => openSettings(page.id)}
                       className={cn(
                         "flex h-8 w-full items-center gap-3 rounded-lg px-2.5 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                        active ? "bg-accent font-medium text-foreground" : "text-foreground/85 hover:bg-accent/60 hover:text-foreground",
+                        active ? "bg-brand/14 font-medium text-foreground" : "text-foreground/85 hover:bg-accent/60 hover:text-foreground",
                       )}
                     >
                       <page.icon className={cn("size-[18px] shrink-0", active ? "text-brand" : "text-muted-foreground")} />

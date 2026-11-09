@@ -415,7 +415,7 @@ export function PluginsSection({ query }: { query: string }) {
             onClick={() => setTab(t.id)}
             className={cn(
               "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
-              tab === t.id ? "bg-muted text-foreground dark:bg-accent" : "text-muted-foreground hover:text-foreground",
+              tab === t.id ? "bg-brand/14 text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {t.label}
