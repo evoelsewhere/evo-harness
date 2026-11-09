@@ -48,6 +48,13 @@ pub(crate) trait ComputerAppBackend: Sync {
     /// Running and installed apps for the allow/block list in Settings.
     fn list_apps(&self) -> Value;
 
+    /// Whether a window of the session's app is the front window, so the
+    /// person's typing goes to it although it is off their screen (FR-30).
+    fn holds_the_front(&self, session_id: &str) -> bool {
+        let _ = session_id;
+        false
+    }
+
     /// One JPEG frame of the session's window for the preview card.
     fn preview_frame(&self, session_id: &str, max_width: u32) -> Result<Value, String>;
 

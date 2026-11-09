@@ -211,6 +211,14 @@ impl ComputerAppBackend for WindowsBackend {
         list_apps()
     }
 
+    fn holds_the_front(&self, session_id: &str) -> bool {
+        let Some(pid) = registry().attached.get(session_id).map(|attached| attached.pid) else {
+            return false;
+        };
+        let front = unsafe { GetForegroundWindow() };
+        !front.0.is_null() && window_pid(front) == pid
+    }
+
     fn preview_frame(&self, session_id: &str, max_width: u32) -> Result<Value, String> {
         preview_frame(session_id, max_width)
     }

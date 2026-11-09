@@ -1468,3 +1468,53 @@ fn times_each_step_on_the_grid_probe() {
         }
     });
 }
+
+/// Which ways of opening a dialog let it take the front window, with and
+/// without the foreground lock (FR-30, SC-2). Prints one row per trial; the
+/// front window before each trial should not be the probe's.
+#[test]
+#[ignore = "opens a WinForms window on the local desktop"]
+fn which_inputs_let_a_dialog_take_the_front() {
+    with_dialog_probe(|emit, session, probe| {
+        let describe = |hwnd: HWND| format!("{:?} (pid {})", window_title(hwnd), window_pid(hwnd));
+        let trials: [(&str, &str, fn(&dyn Fn(Value), &str) -> Value); 4] = [
+            ("invoke by ref", "invoke", |emit, session| json!({ "ref": ref_for(emit, session, "Open dialog 1") })),
+            ("click by ref", "click", |emit, session| json!({ "ref": ref_for(emit, session, "Open dialog 1") })),
+            ("posted mouse click", "click", |emit, session| {
+                json!({ "ref": ref_for(emit, session, "Open dialog 1"), "channel": "mouse" })
+            }),
+            ("posted key space", "key", |_, _| json!({ "key": "space" })),
+        ];
+        for lock in [true, false] {
+            if lock {
+                std::env::remove_var("EVO_TEST_NO_FRONT_LOCK");
+            } else {
+                std::env::set_var("EVO_TEST_NO_FRONT_LOCK", "1");
+            }
+            for (name, action, params) in &trials {
+                let params = params(emit, session);
+                pause(2000);
+                let before = unsafe { GetForegroundWindow() };
+                let _ = run_action(emit, session, action, &params);
+                let mut after = before;
+                for _ in 0..20 {
+                    pause(100);
+                    after = unsafe { GetForegroundWindow() };
+                    if after != before {
+                        break;
+                    }
+                }
+                eprintln!(
+                    "TRIAL lock={lock} {name}: before {} after {}{}",
+                    describe(before),
+                    describe(after),
+                    if window_pid(before) == window_pid(probe) { " [the probe was in front already]" } else { "" }
+                );
+                wait_for_title(session, "probe dialog 1");
+                let _ = run_action(emit, session, "click", &json!({ "ref": ref_for(emit, session, "Close dialog 1") }));
+                wait_for_title(session, "dialog-probe");
+            }
+        }
+        std::env::remove_var("EVO_TEST_NO_FRONT_LOCK");
+    });
+}

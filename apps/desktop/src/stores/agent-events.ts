@@ -18,7 +18,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { notify } from "@/features/notifications/notify";
 import { inTauri } from "@/lib/platform";
-import { useComputerStore, type AttachedEvent, type ReleasedEvent, type StateEvent } from "./computer-store";
+import { useComputerStore, type AttachedEvent, type FrontEvent, type ReleasedEvent, type StateEvent } from "./computer-store";
 import { activityLabel } from "@/features/cards/activity-label";
 import { cardKey, useCardsStore } from "./cards-store";
 import { openFile } from "./files-store";
@@ -104,6 +104,11 @@ export async function restoreAppCards() {
 /** `computer://state`: Stop or Allow again. */
 export function applyComputerState(event: StateEvent) {
   useComputerStore.getState().setState(event);
+}
+
+/** `computer://front`: the app became, or stopped being, the person's front window (FR-30). */
+export function applyComputerFront(event: FrontEvent) {
+  useComputerStore.getState().setFront(event);
 }
 
 /** `agent://activity`: a browser or terminal tool of `chat` started or ended (only a page has a card). */
@@ -301,6 +306,7 @@ export function startAgentEvents() {
   void listen<AttachedEvent>("computer://attached", (event) => applyComputerAttached(event.payload)).catch(() => undefined);
   void listen<ReleasedEvent>("computer://released", (event) => applyComputerReleased(event.payload)).catch(() => undefined);
   void listen<StateEvent>("computer://state", (event) => applyComputerState(event.payload)).catch(() => undefined);
+  void listen<FrontEvent>("computer://front", (event) => applyComputerFront(event.payload)).catch(() => undefined);
   void restoreAppCards();
   void listen<AgentNotifyEvent>("agent://notify", (event) => applyNotifyEvent(event.payload, label)).catch(() => undefined);
   void listen<AgentShowFileEvent>("agent://show-file", (event) => applyShowFileEvent(event.payload, label)).catch(() => undefined);

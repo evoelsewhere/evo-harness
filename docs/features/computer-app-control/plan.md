@@ -613,6 +613,29 @@ Phase 6 (2026-11-09, in progress):
   Measured (smoke run 4): the lock did not stop Excel's "Create Table"
   dialog, opened by a UI Automation invoke, from taking the front, so FR-30
   is not met yet.
+
+  Where the front goes (2026-11-09, live tests
+  `which_inputs_let_a_dialog_take_the_front`, `when_excel_takes_the_front`,
+  `which_ribbon_calls_take_the_front`):
+  - A WinForms dialog opened by invoke, a click by ref, a posted click or a
+    posted key never took the front from the person's window (Teams), with
+    or without the lock. It did when its own window was already in front.
+  - Excel stayed behind the person's window through its start, attach and
+    `ctrl+n`, but the first UI Automation call into Office's ribbon made it
+    the front window: `SelectionItem.Select` on the Home tab, already
+    selected. The lock was taken (the call succeeded) and did not stop it.
+    From then on Excel's own dialogs and workbooks take the front from
+    Excel, which the monitor recorded as changes.
+  - So in the smoke runs the person's window lost the front to Office's
+    ribbon, not to dialogs. Once a driven app is the front window while
+    parked, the person's typing goes to it, unseen.
+  - FR-30 now detects it instead (T47): `computer::refresh_front` asks the
+    backend whether a window of the app is the front window, after each
+    action and on each tick of the card's pictures, and emits
+    `computer://front` on a change; `front_line` adds a warning to the
+    tool's reply once each time the app comes to hold it. The card shows
+    the warning while it lasts. The skill puts Office shortcuts before the
+    ribbon (T48).
 - **Latency (T46).** The by-ref medians of the first smoke runs (about
   1 – 2 s) missed NFR-4's 300 ms. Where the time went, per step
   (`EVO_COMPUTER_TRACE`): two tree walks, a fixed 250 ms wait, the card

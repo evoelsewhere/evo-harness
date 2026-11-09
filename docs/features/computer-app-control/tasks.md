@@ -248,6 +248,8 @@ failing cases.
 - [ ] T39 [NFR-4, NFR-7, NFR-8] Timing (median per action), a run at 150 % scaling, CPU with the card minimized — `computer/win/live_bench.rs` — check: numbers in the table
 - [ ] T40 [SC-1 – SC-5] Run the benchmark and record the results — `tasks.md` section 2, plan section 5 — check: every row filled
 - [x] T46 [NFR-4] Cut the time an action spends outside the app: tree walks with one cached read per element (a native app's tree fetched whole), the "before" read during the card cursor's travel, the fixed 250 ms wait replaced by waiting for the app and a second look only when nothing changed, the cursor's travel 220 → 160 ms, the 150 ms wait after a click replaced by waiting for the app — `computer/win/{mod.rs, uia_tree.rs, target.rs, pointer.rs, uia_input.rs}` — check: live `times_each_step_on_the_grid_probe`; the fixture live tests; the benchmark timing table
+- [ ] T47 [FR-30] Detect a driven app holding the front window: once in the action's result when it happens (and on attach), the agent told to tell the person; the card's warning while it lasts (`computer://front`) — `computer/win/mod.rs`, `computer/win/capture.rs`, `computer/tool.rs`, `src/computer.rs`, `stores/computer-store.ts`, `stores/agent-events.ts`, `features/cards/app-canvas.tsx` — check: `computer::tool` front-line test; `computer-store.test.ts`; live `when_excel_takes_the_front` reports it; the warning in the e2e app
+- [x] T48 [FR-27, FR-30] The skill: in Office, prefer keyboard shortcuts to the ribbon; when a result says the app took the front, tell the person at once — `crates/evo-engine/bundled-skills/computer-app-control/` — check: `cargo test -p evo-engine bundled`
 - [ ] T45 [FR-30, SC-2] Hold the foreground lock while an action runs and 1.5 s after, counted across chats — `computer/win/front.rs`, `computer/win/mod.rs`, `computer/win/page.rs` — check: unit test of the hold count; the benchmark's modal dialog and forms cases with no front-window change
 
 Phase 6 results so far (2026-11-09):
@@ -313,6 +315,34 @@ Phase 6 results so far (2026-11-09):
   from the step timings: a key about 100 ms (input, the wait for the app,
   the 40 ms look, the walks of the fetched tree), a click about 250 ms
   (mostly the card cursor's 160 ms travel, which the "before" read fills).
+- T47 (2026-11-09): `refresh_front` / `front_line` in `computer/mod.rs`,
+  the backend's `holds_the_front`, a line in the tool's reply once each
+  time the app comes to hold the front, `computer://front` from each action
+  and each tick of the card's pictures. Checked: unit tests
+  `the_agent_is_told_once_each_time_the_app_takes_the_front` and
+  `the_front_warning_names_the_app_and_what_to_tell_the_person`;
+  `computer-store.test.ts`; live `when_excel_takes_the_front` (Excel took
+  the front from Teams on Create Table; the line came once); the card's
+  warning in the UI with the fake IPC of `scripts/readme-shots` (shown,
+  then gone when the front moved). Not checked in the e2e app with a real
+  agent turn: T47 stays open for that.
+- Typing robot, third incident (2026-11-09): tried alone for 8 s, it typed
+  about 125 characters into the person's front window, not its own: it
+  checked the form's `ContainsFocus`, which said yes while Windows had not
+  let it to the front. It now checks the system's front window and its own
+  box's focus before every key and holds a key back otherwise (`.held`); it
+  types 5 minutes (`EVO_BENCH_ROBOT=<seconds>`, default 300); the bench
+  read its sent text from the wrong file, fixed. Not run again. A key can
+  still slip into another window if the front changes in the moment
+  between the check and the key.
+- T40: the 10-run benchmark was started without the robot and stopped by
+  the owner during run 1; no results.
+- T48 (2026-11-09): the skill's ground rules tell the agent to pass the
+  warning on at once, and its input table puts Office shortcuts before the
+  ribbon; `cargo test -p evo-engine bundled` passed.
+- T45 findings (2026-11-09): a WinForms dialog never took the front from
+  the person's window; Office's ribbon did, on the first UI Automation call
+  into it (a tab's Select), despite the lock. See plan section 5.
 - T38: key tips and a window that reads the physical mouse report a limit;
   the hover-only menu and the drag between apps are not written yet. T39:
   the 150 % scaling run and the CPU check are not run.
@@ -359,7 +389,7 @@ Done when: the same checks pass on macOS 14+.
 | FR-27 | `skills_require_tools`, `bundled_computer_app_skill_requires_its_tool` (T34, T35) | passed (2026-11-10); trigger cases not run |
 | FR-28 | T43 on a Mac | not run |
 | FR-29 | live `refuses_menu_commands_that_need_activation` (T42) | not run |
-| FR-30 | `front` hold count (T45); input monitor on the dialog cases (T45, T40) | not run |
+| FR-30 | `front` hold count (T45); input monitor on the dialog cases (T45, T40); front line and card warning (T47) | not run |
 | NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | not run |
 | NFR-2 | input monitor during the benchmark (T36, T40) | failed (2026-11-09): 8 front-window changes by driven apps |
 | NFR-3 | T10, T24, T25; benchmark freshness column (T40) | not run |

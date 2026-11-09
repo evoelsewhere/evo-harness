@@ -79,3 +79,28 @@ fn never_uses_the_persons_input_or_foreground() {
     }
     assert!(offences.is_empty(), "the computer module must not use the person's input (ADR 0015):\n{}", offences.join("\n"));
 }
+
+/// FR-30: the agent hears once each time the app comes to hold the front
+/// window; the card hears every change.
+#[test]
+fn the_agent_is_told_once_each_time_the_app_takes_the_front() {
+    let chat = "front-test-chat";
+    assert!(!super::observe_front(chat, false), "nothing to tell the card at first");
+    assert!(!super::take_front_news(chat), "not in front: nothing to tell the agent");
+    assert!(super::observe_front(chat, true), "the card hears the app took the front");
+    assert!(super::take_front_news(chat), "the agent hears it once");
+    assert!(!super::observe_front(chat, true));
+    assert!(!super::take_front_news(chat), "and not again while it lasts");
+    assert!(super::observe_front(chat, false), "the card hears it ended");
+    assert!(super::observe_front(chat, true));
+    assert!(super::take_front_news(chat), "a second time is told again");
+    super::forget_front(chat);
+}
+
+#[test]
+fn the_front_warning_names_the_app_and_what_to_tell_the_person() {
+    let text = super::front_text("EXCEL.EXE");
+    assert!(text.starts_with("Warning: EXCEL.EXE is now the person's front window"), "{text}");
+    assert!(text.contains("Tell the person right away"), "{text}");
+    assert!(super::front_text("").contains("The app is now"));
+}

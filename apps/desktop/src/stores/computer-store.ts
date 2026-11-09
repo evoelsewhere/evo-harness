@@ -1,7 +1,8 @@
 // The app each chat's agent controls (docs/features/computer-app-control,
-// FR-10, FR-12): which app, its title, and whether the person stopped control.
-// The shell says so with `computer://attached`, `computer://released` and
-// `computer://state`; the app's card reads it here. A chat has one app at most.
+// FR-10, FR-12, FR-30): which app, its title, whether the person stopped
+// control, and whether the app holds their front window. The shell says so
+// with `computer://attached`, `computer://released`, `computer://state` and
+// `computer://front`; the app's card reads it here. A chat has one app at most.
 
 import { create } from "zustand";
 
@@ -17,6 +18,8 @@ export interface ControlledApp {
   /** The app draws web content. */
   web: boolean;
   state: ControlState;
+  /** The app is the person's front window while off their screen: their typing goes to it (FR-30). */
+  front: boolean;
 }
 
 export interface AttachedEvent {
@@ -38,12 +41,18 @@ export interface StateEvent {
   state: ControlState;
 }
 
+export interface FrontEvent {
+  chat: string;
+  front: boolean;
+}
+
 interface ComputerStore {
   apps: Record<string, ControlledApp>;
   attached(event: AttachedEvent): void;
   /** The app was handed back; a stopped chat keeps its entry (its card shows Allow again). */
   released(event: ReleasedEvent): void;
   setState(event: StateEvent): void;
+  setFront(event: FrontEvent): void;
   /** The newest title a frame showed. */
   setTitle(chat: string, title: string): void;
 }
@@ -62,6 +71,7 @@ export const useComputerStore = create<ComputerStore>()((set) => ({
           windowId: event.windowId ?? null,
           web: event.web === true,
           state: "active",
+          front: s.apps[event.chat]?.front ?? false,
         },
       },
     }));
@@ -80,6 +90,13 @@ export const useComputerStore = create<ComputerStore>()((set) => ({
       const app = s.apps[event.chat];
       if (!app || app.state === event.state) return s;
       return { apps: { ...s.apps, [event.chat]: { ...app, state: event.state } } };
+    });
+  },
+  setFront(event) {
+    set((s) => {
+      const app = s.apps[event.chat];
+      if (!app || app.front === event.front) return s;
+      return { apps: { ...s.apps, [event.chat]: { ...app, front: event.front } } };
     });
   },
   setTitle(chat, title) {

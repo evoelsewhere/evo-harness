@@ -105,12 +105,16 @@ pub fn computer_stage(app: AppHandle, chat: String, on: bool, fps: Option<u32>) 
     let interval = Duration::from_millis(1000 / u64::from(fps.unwrap_or(8).clamp(1, MAX_FPS)));
     tauri::async_runtime::spawn(async move {
         let surface = computer::surface(&chat);
+        computer::announce_front(&chat);
         let mut seq: u64 = 0;
         let mut last: Option<u64> = None;
         loop {
             if cancel.is_cancelled() {
                 return;
             }
+            // The card's warning follows the front window between actions too:
+            // it goes once the person clicks one of their own windows (FR-30).
+            computer::refresh_front(&chat);
             match computer::preview_frame(chat.clone(), FRAME_WIDTH).await {
                 Ok(frame) if frame.get("attached") == Some(&json!(false)) => {
                     // Gone, released or stopped: a stopped app keeps its card.

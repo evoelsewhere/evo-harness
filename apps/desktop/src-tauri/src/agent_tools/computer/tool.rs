@@ -415,6 +415,11 @@ async fn run_call(ctx: ToolCtx, args: Value) -> ToolOutput {
                 }
             }
         };
+        // FR-30: the driven app came to hold the person's front window.
+        let front = match &outcome {
+            Ok(_) => super::front_line(&ctx.chat, &front_app(&ctx.chat).await),
+            Err(_) => None,
+        };
         match outcome {
             Ok(Reply::Text(text)) => {
                 summary.push(json!({ "action": name, "ok": true }));
@@ -432,6 +437,10 @@ async fn run_call(ctx: ToolCtx, args: Value) -> ToolOutput {
                     failed = Some(name);
                 }
             }
+        }
+        if let Some(front) = front {
+            summary.push(json!({ "action": "front", "ok": true, "took_front": true }));
+            texts.push(front);
         }
     }
     if let (Some(failed), false) = (&failed, skipped.is_empty()) {
@@ -506,6 +515,18 @@ pub(crate) fn pointer_payload(mut payload: Value, chat: &str) -> Value {
         object.remove("sessionId");
     }
     payload
+}
+
+/// The attached app's name for the front warning, when one is attached.
+async fn front_app(chat: &str) -> String {
+    if !super::is_attached(chat) {
+        return String::new();
+    }
+    super::act(chat, Action::Status, json!({}), |_| {})
+        .await
+        .ok()
+        .and_then(|status| status.pointer("/window/app").and_then(Value::as_str).map(str::to_string))
+        .unwrap_or_default()
 }
 
 /// What one action gave back for the model.

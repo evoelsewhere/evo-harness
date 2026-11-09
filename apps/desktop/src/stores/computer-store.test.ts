@@ -1,4 +1,4 @@
-// Run with `bun test` from apps/desktop. Spec: docs/features/computer-app-control (FR-10, FR-12, T28).
+// Run with `bun test` from apps/desktop. Spec: docs/features/computer-app-control (FR-10, FR-12, FR-30, T28, T47).
 import { beforeEach, describe, expect, test } from "bun:test";
 
 class MemoryStorage {
@@ -15,7 +15,7 @@ for (const name of ["localStorage", "sessionStorage"]) {
 const { useCardsStore } = await import("./cards-store");
 const { useComputerStore } = await import("./computer-store");
 const { useUiStore } = await import("./ui-store");
-const { applyActivityEvent, applyComputerAttached, applyComputerReleased, applyComputerState } = await import("./agent-events");
+const { applyActivityEvent, applyComputerAttached, applyComputerFront, applyComputerReleased, applyComputerState } = await import("./agent-events");
 
 const appCard = (chat: string) => useCardsStore.getState().cards[chat]?.find((c) => c.key === `app:${chat}`);
 
@@ -48,6 +48,18 @@ describe("the card of the app a chat's agent controls", () => {
     expect(useComputerStore.getState().apps.a?.state).toBe("stopped");
     applyComputerState({ chat: "a", state: "active" });
     expect(useComputerStore.getState().apps.a?.state).toBe("active");
+  });
+
+  test("the card knows while the app holds the person's front window (FR-30)", () => {
+    applyComputerAttached({ chat: "a", app: "EXCEL.EXE", title: "Book1 - Excel" });
+    expect(useComputerStore.getState().apps.a?.front).toBe(false);
+    applyComputerFront({ chat: "a", front: true });
+    expect(useComputerStore.getState().apps.a?.front).toBe(true);
+    applyComputerFront({ chat: "a", front: false });
+    expect(useComputerStore.getState().apps.a?.front).toBe(false);
+    // An app with no card is not given one by the event.
+    applyComputerFront({ chat: "b", front: true });
+    expect(useComputerStore.getState().apps.b).toBeUndefined();
   });
 
   test("handing every app back removes every app card that is not stopped", () => {

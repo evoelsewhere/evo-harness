@@ -249,8 +249,9 @@ const ROBOT_TEXT: &str = "the quick brown fox jumps over the lazy dog 0123456789
 
 /// A window of its own that a separate process types `ROBOT_TEXT` into for
 /// `seconds`, as a person working beside the agent. Returns how many
-/// characters were lost or wrong.
-fn run_typing_robot(seconds: u32, during: impl FnOnce()) -> (usize, usize) {
+/// characters it sent, how many were lost or wrong, and how many keys it held
+/// back because another window was in front (it never types elsewhere).
+fn run_typing_robot(seconds: u32, during: impl FnOnce()) -> (usize, usize, usize) {
     let out = std::env::temp_dir().join(format!("evo-typing-robot-{}.txt", std::process::id()));
     let _ = std::fs::remove_file(&out);
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("computer_app_typing_robot.ps1");
@@ -265,12 +266,14 @@ fn run_typing_robot(seconds: u32, during: impl FnOnce()) -> (usize, usize) {
     during();
     let _ = robot.wait();
     let typed = std::fs::read_to_string(&out).unwrap_or_default();
-    let sent = std::fs::read_to_string(out.with_extension("sent")).unwrap_or_default();
+    let sent = std::fs::read_to_string(format!("{}.sent", out.display())).unwrap_or_default();
+    let held = std::fs::read_to_string(format!("{}.held", out.display())).ok().and_then(|n| n.trim().parse().ok()).unwrap_or(0);
+    let _ = std::fs::remove_file(format!("{}.held", out.display()));
+    let _ = std::fs::remove_file(format!("{}.sent", out.display()));
     let _ = std::fs::remove_file(&out);
-    let _ = std::fs::remove_file(out.with_extension("sent"));
     let lost = sent.chars().count().saturating_sub(typed.chars().count());
     let wrong = sent.chars().zip(typed.chars()).filter(|(a, b)| a != b).count();
-    (sent.chars().count(), lost + wrong)
+    (sent.chars().count(), lost + wrong, held)
 }
 
 // ── Cases that cannot work in the background (T38, SC-5) ───────────────
@@ -367,7 +370,7 @@ fn one_run() {
     impossible_active_only_canvas();
 }
 
-fn report(runs: usize, changes: &[Change], robot: Option<(usize, usize)>) -> String {
+fn report(runs: usize, changes: &[Change], robot: Option<(usize, usize, usize)>) -> String {
     let outcomes = OUTCOMES.lock().map(|o| o.clone()).unwrap_or_default();
     let timings = TIMINGS.lock().map(|t| t.clone()).unwrap_or_default();
     let mut out = format!("# Computer app control benchmark\n\n{runs} run(s).\n\n| Surface | Case | Passed | Rate |\n| --- | --- | --- | --- |\n");
@@ -393,8 +396,10 @@ fn report(runs: usize, changes: &[Change], robot: Option<(usize, usize)>) -> Str
     for change in changes.iter().take(40) {
         out.push_str(&format!("- {} ms: {}\n", change.at_ms, change.what));
     }
-    if let Some((sent, wrong)) = robot {
-        out.push_str(&format!("\nTyping robot: {sent} characters sent, {wrong} lost or wrong.\n"));
+    if let Some((sent, wrong, held)) = robot {
+        out.push_str(&format!(
+            "\nTyping robot: {sent} characters sent, {wrong} lost or wrong, {held} held back while another window was in front.\n"
+        ));
     }
     out
 }
@@ -409,8 +414,9 @@ fn benchmark_windows() {
     let mut robot = None;
     for run in 1..=runs {
         eprintln!("\n=== run {run} of {runs} ===");
-        if run == 1 && std::env::var("EVO_BENCH_ROBOT").is_ok() {
-            robot = Some(run_typing_robot(60, one_run));
+        // `EVO_BENCH_ROBOT`: the robot's seconds (SC-3: a 5-minute task).
+        if let Some(seconds) = std::env::var("EVO_BENCH_ROBOT").ok().filter(|_| run == 1) {
+            robot = Some(run_typing_robot(seconds.parse().unwrap_or(300), one_run));
         } else {
             one_run();
         }
@@ -432,4 +438,15 @@ fn rates_and_medians_add_up() {
     assert_eq!(rates(&outcomes), vec![("grid".into(), "a".into(), 2, 1), ("grid".into(), "b".into(), 1, 1)]);
     let timings = vec![("Click".into(), 30), ("Click".into(), 10), ("Click".into(), 20), ("Type".into(), 5)];
     assert_eq!(medians(&timings), vec![("Click".into(), 3, 20), ("Type".into(), 1, 5)]);
+}
+
+/// The robot alone: it types into its own window and loses nothing while
+/// nothing else runs.
+#[test]
+#[ignore = "opens a window that types for a few seconds on the local desktop"]
+fn the_typing_robot_types_into_its_own_window() {
+    let (sent, wrong, held) = run_typing_robot(8, || pause(9000));
+    eprintln!("robot: {sent} sent, {wrong} lost or wrong, {held} held back");
+    assert!(sent > 50, "it typed: {sent}");
+    assert_eq!(wrong, 0);
 }

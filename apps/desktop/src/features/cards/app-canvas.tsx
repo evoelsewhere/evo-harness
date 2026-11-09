@@ -14,6 +14,12 @@ function send(chat: string, input: Record<string, unknown>) {
   queues.set(chat, next);
 }
 
+/** `EXCEL.EXE` → `Excel`, for the card's front warning. */
+export function appLabel(exe: string): string {
+  const name = exe.replace(/\.exe$/i, "").trim();
+  return name ? name.charAt(0).toUpperCase() + name.slice(1).toLowerCase() : "The app";
+}
+
 /** Frames carry the window's title; the card's bar shows the newest. */
 let titlesWired = false;
 function wireTitles() {
@@ -37,6 +43,8 @@ export function AppCanvas({ chat, className }: { chat: string; className?: strin
   const [box, setBox] = React.useState({ width: 0, height: 0 });
   const [picture, setPicture] = React.useState({ w: 1280, h: 800 });
   const stopped = useComputerStore((s) => s.apps[chat]?.state === "stopped");
+  const front = useComputerStore((s) => s.apps[chat]?.front === true);
+  const appName = useComputerStore((s) => s.apps[chat]?.app ?? "");
 
   React.useEffect(wireTitles, []);
 
@@ -150,6 +158,11 @@ export function AppCanvas({ chat, className }: { chat: string; className?: strin
       {stopped && (
         <p className="absolute inset-x-0 bottom-0 bg-background/90 px-3 py-2 text-center text-xs text-muted-foreground">
           You stopped app control. The agent cannot act in an app until you allow it again.
+        </p>
+      )}
+      {front && !stopped && (
+        <p role="alert" className="absolute inset-x-0 top-0 border-b border-destructive/30 bg-background/95 px-3 py-2 text-center text-xs font-medium text-destructive">
+          {appLabel(appName)} is your front window while hidden: what you type goes to it. Click one of your own windows before typing.
         </p>
       )}
     </div>

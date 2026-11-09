@@ -49,8 +49,8 @@ pub(crate) mod tool;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
-use std::sync::{Mutex, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
@@ -67,6 +67,9 @@ pub(crate) const ATTACHED_EVENT: &str = "computer://attached";
 pub(crate) const RELEASED_EVENT: &str = "computer://released";
 /// Control was stopped or allowed again: `{chat, state: "active" | "stopped"}`.
 pub(crate) const STATE_EVENT: &str = "computer://state";
+/// The chat's app became, or stopped being, the front window: `{chat, front}`
+/// (FR-30). The card warns while it is.
+pub(crate) const FRONT_EVENT: &str = "computer://front";
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
@@ -202,7 +205,81 @@ pub(crate) async fn close(chat: &str) {
 
 /// The window is gone, or the agent detached: tell the card.
 pub(crate) fn released(chat: &str, reason: &str) {
+    forget_front(chat);
     notify_released(Some(chat), reason);
+}
+
+// ── The front window (FR-30) ────────────────────────────────────────────────
+
+/// Per chat: whether its app held the front window when last looked at
+/// (`shown`, what the card was told) and whether the agent was told (`told`).
+#[derive(Default)]
+struct FrontState {
+    shown: bool,
+    told: bool,
+}
+
+static FRONT: LazyLock<Mutex<HashMap<String, FrontState>>> = LazyLock::new(Default::default);
+
+/// Record whether `chat`'s app holds the front window: whether that changed.
+fn observe_front(chat: &str, now: bool) -> bool {
+    let mut front = FRONT.lock().expect("front lock");
+    let state = front.entry(chat.to_string()).or_default();
+    let changed = state.shown != now;
+    state.shown = now;
+    if !now {
+        state.told = false;
+    }
+    changed
+}
+
+/// Whether the agent is still to be told that `chat`'s app holds the front;
+/// marks it told. Once each time the app comes to hold it.
+fn take_front_news(chat: &str) -> bool {
+    let mut front = FRONT.lock().expect("front lock");
+    let state = front.entry(chat.to_string()).or_default();
+    let news = state.shown && !state.told;
+    if news {
+        state.told = true;
+    }
+    news
+}
+
+/// Whether `chat`'s app holds the front window now; tells the card when that
+/// changed. Called after each action and on each tick of the card's pictures.
+pub(crate) fn refresh_front(chat: &str) -> bool {
+    let now = backend().is_attached(chat) && backend().holds_the_front(chat);
+    if observe_front(chat, now) {
+        notify(FRONT_EVENT, json!({ "chat": chat, "surface": surface(chat), "front": now }));
+    }
+    now
+}
+
+/// Tell the card whether `chat`'s app holds the front window, changed or not:
+/// a card that starts streaming may have missed the last change.
+pub(crate) fn announce_front(chat: &str) {
+    let now = backend().is_attached(chat) && backend().holds_the_front(chat);
+    observe_front(chat, now);
+    notify(FRONT_EVENT, json!({ "chat": chat, "surface": surface(chat), "front": now }));
+}
+
+/// The line for the agent when `chat`'s app has come to hold the front window
+/// since it was last told: once each time it happens.
+pub(crate) fn front_line(chat: &str, app: &str) -> Option<String> {
+    (refresh_front(chat) && take_front_news(chat)).then(|| front_text(app))
+}
+
+pub(crate) fn front_text(app: &str) -> String {
+    let app = if app.trim().is_empty() { "The app" } else { app };
+    format!(
+        "Warning: {app} is now the person's front window, though it is off their screen: whatever they type goes to it. \
+         Tell the person right away to click one of their own windows before typing (or to press Show the app to work in it \
+         themselves). evo does not take the front window back."
+    )
+}
+
+fn forget_front(chat: &str) {
+    FRONT.lock().expect("front lock").remove(chat);
 }
 
 /// Hand every controlled window back. Called when evo quits (FR-7).

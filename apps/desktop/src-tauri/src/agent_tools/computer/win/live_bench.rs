@@ -121,6 +121,9 @@ fn start_private_now(launch: &Launch) -> Option<(u64, u32)> {
         return None;
     }
     let before: Vec<u32> = app_windows(launch.exe).into_iter().map(|(_, pid)| pid).collect();
+    // As evo's own open_app does (FR-30): an app started from the person's
+    // front process may take the front when its window shows.
+    let _front = hold_front();
     let mut args = vec!["/C", "start", "", "/min", launch.run];
     args.extend(launch.args);
     let started = std::process::Command::new("cmd").args(&args).status().is_ok_and(|status| status.success());
@@ -147,18 +150,27 @@ pub(super) fn with_private_app(launch: &Launch, session: &str, body: impl FnOnce
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
+    let front = || {
+        let hwnd = unsafe { GetForegroundWindow() };
+        format!("{:?} (pid {})", window_title(hwnd), window_pid(hwnd))
+    };
+    eprintln!("FRONT before start: {}", front());
     let Some((window_id, pid)) = start_private(launch) else {
         eprintln!("skipped: {} is not installed or did not open", launch.exe);
         return;
     };
+    eprintln!("FRONT after start: {}", front());
     let emit = |_: Value| {};
     let blank = std::cell::Cell::new(false);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         act(&emit, session, "attach", json!({ "window_id": window_id, "hide": true })).unwrap();
+        eprintln!("FRONT after attach: {}", front());
         for key in launch.blank {
             let _ = act(&emit, session, "key", json!({ "key": key }));
+            eprintln!("FRONT after {key}: {}", front());
         }
         pause(3000);
+        eprintln!("FRONT after the blank surface: {}", front());
         if !shows_blank(launch, window_id) {
             eprintln!(
                 "skipped {}: it shows {:?}, not an empty surface; nothing done, left running",
@@ -1192,5 +1204,120 @@ fn times_each_step_in_excel() {
             step("click", "click", json!({ "x": 300, "y": 300 }));
             step("key ctrl+z", "key", json!({ "key": "ctrl+z" }));
         }
+    });
+}
+
+/// Whether Excel's Create Table dialog takes the front window, opened three
+/// times in a row, and an Excel workbook opened with ctrl+n (FR-30, SC-2).
+#[test]
+#[ignore = "opens a private Excel instance on the local desktop"]
+fn when_excel_takes_the_front() {
+    let session = "live-bench-front";
+    with_private_app(&EXCEL, session, |emit| {
+        let describe = |hwnd: HWND| format!("{:?} (pid {})", window_title(hwnd), window_pid(hwnd));
+        let ref_of = |query: &str, kind: &str| -> Option<String> {
+            let found = act(emit, session, "find", json!({ "query": query })).ok()?;
+            let line = found.as_str()?.lines().find(|line| line.contains(&format!("{kind} \"{query}\"")))?.to_string();
+            Some(line.split("[ref=").nth(1)?.split(']').next()?.to_string())
+        };
+        let watch = |name: &str, before: HWND| {
+            let mut after = before;
+            for _ in 0..20 {
+                pause(100);
+                after = unsafe { GetForegroundWindow() };
+                if after != before {
+                    break;
+                }
+            }
+            eprintln!("TRIAL {name}: before {} after {}", describe(before), describe(after));
+        };
+        let tell = || crate::agent_tools::computer::front_line(session, "EXCEL.EXE");
+        let excel = Target::resolve(session).unwrap().pid;
+        let excel_in_front = || window_pid(unsafe { GetForegroundWindow() }) == excel;
+        assert!(excel_in_front() || tell().is_none(), "not in front yet: nothing to tell");
+        if let Some(insert) = ref_of("Insert", "TabItem") {
+            let _ = act(emit, session, "invoke", json!({ "ref": insert }));
+            pause(800);
+        }
+        let mut told = false;
+        for round in 0..3 {
+            let Some(table) = ref_of("Table", "Button") else {
+                eprintln!("no Table button");
+                return;
+            };
+            pause(1500);
+            let before = unsafe { GetForegroundWindow() };
+            let _ = act(emit, session, "click", json!({ "ref": table }));
+            watch(&format!("Create Table #{round} (click by ref)"), before);
+            // FR-30: when Excel took the front, the agent hears it once.
+            if excel_in_front() && !told {
+                let line = tell();
+                eprintln!("TOLD: {line:?}");
+                assert!(line.is_some_and(|line| line.contains("EXCEL.EXE is now the person's front window")));
+                assert!(tell().is_none(), "told once");
+                told = true;
+            }
+            pause(800);
+            let _ = act(emit, session, "key", json!({ "key": "escape" }));
+            pause(1200);
+        }
+    });
+}
+
+/// Which UI Automation calls on Office's ribbon make Excel the front window,
+/// and whether evo could take the foreground lock at that moment.
+#[test]
+#[ignore = "opens a private Excel instance on the local desktop"]
+fn which_ribbon_calls_take_the_front() {
+    use windows::Win32::UI::WindowsAndMessaging::{LockSetForegroundWindow, LSFW_LOCK, LSFW_UNLOCK};
+    let session = "live-bench-ribbon";
+    with_private_app(&EXCEL, session, |emit| {
+        let describe = |hwnd: HWND| format!("{:?}", window_title(hwnd));
+        let element_of = |query: &str, kind: &str| -> Option<IUIAutomationElement> {
+            let found = act(emit, session, "find", json!({ "query": query })).ok()?;
+            let line = found.as_str()?.lines().find(|line| line.contains(&format!("{kind} \"{query}\"")))?.to_string();
+            let reference = line.split("[ref=").nth(1)?.split(']').next()?.to_string();
+            element_for(&Target::resolve(session).ok()?, &reference).ok()
+        };
+        let locked = unsafe { LockSetForegroundWindow(LSFW_LOCK) };
+        eprintln!("LOCK from the test process: {locked:?}");
+        let _ = unsafe { LockSetForegroundWindow(LSFW_UNLOCK) };
+        let trial = |name: &str, call: &dyn Fn() -> bool| {
+            pause(1500);
+            let before = unsafe { GetForegroundWindow() };
+            let called = call();
+            let mut after = before;
+            for _ in 0..15 {
+                pause(100);
+                after = unsafe { GetForegroundWindow() };
+                if after != before {
+                    break;
+                }
+            }
+            eprintln!("TRIAL {name} (call ok: {called}): {} -> {}", describe(before), describe(after));
+        };
+        let tab = |name: &str| element_of(name, "TabItem");
+        if let Some(home) = tab("Home") {
+            trial("Home tab: SelectionItem.Select", &|| {
+                pattern::<IUIAutomationSelectionItemPattern>(&home, UIA_SelectionItemPatternId).is_some_and(|p| unsafe { p.Select() }.is_ok())
+            });
+        }
+        if let Some(insert) = tab("Insert") {
+            trial("Insert tab: LegacyIAccessible.DoDefaultAction", &|| {
+                pattern::<IUIAutomationLegacyIAccessiblePattern>(&insert, UIA_LegacyIAccessiblePatternId)
+                    .is_some_and(|p| unsafe { p.DoDefaultAction() }.is_ok())
+            });
+        }
+        if let Some(home) = tab("Home") {
+            trial("Home tab: Invoke", &|| {
+                pattern::<IUIAutomationInvokePattern>(&home, UIA_InvokePatternId).is_some_and(|p| unsafe { p.Invoke() }.is_ok())
+            });
+        }
+        if let Some(bold) = element_of("Bold", "Button") {
+            trial("Bold: Toggle", &|| {
+                pattern::<IUIAutomationTogglePattern>(&bold, UIA_TogglePatternId).is_some_and(|p| unsafe { p.Toggle() }.is_ok())
+            });
+        }
+        trial("key ctrl+b (posted)", &|| act(emit, session, "key", json!({ "key": "ctrl+b" })).is_ok());
     });
 }

@@ -56,6 +56,10 @@ step needs it, say so and ask the person, never claim it was done.
   the task needs; leave other windows and private content alone.
 - **Report only what the app shows.** A step whose result says `no visible
   change` or `Do not report it as done` did not demonstrably work.
+- **Tell the person when the app takes their front window.** A result line
+  starting `Warning: … is now the person's front window` means what they
+  type goes to the hidden app. Tell them at once, in your reply, to click
+  one of their own windows before typing; then carry on.
 
 ## The pipeline
 
@@ -130,7 +134,7 @@ Prefer the first way that applies; the later ones are the ladder for step 7.
 | Select cells | `click` a cell; `drag` from inside the first cell to the last; click, then shift+click; Shift with arrow keys; the app's go-to command for an address |
 | Add a separate item or cell to a selection | `click` with `modifiers: ["ctrl"]` |
 | Open a context menu | `click` with `button: "right"`, then read the menu in the next snapshot |
-| Run a command | `invoke` it by ref; else its shortcut from the tooltip or menu (`key`); else find it in a menu |
+| Run a command | `invoke` it by ref; else its shortcut from the tooltip or menu (`key`); else find it in a menu. In Office (Excel, Word, PowerPoint, Outlook), its shortcut first: any call into the ribbon (a tab, a button) brings the app to the person's front |
 | Move or resize an object | `drag` from its ref or point to the drop point |
 | Aim at something small or crowded | `zoom` on its region, then the pointer action with `in_zoom: true` and the zoom picture's pixels |
 | Wait for loading or an animation | `wait`, then look again |
