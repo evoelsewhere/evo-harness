@@ -116,6 +116,14 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   streams (`browser://frame`) to whatever shows it, a floating card over the chat
   or the side panel; input goes back as DevTools events in page coordinates
   (docs/features/floating-cards).
+- **Another app the agent controls stays the person's program, moved off
+  screen** (docs/features/computer-app-control): the shell drives it
+  only through background channels. These are a DevTools pipe for web-based
+  apps it started, the OS accessibility API, and posted messages. The shell
+  never uses the person's pointer, keyboard focus or foreground. It streams the
+  window's pictures to a floating card the same way as a page, and puts the
+  window back when control ends
+  ([ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)).
 - Some agent tools are implemented by the app and offered to the engine as
   **external tools** over the protocol; the engine still runs the loop and
   the permission checks. Every one of them runs in the Rust shell, which
@@ -232,7 +240,7 @@ has a local router for its in-process nodes. Design:
 
 | Where | What | Owner |
 | --- | --- | --- |
-| `~/.evo/agent/evo.db` (SQLite, WAL) | chats, workspaces, chat search text, app settings, run log, mail, provider settings, models.dev cache, usage and cost history | `evo-store` (schema + migrations); shell and engines both open it |
+| `~/.evo/agent/evo.db` (SQLite, WAL) | chats, workspaces, chat search text, app settings, run log, mail, provider settings, models.dev cache, usage and cost history, windows the agent moved off screen (put back on the next start, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)) | `evo-store` (schema + migrations); shell and engines both open it |
 | `~/.evo/agent/transcripts/<chat id>.db` (SQLite, WAL) | one chat's transcript: evo-harness's `sessions` row and progress frames | written only by that chat's engine; the shell reads, forks and removes them (`evo_store::transcripts`, [ADR 0007](decisions/0007-one-transcript-file-per-chat.md)) |
 | `~/.evo/agent/auth.json` | credentials (owner-only on Unix) | engine |
 | `~/.evo/agent/settings.json`, `models.json`, `trust.json` | defaults, user model catalog, project trust | engine |
@@ -282,7 +290,9 @@ Details: [app database spec](../features/app-database/spec.md).
   classifies each call as a read, an edit or a command and asks for the kinds
   the mode says ([ADR 0010](decisions/0010-engine-enforces-approval-mode.md)).
   App-side tools — terminal, scheduler, connectors — ask through the same
-  approval panel, reading the same mode.
+  approval panel, reading the same mode. The computer app tool has
+  a gate class of its own: with its setting on "Ask every time" it asks in
+  every mode ([ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)).
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
 - **Project trust.** Project hooks, `.mcp.json` servers and settings apply only
@@ -323,6 +333,7 @@ The index of decisions, their status and links is in
 | --- | --- | --- |
 | Some crate READMEs and `embedded-docs/` still describe the removed CLI/TUI | misleading docs for contributors and the agent | — |
 | Browser screenshots and trusted input are Windows-only | platform gap | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
+| Background-only control of other apps cannot do hover-only UI, drag and drop between apps, key tips or raw-input apps | some app tasks need the person | [computer app control spec](../features/computer-app-control/spec.md) FR-19, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md) |
 | The desktop has no automated UI test runner | regressions found late | — |
 | Main JS bundle ~1.2 MB | startup time | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
 | A transcript's `state_json` is the whole reducer snapshot, rewritten on every write | slow writes in very long chats | [app database plan, "Planned tables"](../features/app-database/plan.md#planned-tables) |
