@@ -17,6 +17,8 @@ pub fn kind_of(tool: &str) -> Option<&'static str> {
         Some("browser")
     } else if tool.starts_with("terminal_") {
         Some("terminal")
+    } else if tool.starts_with("computer_") {
+        Some("computer")
     } else {
         None
     }

@@ -73,19 +73,39 @@ Done when: a chat drives Notepad end to end through the engine, with
 approvals, release at the end of the turn, and the settings switch applied
 live (FR-1 – FR-4, FR-7, FR-24 – FR-26).
 
-- [ ] T11 [FR-24] Gate tests for `Class::Control`:
+- [x] T11 [FR-24] Gate tests for `Class::Control`:
   - with `permission = ask`, it asks in `ask`, `auto-edits` and `auto`;
   - with `allow`, it follows the mode;
   - a refusal blocks the same action for the rest of the run;
   - `status`, `wait` and `detach` never ask.
 
   Path: `agent_tools/gate.rs`. Check: `bun run test:shell agent_tools::gate`.
-- [ ] T12 [FR-24] `Class::Control` in the gate — `agent_tools/{gate,mod}.rs` — check: T11 passes
-- [ ] T13 [FR-2, FR-25, FR-26] Tests for the batch runner (skip after failure, `detach` still runs), per-action approval summaries (`click e12`, `type "…" (240 chars) into e5`), untrusted wrapping, timeouts — `computer/mod.rs` — check: `bun run test:shell computer::tool`
-- [ ] T14 [FR-2, FR-3, FR-25, FR-26] The `computer_app` tool: schema (plan 3.3), batch runner, one window per chat and one chat per window, results — `computer/mod.rs`, `agent_tools/mod.rs` — check: T13 passes; live `two_chats_cannot_share_a_window`
+- [x] T12 [FR-24] `Class::Control` in the gate — `agent_tools/{gate,mod}.rs` — check: T11 passes
+- [x] T13 [FR-2, FR-25, FR-26] Tests for the batch runner (skip after failure, `detach` still runs), per-action approval summaries (`click e12`, `type "…" (240 chars) into e5`), untrusted wrapping, timeouts — `computer/mod.rs` — check: `bun run test:shell computer::tool`
+- [x] T14 [FR-2, FR-3, FR-25, FR-26] The `computer_app` tool: schema (plan 3.3), batch runner, one window per chat and one chat per window, results — `computer/mod.rs`, `agent_tools/mod.rs` — check: T13 passes; live `two_chats_cannot_share_a_window`
 - [ ] T15 [FR-1] Settings keys, tool registered only while enabled, `configure_external_tools` re-sent on change, disabling releases every app — `agent_tools/mod.rs`, `computer.rs`, `stores/engine-store.ts` — check: in the app, the tool appears and disappears without a restart
 - [ ] T16 [FR-7] Release on `agent_end`, chat close and quit (3 s cap, own threads) — `engine.rs`, `computer.rs`, `lib.rs` — check: live `returns_the_window_at_the_end_of_the_turn`; quit with a hung app returns within 3 s
-- [ ] T17 [P] [FR-11] `computer_` activity kind and pointer events emitted before each pointer action — `agent_tools/activity.rs`, `computer/mod.rs` — check: unit test for the payload
+- [x] T17 [P] [FR-11] `computer_` activity kind and pointer events emitted before each pointer action — `agent_tools/activity.rs`, `computer/mod.rs` — check: unit test for the payload
+
+Phase 2 results (2026-11-10):
+
+- Done and checked: T11–T14, T17.
+  - `bun run test:shell`: 482 passed, including `agent_tools::gate` (13) and
+    `agent_tools::computer::tool` (10).
+  - `bun run typecheck` passed.
+  - New live test `returns_the_window_at_the_end_of_the_turn` passed.
+  - Two chats cannot share a window: checked by the `controlled_elsewhere`
+    assertions in `drives_notepad_in_the_background` (Phase 1).
+- **T15** is built but not ticked: the settings keys, the tool offered only
+  while enabled, `agent-tools://changed` re-sending the tools to every ready
+  chat, and disabling releasing every app. Its check (in the running app) has
+  not run yet.
+- **T16** is built but not ticked: release on `agent_end` and when a chat's
+  engine stops, and release on quit. Its live test passed; "quit with a hung
+  app returns within 3 s" has not run yet.
+- These in-app checks need the app run beside the person's installed copy,
+  with a scratch data folder (see plan 5). They are planned together with
+  Phase 4, which adds the card to see them by.
 
 ### Phase 3 — Accuracy layer
 
@@ -159,11 +179,11 @@ Done when: the same checks pass on macOS 14+.
 | --- | --- | --- |
 | FR-1 | T15 in the app; T31 settings page | not run |
 | FR-2 | T13 `computer::tool`; T32 transcript | not run |
-| FR-3 | live `two_chats_cannot_share_a_window` (T14) | not run |
+| FR-3 | `controlled_elsewhere` assertions in live `drives_notepad_in_the_background` (T14) | passed (2026-11-10) |
 | FR-4 | `computer::policy` (T3); a block mid-run releases (T14) | not run |
 | FR-5 | T1 grep test; T36 input monitor | T1 passed (2026-11-10); T36 not run |
 | FR-6 | live `drives_excel_on_the_stage` (T9), `corner_pixel_keeps_chromium_painting` (T10) | passed (2026-11-10) |
-| FR-7 | live `returns_the_window_at_the_end_of_the_turn` (T16); every release trigger in the app | not run |
+| FR-7 | live `returns_the_window_at_the_end_of_the_turn` (T16); every release trigger in the app | live test passed (2026-11-10); in the app not run |
 | FR-8 | `cargo test -p evo-store computer` (T8); live `puts_back_a_window_parked_by_a_run_that_crashed` (T9) | passed (2026-11-10) |
 | FR-9 | live `keeps_a_parked_apps_dialogs_off_screen` (T9) | passed (2026-11-10) |
 | FR-10 | T27 surface test; T29 in the app | not run |
@@ -180,8 +200,8 @@ Done when: the same checks pass on macOS 14+.
 | FR-21 | live typing tests (T7); a password field is refused | not run |
 | FR-22 | `computer::keys` (T2) | passed (2026-11-10) |
 | FR-23 | live `opens_closes_and_kills_from_the_catalog_only` (T26) | not run |
-| FR-24 | `agent_tools::gate` (T11) | not run |
-| FR-25 | `computer::tool` untrusted wrapping (T13) | not run |
+| FR-24 | `agent_tools::gate` (T11) | passed (2026-11-10) |
+| FR-25 | `computer::tool` untrusted wrapping (T13) | passed (2026-11-10) |
 | FR-26 | `computer::tool` timeouts (T13); quit with a hung app (T16) | not run |
 | FR-27 | `skills_require_tools` (T34); evaluation cases (T35) | not run |
 | FR-28 | T43 on a Mac | not run |

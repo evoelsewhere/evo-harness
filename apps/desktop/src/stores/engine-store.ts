@@ -1079,6 +1079,13 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
           if (rt.status === "ready") void configureSessionTools(rt.chatId);
         }
       });
+      // The shell's own tools changed (computer app control switched on or
+      // off in Settings): every ready chat gets the new list.
+      void listen("agent-tools://changed", () => {
+        for (const rt of Object.values(get().runtimes)) {
+          if (rt.status === "ready") void configureSessionTools(rt.chatId);
+        }
+      });
       void useConnectorsStore.getState().load();
       // Plugins were installed, removed or switched: every ready chat re-reads
       // its skills, commands, subagents and hooks.

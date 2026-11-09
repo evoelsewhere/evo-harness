@@ -6,8 +6,8 @@
 //! person's own commands for the card (Stop, Allow again, Show the app, Close)
 //! join this file in tasks phase 4.
 
-use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use serde_json::{json, Value};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::agent_tools::computer::{self, Journal};
 use crate::db::Db;
@@ -48,4 +48,20 @@ pub fn setup(app: &AppHandle) {
 /// out of reach stay in the journal for the next start.
 pub fn shutdown() {
     computer::release_all();
+}
+
+/// Tells the windows the shell's tool list changed, so each ready chat's engine
+/// gets it again (`stores/engine-store.ts`).
+pub const TOOLS_CHANGED: &str = "agent-tools://changed";
+
+/// A computer app control setting changed (FR-1): the tool is offered or
+/// withdrawn on every chat's next call, and turning the feature off hands every
+/// app back. The gate and the policy read their settings on every call.
+pub fn settings_changed(app: &AppHandle, key: &str, value: &Value) {
+    if key == computer::tool::ENABLED_KEY {
+        if value != &json!(true) {
+            computer::release_all();
+        }
+        let _ = app.emit(TOOLS_CHANGED, json!({ "reason": key }));
+    }
 }

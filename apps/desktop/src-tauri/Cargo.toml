@@ -90,6 +90,8 @@ windows = { version = "0.62", features = [
 ] }
 # Computer app control: the Start menu's programs for the app catalog.
 walkdir = "2"
+# Computer app control: text to type is composed (NFC) first, as a keyboard types it.
+unicode-normalization = "0.1"
 # Computer app control: screenshots and card frames (PNG, JPEG).
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # In-app browser: the WebView2 DevTools Protocol (screenshots, real input). Same versions as wry's.

@@ -413,8 +413,12 @@ pub fn settings_all(db: State<'_, Db>) -> Result<Map<String, Value>, String> {
 }
 
 #[tauri::command]
-pub fn settings_set(db: State<'_, Db>, key: String, value: Value) -> Result<(), String> {
-    db.with(|conn| evo_store::settings::set(conn, &key, &value))
+pub fn settings_set(app: AppHandle, db: State<'_, Db>, key: String, value: Value) -> Result<(), String> {
+    db.with(|conn| evo_store::settings::set(conn, &key, &value))?;
+    if key.starts_with("computer_apps.") {
+        crate::computer::settings_changed(&app, &key, &value);
+    }
+    Ok(())
 }
 
 // ── Logs ────────────────────────────────────────────────────────────────────

@@ -1185,3 +1185,18 @@ fn corner_pixel_keeps_chromium_painting() {
         assert!(!topmost, "release left the window on top");
     }
 }
+
+/// The end of a turn hands the app back (spec FR-7): `release_chat`, which the
+/// shell calls on `agent_end` and when a chat's engine stops, puts the window
+/// back where it was and ends the chat's attachment.
+#[test]
+#[ignore = "opens a WinForms window on the local desktop"]
+fn returns_the_window_at_the_end_of_the_turn() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    with_dialog_probe(|_, session, probe| {
+        assert!(is_off_screen(probe), "the probe was not parked");
+        runtime.block_on(super::super::release_chat(session));
+        assert!(!is_off_screen(probe), "the window is still off screen after the turn ended");
+        assert!(!registry().attached.contains_key(session), "the chat still holds the window");
+    });
+}

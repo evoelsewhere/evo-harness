@@ -41,6 +41,8 @@ mod policy;
 #[cfg(target_os = "windows")]
 mod win;
 
+pub(crate) mod tool;
+
 #[cfg(test)]
 mod tests;
 
@@ -107,6 +109,15 @@ pub(crate) fn resume(chat: &str) -> Result<Value, String> {
 /// it to the front; this module never does (ADR 0015).
 pub(crate) fn reveal(chat: &str) -> Result<Value, String> {
     backend().reveal(chat)
+}
+
+/// Hand `chat`'s app back where it was (FR-7): its turn ended or it closed.
+/// Refusals the person gave in its run are forgotten with it (FR-24).
+pub(crate) async fn release_chat(chat: &str) {
+    crate::agent_tools::gate::forget_refusals(chat);
+    if backend().is_attached(chat) {
+        let _ = act(chat, Action::Detach, json!({}), |_| {}).await;
+    }
 }
 
 /// Hand every controlled window back. Called when evo quits (FR-7).

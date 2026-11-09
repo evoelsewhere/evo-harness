@@ -47,6 +47,10 @@ pub enum Class {
     /// Alters something the page or the person keeps (uploads, storage, mocks, scripts,
     /// commands). Like the engine's commands it asks in "Ask every time" and "Approve edits".
     Command,
+    /// Acts in another app on the computer (computer app control, ADR 0015). With the
+    /// feature's "Ask every time" it asks in every mode; otherwise like a command. The
+    /// tool gates itself with [`ToolCtx::gate_control`].
+    Control,
 }
 
 /// One part of a tool's result.
@@ -129,6 +133,7 @@ fn registry() -> &'static Vec<Tool> {
         // Groups register here, e.g. `tools.extend(browser::tools());`
         tools.extend(app::tools());
         tools.extend(browser::tools());
+        tools.extend(computer::tool::tools());
         tools.extend(scheduler::tools());
         tools.extend(terminal::tools());
         tools.extend(user::tools());
@@ -199,6 +204,15 @@ pub(crate) fn static_definitions() -> Vec<Value> {
         .collect()
 }
 
+/// Whether a registry tool is offered now: the computer app tool only while its
+/// feature is on (docs/features/computer-app-control, FR-1).
+fn offered(app: &AppHandle, definition: &Value) -> bool {
+    match definition.get("name").and_then(Value::as_str) {
+        Some(name) if name == "computer_app" => computer::tool::enabled(app),
+        _ => true,
+    }
+}
+
 /// What a running call knows: the app, the chat whose agent called, and when to stop.
 #[derive(Clone)]
 pub struct ToolCtx {
@@ -236,6 +250,30 @@ impl ToolCtx {
         match verdict {
             gate::Verdict::Allow => Ok(()),
             gate::Verdict::Deny => Err(ToolOutput::error(format!("The person declined: {summary}"))),
+            gate::Verdict::Gone => Err(ToolOutput::text("")),
+        }
+    }
+
+    /// Run the approval gate of a call that acts in another app (`Class::Control`).
+    /// `actions` are its acting steps as the person reads them; `always` is the
+    /// feature's "Ask every time" setting.
+    pub async fn gate_control(&self, actions: &[String], always: bool) -> Result<(), ToolOutput> {
+        let mode = self.approval_mode();
+        let ctx = self.clone();
+        let verdict = gate::check_control(self.tool, always, &mode, &self.chat, actions, move |title, description, options| {
+            let ctx = ctx.clone();
+            async move {
+                let options: Vec<&str> = options.iter().map(String::as_str).collect();
+                ctx.ask(&title, &description, &options).await
+            }
+        })
+        .await;
+        match verdict {
+            gate::Verdict::Allow => Ok(()),
+            gate::Verdict::Deny => Err(ToolOutput::error(format!(
+                "The person declined: {}. Do not try these actions again in this run; ask them what to do instead.",
+                actions.join("; ")
+            ))),
             gate::Verdict::Gone => Err(ToolOutput::text("")),
         }
     }
@@ -337,7 +375,8 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
             extra.push(provider.definitions_for(app.clone(), chat.clone(), folder.clone()).await);
         }
     }
-    merge_definitions(static_definitions(), extra)
+    let fixed = static_definitions().into_iter().filter(|definition| offered(&app, definition)).collect();
+    merge_definitions(fixed, extra)
 }
 
 /// The person's answer to a question a tool raised (`agent://ask`).
@@ -438,6 +477,12 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
                 });
                 let _ = app.state::<crate::engine::EngineState>().write(&chat, &answer).await;
             });
+        }
+        // The run ended: the app the chat controlled goes back where it was
+        // (docs/features/computer-app-control, FR-7).
+        Some("agent_end") => {
+            let chat = chat.to_string();
+            tauri::async_runtime::spawn(async move { computer::release_chat(&chat).await });
         }
         Some("external_tool_request_closed") => {
             if let Some(request_id) = line.get("requestId").and_then(Value::as_str) {

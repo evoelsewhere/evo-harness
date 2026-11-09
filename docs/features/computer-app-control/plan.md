@@ -423,3 +423,37 @@ Phase 1 (2026-11-10):
 - **Known gap.** VS Code 1.145 (Electron 43) ignores posted shortcuts
   (`drives_vscode_by_its_keys`); see tasks Phase 1 results. To be covered by
   the page channel (T24).
+
+Phase 2 (2026-11-10):
+
+- **The tool.** `agent_tools/computer/tool.rs` (`computer_app`) is a port of
+  v3's Python tool, now running in the shell:
+  - parsing, with typed text composed to NFC through `unicode-normalization`;
+  - one approval line per action;
+  - skipping the rest of a batch after a failure (a `detach` still runs);
+  - timeouts of 60 s plus 20 ms per character, interrupting the worker;
+  - the allow and block lists, checked before attach, open, close and kill,
+    and again on the first reading or acting step of each call;
+  - the result text, ending with the untrusted-content note unless the call
+    only waited.
+
+  `zoom` and `marks` are not in the schema yet: they come with T22 and T23.
+- **The gate.** It is `gate::check_control`, apart from `check`, because its
+  rule depends on the feature setting (`ToolCtx::gate_control`).
+  - Refused actions are kept per chat and forgotten on the chat's
+    `agent_end`, with its release.
+  - The prompt's options are "Allow", "Allow for this chat" and "Deny". The
+    chat grant is the same in-memory grant the other shell tools use.
+- **Release (FR-7).** `agent_tools::on_line` releases a chat's app on
+  `agent_end`, and `EngineState::stop` does it when a chat's engine stops
+  (the chat closed).
+- **Settings (FR-1).** `settings_set` calls `computer::settings_changed` for
+  the `computer_apps.*` keys. On `computer_apps.enabled` it emits
+  `agent-tools://changed`; `stores/engine-store.ts` then re-sends the tools
+  to every ready chat, and switching the feature off also releases every app.
+  `agent_tools_definitions` offers `computer_app` only while the feature is
+  on, and only on Windows.
+- **The pointer event** is `computer://pointer` with
+  `{chat, surface: "app:<chat>", x, y, phase}`. `x` and `y` are fractions of
+  the window, as v3's card used them, not pixels as the browser's
+  `browser://pointer` has. The card (T29) maps them.

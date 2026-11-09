@@ -463,15 +463,18 @@ impl EngineState {
         self.processes.lock().await.keys().cloned().collect()
     }
 
-    /// Kill `chat`'s engine if it runs; true when there was one.
+    /// Kill `chat`'s engine if it runs; true when there was one. The app the
+    /// chat controlled goes back where it was (computer app control, FR-7).
     pub async fn stop(&self, chat: &str) -> bool {
-        match self.processes.lock().await.remove(chat) {
+        let stopped = match self.processes.lock().await.remove(chat) {
             Some(mut process) => {
                 let _ = process.child.kill().await;
                 true
             }
             None => false,
-        }
+        };
+        crate::agent_tools::computer::release_chat(chat).await;
+        stopped
     }
 }
 
