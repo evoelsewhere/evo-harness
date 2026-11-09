@@ -2,10 +2,10 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | desktop shell, desktop UI, engine (skill, approvals) |
 | Created | 2026-11-09 |
-| Updated | 2026-11-09 |
+| Updated | 2026-11-10 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Floating cards](../floating-cards/spec.md), [Agent browser](../agent-browser/spec.md), [Approval modes](../approval-modes/spec.md), [Agent tools by layer](../agent-tools-layers/spec.md); background: [research.md](research.md) |
@@ -337,3 +337,4 @@ None.
   until the plan is accepted (gate B).
 - 2026-11-09 — Gate B: the owner accepted the plan and ADR 0015. Status
   `Accepted`; tasks written.
+- 2026-11-10 — Implementation started (tasks phase 1). Status `In progress`.

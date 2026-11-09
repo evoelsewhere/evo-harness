@@ -61,11 +61,46 @@ png = "0.18"
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-# App icons from the shell image factory (src/apps.rs).
-windows = { version = "0.58", features = ["Win32_UI_Shell", "Win32_System_Com", "Win32_Graphics_Imaging", "Win32_Graphics_Gdi", "Win32_System_Power"] }
+# App icons from the shell image factory (src/apps.rs); computer app control
+# (src/agent_tools/computer): window listing and capture, UI Automation and
+# MSAA, posted messages, the app catalog. Same version as webview2-com's.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_Security",
+    "Win32_Storage_EnhancedStorage",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Xps",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Ole",
+    "Win32_System_Power",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# Computer app control: the Start menu's programs for the app catalog.
+walkdir = "2"
+# Computer app control: screenshots and card frames (PNG, JPEG).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # In-app browser: the WebView2 DevTools Protocol (screenshots, real input). Same versions as wry's.
 webview2-com = "0.39"
 windows-core = "0.62"
+
+# Computer app control live tests: a WebView2 host laid out like a WebView2
+# chat app. Both already come in through Tauri (same versions).
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+tao = "0.37"
+wry = "0.57"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # App icons from NSWorkspace.

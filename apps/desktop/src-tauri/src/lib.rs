@@ -9,6 +9,7 @@
 mod agent_tools;
 mod apps;
 mod browser;
+mod computer;
 mod db;
 mod engine;
 mod files;
@@ -80,6 +81,8 @@ pub fn run() {
             mcp::setup(app.handle());
             // Plugins' connectors join the pool.
             plugins::setup(app.handle());
+            // Computer app control: put back windows a crashed run left off screen.
+            computer::setup(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -236,6 +239,8 @@ pub fn run() {
             // Stop the connectors' servers with the app.
             if let tauri::RunEvent::Exit = _event {
                 mcp::shutdown(_app);
+                // Apps the agent controls go back where they were.
+                computer::shutdown();
             }
             // The dock icon reopens the window hidden behind the tray.
             #[cfg(target_os = "macos")]

@@ -12,6 +12,7 @@
 pub mod app;
 pub mod browser;
 pub mod activity;
+pub mod computer;
 pub mod gate;
 pub mod mcp;
 pub mod scheduler;

@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-09 |
+| Updated | 2026-11-10 |
 | ADD sections | [4. Process view](../../architecture/README.md#4-process-view), [7. Data view](../../architecture/README.md#7-data-view), [9. Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts), [12. Risks](../../architecture/README.md#12-risks-and-technical-debt) |
 | ADRs | [0015 The shell drives other desktop apps in the background only](../../architecture/decisions/0015-agent-drives-desktop-apps-in-the-background-only.md), [0013](../../architecture/decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md), [0014](../../architecture/decisions/0014-agent-tools-by-layer.md), [0010](../../architecture/decisions/0010-engine-enforces-approval-mode.md) |
 
@@ -377,4 +377,49 @@ Changes apply live:
 
 ## 5. As-built notes
 
-Empty until the status is `In progress`.
+Phase 1 (2026-11-10):
+
+- **Port.**
+  - The v3 core and Windows backend are under
+    `apps/desktop/src-tauri/src/agent_tools/computer/`.
+  - `windows` is raised from 0.58 to 0.62, the version `webview2-com`
+    already uses; `src/apps.rs` needed two signature fixes for it.
+  - `image` and `walkdir` are added.
+  - App icons in the catalog come from `src/apps.rs::shell_icon`, not from
+    `file_icon_provider`.
+- **The macOS backend** is not ported yet (phase 7). On macOS the factory
+  returns the unsupported backend.
+- **The journal** is `evo.db`'s `computer_parked` (migration 0010), reached
+  through a `Journal` trait. The app uses `src/computer.rs::DbJournal`; tests
+  use a `MemoryJournal`.
+  - Its columns are `window`, `pid`, `placement_json`, `chat_id` and
+    `parked_at`. The planned `process_started` column was not needed: the
+    window handle plus the pid identify the window, as in v3.
+  - `placement_json` also carries `cornered`, so a crashed run's corner
+    window has its topmost bit cleared when it is put back.
+  - Shell start-up restores the journal; `RunEvent::Exit` releases every
+    window.
+- **v3's transparent peek is removed** (`win/peek.rs`, its live tests
+  `drags_in_a_covered_page` and `a_layered_window_keeps_its_opacity_after_a_peek`).
+  The corner replaces it:
+  - `needs_corner` covers every Chromium top-level window
+    (`Chrome_WidgetWin*`, Electron included: harmless, one pixel);
+  - `corner_place` picks a monitor corner, top corners first, where exactly
+    one pixel shows;
+  - `move_to_corner` sets the position and `HWND_TOPMOST` in one
+    `SetWindowPos`;
+  - `keep_out_of_view` re-asserts the corner on every action;
+  - `is_off_screen` now means "shows at most one pixel".
+- **Attach order.** A Chromium window is parked into its corner before its
+  page tree is awaited, so a window that opened completely covered gets its
+  render host there. `wake_page` re-moves a cornered window instead of making
+  it transparent.
+- **`attach` hides by default** (`hide` defaults to true; v3's default came
+  from a setting). Live tests that check the shown mode pass `"hide": false`.
+- **Showing the app to the person.** `reveal` no longer calls
+  `SetForegroundWindow`: it returns the `hwnd`, and the person's own click
+  (phase 4, `src/computer.rs`) brings it forward. The T1 test now forbids the
+  call anywhere in the module.
+- **Known gap.** VS Code 1.145 (Electron 43) ignores posted shortcuts
+  (`drives_vscode_by_its_keys`); see tasks Phase 1 results. To be covered by
+  the page channel (T24).

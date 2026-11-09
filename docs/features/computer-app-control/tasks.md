@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-09 |
+| Updated | 2026-11-10 |
 
 ## 1. Phases
 
@@ -31,16 +31,41 @@ Done when:
 - the ported live tests drive Notepad and Excel parked off screen;
 - a crashed run's window is put back from `evo.db`.
 
-- [ ] T1 [FR-5] Test that the computer module never names `SendInput`, `SetCursorPos`, `SetForegroundWindow`, `BlockInput`, `keybd_event` or `mouse_event` — `computer/tests.rs` — check: fails with a planted call, passes without
-- [ ] T2 [FR-2, FR-22] Port the action enum and key parsing with blocked keys — `computer/{action,keys}.rs` — check: `bun run test:shell computer::keys computer::action`
-- [ ] T3 [P] [FR-4] Port policy: protected processes, allow/block matching (case, `.exe`, block wins) — `computer/policy.rs` — check: `bun run test:shell computer::policy`
-- [ ] T4 [P] [FR-12, FR-26] Port Stop tickets and per-chat workers — `computer/{interrupt,workers}.rs` — check: `bun run test:shell computer::interrupt computer::workers`
-- [ ] T5 [P] [FR-23] Port the app catalog search — `computer/apps.rs` — check: `bun run test:shell computer::apps`
-- [ ] T6 [FR-2, NFR-1] `ComputerBackend` trait, platform factory, `UnsupportedBackend` — `computer/backend.rs`, `computer/mod.rs` — check: the module builds on Windows and Linux in CI
-- [ ] T7 [FR-9, FR-10, FR-14, FR-15, FR-21] Port the Windows channels 2 and 3, UIA tree and refs, typing, keyboard, popups, `PrintWindow` capture — `computer/win/*.rs` — check: live `drives_notepad_in_the_background`, `refuses_refs_behind_a_modal_dialog`, `types_across_cells_that_open_their_own_editor`
-- [ ] T8 [FR-8] Test, then add the `computer_parked` migration and store functions — `crates/evo-store/src/migrations/0010_computer_parked.sql`, `crates/evo-store/src/computer.rs` — check: `cargo test -p evo-store computer`, plus an old database upgrades
-- [ ] T9 [FR-6, FR-7, FR-8, FR-9] Stage from v3 parking, journalled in `computer_parked`: off-screen move, stage size, restore, popup follow hook, start-up restore — `computer/win/stage.rs`, `computer.rs`, `lib.rs` — check: live `puts_back_a_window_parked_by_a_run_that_crashed`, `keeps_a_parked_apps_dialogs_off_screen`, `drives_excel_on_the_stage`
-- [ ] T10 [FR-6, NFR-3] Corner pixel for Chromium windows without a page channel: position and `HWND_TOPMOST` in one `SetWindowPos`, re-asserted with a 1 px nudge; topmost cleared on release — `computer/win/stage.rs` — check: live `corner_pixel_keeps_chromium_painting` (an Edge instance with its own profile shows changing `PrintWindow` frames; the foreground is unchanged)
+- [x] T1 [FR-5] Test that the computer module never names `SendInput`, `SetCursorPos`, `SetForegroundWindow`, `BlockInput`, `keybd_event` or `mouse_event` — `computer/tests.rs` — check: fails with a planted call, passes without
+- [x] T2 [FR-2, FR-22] Port the action enum and key parsing with blocked keys — `computer/{action,keys}.rs` — check: `bun run test:shell computer::keys computer::action`
+- [x] T3 [P] [FR-4] Port policy: protected processes, allow/block matching (case, `.exe`, block wins) — `computer/policy.rs` — check: `bun run test:shell computer::policy`
+- [x] T4 [P] [FR-12, FR-26] Port Stop tickets and per-chat workers — `computer/{interrupt,workers}.rs` — check: `bun run test:shell computer::interrupt computer::workers`
+- [x] T5 [P] [FR-23] Port the app catalog search — `computer/apps.rs` — check: `bun run test:shell computer::apps`
+- [x] T6 [FR-2, NFR-1] `ComputerBackend` trait, platform factory, `UnsupportedBackend` — `computer/backend.rs`, `computer/mod.rs` — check: the module builds on Windows and Linux in CI
+- [x] T7 [FR-9, FR-10, FR-14, FR-15, FR-21] Port the Windows channels 2 and 3, UIA tree and refs, typing, keyboard, popups, `PrintWindow` capture — `computer/win/*.rs` — check: live `drives_notepad_in_the_background`, `refuses_refs_behind_a_modal_dialog`, `types_across_cells_that_open_their_own_editor`
+- [x] T8 [FR-8] Test, then add the `computer_parked` migration and store functions — `crates/evo-store/src/migrations/0010_computer_parked.sql`, `crates/evo-store/src/computer.rs` — check: `cargo test -p evo-store computer`, plus an old database upgrades
+- [x] T9 [FR-6, FR-7, FR-8, FR-9] Stage from v3 parking, journalled in `computer_parked`: off-screen move, stage size, restore, popup follow hook, start-up restore — `computer/win/stage.rs`, `computer.rs`, `lib.rs` — check: live `puts_back_a_window_parked_by_a_run_that_crashed`, `keeps_a_parked_apps_dialogs_off_screen`, `drives_excel_on_the_stage`
+- [x] T10 [FR-6, NFR-3] Corner pixel for Chromium windows without a page channel: position and `HWND_TOPMOST` in one `SetWindowPos`, re-asserted with a 1 px nudge; topmost cleared on release — `computer/win/stage.rs` — check: live `corner_pixel_keeps_chromium_painting` (an Edge instance with its own profile shows changing `PrintWindow` frames; the foreground is unchanged)
+
+Phase 1 results (2026-11-10, Windows 11, three monitors):
+
+- `bun run test:shell`: 466 passed. `cargo test -p evo-store`: 38 passed.
+- Live tests passed:
+  - `corner_pixel_keeps_chromium_painting` (new);
+  - `refuses_refs_behind_a_modal_dialog`, `keeps_a_parked_apps_dialogs_off_screen`,
+    `keeps_a_parked_apps_panes_and_palettes_off_screen`,
+    `types_across_cells_that_open_their_own_editor`,
+    `puts_back_a_window_parked_by_a_run_that_crashed`;
+  - `drives_notepad_in_the_background`, `drives_excel_on_the_stage`;
+  - `probes_chromium_fields`, `probes_chromium_pointer` (the drag now works
+    without the transparent peek), `works_in_a_select_popup` (now parked),
+    `clicks_the_element_drawn_on_top`;
+  - `probes_webview2_fields`, `probes_webview2_pointer`,
+    `treats_a_small_web_pane_as_native`.
+- `probes_webview2_pointer` hung once while running in a batch right after a
+  failing test. It was not reproduced in three runs on its own (15–18 s each).
+- `drives_vscode_by_its_keys` fails on VS Code 1.145 (Electron 43):
+  - a posted `ctrl+n` does not reach the editor, whether the window is shown
+    or parked;
+  - while parked, the app thread's focus is empty after `ctrl+alt+i`.
+
+  This is left for the page channel (T24), which is the plan's answer for
+  Electron apps evo starts. It is not a Phase 1 regression of the port.
 
 ### Phase 2 — The tool, the gate and the lifecycle
 
@@ -136,11 +161,11 @@ Done when: the same checks pass on macOS 14+.
 | FR-2 | T13 `computer::tool`; T32 transcript | not run |
 | FR-3 | live `two_chats_cannot_share_a_window` (T14) | not run |
 | FR-4 | `computer::policy` (T3); a block mid-run releases (T14) | not run |
-| FR-5 | T1 grep test; T36 input monitor | not run |
-| FR-6 | live `drives_excel_on_the_stage` (T9), `corner_pixel_keeps_chromium_painting` (T10) | not run |
+| FR-5 | T1 grep test; T36 input monitor | T1 passed (2026-11-10); T36 not run |
+| FR-6 | live `drives_excel_on_the_stage` (T9), `corner_pixel_keeps_chromium_painting` (T10) | passed (2026-11-10) |
 | FR-7 | live `returns_the_window_at_the_end_of_the_turn` (T16); every release trigger in the app | not run |
-| FR-8 | `cargo test -p evo-store computer` (T8); live `puts_back_a_window_parked_by_a_run_that_crashed` (T9) | not run |
-| FR-9 | live `keeps_a_parked_apps_dialogs_off_screen` (T9) | not run |
+| FR-8 | `cargo test -p evo-store computer` (T8); live `puts_back_a_window_parked_by_a_run_that_crashed` (T9) | passed (2026-11-10) |
+| FR-9 | live `keeps_a_parked_apps_dialogs_off_screen` (T9) | passed (2026-11-10) |
 | FR-10 | T27 surface test; T29 in the app | not run |
 | FR-11 | T17 payload test; cursor seen in the app (T29) | not run |
 | FR-12 | T30 in the app | not run |
@@ -153,7 +178,7 @@ Done when: the same checks pass on macOS 14+.
 | FR-19 | live `tells_toolkits_that_drop_posted_input` (T21); impossible cases (T38) | not run |
 | FR-20 | `computer::zoom` (T23) | not run |
 | FR-21 | live typing tests (T7); a password field is refused | not run |
-| FR-22 | `computer::keys` (T2) | not run |
+| FR-22 | `computer::keys` (T2) | passed (2026-11-10) |
 | FR-23 | live `opens_closes_and_kills_from_the_catalog_only` (T26) | not run |
 | FR-24 | `agent_tools::gate` (T11) | not run |
 | FR-25 | `computer::tool` untrusted wrapping (T13) | not run |

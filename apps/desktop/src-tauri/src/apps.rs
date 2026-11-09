@@ -202,6 +202,13 @@ fn png_data_url(width: u32, height: u32, rgba: &[u8]) -> Option<String> {
     Some(format!("data:image/png;base64,{}", STANDARD.encode(png)))
 }
 
+/// The shell's icon for a file path, as a PNG data URL (computer app control's
+/// app catalog uses it too).
+#[cfg(target_os = "windows")]
+pub(crate) fn shell_icon(source: &Path) -> Option<String> {
+    platform::icon(source)
+}
+
 #[cfg(target_os = "windows")]
 mod platform {
     use super::*;
@@ -236,7 +243,7 @@ mod platform {
         let hbitmap = unsafe { factory.GetImage(SIZE { cx: size, cy: size }, SIIGBF_ICONONLY | SIIGBF_SCALEUP) }.ok()?;
         let pixels = (|| {
             let wic: IWICImagingFactory = unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_ALL) }.ok()?;
-            let bitmap = unsafe { wic.CreateBitmapFromHBITMAP(hbitmap, None, WICBitmapUseAlpha) }.ok()?;
+            let bitmap = unsafe { wic.CreateBitmapFromHBITMAP(hbitmap, windows::Win32::Graphics::Gdi::HPALETTE::default(), WICBitmapUseAlpha) }.ok()?;
             let format = unsafe { bitmap.GetPixelFormat() }.ok()?;
             if format != GUID_WICPixelFormat32bppBGRA && format != GUID_WICPixelFormat32bppRGBA {
                 return None;
@@ -250,7 +257,7 @@ mod platform {
             Some(pixels)
         })();
         unsafe {
-            let _ = DeleteObject(hbitmap);
+            let _ = DeleteObject(hbitmap.into());
         }
         png_data_url(size as u32, size as u32, &pixels?)
     }

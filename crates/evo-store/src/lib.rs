@@ -3,8 +3,8 @@
 //!
 //! `evo.db` holds what the desktop and the engine share: provider settings,
 //! the models.dev cache, workspaces and chats, the chats' search text, shared
-//! app settings, mail between sessions, usage and cost history and the run
-//! log. Both the engine and
+//! app settings, mail between sessions, usage and cost history, the windows
+//! computer app control moved off screen, and the run log. Both the engine and
 //! the desktop shell open it through this crate, so there is one schema and
 //! one migration history (`docs/features/app-database/spec.md`).
 //!
@@ -50,6 +50,7 @@ pub struct Migration {
 }
 
 pub mod chats;
+pub mod computer;
 pub mod logs;
 pub mod mail;
 pub mod settings;
@@ -106,6 +107,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 9,
         name: "usage_durations",
         sql: include_str!("migrations/0009_usage_durations.sql"),
+    },
+    Migration {
+        version: 10,
+        name: "computer_parked",
+        sql: include_str!("migrations/0010_computer_parked.sql"),
     },
 ];
 
