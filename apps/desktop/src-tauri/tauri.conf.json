@@ -50,7 +50,8 @@
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico",
         "headerImage": "icons/installer/header.bmp",
-        "sidebarImage": "icons/installer/sidebar.bmp"
+        "sidebarImage": "icons/installer/sidebar.bmp",
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "macOS": {

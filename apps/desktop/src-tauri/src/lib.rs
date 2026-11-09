@@ -249,6 +249,9 @@ pub fn run() {
                 mcp::shutdown(_app);
                 // Apps the agent controls go back where they were.
                 computer::shutdown();
+                // Chats' engines end with the app (on Windows a job object
+                // also covers a crash or a forced kill: engine.rs).
+                tauri::async_runtime::block_on(_app.state::<engine::EngineState>().stop_all());
             }
             // The dock icon reopens the window hidden behind the tray.
             #[cfg(target_os = "macos")]

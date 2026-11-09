@@ -95,6 +95,53 @@ fn engine_binary() -> PathBuf {
     sidecar.unwrap_or_else(|| PathBuf::from(file))
 }
 
+/// Engines die with the app, however it ends. `kill_on_drop` only covers a
+/// clean drop; a crash, Task Manager or the installer's Restart Manager
+/// leaves the engines running, holding `evo-engine.exe` locked so the next
+/// install fails to overwrite it. Every engine joins one job object that
+/// kills its members when the app's handle closes, i.e. when the app exits.
+/// Processes the engine starts break away (`SILENT_BREAKAWAY_OK`): an app the
+/// agent opened is not closed with evo.
+#[cfg(windows)]
+mod engine_job {
+    use std::sync::OnceLock;
+
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+    };
+
+    /// The job's handle, kept open for the life of the app (never closed:
+    /// closing it is what kills the engines). `None` when it could not be made.
+    fn job() -> Option<HANDLE> {
+        static JOB: OnceLock<Option<usize>> = OnceLock::new();
+        let raw = JOB.get_or_init(|| unsafe {
+            let job = CreateJobObjectW(None, PCWSTR::null()).ok()?;
+            let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            limits.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &limits as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+            .ok()?;
+            Some(job.0 as usize)
+        });
+        raw.map(|raw| HANDLE(raw as *mut std::ffi::c_void))
+    }
+
+    /// Put `child` in the engines' job; an error leaves it running as before.
+    pub fn assign(child: &tokio::process::Child) -> Result<(), String> {
+        let job = job().ok_or("could not create the engine job object")?;
+        let process = child.raw_handle().ok_or("engine already exited")?;
+        unsafe { AssignProcessToJobObject(job, HANDLE(process)) }.map_err(|error| error.to_string())
+    }
+}
+
 /// Settings → Sandbox, as saved under this key (camelCase fields of
 /// `evo_tools::sandbox::SandboxConfig`).
 pub const SANDBOX_KEY: &str = "sandbox";
@@ -321,6 +368,10 @@ pub async fn engine_start(
         db.log(NewLog::new("error", "shell", message.clone()).chat(Some(&chat)));
         message
     })?;
+    #[cfg(windows)]
+    if let Err(error) = engine_job::assign(&child) {
+        db.log(NewLog::new("warn", "shell", format!("engine may outlive the app: {error}")).chat(Some(&chat)));
+    }
     db.log(
         NewLog::new("info", "shell", "engine started")
             .chat(Some(&chat))
@@ -475,6 +526,15 @@ impl EngineState {
         };
         crate::agent_tools::computer::release_chat(chat).await;
         stopped
+    }
+
+    /// Kill every engine, as the app exits: the process ends without dropping
+    /// managed state, so `kill_on_drop` never runs.
+    pub async fn stop_all(&self) {
+        let processes: Vec<EngineProcess> = self.processes.lock().await.drain().map(|(_, process)| process).collect();
+        for mut process in processes {
+            let _ = process.child.kill().await;
+        }
     }
 }
 
