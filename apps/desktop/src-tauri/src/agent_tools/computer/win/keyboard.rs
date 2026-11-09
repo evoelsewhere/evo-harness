@@ -200,6 +200,21 @@ pub(super) fn press_key(target: &Target, params: &Value) -> Result<Value, String
         return Err(format!("Refused {spec}: {reason}."));
     }
     let repeat = params.get("repeat").and_then(Value::as_u64).unwrap_or(1).clamp(1, 50);
+    // An app evo started with a page channel takes keys as DevTools input
+    // events: they reach the page off screen and unfocused (FR-16).
+    if let Some(channel) = channel_for(target.pid) {
+        channel.press(&window_title(target.top), &combo, repeat)?;
+        if moves_focus(&combo) {
+            forget_editable(&target.session_id);
+        }
+        return Ok(json!({
+            "key": spec,
+            "repeat": repeat,
+            "delivered_to": "page",
+            "delivered_via": "page channel",
+            "window": window_title(target.window),
+        }));
+    }
     // Chromium reads keys on its top-level window and routes them to the
     // page's focused element itself.
     let hwnd = if target.web {

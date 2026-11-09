@@ -36,7 +36,16 @@ pub(super) fn open_app(session_id: &str, params: &Value) -> Result<Value, String
         return Err(format!("{exe} is part of the Windows shell or security system and cannot be opened."));
     }
     let before: HashSet<isize> = top_level_windows().into_iter().map(|hwnd| hwnd.0 as isize).collect();
-    launch(&entry.launch)?;
+    let front_before = unsafe { GetForegroundWindow() };
+    // A web-based app (Chromium, Electron) is started with a page channel
+    // (FR-16); anything else as the shortcut says.
+    let started = match web_start(&entry.launch) {
+        Some((program, arguments, folder)) => Some(start_with_channel(&program, &arguments, folder.as_deref())?),
+        None => {
+            launch(&entry.launch)?;
+            None
+        }
+    };
     let deadline = std::time::Instant::now() + OPEN_WAIT;
     loop {
         interrupted()?;
@@ -47,7 +56,30 @@ pub(super) fn open_app(session_id: &str, params: &Value) -> Result<Value, String
             .find(|row| row.app.eq_ignore_ascii_case(exe) && row.owner.is_none() && attach_refusal(row).is_none());
         if let Some(row) = opened {
             let foreground = unsafe { GetForegroundWindow() };
-            return Ok(json!({ "opened": true, "exe": exe, "name": entry.name, "window": row.to_json(foreground) }));
+            // The channel counts only if the window is the started process's
+            // and it answers: a copy already running takes the start over.
+            let page = match started {
+                Some(pid) if row.pid == pid && channel_answers(pid) => true,
+                Some(pid) => {
+                    forget_channel(pid);
+                    false
+                }
+                None => false,
+            };
+            let mut result = json!({ "opened": true, "exe": exe, "name": entry.name, "window": row.to_json(foreground), "page": page });
+            if started.is_some() && !page {
+                result["note"] = json!("The app was already running, so it has no page channel: it is driven through accessibility.");
+            }
+            // Started minimized without activation, an app may still bring its
+            // window to the front itself (Electron does), which Windows allows
+            // when the person has been idle for a while. evo never takes the
+            // front back (that would be using the person's foreground, ADR 0015);
+            // it says so instead.
+            if foreground == row.hwnd && front_before != row.hwnd {
+                result["took_foreground"] = json!(true);
+                result["note"] = json!("The app brought its window to the front when it started; evo does not take the front back. Tell the person, and do not type until the app is attached and parked.");
+            }
+            return Ok(result);
         }
         if std::time::Instant::now() >= deadline {
             return Ok(json!({
@@ -60,6 +92,18 @@ pub(super) fn open_app(session_id: &str, params: &Value) -> Result<Value, String
         }
         pause(250);
     }
+}
+
+/// What to start for a web-based app: its program, arguments and folder, from
+/// its shortcut or its path; `None` for any other app.
+fn web_start(launch: &str) -> Option<(String, String, Option<String>)> {
+    let (program, arguments, folder) = if launch.to_lowercase().ends_with(".lnk") {
+        let shortcut = read_shortcut(launch)?;
+        (shortcut.program, shortcut.arguments, shortcut.folder)
+    } else {
+        (launch.to_string(), String::new(), None)
+    };
+    is_chromium_program(&program).then_some((program, arguments, folder))
 }
 
 /// Start `path` (a shortcut or a program) minimized and without taking the

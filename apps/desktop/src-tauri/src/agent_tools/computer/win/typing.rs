@@ -68,6 +68,17 @@ pub(super) fn type_text(emit: &dyn Fn(Value), target: &Target, params: &Value) -
         click(emit, target, &json!({ "ref": params["ref"] }))?;
         pause(60);
     }
+    // An app evo started with a page channel takes the text as DevTools
+    // input: it reaches the focused field off screen and unfocused (FR-16).
+    if let Some(channel) = channel_for(target.pid) {
+        let typed = channel.insert_text(&window_title(target.top), text)?;
+        return Ok(json!({
+            "typed_chars": typed,
+            "delivered_to": "page",
+            "delivered_via": "page channel",
+            "window": window_title(target.window),
+        }));
+    }
     if target.web {
         // The field named by ref, else the one the agent last clicked.
         let field = match params.get("ref").and_then(Value::as_str) {

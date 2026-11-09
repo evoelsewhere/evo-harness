@@ -171,6 +171,7 @@ pub(super) fn screenshot(target: &Target) -> Result<Value, String> {
         captured
     };
     Ok(json!({
+        "late": picture_may_be_late(&target.session_id),
         "kind": "image",
         "data": encode_png(&image)?,
         "media_type": "image/png",
@@ -178,6 +179,60 @@ pub(super) fn screenshot(target: &Target) -> Result<Value, String> {
         "height": image.height(),
         "window": target.describe(),
         "restored": target.restored,
+    }))
+}
+
+/// `screenshot`, with `"marks": true` the visible controls boxed and numbered
+/// by fresh refs (FR-14); the snapshot those refs come from is returned too.
+pub(super) fn screenshot_with(target: &Target, params: &Value) -> Result<Value, String> {
+    if params.get("marks").and_then(Value::as_bool) != Some(true) {
+        return screenshot(target);
+    }
+    // The refs first, as a snapshot hands them out, then the picture.
+    let (lines, _) = walk_window(target, None, 30, 400, true)?;
+    let marks = super::super::marks::from_snapshot(&lines);
+    let mut image = screenshot_image(target)?;
+    super::super::marks::draw(&mut image, &marks);
+    let marked: std::collections::HashSet<String> = marks.iter().map(|mark| format!("[ref=e{}]", mark.number)).collect();
+    let listed: Vec<&String> = lines.iter().filter(|line| marked.iter().any(|tag| line.contains(tag.as_str()))).collect();
+    Ok(json!({
+        "kind": "image",
+        "data": encode_png(&image)?,
+        "media_type": "image/png",
+        "width": image.width(),
+        "height": image.height(),
+        "window": target.describe(),
+        "restored": target.restored,
+        "marks": listed.iter().map(|line| line.trim()).collect::<Vec<_>>(),
+    }))
+}
+
+/// The screenshot's picture at the size the agent's coordinates use.
+fn screenshot_image(target: &Target) -> Result<RgbaImage, String> {
+    let captured = capture_with_popups(target.window, &target.popups, target.frame)?;
+    let (width, height) = target.screenshot_size();
+    Ok(if target.scale < 1.0 { imageops::resize(&captured, width, height, imageops::FilterType::Triangle) } else { captured })
+}
+
+/// `zoom`: a region of the screenshot, enlarged (FR-20).
+pub(super) fn zoom_shot(target: &Target, params: &Value) -> Result<Value, String> {
+    let image = screenshot_image(target)?;
+    let region = super::super::zoom::region(params.get("region").unwrap_or(&Value::Null), (f64::from(image.width()), f64::from(image.height())))?;
+    let crop = imageops::crop_imm(&image, region.x as u32, region.y as u32, region.width as u32, region.height as u32).to_image();
+    let enlarged = imageops::resize(
+        &crop,
+        (region.width * region.factor) as u32,
+        (region.height * region.factor) as u32,
+        imageops::FilterType::CatmullRom,
+    );
+    Ok(json!({
+        "kind": "image",
+        "data": encode_png(&enlarged)?,
+        "media_type": "image/png",
+        "width": enlarged.width(),
+        "height": enlarged.height(),
+        "window": target.describe(),
+        "zoom": { "x": region.x, "y": region.y, "width": region.width, "height": region.height, "factor": region.factor },
     }))
 }
 

@@ -119,12 +119,30 @@ pub(super) fn click(emit: &dyn Fn(Value), target: &Target, params: &Value) -> Re
     let (held, flags) = click_modifiers(params)?;
     remember_point(&target.session_id, point);
 
+    // An app evo started with a page channel takes clicks as DevTools mouse
+    // events (FR-16): real pointer events, and the page's focus follows. Not
+    // in an open popup (a <select> list is a window of its own).
+    if let Some(channel) = channel_for(target.pid).filter(|_| held.is_empty() && target.popup_at(point).is_none()) {
+        target.travel(emit, point)?;
+        target.emit_pointer(emit, point, "press");
+        channel.click(target.top, point, button, clicks)?;
+        target.emit_pointer(emit, point, "click");
+        forget_editable(&target.session_id);
+        let mut result = pointer_result(target, pointer_window(target, point), point, json!({ "button": button, "clicks": clicks }));
+        result["delivered_to"] = json!("page");
+        result["delivered_via"] = json!("page channel");
+        return Ok(result);
+    }
+
     // A plain left click goes through UI Automation when it can: always for
     // a ref (the element's own action is exact), and for coordinates in web
     // content, where posted mouse messages do not reach the page. A click
     // with Shift or Ctrl held is a mouse click: an element's action has no
     // modifiers.
-    if button == "left" && clicks == 1 && held.is_empty() {
+    // The tool's channel ladder (FR-18) may ask for the posted mouse click
+    // after an accessibility press showed no effect.
+    let mouse_only = params.get("channel").and_then(Value::as_str) == Some("mouse");
+    if button == "left" && clicks == 1 && held.is_empty() && !mouse_only {
         let reference = params.get("ref").and_then(Value::as_str);
         let mut chain = match reference {
             Some(reference) => vec![element_for(target, reference)?],

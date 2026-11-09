@@ -35,6 +35,9 @@ mod workers;
 
 mod apps;
 mod geometry;
+mod marks;
+mod readback;
+mod zoom;
 mod keys;
 mod policy;
 

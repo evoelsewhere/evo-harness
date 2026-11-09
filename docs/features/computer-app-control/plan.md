@@ -457,3 +457,64 @@ Phase 2 (2026-11-10):
   `{chat, surface: "app:<chat>", x, y, phase}`. `x` and `y` are fractions of
   the window, as v3's card used them, not pixels as the browser's
   `browser://pointer` has. The card (T29) maps them.
+
+Phase 3 (2026-11-10):
+
+- **Read-back** (`readback.rs`, `win/uia_tree.rs::probe_state`).
+  - Every acting action except `hover` is wrapped by two probes of the
+    window: its title, dialog, popups, and up to 250 tree lines without refs
+    or positions, with `[focused]` marked. A probe never hands out or retires
+    refs.
+  - The diff goes into the result as `changed` and as a `changed: …` line.
+  - Cost: two tree walks and a 250 ms settle per acting action.
+- **The ladder** is in the tool (`tool.rs::next_channel`, `limit_line`).
+  - A plain left click by ref with no visible change is tried once more on
+    the other channel: an accessibility press gets a posted mouse click (the
+    backend's internal `"channel": "mouse"`), and a mouse click gets `invoke`.
+  - Typing, keys and values are never retried.
+  - Any acting action with no visible change adds a line that the step may
+    not have reached the app and must not be reported as done.
+- **Marks and zoom.**
+  - `screenshot` with `marks: true` walks the tree as a snapshot does (fresh
+    refs). It boxes and numbers controls of interactive roles, up to 150,
+    using a built-in 3×5 digit font, and returns the marked lines with the
+    picture.
+  - `zoom` crops at most 640×400 of the screenshot and enlarges it ×2.
+    Pointer actions with `in_zoom: true` are mapped back in the tool
+    (`zoom.rs`, per chat, cleared by the next screenshot).
+- **The page channel** (`win/page.rs`).
+  - Chromium takes the pipes as inherited Windows handles through
+    `--remote-debugging-pipe --remote-debugging-io-pipes=<read>,<write>`,
+    verified with Edge 157 and VS Code 1.145 / Electron 43.
+  - `CreateProcessW` passes only those two handles
+    (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`) and starts the app with
+    `SW_SHOWMINNOACTIVE`.
+  - `open_app` uses this path when the catalog program, or its Start menu
+    shortcut's target, is a Chromium browser or an Electron app (`resources\app.asar`).
+  - Clicks go to such an app as DevTools mouse events. They are mapped from
+    screen to CSS pixels by the client origin, the page's
+    `cssLayoutViewport` and any toolbar height. An accessibility press left
+    Edge's focus on `BODY`.
+  - Keys go as `Input.dispatchKeyEvent` with DOM key, code and virtual-key
+    codes; text goes as `Input.insertText`, with line breaks as Shift+Enter.
+  - The page target is chosen by the window's title.
+  - **Focus emulation** (`Emulation.setFocusEmulationEnabled`) is switched
+    on when the page is attached: an app started without activation never
+    has page focus, and Chromium drops input to it. It changes nothing
+    outside the page.
+- **Starting an app keeps the front window where it is.**
+  - VS Code (Electron) ignored the start-up show state and took the person's
+    foreground even while they were active.
+  - `start_with_channel` now calls `LockSetForegroundWindow(LSFW_LOCK)`
+    before the start and unlocks once the app's window has shown (or after
+    20 s); the person pressing Alt or clicking lifts it too. The live test
+    then kept the person's front window.
+  - This call keeps the foreground; it never takes it, so ADR 0015 holds and
+    T1 does not forbid it.
+  - `open_app` also reports `took_foreground` when an app took the front
+    anyway; evo never takes it back.
+- **Late pictures (NFR-3).** For web content without a page channel, the
+  window's picture is fingerprinted before and after each acting action. A
+  tree change with an unchanged picture sets `picture_may_be_late`, and
+  screenshots carry "this picture may be late" until a later action shows a
+  fresh picture.

@@ -1035,6 +1035,9 @@ fn drives_notepad_in_the_background() {
         let typed = run_action(&emit, session, "type", &json!({ "text": "hello from evo\nsecond line" })).unwrap();
         eprintln!("typed: {typed}");
         assert_eq!(typed["confirmed"], json!(true), "typing was not confirmed: {typed}");
+        // FR-17: the result reads back what changed in the window.
+        let added = typed["changed"]["added"].to_string();
+        assert!(added.contains("hello from evo"), "the read-back does not show the typed text: {}", typed["changed"]);
         pause(400);
         let first = snapshot_text(&emit, session);
         assert!(first.contains("hello from evo"), "text not in the UI tree:\n{first}");
@@ -1199,4 +1202,221 @@ fn returns_the_window_at_the_end_of_the_turn() {
         assert!(!is_off_screen(probe), "the window is still off screen after the turn ended");
         assert!(!registry().attached.contains_key(session), "the chat still holds the window");
     });
+}
+
+/// A screenshot with marks numbers the controls by refs that work, and a zoom
+/// enlarges a region of it (spec FR-14, FR-20).
+#[test]
+#[ignore = "opens a WinForms window on the local desktop"]
+fn marks_controls_and_zooms_a_region() {
+    with_dialog_probe(|emit, session, _probe| {
+        let shot = run_action(emit, session, "screenshot", &json!({ "marks": true })).unwrap();
+        let marks = shot["marks"].as_array().cloned().unwrap_or_default();
+        eprintln!("marks: {marks:?}");
+        assert!(!marks.is_empty(), "no control was marked");
+        let line = marks[0].as_str().unwrap();
+        let reference = line.split("[ref=").nth(1).and_then(|rest| rest.split(']').next()).unwrap().to_string();
+        // The marked ref is live: find answers for it.
+        let element = element_for(&Target::resolve(session).unwrap(), &reference);
+        assert!(element.is_ok(), "the marked ref {reference} does not resolve");
+
+        let zoomed = run_action(emit, session, "zoom", &json!({ "region": [10, 10, 200, 100] })).unwrap();
+        assert_eq!((zoomed["width"].as_u64(), zoomed["height"].as_u64()), (Some(400), Some(200)));
+        assert_eq!(zoomed["zoom"]["factor"], json!(2.0));
+    });
+}
+
+/// Whether the person has been idle past Windows' foreground lock timeout,
+/// when any starting app may bring itself to the front.
+fn foreground_lock_expired() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETFOREGROUNDLOCKTIMEOUT, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS};
+    let mut timeout: u32 = 0;
+    let mut last = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    unsafe {
+        let _ = SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, Some((&mut timeout as *mut u32).cast()), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
+        if !GetLastInputInfo(&mut last).as_bool() {
+            return false;
+        }
+    }
+    let idle = unsafe { windows::Win32::System::SystemInformation::GetTickCount() }.wrapping_sub(last.dwTime);
+    eprintln!("idle {idle} ms, foreground lock timeout {timeout} ms");
+    idle >= timeout
+}
+
+/// The window of process `pid`, once it shows (list_windows rows).
+fn window_of_pid(session: &str, pid: u32) -> Option<u64> {
+    for _ in 0..80 {
+        pause(250);
+        let found = list_windows(session, &json!({}))["windows"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["pid"] == json!(pid)).and_then(|row| row["id"].as_u64()));
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// An Electron app evo starts gets a page channel, and its keys reach the
+/// page off screen: VS Code 1.145 ignored posted shortcuts, which go through
+/// DevTools input here (spec FR-16, plan R4, R5).
+#[test]
+#[ignore = "opens a VS Code window (its own profile) on the local desktop"]
+fn drives_an_electron_app_through_the_page_channel() {
+    let profile = std::env::temp_dir().join(format!("evo-page-code-{}", std::process::id()));
+    let code = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap()).join(r"Programs\Microsoft VS Code\Code.exe");
+    assert!(code.is_file(), "VS Code is not installed for this user");
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+    let foreground = unsafe { GetForegroundWindow() };
+    let pid = start_with_channel(
+        code.to_str().unwrap(),
+        &format!(
+            "--user-data-dir=\"{0}\" --extensions-dir=\"{0}\\ext\" --new-window --skip-welcome --disable-workspace-trust",
+            profile.display()
+        ),
+        None,
+    )
+    .expect("start VS Code with a page channel");
+    let session = "live-page-code";
+    let emit = |_: Value| {};
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let window_id = window_of_pid(session, pid).expect("VS Code did not open a window");
+        assert!(channel_answers(pid), "the page channel does not answer");
+        // Starting it minimized without activation left the person's window in front.
+        let now = unsafe { GetForegroundWindow() };
+        eprintln!("foreground before {:?} \"{}\", now {:?} \"{}\"", foreground, window_title(foreground), now, window_title(now));
+        // Windows lets a starting app take the front only once the person has
+        // been idle past the foreground lock timeout; while they are active it
+        // must not happen.
+        if !foreground_lock_expired() {
+            assert_eq!(now, foreground, "starting the app took the foreground while the person was active");
+        }
+        run_action(&emit, session, "attach", &json!({ "window_id": window_id })).unwrap();
+        pause(3000);
+        let hwnd = to_hwnd(window_id as isize);
+        // A fresh profile opens with a sign-in page that takes every key.
+        for _ in 0..4 {
+            let tree = snapshot_text(&emit, session);
+            let Some(skip) = ["Continue without Signing In", "Get Started"].into_iter().find_map(|name| {
+                let line = tree.lines().find(|line| line.contains(&format!("Button \"{name}\" ")))?;
+                Some(line.split("[ref=").nth(1)?.split(']').next()?.to_string())
+            }) else {
+                break;
+            };
+            let _ = run_action(&emit, session, "click", &json!({ "ref": skip }));
+            pause(1500);
+        }
+        // A first run opens the Chat panel with the focus in it, where Ctrl+N
+        // is "New Chat": close the panel first (as drives_vscode_by_its_keys).
+        run_action(&emit, session, "key", &json!({ "key": "ctrl+alt+i" })).unwrap();
+        pause(1000);
+        let pressed = run_action(&emit, session, "key", &json!({ "key": "ctrl+n" })).unwrap();
+        eprintln!("ctrl+n: {pressed}");
+        assert_eq!(pressed["delivered_via"], json!("page channel"));
+        pause(1500);
+        let picture = std::env::temp_dir().join("evo-page-code.png");
+        eprintln!("page state: {} (picture {})", channel_for(pid).map(|c| c.debug_state(&window_title(hwnd), &picture)).unwrap_or_default(), picture.display());
+        assert!(window_title(hwnd).contains("Untitled-1"), "ctrl+n did not open a new file: title {:?}", window_title(hwnd));
+        let typed = run_action(&emit, session, "type", &json!({ "text": "let answer = 42;" })).unwrap();
+        eprintln!("type: {typed}");
+        pause(1000);
+        assert!(window_title(hwnd).contains("let answer = 42;"), "the text did not reach the editor: title {:?}", window_title(hwnd));
+        assert!(is_off_screen(hwnd), "the window came onto the screen");
+        if !foreground_lock_expired() && now == foreground {
+            assert_eq!(unsafe { GetForegroundWindow() }, foreground, "driving the app took the foreground");
+        }
+    }));
+    detach(session);
+    kill_tree(pid);
+    let _ = std::fs::remove_dir_all(&profile);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+/// Edge started by evo with a page channel and its occlusion flag: typed text
+/// reaches the page through the channel and the picture shows it (FR-16, NFR-3).
+#[test]
+#[ignore = "opens an Edge window (its own profile) on the local desktop"]
+fn edge_with_page_channel_stays_fresh_off_screen() {
+    let profile = std::env::temp_dir().join(format!("evo-page-edge-{}", std::process::id()));
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+    let foreground = unsafe { GetForegroundWindow() };
+    let pid = start_with_channel(
+        EDGE,
+        &format!("--user-data-dir=\"{}\" --no-first-run --no-default-browser-check --app={}", profile.display(), probe_url()),
+        None,
+    )
+    .expect("start Edge with a page channel");
+    let session = "live-page-edge";
+    let emit = |_: Value| {};
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let window_id = window_of_pid(session, pid).expect("Edge did not open a window");
+        assert!(channel_answers(pid), "the page channel does not answer");
+        assert_eq!(unsafe { GetForegroundWindow() }, foreground, "starting Edge took the foreground");
+        run_action(&emit, session, "attach", &json!({ "window_id": window_id })).unwrap();
+        pause(1500);
+        let hwnd = to_hwnd(window_id as isize);
+        let before = capture(hwnd).unwrap();
+        let name = ref_for(&emit, session, "Name field");
+        let typed = run_action(&emit, session, "type", &json!({ "ref": name, "text": "through the pipe" })).unwrap();
+        assert_eq!(typed["delivered_via"], json!("page channel"));
+        pause(800);
+        let picture = std::env::temp_dir().join("evo-page-edge.png");
+        eprintln!("page state: {}", channel_for(pid).map(|c| c.debug_state(&window_title(hwnd), &picture)).unwrap_or_default());
+        assert_eq!(page_report(hwnd).get("name").map(String::as_str), Some("through the pipe"));
+        assert_ne!(capture(hwnd).unwrap().as_raw(), before.as_raw(), "the picture did not change");
+    }));
+    detach(session);
+    kill_tree(pid);
+    let _ = std::fs::remove_dir_all(&profile);
+    if let Err(panic) = outcome {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+/// `open_app` starts only what the catalog lists, in the background; `close_app`
+/// asks the window to close; `kill_app` ends what did not (spec FR-23). Skipped
+/// when Excel is already running, so a workbook of the person's is never touched.
+#[test]
+#[ignore = "opens an Excel window on the local desktop"]
+fn opens_closes_and_kills_from_the_catalog_only() {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+    let running = top_level_windows().into_iter().any(|hwnd| file_name(&process_image_path(app_process(hwnd, window_pid(hwnd))).unwrap_or_default()).eq_ignore_ascii_case("excel.exe"));
+    if running {
+        eprintln!("Excel is running: skipped so the person's workbooks are not touched");
+        return;
+    }
+    let session = "live-lifecycle";
+    let emit = |_: Value| {};
+    let refused = run_action(&emit, session, "open_app", &json!({ "exe": r"C:\Windows\System32\cmd.exe" }));
+    assert!(refused.is_err(), "a path was started: {refused:?}");
+
+    let opened = run_action(&emit, session, "open_app", &json!({ "exe": "excel.exe" })).unwrap();
+    eprintln!("opened: {opened}");
+    let window_id = opened["window"]["id"].as_u64().expect("Excel opened no window");
+    assert_eq!(opened["page"], json!(false), "Excel is not a web app");
+    pause(2000);
+    let closed = run_action(&emit, session, "close_app", &json!({ "window_id": window_id })).unwrap();
+    eprintln!("closed: {closed}");
+    pause(2000);
+    let hwnd = to_hwnd(window_id as isize);
+    if unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        let killed = run_action(&emit, session, "kill_app", &json!({ "window_id": window_id })).unwrap();
+        eprintln!("killed: {killed}");
+        pause(1000);
+    }
+    assert!(!unsafe { IsWindow(Some(hwnd)) }.as_bool(), "the Excel window is still open");
+    // Excel can linger without a window after it closed; end the copy this
+    // test started (no other was running).
+    if let Some(pid) = opened["window"]["pid"].as_u64() {
+        kill_tree(pid as u32);
+    }
 }

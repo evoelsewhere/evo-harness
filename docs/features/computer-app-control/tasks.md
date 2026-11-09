@@ -111,13 +111,13 @@ Phase 2 results (2026-11-10):
 
 Done when: FR-14 – FR-20 and FR-23 hold in unit and live tests.
 
-- [ ] T18 [FR-17] Read-back diff tests on synthetic trees: focus, value, selection, a new dialog or menu, no change — `computer/readback.rs` — check: `bun run test:shell computer::readback`
-- [ ] T19 [FR-17] Read-back wired into every acting action; `type` confirmation — `computer/{readback,mod}.rs` — check: T18 passes; live `reports_typing_that_did_not_arrive`
-- [ ] T20 [FR-18, FR-19] Tests for the channel ladder (one step down, never real input) and the limits table (toolkits that drop posted input, hover-only, OLE drag, raw input) — `computer/mod.rs` — check: `bun run test:shell computer::ladder`
-- [ ] T21 [FR-18, FR-19] Channel ladder and honest limits — `computer/mod.rs`, `computer/win/target.rs` — check: T20 passes; live `tells_toolkits_that_drop_posted_input`
-- [ ] T22 [P] [FR-14] Set-of-marks: tests, then drawing ref boxes and labels on the screenshot — `computer/marks.rs` — check: `bun run test:shell computer::marks`
-- [ ] T23 [P] [FR-20] `zoom`: tests, then crop ×2 and coordinate mapping — `computer/zoom.rs` — check: `bun run test:shell computer::zoom`
-- [ ] T24 [FR-16, FR-23, NFR-6] Page channel for web-based apps evo starts:
+- [x] T18 [FR-17] Read-back diff tests on synthetic trees: focus, value, selection, a new dialog or menu, no change — `computer/readback.rs` — check: `bun run test:shell computer::readback`
+- [x] T19 [FR-17] Read-back wired into every acting action; `type` confirmation — `computer/{readback,mod}.rs` — check: T18 passes; live `reports_typing_that_did_not_arrive`
+- [x] T20 [FR-18, FR-19] Tests for the channel ladder (one step down, never real input) and the limits table (toolkits that drop posted input, hover-only, OLE drag, raw input) — `computer/mod.rs` — check: `bun run test:shell computer::ladder`
+- [x] T21 [FR-18, FR-19] Channel ladder and honest limits — `computer/mod.rs`, `computer/win/target.rs` — check: T20 passes; live `tells_toolkits_that_drop_posted_input`
+- [x] T22 [P] [FR-14] Set-of-marks: tests, then drawing ref boxes and labels on the screenshot — `computer/marks.rs` — check: `bun run test:shell computer::marks`
+- [x] T23 [P] [FR-20] `zoom`: tests, then crop ×2 and coordinate mapping — `computer/zoom.rs` — check: `bun run test:shell computer::zoom`
+- [x] T24 [FR-16, FR-23, NFR-6] Page channel for web-based apps evo starts:
   - start with `--remote-debugging-pipe` and the occlusion flag, minimized
     without activation;
   - DevTools input and screenshots;
@@ -129,7 +129,37 @@ Done when: FR-14 – FR-20 and FR-23 hold in unit and live tests.
   profile), `edge_with_page_channel_stays_fresh_off_screen`,
   `starting_an_app_keeps_the_persons_foreground`.
 - [ ] T25 [NFR-3] The `late` flag for already-open Chromium windows whose frames show no change after an action — `computer/win/capture.rs`, `computer/mod.rs` — check: unit test on frame sequences; live test with a page that stops painting
-- [ ] T26 [FR-23] `search_apps`, `open_app` (catalog only), `close_app`, `kill_app`, with refusals — `computer/win/lifecycle.rs`, `computer/mod.rs` — check: live `opens_closes_and_kills_from_the_catalog_only`; `open_app` with a path is refused
+- [x] T26 [FR-23] `search_apps`, `open_app` (catalog only), `close_app`, `kill_app`, with refusals — `computer/win/lifecycle.rs`, `computer/mod.rs` — check: live `opens_closes_and_kills_from_the_catalog_only`; `open_app` with a path is refused
+
+Phase 3 results (2026-11-10):
+
+- Done and checked: T18–T24, T26.
+  - `bun run test:shell`: 494 passed; `bun run typecheck` passed.
+  - The ladder and limits tests live in `computer::tool`
+    (`a_click_by_ref_without_effect_steps_down_one_channel`,
+    `input_without_effect_is_reported_as_a_limit`); read-back in
+    `computer::readback`; marks and zoom in `computer::marks` and
+    `computer::zoom`.
+- Live tests passed:
+  - `drives_notepad_in_the_background`, which now also asserts the read-back
+    of typed text (T19);
+  - `marks_controls_and_zooms_a_region` (T22, T23);
+  - `drives_an_electron_app_through_the_page_channel` and
+    `edge_with_page_channel_stays_fresh_off_screen` (T24);
+  - `opens_closes_and_kills_from_the_catalog_only` (T26);
+  - again: `probes_chromium_fields`, `corner_pixel_keeps_chromium_painting`,
+    `keeps_a_parked_apps_dialogs_off_screen`.
+- `probes_chromium_pointer` passed once. It failed once because the
+  foreground moved from one of the person's windows to another while it ran:
+  the person, not evo, as the window handles showed. Telling these apart is
+  the input monitor's job (T36).
+- **T25** is built but not ticked: the `picture_may_be_late` flag on actions,
+  and the "may be late" line on screenshots. Its unit test passed; the live
+  test with a page that stops painting has not run.
+- `drives_an_electron_app_through_the_page_channel` replaces the failing
+  `drives_vscode_by_its_keys` for VS Code 1.145. That test drives an
+  already-open VS Code with posted keys, which this VS Code ignores. It stays
+  as a record of the accessibility path's limit.
 
 ### Phase 4 — Card, settings and transcript
 
@@ -190,16 +220,16 @@ Done when: the same checks pass on macOS 14+.
 | FR-11 | T17 payload test; cursor seen in the app (T29) | not run |
 | FR-12 | T30 in the app | not run |
 | FR-13 | T29 click in the card | not run |
-| FR-14 | live `refuses_refs_behind_a_modal_dialog` (T7); `computer::marks` (T22) | not run |
+| FR-14 | live `refuses_refs_behind_a_modal_dialog` (T7); `computer::marks`, live `marks_controls_and_zooms_a_region` (T22) | passed (2026-11-10) |
 | FR-15 | live `drives_notepad_in_the_background` (T7), the channel named in results | not run |
-| FR-16 | live `drives_an_electron_app_through_the_page_channel`, `edge_with_page_channel_stays_fresh_off_screen` (T24) | not run |
-| FR-17 | `computer::readback` (T18); live `reports_typing_that_did_not_arrive` (T19) | not run |
-| FR-18 | `computer::ladder` (T20) | not run |
+| FR-16 | live `drives_an_electron_app_through_the_page_channel`, `edge_with_page_channel_stays_fresh_off_screen` (T24) | passed (2026-11-10) |
+| FR-17 | `computer::readback` (T18); read-back assertion in live `drives_notepad_in_the_background` (T19) | passed (2026-11-10) |
+| FR-18 | `computer::tool` ladder test (T20) | passed (2026-11-10) |
 | FR-19 | live `tells_toolkits_that_drop_posted_input` (T21); impossible cases (T38) | not run |
-| FR-20 | `computer::zoom` (T23) | not run |
+| FR-20 | `computer::zoom`; live `marks_controls_and_zooms_a_region` (T23) | passed (2026-11-10) |
 | FR-21 | live typing tests (T7); a password field is refused | not run |
 | FR-22 | `computer::keys` (T2) | passed (2026-11-10) |
-| FR-23 | live `opens_closes_and_kills_from_the_catalog_only` (T26) | not run |
+| FR-23 | live `opens_closes_and_kills_from_the_catalog_only` (T26); `computer::apps` path refusal | passed (2026-11-10) |
 | FR-24 | `agent_tools::gate` (T11) | passed (2026-11-10) |
 | FR-25 | `computer::tool` untrusted wrapping (T13) | passed (2026-11-10) |
 | FR-26 | `computer::tool` timeouts (T13); quit with a hung app (T16) | not run |

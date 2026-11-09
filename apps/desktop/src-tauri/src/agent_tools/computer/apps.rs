@@ -134,6 +134,8 @@ mod tests {
     fn finds_only_an_exact_executable() {
         let catalog = catalog();
         assert_eq!(find(&catalog, "NOTEPAD").unwrap().0, "notepad.exe");
+        // A path or a command line never names a catalog app (FR-23).
+        assert!(find(&catalog, "notepad.exe --evil").is_err());
         assert_eq!(find(&catalog, "notepad.exe").unwrap().0, "notepad.exe");
         assert!(find(&catalog, "note").is_err());
         assert!(find(&catalog, "C:\\Windows\\notepad.exe").is_err());

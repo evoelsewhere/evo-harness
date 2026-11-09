@@ -88,6 +88,8 @@ struct Walk<'a> {
     query: Option<String>,
     lines: Vec<String>,
     visited: usize,
+    /// A read-back probe: no refs handed out, no positions, focus marked.
+    probe: bool,
 }
 
 impl Walk<'_> {
@@ -117,7 +119,27 @@ impl Walk<'_> {
             }
             None => !(is_structural(role) && name.trim().is_empty()),
         };
-        if listed && rect.right > rect.left && rect.bottom > rect.top {
+        if listed && rect.right > rect.left && rect.bottom > rect.top && self.probe {
+            // The same words a snapshot line has, without its ref and place,
+            // so a probe changes nothing the agent holds (readback.rs).
+            let mut line = format!("- {role}");
+            if !name.trim().is_empty() {
+                line.push_str(&format!(" \"{}\"", truncate(&name, 120)));
+            }
+            if let Some(value) = element_value(element, role) {
+                line.push_str(&format!(" value=\"{}\"", truncate(&value, 200)));
+            }
+            if let Some(on) = toggle_state(element, role) {
+                line.push_str(if on { " [checked]" } else { " [unchecked]" });
+            }
+            if is_selected_item(element, role) {
+                line.push_str(" [selected]");
+            }
+            if unsafe { element.CurrentHasKeyboardFocus() }.map(|on| on.as_bool()).unwrap_or(false) {
+                line.push_str(" [focused]");
+            }
+            self.lines.push(line);
+        } else if listed && rect.right > rect.left && rect.bottom > rect.top {
             let reference = format!("e{}", NEXT_REF.fetch_add(1, Ordering::Relaxed) + 1);
             self.refs
                 .elements
@@ -171,7 +193,30 @@ impl Walk<'_> {
     }
 }
 
-fn walk_window(target: &Target, query: Option<String>, max_depth: u32, max_elements: usize, reset: bool) -> Result<(Vec<String>, bool), String> {
+pub(super) fn walk_window(target: &Target, query: Option<String>, max_depth: u32, max_elements: usize, reset: bool) -> Result<(Vec<String>, bool), String> {
+    walk_window_as(target, query, max_depth, max_elements, reset, false)
+}
+
+/// The window's state for reading back what an action changed (FR-17). Never
+/// hands out or retires refs.
+pub(super) fn probe_state(target: &Target) -> Probe {
+    let lines = walk_window_as(target, None, 25, 250, false, true).map(|(lines, _)| lines).unwrap_or_default();
+    Probe {
+        title: window_title(target.top),
+        dialog: (target.window != target.top).then(|| window_title(target.window)),
+        popups: target.popups.iter().map(|popup| class_name(*popup)).collect(),
+        lines,
+    }
+}
+
+fn walk_window_as(
+    target: &Target,
+    query: Option<String>,
+    max_depth: u32,
+    max_elements: usize,
+    reset: bool,
+    probe: bool,
+) -> Result<(Vec<String>, bool), String> {
     let automation = automation()?;
     // Open menus and dropdowns first: they are on top, and what the agent
     // most likely wants next.
@@ -204,6 +249,7 @@ fn walk_window(target: &Target, query: Option<String>, max_depth: u32, max_eleme
             query,
             lines: Vec::new(),
             visited: 0,
+            probe,
         };
         for (root, window) in &roots {
             walk.root_window = *window;

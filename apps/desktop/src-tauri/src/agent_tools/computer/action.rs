@@ -14,6 +14,8 @@ pub(crate) enum Action {
     Screenshot,
     Snapshot,
     Find,
+    /// An enlarged crop of a region of the screenshot (FR-20).
+    Zoom,
     // Input to the attached window.
     Click,
     Hover,
@@ -37,13 +39,14 @@ pub(crate) enum Action {
 }
 
 impl Action {
-    const NAMES: [(&'static str, Action); 20] = [
+    const NAMES: [(&'static str, Action); 21] = [
         ("status", Action::Status),
         ("list_windows", Action::ListWindows),
         ("attach", Action::Attach),
         ("detach", Action::Detach),
         ("screenshot", Action::Screenshot),
         ("snapshot", Action::Snapshot),
+        ("zoom", Action::Zoom),
         ("find", Action::Find),
         ("click", Action::Click),
         ("hover", Action::Hover),

@@ -42,7 +42,8 @@ The person keeps their own mouse and keyboard and watches you in a card with a v
 they can stop you at any time. The app is kept off their screen while you work; that is expected.
 
 Windows: list_windows → attach (window_id) → … → detach when done.
-Observe: screenshot, snapshot (the accessibility tree with refs like e12), find.
+Observe: screenshot (marks: true numbers the controls by ref), snapshot (the accessibility tree with refs like e12), find, \
+zoom (an enlarged region, for small or dense targets; then aim inside it with in_zoom: true).
 Act: click, hover, scroll, drag (by ref or screenshot x/y), type, key, invoke (press/toggle/select/expand \
 by ref), set_value (fill a field by ref). Other: status, wait.
 Apps: search_apps (installed and running apps), open_app (start one by the exe search_apps lists; it opens \
@@ -81,7 +82,7 @@ fn schema() -> Value {
     });
     let mut properties = json!({
         "action": { "type": "string", "enum": [
-            "list_windows", "attach", "detach", "status", "screenshot", "snapshot", "find",
+            "list_windows", "attach", "detach", "status", "screenshot", "snapshot", "find", "zoom",
             "click", "hover", "scroll", "drag", "type", "key", "invoke", "set_value", "wait",
             "search_apps", "open_app", "close_app", "kill_app"
         ] },
@@ -106,7 +107,11 @@ fn schema() -> Value {
         "seconds": { "type": "number", "minimum": 0, "maximum": 10, "description": "wait: how long." },
         "max_depth": { "type": "integer", "minimum": 1, "maximum": 80 },
         "max_elements": { "type": "integer", "minimum": 10, "maximum": 2000 },
-        "attach": { "type": "boolean", "description": "open_app: attach to the new window (default true)." }
+        "attach": { "type": "boolean", "description": "open_app: attach to the new window (default true)." },
+        "marks": { "type": "boolean", "description": "screenshot: box and number the controls; a number N is ref eN." },
+        "region": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4,
+            "description": "zoom: [x, y, width, height] of the latest screenshot to enlarge (at most 640x400)." },
+        "in_zoom": { "type": "boolean", "description": "Pointer actions: x/y (and to_x/to_y) are pixels of the latest zoom picture." }
     });
     if let (Some(all), Some(point)) = (properties.as_object_mut(), point.as_object()) {
         all.extend(point.clone());
@@ -268,6 +273,7 @@ pub(crate) fn describe(action: &Value) -> Option<String> {
         "set_value" => format!("set {} to \"{}\"", str_of(action, "ref"), preview(str_of(action, "value"), 40)),
         "list_windows" => "list windows".into(),
         "screenshot" => "take a screenshot".into(),
+        "zoom" => "zoom in on a region".into(),
         "snapshot" => "read the UI tree".into(),
         "search_apps" => match action.get("query").and_then(Value::as_str).filter(|q| !q.is_empty()) {
             Some(query) => format!("search apps \"{}\"", preview(query, 40)),
@@ -444,6 +450,51 @@ async fn run_call(ctx: ToolCtx, args: Value) -> ToolOutput {
     }
 }
 
+/// The next background channel to try once after `action` showed no visible
+/// change (FR-18): a click by ref the accessibility press did not move gets a
+/// posted mouse click; a posted click on a ref gets the element's own action.
+/// Typing, keys and values are never retried: they could land twice.
+pub(crate) fn next_channel(action: Action, params: &Value, result: &Value) -> Option<(Action, Value, &'static str)> {
+    if !result.get("changed").is_some_and(Value::is_null) || action != Action::Click {
+        return None;
+    }
+    let reference = params.get("ref").and_then(Value::as_str)?;
+    let plain = params.get("button").and_then(Value::as_str).unwrap_or("left") == "left"
+        && params.get("clicks").and_then(Value::as_u64).unwrap_or(1) == 1
+        && params.get("modifiers").and_then(Value::as_array).is_none_or(|m| m.is_empty())
+        && params.get("channel").is_none();
+    if !plain {
+        return None;
+    }
+    match result.get("delivered_via").and_then(Value::as_str) {
+        Some("ui_automation") | Some("accessibility") => {
+            let mut mouse = params.clone();
+            mouse["channel"] = json!("mouse");
+            Some((Action::Click, mouse, "a background mouse click"))
+        }
+        _ => Some((Action::Invoke, json!({ "ref": reference }), "the element's own action (invoke)")),
+    }
+}
+
+/// What the agent must be told when input showed no effect (FR-19): it may not
+/// reach the app in the background, and the step must not be reported as done.
+pub(crate) fn limit_line(action: Action, result: &Value) -> Option<String> {
+    if !action.is_input() || action == Action::Hover || !result.get("changed").is_some_and(Value::is_null) {
+        return None;
+    }
+    let why = result
+        .get("note")
+        .and_then(Value::as_str)
+        .filter(|note| note.contains("ignore") || note.contains("drop"))
+        .map(|note| format!(" {note}"))
+        .unwrap_or_default();
+    Some(format!(
+        "Nothing in the window changed.{why} If the app should have changed, this input may not reach it in the background: \
+         try another way (invoke or set_value by ref, a menu command), or ask the person to do this step (they can press \
+         Show the app). Do not report it as done."
+    ))
+}
+
 /// The card's pointer event for `chat` (FR-11): the backend's `{x, y, phase}`
 /// (fractions of the window) with the chat it belongs to and its card's surface.
 pub(crate) fn pointer_payload(mut payload: Value, chat: &str) -> Value {
@@ -514,11 +565,48 @@ async fn act(ctx: &ToolCtx, policy: &Policy, action: Action, params: Value) -> R
             Ok(Reply::Text(lifecycle_summary(action, &value)))
         }
         _ => {
-            let value = backend(ctx, action, params).await?;
+            let params = super::zoom::map_params(&ctx.chat, params)?;
+            let value = backend(ctx, action, params.clone()).await?;
             if value.get("kind").and_then(Value::as_str) == Some("image") {
+                // Coordinates in a later in_zoom action are the latest zoom's.
+                match value.get("zoom") {
+                    Some(z) => super::zoom::remember(
+                        &ctx.chat,
+                        super::zoom::Region {
+                            x: z["x"].as_f64().unwrap_or(0.0),
+                            y: z["y"].as_f64().unwrap_or(0.0),
+                            width: z["width"].as_f64().unwrap_or(0.0),
+                            height: z["height"].as_f64().unwrap_or(0.0),
+                            factor: z["factor"].as_f64().unwrap_or(1.0),
+                        },
+                    ),
+                    None => super::zoom::forget(&ctx.chat),
+                }
                 return image_reply(&value);
             }
-            Ok(Reply::Text(summarize(action, &value)))
+            let mut text = summarize(action, &value);
+            if let Some(changed) = value.get("changed_text").and_then(Value::as_str) {
+                text.push_str(&format!("\n  {changed}"));
+            }
+            let mut last = value;
+            // FR-18: one step down the ladder when an action by element showed
+            // no effect; never for typing or keys, which could repeat input.
+            if let Some((retry_action, retry_params, label)) = next_channel(action, &params, &last) {
+                match backend(ctx, retry_action, retry_params).await {
+                    Ok(retried) => {
+                        text.push_str(&format!("\n  No visible change; tried {label} once: {}", summarize(retry_action, &retried)));
+                        if let Some(changed) = retried.get("changed_text").and_then(Value::as_str) {
+                            text.push_str(&format!("\n  {changed}"));
+                        }
+                        last = retried;
+                    }
+                    Err(error) => text.push_str(&format!("\n  No visible change; {label} failed too: {error}")),
+                }
+            }
+            if let Some(limit) = limit_line(action, &last) {
+                text.push_str(&format!("\n  {limit}"));
+            }
+            Ok(Reply::Text(text))
         }
     }
 }
@@ -696,6 +784,23 @@ fn image_reply(result: &Value) -> Result<Reply, String> {
     }
     if result.get("restored") == Some(&json!(true)) {
         header.push_str(" The window was minimized and has been restored without focus.");
+    }
+    if result.get("late") == Some(&json!(true)) {
+        header.push_str(" This picture may be late: the page did not repaint after the last action; trust snapshot and find.");
+    }
+    if let Some(z) = result.get("zoom") {
+        header = format!(
+            "Zoom of the screenshot region x={} y={} {}x{}, enlarged {}×. To aim at something in this picture, give its \
+             pixels here with \"in_zoom\": true.",
+            z["x"], z["y"], z["width"], z["height"], z["factor"]
+        );
+    }
+    if let Some(marks) = result.get("marks").and_then(Value::as_array) {
+        header.push_str(" Numbered boxes are refs: the box labelled 17 is ref e17. The refs of earlier snapshots are retired.");
+        let lines: Vec<&str> = marks.iter().filter_map(Value::as_str).collect();
+        if !lines.is_empty() {
+            header.push_str(&format!("\nMarked controls:\n{}", lines.join("\n")));
+        }
     }
     Ok(Reply::Image { header, data: data.to_string(), mime: str_of(result, "media_type").to_string() })
 }
@@ -883,6 +988,33 @@ mod tests {
             "window_id=7 | notepad.exe | \"a.txt\" [user is using it]\nwindow_id=9 | excel.exe | \"Book1\" [minimized, controlled from another chat — cannot attach]"
         );
         assert_eq!(format_windows(&[]), "No controllable windows are open.");
+    }
+
+    #[test]
+    fn a_click_by_ref_without_effect_steps_down_one_channel() {
+        let unchanged = |via: &str| json!({ "changed": null, "delivered_via": via });
+        let (action, params, _) = next_channel(Action::Click, &json!({ "ref": "e4" }), &unchanged("ui_automation")).unwrap();
+        assert_eq!((action, params), (Action::Click, json!({ "ref": "e4", "channel": "mouse" })));
+        let (action, params, _) = next_channel(Action::Click, &json!({ "ref": "e4" }), &json!({ "changed": null })).unwrap();
+        assert_eq!((action, params), (Action::Invoke, json!({ "ref": "e4" })));
+        // Not again after the step down, not with an effect, not by coordinates,
+        // never for typing or keys.
+        assert!(next_channel(Action::Click, &json!({ "ref": "e4", "channel": "mouse" }), &json!({ "changed": null })).is_none());
+        assert!(next_channel(Action::Click, &json!({ "ref": "e4" }), &json!({ "changed": { "title": "x" } })).is_none());
+        assert!(next_channel(Action::Click, &json!({ "x": 1, "y": 2 }), &json!({ "changed": null })).is_none());
+        assert!(next_channel(Action::Type, &json!({ "ref": "e4", "text": "a" }), &json!({ "changed": null })).is_none());
+        assert!(next_channel(Action::Click, &json!({ "ref": "e4", "button": "right" }), &json!({ "changed": null })).is_none());
+    }
+
+    #[test]
+    fn input_without_effect_is_reported_as_a_limit() {
+        let line = limit_line(Action::Key, &json!({ "changed": null, "note": "WPF windows ignore background keys." })).unwrap();
+        assert!(line.contains("WPF windows ignore background keys."));
+        assert!(line.contains("Do not report it as done."));
+        assert!(limit_line(Action::Key, &json!({ "changed": { "title": "x" } })).is_none());
+        assert!(limit_line(Action::Hover, &json!({ "changed": null })).is_none());
+        assert!(limit_line(Action::Snapshot, &json!({ "changed": null })).is_none());
+        assert!(limit_line(Action::Click, &json!({})).is_none(), "no read-back taken: nothing to claim");
     }
 
     #[test]

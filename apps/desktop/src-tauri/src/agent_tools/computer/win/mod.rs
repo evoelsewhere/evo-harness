@@ -25,6 +25,7 @@
 //! | `pointer`      | Posted mouse input: `click`, `hover`, `scroll`, `drag`         |
 //! | `typing`       | `type`: posted characters, read back                           |
 //! | `keyboard`     | `key`: shortcuts with modifiers held in the app's key state    |
+//! | `page`         | The page channel: a DevTools pipe into web apps evo started    |
 //! | `page_tree`    | Getting Chromium/WebView2 to build its accessibility tree      |
 //! | `uia_tree`     | UI Automation tree: `snapshot`, `find`, refs                   |
 //! | `uia_patterns` | UI Automation patterns and hit-testing                         |
@@ -119,6 +120,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use super::action::Action;
 use super::apps::{self, sorted, AppEntry, Catalog};
 use super::backend::{ComputerAppBackend, STOPPED_REFUSAL};
+use super::readback::{self, Probe};
 use super::Journal;
 use super::geometry::{pack_point, screenshot_scale};
 use super::interrupt::interrupted;
@@ -133,6 +135,7 @@ mod keyboard;
 mod lifecycle;
 mod listing;
 mod messages;
+mod page;
 mod page_tree;
 mod parking;
 mod pointer;
@@ -162,6 +165,7 @@ use keyboard::*;
 use lifecycle::*;
 use listing::*;
 use messages::*;
+use page::*;
 use page_tree::*;
 use parking::*;
 use pointer::*;
@@ -231,7 +235,48 @@ impl ComputerAppBackend for WindowsBackend {
 
 // ── Dispatch ────────────────────────────────────────────────────────────
 
+/// Actions whose effect is read back (FR-17): those that change the app.
+/// A hover only moves the pointer; its effect (a tooltip) is not a change.
+fn reads_back(action: Action) -> bool {
+    action.is_input() && action != Action::Hover
+}
+
 fn dispatch(emit: &dyn Fn(Value), session_id: &str, action: Action, params: &Value) -> Result<Value, String> {
+    if !reads_back(action) {
+        return dispatch_action(emit, session_id, action, params);
+    }
+    let target = Target::resolve(session_id).ok();
+    let before = target.as_ref().map(probe_state);
+    // A web page evo has no page channel into may stop painting; its picture
+    // is compared too (NFR-3). A page-channel app keeps painting.
+    let watch_picture = target.as_ref().filter(|t| t.web && channel_for(t.pid).is_none()).map(|t| t.window);
+    let picture_before = watch_picture.and_then(picture_hash);
+    let result = dispatch_action(emit, session_id, action, params)?;
+    let Some(before) = before else {
+        return Ok(result);
+    };
+    // Let the app take the input in and redraw before looking again.
+    pause(250);
+    let after = match Target::resolve(session_id) {
+        Ok(target) => probe_state(&target),
+        // The window went away: that is the change.
+        Err(_) => Probe { title: "(closed)".into(), ..Probe::default() },
+    };
+    let changed = readback::diff(&before, &after);
+    let mut text = readback::describe(&changed);
+    let late = match (picture_before, watch_picture.and_then(picture_hash)) {
+        (Some(a), Some(b)) => readback::picture_late(&changed, a == b),
+        _ => false,
+    };
+    if late {
+        text.push_str("
+  The window's picture did not change although its content did: screenshots may lag behind, so trust snapshot and find.");
+    }
+    set_picture_late(session_id, late);
+    Ok(merge(result, json!({ "changed": changed, "changed_text": text, "picture_may_be_late": late })))
+}
+
+fn dispatch_action(emit: &dyn Fn(Value), session_id: &str, action: Action, params: &Value) -> Result<Value, String> {
     // The window is resolved per action, not per session: the agent may
     // have been detached, or the window closed, since the last one.
     let target = || -> Result<Target, String> {
@@ -246,7 +291,8 @@ fn dispatch(emit: &dyn Fn(Value), session_id: &str, action: Action, params: &Val
         Action::ListWindows => Ok(list_windows(session_id, params)),
         Action::Attach => attach(session_id, params),
         Action::Detach => Ok(detach(session_id)),
-        Action::Screenshot => screenshot(&target()?),
+        Action::Screenshot => screenshot_with(&target()?, params),
+        Action::Zoom => zoom_shot(&target()?, params),
         Action::Snapshot => snapshot(&target()?, params),
         Action::Find => find(&target()?, params),
         Action::Click => click(emit, &target()?, params),
@@ -266,6 +312,33 @@ fn dispatch(emit: &dyn Fn(Value), session_id: &str, action: Action, params: &Val
         Action::CloseApp => close_app(session_id, params),
         Action::KillApp => kill_app(session_id, params),
     }
+}
+
+/// A quick fingerprint of the window's picture.
+fn picture_hash(window: HWND) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let image = capture(window).ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    image.as_raw().hash(&mut hasher);
+    Some(hasher.finish())
+}
+
+/// Chats whose last action showed a picture that may be late (NFR-3); their
+/// screenshots say so until an action shows a fresh one.
+static PICTURE_LATE: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+
+fn set_picture_late(session_id: &str, late: bool) {
+    if let Ok(mut set) = PICTURE_LATE.lock() {
+        if late {
+            set.insert(session_id.to_string());
+        } else {
+            set.remove(session_id);
+        }
+    }
+}
+
+pub(super) fn picture_may_be_late(session_id: &str) -> bool {
+    PICTURE_LATE.lock().map(|set| set.contains(session_id)).unwrap_or(false)
 }
 
 /// `base` with the fields of `extra` added (or replaced).
