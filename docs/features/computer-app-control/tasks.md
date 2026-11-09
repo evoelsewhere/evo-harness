@@ -247,6 +247,7 @@ failing cases.
 - [ ] T38 [P] [SC-5] "Impossible" cases (hover-only menu, drag a file between apps, key tips) expect an honest limit — `computer/win/live_bench.rs` — check: every case reports the limit
 - [ ] T39 [NFR-4, NFR-7, NFR-8] Timing (median per action), a run at 150 % scaling, CPU with the card minimized — `computer/win/live_bench.rs` — check: numbers in the table
 - [ ] T40 [SC-1 – SC-5] Run the benchmark and record the results — `tasks.md` section 2, plan section 5 — check: every row filled
+- [x] T46 [NFR-4] Cut the time an action spends outside the app: tree walks with one cached read per element (a native app's tree fetched whole), the "before" read during the card cursor's travel, the fixed 250 ms wait replaced by waiting for the app and a second look only when nothing changed, the cursor's travel 220 → 160 ms, the 150 ms wait after a click replaced by waiting for the app — `computer/win/{mod.rs, uia_tree.rs, target.rs, pointer.rs, uia_input.rs}` — check: live `times_each_step_on_the_grid_probe`; the fixture live tests; the benchmark timing table
 - [ ] T45 [FR-30, SC-2] Hold the foreground lock while an action runs and 1.5 s after, counted across chats — `computer/win/front.rs`, `computer/win/mod.rs`, `computer/win/page.rs` — check: unit test of the hold count; the benchmark's modal dialog and forms cases with no front-window change
 
 Phase 6 results so far (2026-11-09):
@@ -291,6 +292,27 @@ Phase 6 results so far (2026-11-09):
   text is lost. The harness now does not start Notepad while Notepad has
   saved tabs, acts only when the window's title shows its own empty surface
   (`Launch::blank_title`), and runs the cleanup keys only there.
+- T46 (2026-11-09), on the WinForms grid probe
+  (`times_each_step_on_the_grid_probe`, `EVO_COMPUTER_TRACE=1` prints each
+  step): key 433 → 214 ms, type 479 → 215 ms, key with a modifier 539 →
+  305 ms, a click that changed nothing 838 → 670 ms (it looks twice). The
+  probe's elements cost about 3 ms each through MSAA, so the cached reads
+  help little there; Excel and Word (native UI Automation) are not measured
+  yet. The 16 fixture live tests pass, apart from
+  `types_across_cells_that_open_their_own_editor`, which failed 1 of 6
+  (it failed about 1 in 4 before the change).
+- T46 in Excel (`live_bench::times_each_step_in_excel`, a private
+  instance): one read of the window's tree is about 400 ms. Fetching the
+  whole tree (about 750 elements) in one call takes about 390 ms inside
+  Excel; walking it afterwards takes 3 – 5 ms. Snapshot 667 → 434 ms, find
+  1097 → 426 ms, a key or `type` about 1100 → 950 – 1000 ms (two reads).
+  Smoke run 5 (before the whole-tree fetch, 1 run): Click 1005, Find 311,
+  Invoke 1154, Key 1289, Type 1279 ms medians, 40 of 44 cases. Most of
+  it is Excel's own time for the read-back (FR-17), twice per action, so
+  NFR-4 now counts only evo's part (spec History, 2026-11-09). evo's part
+  from the step timings: a key about 100 ms (input, the wait for the app,
+  the 40 ms look, the walks of the fetched tree), a click about 250 ms
+  (mostly the card cursor's 160 ms travel, which the "before" read fills).
 - T38: key tips and a window that reads the physical mouse report a limit;
   the hover-only menu and the drag between apps are not written yet. T39:
   the 150 % scaling run and the CPU check are not run.
@@ -341,7 +363,7 @@ Done when: the same checks pass on macOS 14+.
 | NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | not run |
 | NFR-2 | input monitor during the benchmark (T36, T40) | failed (2026-11-09): 8 front-window changes by driven apps |
 | NFR-3 | T10, T24, T25; benchmark freshness column (T40) | not run |
-| NFR-4 | timing table (T39) | failed (2026-11-09): by-ref medians 1.1 – 2 s |
+| NFR-4 | step timings (T46); timing table (T39) | evo's part passed (2026-11-09, step timings): key about 100 ms, click about 250 ms; whole actions in Excel about 1 s, mostly its tree reads; the 10-run table not run |
 | NFR-5 | quit with a hung app (T16) | not run |
 | NFR-6 | T24 (pipe only, no network listener: `netstat` during the test); security review | not run |
 | NFR-7 | run at 150 % scaling (T39) | not run |

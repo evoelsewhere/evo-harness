@@ -613,6 +613,24 @@ Phase 6 (2026-11-09, in progress):
   Measured (smoke run 4): the lock did not stop Excel's "Create Table"
   dialog, opened by a UI Automation invoke, from taking the front, so FR-30
   is not met yet.
-- **Latency.** The by-ref medians (about 1 – 2 s) miss NFR-4's 300 ms. Most of
-  it is the read-back tree walk after each action, the 250 ms settle and the
-  200 ms pointer travel shown on the card.
+- **Latency (T46).** The by-ref medians of the first smoke runs (about
+  1 – 2 s) missed NFR-4's 300 ms. Where the time went, per step
+  (`EVO_COMPUTER_TRACE`): two tree walks, a fixed 250 ms wait, the card
+  cursor's 220 ms travel and 150 ms after each click. Now:
+  - walks read each element with one cached call (`walk_cache`), and a
+    native window's tree is fetched whole in one call (`walk_cached`); web
+    content stays element by element, as a page can be far larger than
+    what a walk lists;
+  - a pointer action reads its "before" during the cursor's travel
+    (`before_input`, called by `Target::travel` and ahead of each input
+    sent without one); an action that sent input without that read
+    reports no `changed` rather than a wrong one;
+  - after the input, the read waits for the app (`settle`) and 40 ms, and
+    looks again 200 ms later only when nothing changed yet;
+  - the travel is 160 ms, matching the card cursor's 150 ms glide.
+
+  Excel still takes about 1 s an action, almost all of it handing out its
+  tree twice; NFR-4 now counts evo's part only, and the whole time is
+  reported per app. Reusing one action's "after" as the next "before"
+  would halve it, at the risk of counting a late change of the app toward
+  the next action; not done.

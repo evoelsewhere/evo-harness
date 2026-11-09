@@ -235,12 +235,10 @@ pub(super) fn click(emit: &dyn Fn(Value), target: &Target, params: &Value) -> Re
     }
     // A click that opened a menu or dropdown: say so, and for a parked app
     // take it off the user's screen straight away.
-    if button == "right" {
-        // Once the app has handled the click, a menu it opens is up: a
-        // menu's own loop answers too.
-        settle(hwnd);
-    }
-    pause(150);
+    // Once the app has handled the click, a menu it opens is up: a menu's
+    // own loop answers too.
+    settle(hwnd);
+    pause(50);
     let mut popups = open_popups(target.window, target.top, target.pid);
     if button == "right" && !target.web && popups.iter().all(|popup| target.popups.contains(popup)) {
         // Windows asks for the context menu itself (WM_CONTEXTMENU) when a

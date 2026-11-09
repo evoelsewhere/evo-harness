@@ -246,33 +246,109 @@ fn reads_back(action: Action) -> bool {
     action.is_input() && action != Action::Hover
 }
 
+/// Time one step of an action for the timing tests (`EVO_COMPUTER_TRACE`);
+/// in the app it only runs the step.
+pub(super) fn spanned<T>(label: &str, step: impl FnOnce() -> T) -> T {
+    #[cfg(test)]
+    if std::env::var_os("EVO_COMPUTER_TRACE").is_some() {
+        let started = std::time::Instant::now();
+        let value = step();
+        eprintln!("  span {label}: {} ms", started.elapsed().as_millis());
+        return value;
+    }
+    let _ = label;
+    step()
+}
+
+/// The read-back "before" of the action running on this thread.
+enum Before {
+    /// To be read just ahead of the input: while the card's cursor travels.
+    Pending(Target),
+    Taken(Probe),
+}
+
+thread_local! {
+    static BEFORE: RefCell<Option<Before>> = const { RefCell::new(None) };
+}
+
+/// Actions whose every way of sending input first moves the card's cursor
+/// ([`Target::travel`]) or calls [`before_input`].
+fn reads_before_during_travel(action: Action) -> bool {
+    matches!(action, Action::Click | Action::Scroll | Action::Drag | Action::Invoke | Action::SetValue)
+}
+
+/// Read the running action's "before" now, ahead of its input, unless it was
+/// read already. The cursor's travel on the card is a wait the person sees
+/// anyway; the read fills it instead of adding to it (NFR-4).
+pub(super) fn before_input() {
+    let pending = BEFORE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        match slot.take() {
+            Some(Before::Pending(target)) => Some(target),
+            other => {
+                *slot = other;
+                None
+            }
+        }
+    });
+    if let Some(target) = pending {
+        let probe = spanned("probe before", || probe_state(&target));
+        BEFORE.with(|slot| *slot.borrow_mut() = Some(Before::Taken(probe)));
+    }
+}
+
+/// How long the read-back waits for a change once the app handled the
+/// input, the first time and, when nothing changed yet, once more: a
+/// Chromium page updates its tree a moment after its window took the input.
+const FIRST_LOOK_MS: u64 = 40;
+const SECOND_LOOK_MS: u64 = 200;
+
 fn dispatch(emit: &dyn Fn(Value), session_id: &str, action: Action, params: &Value) -> Result<Value, String> {
     // The app may answer with a window of its own; the person keeps the
     // front window (FR-30).
     let _front = holds_front(action).then(hold_front);
     if !reads_back(action) {
-        return dispatch_action(emit, session_id, action, params);
+        return spanned("act", || dispatch_action(emit, session_id, action, params));
     }
-    let target = Target::resolve(session_id).ok();
-    let before = target.as_ref().map(probe_state);
+    let target = spanned("resolve", || Target::resolve(session_id).ok());
     // A web page evo has no page channel into may stop painting; its picture
     // is compared too (NFR-3). A page-channel app keeps painting.
     let watch_picture = target.as_ref().filter(|t| t.web && channel_for(t.pid).is_none()).map(|t| t.window);
-    let picture_before = watch_picture.and_then(picture_hash);
-    let result = dispatch_action(emit, session_id, action, params)?;
-    let Some(before) = before else {
+    let picture_before = spanned("picture before", || watch_picture.and_then(picture_hash));
+    let before = target.map(|target| {
+        if reads_before_during_travel(action) {
+            Before::Pending(target)
+        } else {
+            Before::Taken(spanned("probe before", || probe_state(&target)))
+        }
+    });
+    BEFORE.with(|slot| *slot.borrow_mut() = before);
+    let result = spanned("act", || dispatch_action(emit, session_id, action, params));
+    let before = BEFORE.with(|slot| slot.borrow_mut().take());
+    let result = result?;
+    // Not read (no window, or the input went out without a read first):
+    // the result then says nothing about changes rather than something wrong.
+    let Some(Before::Taken(before)) = before else {
         return Ok(result);
     };
-    // Let the app take the input in and redraw before looking again.
-    pause(250);
-    let after = match Target::resolve(session_id) {
-        Ok(target) => probe_state(&target),
+    let look = || match Target::resolve(session_id) {
+        Ok(target) => {
+            // Let the app take the input in before looking.
+            settle(target.window);
+            probe_state(&target)
+        }
         // The window went away: that is the change.
         Err(_) => Probe { title: "(closed)".into(), ..Probe::default() },
     };
+    pause(FIRST_LOOK_MS);
+    let mut after = spanned("probe after", look);
+    if readback::diff(&before, &after).is_null() {
+        pause(SECOND_LOOK_MS);
+        after = spanned("probe after (second look)", look);
+    }
     let changed = readback::diff(&before, &after);
     let mut text = readback::describe(&changed);
-    let late = match (picture_before, watch_picture.and_then(picture_hash)) {
+    let late = match (picture_before, spanned("picture after", || watch_picture.and_then(picture_hash))) {
         (Some(a), Some(b)) => readback::picture_late(&changed, a == b),
         _ => false,
     };

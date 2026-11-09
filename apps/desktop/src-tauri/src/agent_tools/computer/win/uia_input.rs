@@ -208,6 +208,8 @@ pub(super) fn click_via_automation(
         None => {}
     }
     if let Some(option) = chain.last().filter(|_| target.web) {
+        // Picking the option is the input: read first.
+        before_input();
         if let Some(name) = pick_popup_option(target, option)? {
             target.travel(emit, point)?;
             target.emit_pointer(emit, point, "click");
@@ -277,6 +279,7 @@ pub(super) fn invoke(emit: &dyn Fn(Value), target: &Target, params: &Value) -> R
         target.travel(emit, point)?;
         target.emit_pointer(emit, point, "click");
     }
+    before_input();
     if is_editable(&element) {
         remember_editable(&target.session_id, &element);
     } else {
@@ -303,6 +306,7 @@ pub(super) fn set_value(emit: &dyn Fn(Value), target: &Target, params: &Value) -
                 target.travel(emit, point)?;
                 target.emit_pointer(emit, point, "click");
             }
+            before_input();
             let (minimum, maximum) = unsafe { (range.CurrentMinimum(), range.CurrentMaximum()) };
             let clamped = match (minimum, maximum) {
                 (Ok(minimum), Ok(maximum)) if maximum > minimum => number.clamp(minimum, maximum),
@@ -335,6 +339,7 @@ pub(super) fn set_value(emit: &dyn Fn(Value), target: &Target, params: &Value) -
             target.emit_pointer(emit, point, "click");
         }
         remember_editable(&target.session_id, &element);
+        before_input();
         let mut result = web_fill(target, Some(&element), value, true)?;
         result["ref"] = json!(reference);
         result["value_chars"] = json!(value.chars().count());
@@ -351,6 +356,7 @@ pub(super) fn set_value(emit: &dyn Fn(Value), target: &Target, params: &Value) -
         target.travel(emit, point)?;
         target.emit_pointer(emit, point, "click");
     }
+    before_input();
     unsafe { pattern.SetValue(&BSTR::from(value)) }
         .map_err(|error| format!("{reference} refused the value: {error}"))?;
     Ok(json!({ "ref": reference, "value_chars": value.chars().count(), "window": window_title(target.window) }))

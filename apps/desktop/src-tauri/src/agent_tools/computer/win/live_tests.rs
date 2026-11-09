@@ -1442,3 +1442,29 @@ fn opens_closes_and_kills_from_the_catalog_only() {
         kill_tree(pid as u32);
     }
 }
+
+/// Where an action's time goes (NFR-4): each step of each action on the
+/// WinForms grid probe, with `EVO_COMPUTER_TRACE` spans.
+#[test]
+#[ignore = "opens a WinForms window on the local desktop"]
+fn times_each_step_on_the_grid_probe() {
+    std::env::set_var("EVO_COMPUTER_TRACE", "1");
+    with_winforms_probe("computer_app_grid.ps1", "grid-probe", "live-timing", |emit, session, _| {
+        let step = |label: &str, action: &str, params: Value| {
+            eprintln!("{label}:");
+            let started = std::time::Instant::now();
+            let result = run_action(emit, session, action, &params);
+            eprintln!("  total {} ms ({})", started.elapsed().as_millis(), result.as_ref().map(|_| "ok").unwrap_or("error"));
+        };
+        for round in 0..2 {
+            eprintln!("── round {round}");
+            step("snapshot", "snapshot", json!({}));
+            step("find", "find", json!({ "query": "Region" }));
+            step("click", "click", json!({ "x": 100, "y": 60 }));
+            step("key down", "key", json!({ "key": "down" }));
+            step("key ctrl+home", "key", json!({ "key": "ctrl+home" }));
+            step("type", "type", json!({ "text": "ab" }));
+            step("key escape", "key", json!({ "key": "escape" }));
+        }
+    });
+}

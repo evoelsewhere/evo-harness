@@ -5,7 +5,8 @@
 use super::*;
 
 /// How long the preview's cursor gets to travel before the input lands.
-const POINTER_TRAVEL: Duration = Duration::from_millis(220);
+/// The card's cursor glides for 150 ms (`agent-cursor.tsx`).
+const POINTER_TRAVEL: Duration = Duration::from_millis(160);
 
 // ── The window being driven ─────────────────────────────────────────────
 
@@ -169,7 +170,11 @@ impl Target {
     /// and can still stop it.
     pub(super) fn travel(&self, emit: &dyn Fn(Value), point: POINT) -> Result<(), String> {
         self.emit_pointer(emit, point, "move");
-        std::thread::sleep(POINTER_TRAVEL);
+        let started = std::time::Instant::now();
+        before_input();
+        if let Some(rest) = POINTER_TRAVEL.checked_sub(started.elapsed()) {
+            std::thread::sleep(rest);
+        }
         interrupted()
     }
 }

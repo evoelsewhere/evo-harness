@@ -1160,3 +1160,37 @@ fn measures_input_on_a_document_in_word() {
 fn measures_input_on_a_document_in_notepad() {
     measure_document(&NOTEPAD);
 }
+
+/// The modal dialog case alone (Excel's Create Table), for checking it
+/// without the whole benchmark.
+#[test]
+#[ignore = "opens a private Excel instance on the local desktop"]
+fn measures_excels_modal_dialog() {
+    measure_modal_dialog(&EXCEL, "Insert", "Table");
+}
+
+/// Where an action's time goes in Excel (NFR-4), with `EVO_COMPUTER_TRACE`
+/// spans for each step.
+#[test]
+#[ignore = "opens a private Excel instance on the local desktop"]
+fn times_each_step_in_excel() {
+    std::env::set_var("EVO_COMPUTER_TRACE", "1");
+    with_private_app(&EXCEL, "live-excel-timing", |emit| {
+        let step = |label: &str, action: &str, params: Value| {
+            eprintln!("{label}:");
+            let started = std::time::Instant::now();
+            let result = act(emit, "live-excel-timing", action, params);
+            eprintln!("  total {} ms ({})", started.elapsed().as_millis(), result.as_ref().map(|_| "ok").unwrap_or("error"));
+        };
+        for round in 0..2 {
+            eprintln!("── round {round}");
+            step("snapshot", "snapshot", json!({}));
+            step("find", "find", json!({ "query": "Bold" }));
+            step("key down", "key", json!({ "key": "down" }));
+            step("type", "type", json!({ "text": "12" }));
+            step("key enter", "key", json!({ "key": "enter" }));
+            step("click", "click", json!({ "x": 300, "y": 300 }));
+            step("key ctrl+z", "key", json!({ "key": "ctrl+z" }));
+        }
+    });
+}

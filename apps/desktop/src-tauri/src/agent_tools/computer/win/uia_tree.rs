@@ -2,6 +2,37 @@
 //! the refs (`e12`) they hand out.
 
 use super::*;
+use windows::Win32::UI::Accessibility::{
+    IUIAutomationCacheRequest, UIA_AutomationIdPropertyId, UIA_HasKeyboardFocusPropertyId,
+    UIA_IsEnabledPropertyId, UIA_NamePropertyId, UIA_SelectionItemIsSelectedPropertyId,
+    UIA_ToggleToggleStatePropertyId, UIA_ValueValuePropertyId, UIA_PROPERTY_ID, TreeScope_Subtree,
+};
+
+/// Everything a walk reads of an element, fetched with the element in one
+/// call to the app instead of one per property (NFR-4): a walk of a few
+/// hundred elements went from several calls each to one.
+fn walk_cache(automation: &IUIAutomation) -> Result<IUIAutomationCacheRequest, String> {
+    let request = unsafe { automation.CreateCacheRequest() }.map_err(|error| format!("UI Automation cache unavailable: {error}"))?;
+    for property in [
+        UIA_ControlTypePropertyId,
+        UIA_NamePropertyId,
+        UIA_BoundingRectanglePropertyId,
+        UIA_AutomationIdPropertyId,
+        UIA_HasKeyboardFocusPropertyId,
+        UIA_IsEnabledPropertyId,
+        UIA_ValueValuePropertyId,
+        UIA_ToggleToggleStatePropertyId,
+        UIA_SelectionItemIsSelectedPropertyId,
+    ] {
+        unsafe { request.AddProperty(property) }.map_err(|error| format!("UI Automation cache unavailable: {error}"))?;
+    }
+    Ok(request)
+}
+
+/// A cached property; `None` where the element does not support it.
+fn cached<T: for<'v> TryFrom<&'v VARIANT>>(element: &IUIAutomationElement, property: UIA_PROPERTY_ID) -> Option<T> {
+    unsafe { element.GetCachedPropertyValue(property) }.ok().and_then(|value| T::try_from(&value).ok())
+}
 
 fn control_type_name(id: i32) -> &'static str {
     match id {
@@ -37,32 +68,22 @@ fn element_value(element: &IUIAutomationElement, role: &str) -> Option<String> {
     if !matches!(role, "Edit" | "ComboBox" | "Document" | "Spinner" | "Slider" | "DataItem") {
         return None;
     }
-    let pattern = unsafe { element.GetCurrentPattern(UIA_ValuePatternId) }.ok()?;
-    let value: IUIAutomationValuePattern = pattern.cast().ok()?;
-    let text = bstr(unsafe { value.CurrentValue() });
+    let text = cached::<BSTR>(element, UIA_ValueValuePropertyId)?.to_string();
     (!text.is_empty()).then_some(text)
 }
 
 /// Whether an item that can be selected — a cell, a list, tree or tab
 /// item — is: the selection read from the tree, not from a screenshot.
 fn is_selected_item(element: &IUIAutomationElement, role: &str) -> bool {
-    if !matches!(role, "DataItem" | "ListItem" | "TreeItem" | "TabItem") {
-        return false;
-    }
-    unsafe { element.GetCurrentPattern(UIA_SelectionItemPatternId) }
-        .ok()
-        .and_then(|pattern| pattern.cast::<IUIAutomationSelectionItemPattern>().ok())
-        .and_then(|item| unsafe { item.CurrentIsSelected() }.ok())
-        .is_some_and(|selected| selected.as_bool())
+    matches!(role, "DataItem" | "ListItem" | "TreeItem" | "TabItem")
+        && cached::<bool>(element, UIA_SelectionItemIsSelectedPropertyId).unwrap_or(false)
 }
 
 fn toggle_state(element: &IUIAutomationElement, role: &str) -> Option<bool> {
     if !matches!(role, "CheckBox" | "Button" | "MenuItem" | "RadioButton") {
         return None;
     }
-    let pattern = unsafe { element.GetCurrentPattern(UIA_TogglePatternId) }.ok()?;
-    let toggle: IUIAutomationTogglePattern = pattern.cast().ok()?;
-    unsafe { toggle.CurrentToggleState() }.ok().map(|state| state == ToggleState_On)
+    cached::<i32>(element, UIA_ToggleToggleStatePropertyId).map(|state| state == ToggleState_On.0)
 }
 
 pub(super) fn truncate(text: &str, max: usize) -> String {
@@ -78,6 +99,7 @@ pub(super) fn truncate(text: &str, max: usize) -> String {
 
 struct Walk<'a> {
     walker: IUIAutomationTreeWalker,
+    request: IUIAutomationCacheRequest,
     target: &'a Target,
     refs: &'a mut SessionRefs,
     /// The window the root being walked belongs to.
@@ -94,11 +116,11 @@ struct Walk<'a> {
 
 impl Walk<'_> {
     fn element_line(&mut self, element: &IUIAutomationElement, depth: u32) -> bool {
-        let role = unsafe { element.CurrentControlType() }
+        let role = unsafe { element.CachedControlType() }
             .map(|id| control_type_name(id.0))
             .unwrap_or("Element");
-        let name = bstr(unsafe { element.CurrentName() });
-        let rect = unsafe { element.CurrentBoundingRectangle() }.unwrap_or_default();
+        let name = bstr(unsafe { element.CachedName() });
+        let rect = unsafe { element.CachedBoundingRectangle() }.unwrap_or_default();
         // Judged against the window rather than IsOffscreen: a parked window
         // is entirely off-screen, yet every control in it is usable. Elements
         // scrolled out of the window are still skipped.
@@ -112,7 +134,7 @@ impl Walk<'_> {
         }
         let listed = match &self.query {
             Some(query) => {
-                let automation_id = bstr(unsafe { element.CurrentAutomationId() });
+                let automation_id = bstr(unsafe { element.CachedAutomationId() });
                 name.to_lowercase().contains(query)
                     || automation_id.to_lowercase().contains(query)
                     || role.to_lowercase() == *query
@@ -135,7 +157,7 @@ impl Walk<'_> {
             if is_selected_item(element, role) {
                 line.push_str(" [selected]");
             }
-            if unsafe { element.CurrentHasKeyboardFocus() }.map(|on| on.as_bool()).unwrap_or(false) {
+            if cached::<bool>(element, UIA_HasKeyboardFocusPropertyId).unwrap_or(false) {
                 line.push_str(" [focused]");
             }
             self.lines.push(line);
@@ -161,7 +183,7 @@ impl Walk<'_> {
             if is_selected_item(element, role) {
                 line.push_str(" [selected]");
             }
-            if !unsafe { element.CurrentIsEnabled() }.map(|on| on.as_bool()).unwrap_or(true) {
+            if !cached::<bool>(element, UIA_IsEnabledPropertyId).unwrap_or(true) {
                 line.push_str(" [disabled]");
             }
             line.push_str(&format!(" [ref={reference}] @{x},{y} {width}x{height}"));
@@ -177,7 +199,7 @@ impl Walk<'_> {
         self.visited += 1;
         let listed = self.element_line(element, depth);
         let child_depth = if listed { depth + 1 } else { depth };
-        let Ok(mut child) = (unsafe { self.walker.GetFirstChildElement(element) }) else {
+        let Ok(mut child) = (unsafe { self.walker.GetFirstChildElementBuildCache(element, &self.request) }) else {
             return;
         };
         loop {
@@ -185,9 +207,33 @@ impl Walk<'_> {
             if self.lines.len() >= self.max_elements {
                 return;
             }
-            match unsafe { self.walker.GetNextSiblingElement(&child) } {
+            match unsafe { self.walker.GetNextSiblingElementBuildCache(&child, &self.request) } {
                 Ok(next) => child = next,
                 Err(_) => return,
+            }
+        }
+    }
+
+    /// The same walk over a tree fetched whole: the children come from the
+    /// cache, with no call to the app.
+    fn walk_cached(&mut self, element: &IUIAutomationElement, depth: u32) {
+        if depth > self.max_depth || self.lines.len() >= self.max_elements || self.visited > 20_000 {
+            return;
+        }
+        self.visited += 1;
+        let listed = self.element_line(element, depth);
+        let child_depth = if listed { depth + 1 } else { depth };
+        let Ok(children) = (unsafe { element.GetCachedChildren() }) else {
+            return;
+        };
+        let count = unsafe { children.Length() }.unwrap_or(0);
+        for index in 0..count {
+            let Ok(child) = (unsafe { children.GetElement(index) }) else {
+                continue;
+            };
+            self.walk_cached(&child, child_depth);
+            if self.lines.len() >= self.max_elements {
+                return;
             }
         }
     }
@@ -233,6 +279,21 @@ fn walk_window_as(
     );
     let walker = unsafe { automation.ControlViewWalker() }
         .map_err(|error| format!("UI Automation walker unavailable: {error}"))?;
+    let request = walk_cache(&automation)?;
+    // The whole tree under each root in one call to the app (NFR-4): a
+    // walk element by element cost Excel about 2 ms an element, the whole
+    // tree (about 750) about 400 ms. Web content is walked element by
+    // element: a page's tree can be far larger than what a walk lists. So is
+    // a provider that cannot hand out its subtree.
+    let whole = walk_cache(&automation)?;
+    unsafe { whole.SetTreeScope(TreeScope_Subtree) }.map_err(|error| format!("UI Automation cache unavailable: {error}"))?;
+    let roots: Vec<(IUIAutomationElement, HWND, bool)> = roots
+        .into_iter()
+        .filter_map(|(root, window)| match (!target.web).then(|| unsafe { root.BuildUpdatedCache(&whole) }).transpose().ok().flatten() {
+            Some(root) => Some((root, window, true)),
+            None => unsafe { root.BuildUpdatedCache(&request) }.ok().map(|root| (root, window, false)),
+        })
+        .collect();
     REFS.with(|refs| {
         let mut refs = refs.borrow_mut();
         let session_refs = refs.entry(target.session_id.clone()).or_default();
@@ -241,6 +302,7 @@ fn walk_window_as(
         }
         let mut walk = Walk {
             walker,
+            request,
             target,
             refs: session_refs,
             root_window: target.window,
@@ -251,9 +313,13 @@ fn walk_window_as(
             visited: 0,
             probe,
         };
-        for (root, window) in &roots {
+        for (root, window, whole) in &roots {
             walk.root_window = *window;
-            walk.walk(root, 0);
+            if *whole {
+                walk.walk_cached(root, 0);
+            } else {
+                walk.walk(root, 0);
+            }
         }
         let truncated = walk.lines.len() >= max_elements;
         Ok((walk.lines, truncated))

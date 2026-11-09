@@ -266,7 +266,7 @@ Acceptance scenarios:
 | NFR-1 | Platforms: Windows 10 1809+ and Windows 11 (x64 and ARM64) first. macOS 14+ follows in a later phase of this spec, with the same tool and card. On other platforms, and on macOS before that phase, the tool is absent. | Feature matrix run on each platform. |
 | NFR-2 | **Input isolation is measurable.** A monitor samples the person's pointer position, foreground window, keyboard focus and key state every 10 ms during the benchmark. It records no change caused by evo. | Benchmark report: 0 events. |
 | NFR-3 | **Fresh pictures.** A picture taken after an acting action reflects that action. Where this cannot be confirmed (an already-open web-based app that lags even with its corner pixel, FR-16), the result labels the picture as possibly late. | Benchmark: 100 % of post-action pictures in evo-started web apps show the change. |
-| NFR-4 | Latency: an action by ref on a native app returns within 300 ms (median), not counting the app's own work. The first card picture appears within 500 ms of attach. | Benchmark timing table. |
+| NFR-4 | Latency: evo's own part of an action by ref on a native app takes at most 300 ms (median). The app's part is not counted: handling the input, and handing out its UI Automation tree for the read-back (FR-17), which an action reads before and after. The whole action's time is reported per app; in Excel one read of the tree takes about 400 ms, so an action with its read-back takes about 1 s. The first card picture appears within 500 ms of attach. | Step timings per action (`EVO_COMPUTER_TRACE`); benchmark timing table. |
 | NFR-5 | A hung app never freezes evo or other chats. Quitting evo waits at most 3 s for windows to return; any left go back on the next start (FR-8). | Live test with a deliberately hung app. |
 | NFR-6 | Security: the page-level channel of FR-16 is not reachable from other machines or other users and is closed with the app. Protected apps (FR-4) are refused at every entry point. No clipboard access. Stop is enforced natively. | Security review checklist; port scan while a web app is controlled. |
 | NFR-7 | Positions are correct on displays scaled 100–200 % and for apps unaware of DPI. | Benchmark run at 150 % scaling. |
@@ -342,3 +342,7 @@ None.
 - 2026-11-09 — The first benchmark runs showed driven apps taking the front
   window for their own dialogs (SC-2). The owner chose to hold the
   foreground lock while an action runs: FR-30 added.
+- 2026-11-09 — Measured in Excel, one read of its UI Automation tree takes
+  about 400 ms inside Excel, and the read-back reads it twice per action.
+  The owner chose to count only evo's own part in NFR-4 and report the
+  whole action's time per app.
