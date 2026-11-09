@@ -413,6 +413,7 @@ mod tests {
             content: "c".to_string(),
             file_path: path.to_string(),
             disable_model_invocation: None,
+            requires_tools: None,
         }
     }
 

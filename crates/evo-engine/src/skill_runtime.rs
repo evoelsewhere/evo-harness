@@ -324,6 +324,7 @@ mod tests {
             content: String::new(),
             file_path: String::new(),
             disable_model_invocation: None,
+            requires_tools: None,
         }
     }
 

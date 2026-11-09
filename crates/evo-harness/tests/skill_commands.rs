@@ -25,6 +25,7 @@ fn skill() -> Skill {
         content: "STALE SNAPSHOT".into(),
         file_path: "skills/manual/SKILL.md".into(),
         disable_model_invocation: Some(true),
+        requires_tools: None,
     }
 }
 

@@ -3987,8 +3987,10 @@ impl AgentHarness {
         active_tool_names: &[String],
     ) -> String {
         let all_skills: &[Skill] = resources.skills.as_deref().unwrap_or(&[]);
+        // A skill about a tool the run does not have is not offered.
+        let offered = crate::skills::skills_for_tools(all_skills, active_tool_names);
         let skills: &[Skill] = if active_tool_names.iter().any(|n| n == "read") {
-            all_skills
+            &offered
         } else {
             &[]
         };

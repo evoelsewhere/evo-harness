@@ -566,3 +566,23 @@ Phase 4 (2026-11-10):
   - a typed executable can be blocked;
   - on platforms other than Windows the page says the feature is not
     available there.
+
+Phase 5 (2026-11-10):
+
+- **`requires-tools`.** It is a new, optional front matter field of a skill
+  (`evo_harness::types::Skill::requires_tools`): a YAML list or a
+  comma-separated string. `AgentHarness::compose_prompt` filters the
+  `<available_skills>` listing through `skills::skills_for_tools`, so a skill
+  is listed only while all its tools are active. External tools such as
+  `computer_app` are in the active list once `configure_external_tools` adds
+  them, so switching the feature on or off changes the listing on the next
+  turn.
+- **The skill.** It is in `crates/evo-engine/bundled-skills/computer-app-control/`,
+  ported from v3.
+  - `SKILL.md`, `input-channels.md`, `actions.md` and
+    `events-and-errors.md` are rewritten for v4: the page, web content and
+    native channels; `marks`, `zoom` and `in_zoom`; the `changed:` read-back
+    lines; the one-step ladder and "Do not report it as done"; the card's
+    Stop, Allow again, Show the app and Close; Settings → Computer apps.
+  - The surface guides are unchanged, apart from the page channel in
+    `web-content.md`. They still mention macOS in places, for phase 7.

@@ -1123,6 +1123,7 @@ mod list_commands_tests {
                         content: "body".into(),
                         file_path: "/skills/manual/SKILL.md".into(),
                         disable_model_invocation: Some(true),
+                        requires_tools: None,
                     }]),
                     ..Default::default()
                 },
@@ -1157,6 +1158,7 @@ mod list_commands_tests {
             content: "body".into(),
             file_path: format!("/skills/{name}/SKILL.md"),
             disable_model_invocation: Some(false),
+            requires_tools: None,
         }
     }
 

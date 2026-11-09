@@ -218,8 +218,23 @@ Phase 4 results (2026-11-10):
 Done when: the skill is offered only to chats that have `computer_app`, and
 its evaluation cases pass (FR-27).
 
-- [ ] T34 [FR-27] Test, then bundled skills with `requires-tools` front matter offered only when the chat has those tools — `crates/evo-engine/src/` (skill listing) — check: `cargo test -p evo-engine skills_require_tools`
-- [ ] T35 [FR-27] Port the skill and rewrite its input sections for the channel order, marks, read-back and limits; add evaluation cases — `crates/evo-engine/bundled-skills/computer-app-control/` — check: the cases trigger as listed in FR-27
+- [x] T34 [FR-27] Test, then bundled skills with `requires-tools` front matter offered only when the chat has those tools — `crates/evo-engine/src/` (skill listing) — check: `cargo test -p evo-engine skills_require_tools`
+- [x] T35 [FR-27] Port the skill and rewrite its input sections for the channel order, marks, read-back and limits; add evaluation cases — `crates/evo-engine/bundled-skills/computer-app-control/` — check: the cases trigger as listed in FR-27
+
+Phase 5 results (2026-11-10):
+
+- Done: T34, T35.
+  - The test lives in `evo-harness` (`skills::tests::skills_require_tools`,
+    `reads_requires_tools_as_a_list_or_a_comma_string`), where skills are
+    listed.
+  - `evo-engine` checks the bundled skill: `office::tests::bundled_computer_app_skill_requires_its_tool`
+    and `the_bundled_skills_load_as_skills`.
+  - `cargo test -p evo-harness -p evo-engine` passed (no failures);
+    `cargo fmt --all -- --check` passed.
+- The trigger cases are in
+  `crates/evo-engine/tests/fixtures/skill-evals/computer-app-control/trigger-cases.json`
+  (14 cases, from v3, Windows-only now). Running them needs a model and an
+  evaluation harness evo does not have yet: **not run**.
 
 ### Phase 6 — Benchmark and verification on Windows
 
@@ -272,7 +287,7 @@ Done when: the same checks pass on macOS 14+.
 | FR-24 | `agent_tools::gate` (T11); prompt in Approve for me in the e2e app | passed (2026-11-10) |
 | FR-25 | `computer::tool` untrusted wrapping (T13) | passed (2026-11-10) |
 | FR-26 | `computer::tool` timeouts (T13); quit with a hung app (T16) | not run |
-| FR-27 | `skills_require_tools` (T34); evaluation cases (T35) | not run |
+| FR-27 | `skills_require_tools`, `bundled_computer_app_skill_requires_its_tool` (T34, T35) | passed (2026-11-10); trigger cases not run |
 | FR-28 | T43 on a Mac | not run |
 | FR-29 | live `refuses_menu_commands_that_need_activation` (T42) | not run |
 | NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | not run |

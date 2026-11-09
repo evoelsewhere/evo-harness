@@ -89,6 +89,7 @@ mod tests {
             content: "c".to_string(),
             file_path: file.to_string(),
             disable_model_invocation: None,
+            requires_tools: None,
         }
     }
 

@@ -158,6 +158,7 @@ fn command(file: &Path, name: &str) -> Option<Skill> {
         content: body,
         file_path: file.to_string_lossy().into_owned(),
         disable_model_invocation: flag(&frontmatter, "disable-model-invocation"),
+        requires_tools: None,
     })
 }
 

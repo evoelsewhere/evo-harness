@@ -62,6 +62,12 @@ pub struct Skill {
     pub file_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disable_model_invocation: Option<bool>,
+    /// Tools the skill is about (front matter `requires-tools`): it is listed
+    /// to the model only while every one of them is active, so a skill for a
+    /// tool the chat does not have is not offered
+    /// (docs/features/computer-app-control FR-27).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires_tools: Option<Vec<String>>,
 }
 
 /// A prompt template that can be formatted into a prompt for explicit

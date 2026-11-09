@@ -682,6 +682,43 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// The computer app control skill (docs/features/computer-app-control
+    /// FR-27): well formed, offered only to a chat that has `computer_app`,
+    /// and every reference it links is bundled with it.
+    #[test]
+    fn bundled_computer_app_skill_requires_its_tool() {
+        let file = BUNDLED_SKILLS
+            .get_file("computer-app-control/SKILL.md")
+            .expect("the skill is bundled");
+        let text = file.contents_utf8().unwrap();
+        let (front, body) = evo_harness::frontmatter::parse_frontmatter(text).unwrap();
+        assert_eq!(front["name"], "computer-app-control");
+        let description = front["description"].as_str().unwrap();
+        assert!(description.chars().count() <= 1024, "description too long");
+        assert_eq!(front["requires-tools"], "computer_app");
+
+        let skill = evo_harness::types::Skill {
+            name: "computer-app-control".into(),
+            description: description.into(),
+            content: body.clone(),
+            file_path: "/bundled/computer-app-control/SKILL.md".into(),
+            disable_model_invocation: None,
+            requires_tools: Some(vec!["computer_app".into()]),
+        };
+        let offered = |tools: &[&str]| {
+            let tools: Vec<String> = tools.iter().map(|t| t.to_string()).collect();
+            !evo_harness::skills::skills_for_tools(std::slice::from_ref(&skill), &tools).is_empty()
+        };
+        assert!(!offered(&["read", "bash"]), "offered without the tool");
+        assert!(offered(&["read", "computer_app"]));
+
+        for link in body.split("](references/").skip(1) {
+            let name = link.split(')').next().unwrap();
+            let path = format!("computer-app-control/references/{name}");
+            assert!(BUNDLED_SKILLS.get_file(&path).is_some(), "missing {path}");
+        }
+    }
+
     #[test]
     fn the_embedded_skills_extract_once_and_replace_older_copies() {
         let dir = tempfile::tempdir().unwrap();
@@ -690,6 +727,7 @@ mod tests {
         let target = extract_bundled_skills(dir.path()).unwrap();
         assert!(!stale.exists());
         for skill in [
+            "computer-app-control",
             "docx-official",
             "office-annotation-edit",
             "pptx-official",
@@ -720,6 +758,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "computer-app-control",
                 "docx-official",
                 "office-annotation-edit",
                 "pptx-official",
@@ -727,6 +766,16 @@ mod tests {
             ],
             "{:?}",
             loaded.diagnostics
+        );
+        // It loads with the tool it needs, so it is listed only beside that tool.
+        let app = loaded
+            .skills
+            .iter()
+            .find(|s| s.name == "computer-app-control")
+            .unwrap();
+        assert_eq!(
+            app.requires_tools.as_deref(),
+            Some(&["computer_app".to_string()][..])
         );
     }
 

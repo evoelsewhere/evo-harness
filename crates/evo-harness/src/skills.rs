@@ -283,6 +283,42 @@ pub fn format_skills_for_system_prompt(skills: &[Skill]) -> String {
     lines.join("\n")
 }
 
+/// `requires-tools` as a list: a YAML list of names or one comma-separated
+/// string. `None` when absent or empty.
+fn requires_tools(value: Option<&serde_json::Value>) -> Option<Vec<String>> {
+    let names: Vec<String> = match value? {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(str::to_string)
+            .collect(),
+        serde_json::Value::String(text) => text.split(',').map(str::to_string).collect(),
+        _ => Vec::new(),
+    };
+    let names: Vec<String> = names
+        .into_iter()
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
+/// The skills a run with `active_tools` may be offered: those whose
+/// `requires-tools` are all active (FR-27 of docs/features/computer-app-control).
+pub fn skills_for_tools<'a>(skills: &'a [Skill], active_tools: &[String]) -> Vec<Skill> {
+    skills
+        .iter()
+        .filter(|skill| {
+            skill.requires_tools.as_ref().is_none_or(|needed| {
+                needed
+                    .iter()
+                    .all(|tool| active_tools.iter().any(|active| active == tool))
+            })
+        })
+        .cloned()
+        .collect()
+}
+
 /// Escape XML special characters. Mirrors TS `escapeXml`.
 pub fn escape_xml(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
@@ -666,6 +702,7 @@ async fn load_skill_from_file(
     let disable_model_invocation = frontmatter
         .get("disable-model-invocation")
         .and_then(|v| v.as_bool());
+    let requires_tools = requires_tools(frontmatter.get("requires-tools"));
 
     LoadSkillFromFileResult {
         skill: Some(Skill {
@@ -674,6 +711,7 @@ async fn load_skill_from_file(
             content: body,
             file_path: file_path.to_string(),
             disable_model_invocation,
+            requires_tools,
         }),
         diagnostics,
     }
@@ -1077,6 +1115,7 @@ mod tests {
             content: "c".to_string(),
             file_path: file.to_string(),
             disable_model_invocation: None,
+            requires_tools: None,
         }
     }
 
@@ -1128,6 +1167,7 @@ mod tests {
             content: "Do the <thing> & stuff".to_string(),
             file_path: "/skills/example/SKILL.md".to_string(),
             disable_model_invocation: None,
+            requires_tools: None,
         };
         let out = format_skill_invocation(&s, None);
         assert!(out.starts_with("<skill name=\"example\" location=\"/skills/example/SKILL.md\">"));
@@ -1208,5 +1248,55 @@ mod tests {
         m3.add(&["*.log".to_string()]);
         assert!(m3.ignores("a.log"));
         assert!(!m3.ignores("a.log/b")); // `*` doesn't cross `/`
+    }
+
+    // ── requires-tools (docs/features/computer-app-control FR-27) ─────────
+
+    #[test]
+    fn skills_require_tools() {
+        let mut plain = skill("plain", "d", "/s/plain/SKILL.md");
+        plain.requires_tools = None;
+        let mut app = skill(
+            "computer-app-control",
+            "d",
+            "/s/computer-app-control/SKILL.md",
+        );
+        app.requires_tools = Some(vec!["computer_app".to_string()]);
+        let mut both = skill("both", "d", "/s/both/SKILL.md");
+        both.requires_tools = Some(vec![
+            "computer_app".to_string(),
+            "browser_click".to_string(),
+        ]);
+        let all = vec![plain, app, both];
+        let names = |active: &[&str]| -> Vec<String> {
+            let active: Vec<String> = active.iter().map(|s| s.to_string()).collect();
+            skills_for_tools(&all, &active)
+                .into_iter()
+                .map(|s| s.name)
+                .collect()
+        };
+        assert_eq!(names(&["read"]), vec!["plain"]);
+        assert_eq!(
+            names(&["read", "computer_app"]),
+            vec!["plain", "computer-app-control"]
+        );
+        assert_eq!(
+            names(&["read", "computer_app", "browser_click"]),
+            vec!["plain", "computer-app-control", "both"]
+        );
+    }
+
+    #[test]
+    fn reads_requires_tools_as_a_list_or_a_comma_string() {
+        assert_eq!(
+            requires_tools(Some(&serde_json::json!(["computer_app", " read "]))),
+            Some(vec!["computer_app".to_string(), "read".to_string()])
+        );
+        assert_eq!(
+            requires_tools(Some(&serde_json::json!("computer_app, read"))),
+            Some(vec!["computer_app".to_string(), "read".to_string()])
+        );
+        assert_eq!(requires_tools(Some(&serde_json::json!(""))), None);
+        assert_eq!(requires_tools(None), None);
     }
 }

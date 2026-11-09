@@ -300,6 +300,7 @@ async fn listing_is_xml_escaped_and_invocation_is_not() {
         content: "Do the <thing> & stuff".to_string(),
         file_path: "/skills/a&b/SKILL.md".to_string(),
         disable_model_invocation: None,
+        requires_tools: None,
     };
 
     // Path (1) — listing escapes all fields.
