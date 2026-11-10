@@ -93,6 +93,52 @@ impl ToolOutput {
         }
     }
 
+    /// The result with its frame under the engine's limit: images go largest first
+    /// (replaced by a note), then text is cut. The engine drops a connection on an oversized frame.
+    fn fit(mut self, limit: usize) -> Self {
+        let size = |o: &Self| o.to_json().to_string().len();
+        while size(&self) > limit {
+            let biggest = self
+                .content
+                .iter()
+                .enumerate()
+                .filter_map(|(i, c)| match c {
+                    Content::Image { data, .. } => Some((i, data.len())),
+                    _ => None,
+                })
+                .max_by_key(|(_, len)| *len);
+            if let Some((i, _)) = biggest {
+                self.content[i] = Content::Text("[image omitted: it exceeded the engine's frame size limit]".into());
+                continue;
+            }
+            let over = size(&self) - limit;
+            let mut cut = false;
+            for part in self.content.iter_mut() {
+                if let Content::Text(text) = part {
+                    if text.len() > over + 64 {
+                        let mut end = text.len() - over - 64;
+                        while !text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        text.truncate(end);
+                        text.push_str("
+[output truncated]");
+                        cut = true;
+                        break;
+                    }
+                }
+            }
+            if !cut {
+                self.structured = None;
+                if size(&self) > limit {
+                    self.content = vec![Content::Text("[result omitted: too large]".into())];
+                }
+                break;
+            }
+        }
+        self
+    }
+
     fn to_json(&self) -> Value {
         let content: Vec<Value> = self
             .content
@@ -473,7 +519,7 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
                     "type": "external_tool_response",
                     "id": format!("agent-tools-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1),
                     "requestId": request_id,
-                    "result": output.to_json(),
+                    "result": output.fit(900_000).to_json(),
                 });
                 let _ = app.state::<crate::engine::EngineState>().write(&chat, &answer).await;
             });
@@ -599,6 +645,15 @@ mod tests {
             panic!("claimed");
         };
         assert!(provider.claims("fake_z"));
+    }
+
+    #[test]
+    fn an_oversized_result_is_fitted_under_the_frame_limit() {
+        let big = ToolOutput::image("A".repeat(2_000_000), "image/png", "shot");
+        let json = big.fit(900_000).to_json().to_string();
+        assert!(json.len() <= 900_000 && json.contains("shot") && json.contains("omitted"));
+        let text = ToolOutput::text("x".repeat(2_000_000)).fit(900_000).to_json().to_string();
+        assert!(text.len() <= 900_000);
     }
 
     #[test]

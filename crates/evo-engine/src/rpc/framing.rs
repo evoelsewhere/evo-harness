@@ -32,6 +32,27 @@ pub async fn read_frame<R: AsyncBufRead + Unpin>(
     }
 }
 
+/// Skip the rest of an oversized frame (through its newline or EOF) so the
+/// stream stays aligned after `read_frame` rejected it.
+pub async fn discard_frame<R: AsyncBufRead + Unpin>(reader: &mut R) -> std::io::Result<()> {
+    loop {
+        let bytes = reader.fill_buf().await?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        match bytes.iter().position(|byte| *byte == b'\n') {
+            Some(index) => {
+                reader.consume(index + 1);
+                return Ok(());
+            }
+            None => {
+                let length = bytes.len();
+                reader.consume(length);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

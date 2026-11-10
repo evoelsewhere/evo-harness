@@ -711,6 +711,31 @@ where
         let line = match incoming {
             Ok(Some(line)) => line,
             Ok(None) => break, // EOF
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                // Oversized frame: reject it but keep the engine alive.
+                eprintln!("[evo] rpc stdin error: {error}");
+                if crate::rpc::framing::discard_frame(&mut input).await.is_err() {
+                    run_cancel.cancel();
+                    let _ = lane.abort().await;
+                    external_tools.shutdown();
+                    writer_failed.cancel();
+                    cancel_on_exit = true;
+                    break;
+                }
+                write_line(
+                    &stdout,
+                    &rpc_protocol::response(
+                        None,
+                        "invalid_request",
+                        Err(format!(
+                            "request exceeds the {} byte frame limit; reduce attachments",
+                            rpc_protocol::MAX_FRAME_BYTES
+                        )),
+                    ),
+                )
+                .await;
+                continue;
+            }
             Err(error) => {
                 eprintln!("[evo] rpc stdin error: {error}");
                 run_cancel.cancel();
