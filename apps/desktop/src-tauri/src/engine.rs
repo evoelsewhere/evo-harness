@@ -16,7 +16,7 @@
 //! Every stdout line also goes to the session mesh hub (`crate::mesh`), which
 //! routes mail between chats' engines whichever window shows them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -47,6 +47,43 @@ struct EngineProcess {
 pub struct EngineState {
     processes: Mutex<HashMap<String, EngineProcess>>,
     generation: AtomicU64,
+    working: WorkingChats,
+}
+
+/// The chats whose engine is in a run, between `agent_start` and
+/// `agent_end`. An app update asks before stopping them
+/// (docs/features/app-updates/spec.md, FR-9).
+#[derive(Default)]
+pub struct WorkingChats(std::sync::Mutex<HashSet<String>>);
+
+impl WorkingChats {
+    /// Follow one protocol line of `chat`'s engine.
+    pub fn on_line(&self, chat: &str, message: &Value) {
+        match message.get("type").and_then(Value::as_str) {
+            Some("agent_start") => {
+                self.lock().insert(chat.to_string());
+            }
+            Some("agent_end") => self.forget(chat),
+            _ => {}
+        }
+    }
+
+    /// `chat`'s engine stopped or exited: whatever it was doing has ended.
+    pub fn forget(&self, chat: &str) {
+        self.lock().remove(chat);
+    }
+
+    pub fn clear(&self) {
+        self.lock().clear();
+    }
+
+    pub fn count(&self) -> usize {
+        self.lock().len()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -310,6 +347,7 @@ pub async fn engine_start(
         let _ = old.child.kill().await;
         db.log(NewLog::new("info", "shell", "engine restarted").chat(Some(&chat)));
     }
+    state.working.forget(&chat);
     // Nothing of an older process is ready for mail or waiting on an answer.
     app.state::<crate::mesh::MeshHub>().0.on_start(&chat);
     let generation = state.generation.fetch_add(1, Ordering::Relaxed) + 1;
@@ -398,6 +436,7 @@ pub async fn engine_start(
             match serde_json::from_str::<Value>(&line) {
                 Ok(message) => {
                     log_message(&out_app.state::<Db>(), &out_chat, &message);
+                    out_app.state::<EngineState>().working.on_line(&out_chat, &message);
                     let _ = out_app.emit(
                         "engine://message",
                         json!({ "chat": out_chat, "generation": generation, "message": message }),
@@ -465,6 +504,7 @@ pub async fn engine_start(
             if let Ok(Some(status)) = process.child.try_wait() {
                 processes.remove(&chat);
                 drop(processes);
+                state.working.forget(&chat);
                 crate::mesh::on_exit(&exit_app, &chat).await;
                 let code = status.code();
                 exit_app.state::<Db>().log(
@@ -514,6 +554,11 @@ impl EngineState {
         self.processes.lock().await.keys().cloned().collect()
     }
 
+    /// How many chats are in a run now (app updates, FR-9).
+    pub fn working(&self) -> usize {
+        self.working.count()
+    }
+
     /// Kill `chat`'s engine if it runs; true when there was one. The app the
     /// chat controlled goes back where it was (computer app control, FR-7).
     pub async fn stop(&self, chat: &str) -> bool {
@@ -524,6 +569,7 @@ impl EngineState {
             }
             None => false,
         };
+        self.working.forget(chat);
         crate::agent_tools::computer::release_chat(chat).await;
         stopped
     }
@@ -535,6 +581,7 @@ impl EngineState {
         for mut process in processes {
             let _ = process.child.kill().await;
         }
+        self.working.clear();
     }
 }
 
@@ -569,5 +616,22 @@ mod tests {
         assert_eq!(run_end_outcome(&end("stop")), "completed");
         assert_eq!(run_end_outcome(&json!({ "type": "agent_end", "aborted": true })), "aborted");
         assert_eq!(run_end_outcome(&json!({ "type": "agent_end" })), "completed");
+    }
+
+    #[test]
+    fn working_chats_follow_runs_and_forget_stopped_engines() {
+        let working = WorkingChats::default();
+        working.on_line("a", &json!({ "type": "agent_start" }));
+        working.on_line("b", &json!({ "type": "agent_start" }));
+        working.on_line("b", &json!({ "type": "message_update" }));
+        assert_eq!(working.count(), 2);
+        working.on_line("a", &json!({ "type": "agent_end" }));
+        assert_eq!(working.count(), 1);
+        // A run whose engine was stopped or exited never sends agent_end.
+        working.forget("b");
+        assert_eq!(working.count(), 0);
+        working.on_line("c", &json!({ "type": "agent_start" }));
+        working.clear();
+        assert_eq!(working.count(), 0);
     }
 }

@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | Living document — describes the system as built |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-10 |
 | Decisions | [ADR index](decisions/README.md) |
 | Features | [Feature catalogue](../features/README.md) |
 
@@ -41,7 +41,8 @@ and tasks (`docs/features/`).
                  └──────────────┬────────────────────────────┬──────────────────────────────┘
                                 │                            │
                      model providers (HTTPS)       models.dev (model database),
-                                                   web pages, plugin marketplaces (git)
+                                                   web pages, plugin marketplaces (git),
+                                                   GitHub Releases (app updates)
 ```
 
 | External | Used for | Trust |
@@ -51,6 +52,7 @@ and tasks (`docs/features/`).
 | MCP servers | connector tools, prompts, resources | per-tool Allow / Ask / Block; project servers need approval |
 | Web | `web_fetch`, `web_search`, the in-app browser | untrusted content; public addresses only for fetch |
 | Plugin marketplaces | plugin bundles | installed by explicit user action |
+| GitHub Releases (evo's own) | the update manifest and new app versions | installed only when signed with the project's release key, after the person chooses to restart ([ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)) |
 
 ## 3. Architectural drivers
 
@@ -107,6 +109,11 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 - **The shell owns native capabilities and cross-chat coordination**: windows,
   pseudo-terminals, file access for the Files tool, browser webviews, the MCP
   connection pool, plugin installs, the session mesh hub, the app database.
+- **The shell owns app updates** ([app updates](../features/app-updates/spec.md),
+  [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)):
+  it checks the latest release, downloads and verifies the new version, and
+  installs it only when the person chooses to restart, stopping every
+  engine first. The webview shows the state; the agent cannot trigger it.
 - **The engine owns agent behaviour**: the agent loop, tools, sessions,
   compaction, skills, hooks, memory, model selection and credentials.
 - **The webview owns presentation only**: it renders state and sends user
@@ -250,6 +257,7 @@ has a local router for its in-process nodes. Design:
 | `~/.evo/agent/{runtimes,cache/office,bundled-skills,document-versions/<chat>}` | LibreOffice runtime, Office preview cache (native HTML, exact PDFs), extracted Office skills, copies of Office files saved in a chat (versions) | engine (`office.rs`, `evo-office`); the shell removes a chat's versions with the chat |
 | `<project>/AGENTS.md`, `<project>/.evo/`, `.mcp.json` | project instructions, commands, agents, settings, connectors | the user (read by the engine after trust) |
 | managed worktrees | delegated work in isolation | `evo-worktrees` |
+| `<app cache dir>/updates/<version>/` | a downloaded, verified app update waiting for the person's restart; settings `updates.autoCheck` and `updates.lastCheckedAt` in `evo.db` | shell (`updates.rs`, [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)) |
 
 Rules:
 
@@ -317,6 +325,12 @@ Details: [app database spec](../features/app-database/spec.md).
   (`src-tauri/binaries/evo-engine-<target-triple>`), installed next to the app.
 - Installers (`.github/workflows/desktop-packages.yml`): NSIS for Windows x64,
   DMG for macOS Intel and Apple Silicon, DEB for Linux x64.
+- App updates ([ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)):
+  tag builds sign the update files with the release key (GitHub secrets
+  only), and every release carries a `latest.json` that the installed apps
+  read. Windows and macOS builds signed with the project's Apple identity
+  install updates in the app; Linux packages and other macOS builds are only
+  told about them.
 - CI (`.github/workflows/ci.yml`): rustfmt, clippy, build and test on
   Linux/Windows/macOS, MSRV check, desktop type-check and build.
 - One running copy of the app (single-instance); a second launch focuses the
@@ -334,6 +348,7 @@ The index of decisions, their status and links is in
 | Some crate READMEs and `embedded-docs/` still describe the removed CLI/TUI | misleading docs for contributors and the agent | — |
 | Browser screenshots and trusted input are Windows-only | platform gap | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
 | Background-only control of other apps cannot do hover-only UI, drag and drop between apps, key tips or raw-input apps | some app tasks need the person | [computer app control spec](../features/computer-app-control/spec.md) FR-19, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md) |
+| The release key is one key pair: lost, installed apps cannot update in the app; leaked, it could sign a malicious update | every installed copy | [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md) |
 | The desktop has no automated UI test runner | regressions found late | — |
 | Main JS bundle ~1.2 MB | startup time | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
 | A transcript's `state_json` is the whole reducer snapshot, rewritten on every write | slow writes in very long chats | [app database plan, "Planned tables"](../features/app-database/plan.md#planned-tables) |

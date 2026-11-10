@@ -125,6 +125,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// What ends with the app: connectors' servers stop, apps the agent controls
+/// go back where they were, every chat's engine stops (on Windows a job object
+/// also covers a crash or a forced kill: engine.rs). Runs on exit, and before
+/// an update installs, where the exit handlers do not run
+/// (docs/features/app-updates/plan.md, 3.5). Blocks: never call it on an
+/// async runtime thread.
+pub fn shutdown(app: &AppHandle) {
+    crate::mcp::shutdown(app);
+    crate::computer::shutdown();
+    tauri::async_runtime::block_on(app.state::<crate::engine::EngineState>().stop_all());
+}
+
 /// Quit for real: stop every chat's engine, then exit.
 pub fn quit_app(app: &AppHandle) {
     let app = app.clone();

@@ -44,7 +44,7 @@
       "icons/icon.ico"
     ],
     "category": "DeveloperTool",
-    "shortDescription": "Evo Harness coding agent",
+    "shortDescription": "Local-first desktop workspace for AI agents",
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
@@ -56,6 +56,17 @@
     },
     "macOS": {
       "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExMDMxRjE2NEIyMERBRjYKUldUMjJpQkxGaDhERVdtd1B5SVZNV0ZjWFd6ZlhaS2pkTGlINVdUeWZQMlZjd2dyWWV2WjdFOC8K",
+      "endpoints": [
+        "https://github.com/evoelsewhere/evo-harness/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

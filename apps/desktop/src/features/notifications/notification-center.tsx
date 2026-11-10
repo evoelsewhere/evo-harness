@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { unreadCount, useNotificationStore, type AppNotification } from "@/stores/notification-store";
+import { NotificationActions } from "./notification-actions";
 import { NotificationIcon, timeAgo } from "./notification-icon";
 import { openNotification } from "./open-target";
 
@@ -65,6 +66,7 @@ function NotificationRow({ notification, now }: { notification: AppNotification;
           </span>
         </span>
       </button>
+      <NotificationActions notification={notification} className="-mt-1 pr-3 pb-2.5 pl-10" />
       {!notification.read && (
         <span
           aria-label="Unread"

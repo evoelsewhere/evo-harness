@@ -11,6 +11,7 @@ import { useEngineStore } from "@/stores/engine-store";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
 import { startScheduler } from "@/stores/scheduler-store";
+import { startUpdates } from "@/stores/updates-store";
 import { chatWindowId } from "@/lib/windows";
 
 /** Connect the engine and read the window material once at startup. */
@@ -23,6 +24,8 @@ export function useAppBootstrap() {
     applyZoom(useUiStore.getState().zoom);
     // Side panel tabs, pages and terminals follow the chat showing.
     startChatScope();
+    // The main window follows app updates and raises their notifications.
+    if (chatWindowId === null) void startUpdates();
     // The main window runs scheduled tasks once the engine is connected.
     void useEngineStore
       .getState()

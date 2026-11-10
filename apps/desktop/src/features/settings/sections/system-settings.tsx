@@ -7,6 +7,7 @@ import { EvoLogo } from "@/components/icons/evo-logo";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { REPOSITORY_URL, openLink } from "@/features/shell/app-commands";
+import { UpdateRow } from "./update-row";
 import { inTauri } from "@/lib/platform";
 import { useEngineStore, type EngineStatus } from "@/stores/engine-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
@@ -151,13 +152,16 @@ export function AboutSettings() {
         <EvoLogo className="size-16 rounded-2xl shadow-sm ring-1 ring-border" />
         <div className="min-w-0">
           <h1 className="text-lg font-semibold tracking-tight">Evo Harness</h1>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">A desktop coding agent.</p>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">A local-first desktop workspace for AI agents.</p>
           <p className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
             <span className="rounded-full bg-muted px-2 py-0.5 font-mono">v{version ?? "…"}</span>
-            <span>MIT licensed</span>
+            <span>Apache 2.0 licensed</span>
           </p>
         </div>
       </header>
+      <SettingsGroup title="Updates">
+        <UpdateRow />
+      </SettingsGroup>
       <SettingsGroup title="Help">
         <SettingsRow
           label="Documentation"

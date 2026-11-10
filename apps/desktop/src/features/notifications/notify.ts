@@ -14,11 +14,12 @@ import { inTauri } from "@/lib/platform";
 import {
   useNotificationStore,
   type AppNotification,
+  type NotificationAction,
   type NotificationLevel,
   type NotificationTarget,
 } from "@/stores/notification-store";
 
-export type { AppNotification, NotificationLevel, NotificationTarget };
+export type { AppNotification, NotificationAction, NotificationLevel, NotificationTarget };
 
 export interface NotifyOptions {
   title: string;
@@ -35,6 +36,8 @@ export interface NotifyOptions {
   system?: boolean;
   /** Only record it in the bell, already read (a log entry, not news). Default false. */
   quiet?: boolean;
+  /** Buttons on the toast and the bell row, run through `registerNotificationCommand()`. */
+  actions?: NotificationAction[];
 }
 
 const newId = () => `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -55,6 +58,7 @@ export function notify(options: NotifyOptions): string {
     read: options.quiet ?? false,
     target: options.target,
     key: options.key,
+    actions: options.actions,
   };
   const muted = options.quiet || store.doNotDisturb || store.mutedSources.includes(options.source);
   const focused = windowFocused();

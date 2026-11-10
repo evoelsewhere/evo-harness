@@ -1,8 +1,9 @@
-// What clicking a notification does: go to its target and mark it read.
+// What clicking a notification does: go to its target and mark it read. And
+// what its buttons do: run a command a feature registered (FR-14).
 
 import { openLink } from "@/features/shell/app-commands";
 import { useEngineStore } from "@/stores/engine-store";
-import { useNotificationStore, type AppNotification } from "@/stores/notification-store";
+import { useNotificationStore, type AppNotification, type NotificationAction } from "@/stores/notification-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 
@@ -34,4 +35,22 @@ export function openNotification(notification: AppNotification) {
       openLink(target.href);
       break;
   }
+}
+
+const commands = new Map<string, () => void>();
+
+/** Let notifications carry a button that runs `run` ("updates.install", …). */
+export function registerNotificationCommand(command: string, run: () => void) {
+  commands.set(command, run);
+}
+
+/** The buttons this app version can run; others (a removed command) are hidden. */
+export const runnableActions = (notification: AppNotification) =>
+  (notification.actions ?? []).filter((action) => commands.has(action.command));
+
+export function runNotificationAction(notification: AppNotification, action: NotificationAction) {
+  const store = useNotificationStore.getState();
+  store.markRead(notification.id);
+  store.dismissToast(notification.id);
+  commands.get(action.command)?.();
 }

@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-10 |
 | ADD sections | [9. Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts) |
 | ADRs | none |
 
@@ -103,6 +103,7 @@ Options:
 | `toast`  | `true`  | `false` when the user is already looking at the result in the app. |
 | `system` | `true`  | `false` for things not worth pulling the user back for. |
 | `quiet`  | `false` | Record it in the bell, already read, with no toast or OS notification — a log entry. |
+| `actions` | — | Buttons on the toast and the bell row: `{ label, command }`. The command runs a handler registered with `registerNotificationCommand(command, run)` (`open-target.ts`); a button without a handler is hidden. OS notifications have no buttons. |
 
 `windowFocused()` (exported next to `notify`) tells whether the user is
 looking at the app.
@@ -195,6 +196,10 @@ Both apply at once.
   callback in the plugin on desktop).
 - Per-source mutes exist in the store (`mutedSources`, `setSourceMuted()`)
   but have no UI yet.
+- 2026-11-10: notification buttons (`actions`, `registerNotificationCommand`,
+  `features/notifications/notification-actions.tsx`) were added for
+  [app updates](../app-updates/plan.md) (**Restart to update**). **Approve**
+  on approval notifications is not wired yet (tasks T10).
 - Checked against the code on 2026-11-07: `engine-store.ts` has no function
   named `notifyFromEngine`; the agent and engine notifications are `notify()`
   calls in its event handling, `onExit` and `start`. The "engine stopped"

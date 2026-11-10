@@ -18,6 +18,16 @@ export type NotificationTarget =
   | { type: "customize"; section?: CustomizeSection }
   | { type: "url"; href: string };
 
+/**
+ * A button on a notification (notifications FR-14). Plain data, so it
+ * survives a restart: `command` names a handler registered with
+ * `registerNotificationCommand()`; with none registered the button is hidden.
+ */
+export interface NotificationAction {
+  label: string;
+  command: string;
+}
+
 export interface AppNotification {
   id: string;
   level: NotificationLevel;
@@ -33,6 +43,8 @@ export interface AppNotification {
    * another ("engine:exit", "scheduler:job-42"). The replacement is unread again.
    */
   key?: string;
+  /** Buttons on the toast and the bell row; OS notifications have none. */
+  actions?: NotificationAction[];
 }
 
 /** Notifications kept in the bell; the oldest go first. */

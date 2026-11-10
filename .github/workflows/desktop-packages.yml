@@ -165,6 +165,29 @@ jobs:
             Write-Host "Building an unsigned NSIS installer."
           }
 
+      # App updates (docs/features/app-updates, ADR 0017): installed apps
+      # install only files signed with the release key. Tag builds must sign,
+      # so every published release can be updated to; manual runs sign only
+      # when the key is there, so contributors' runs still build.
+      - name: Resolve updater signing
+        id: updater_signing
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            enabled=true
+            echo "Update files will be signed with the release key."
+          elif [[ "$IS_TAG" == "true" ]]; then
+            echo "Tag builds need the updater release key (secret TAURI_SIGNING_PRIVATE_KEY)." >&2
+            exit 1
+          else
+            enabled=false
+            echo "No release key: building without update files."
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -262,12 +285,18 @@ jobs:
         env:
           MAC_SIGNING_ENABLED: ${{ steps.mac_signing.outputs.enabled }}
           WINDOWS_SIGNING_ENABLED: ${{ steps.windows_signing.outputs.enabled }}
+          UPDATER_SIGNING_ENABLED: ${{ steps.updater_signing.outputs.enabled }}
         run: |
           bundle='{}'
           if [[ "$RUNNER_OS" == "macOS" && "$MAC_SIGNING_ENABLED" != "true" ]]; then
             bundle='{"macOS":{"signingIdentity":"-"}}'
           elif [[ "$RUNNER_OS" == "Windows" && "$WINDOWS_SIGNING_ENABLED" == "true" ]]; then
             bundle="{\"windows\":{\"certificateThumbprint\":\"$WINDOWS_CERT_THUMBPRINT\",\"digestAlgorithm\":\"sha256\",\"timestampUrl\":\"http://timestamp.digicert.com\"}}"
+          fi
+          # Update files (the signed NSIS installer, the macOS .app.tar.gz),
+          # only here: in tauri.conf.json every local build would need the key.
+          if [[ "$UPDATER_SIGNING_ENABLED" == "true" ]]; then
+            bundle="$(jq -c '. + {"createUpdaterArtifacts": true}' <<<"$bundle")"
           fi
           path="$RUNNER_TEMP/evo-bundle-override.json"
           printf '{"bundle":%s}\n' "$bundle" > "$path"
@@ -285,11 +314,16 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run tauri build --bundles app --verbose --config "$TAURI_BUNDLE_CONFIG"
 
       - name: Build ad-hoc macOS app
         if: runner.os == 'macOS' && steps.mac_signing.outputs.enabled != 'true'
         working-directory: ${{ env.DESKTOP_DIR }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run tauri build --bundles app --verbose --config "$TAURI_BUNDLE_CONFIG"
 
       - name: Create DMG without mounting a volume
@@ -310,6 +344,11 @@ jobs:
             echo "Tauri completed without producing an app bundle." >&2
             exit 1
           fi
+
+          # The update archive and its signature sit next to the app; keep
+          # them out of the DMG (collected for latest.json below).
+          mkdir -p "$RUNNER_TEMP/updater-src"
+          find "$source_dir" -maxdepth 1 -name '*.app.tar.gz*' -exec mv {} "$RUNNER_TEMP/updater-src/" \;
 
           ln -s /Applications "$source_dir/Applications"
           mkdir -p "$dmg_dir"
@@ -345,12 +384,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         working-directory: ${{ env.DESKTOP_DIR }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run tauri build --bundles nsis --verbose --config $env:TAURI_BUNDLE_CONFIG
 
       - name: Build Linux DEB package
         if: runner.os == 'Linux'
         shell: bash
         working-directory: ${{ env.DESKTOP_DIR }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run tauri build --bundles deb --verbose --config "$TAURI_BUNDLE_CONFIG"
 
       - name: Verify Linux DEB contents
@@ -520,6 +565,54 @@ jobs:
           $sum $pattern > "$RUNNER_TEMP/${{ matrix.artifact }}-SHA256SUMS.txt"
           cat "$RUNNER_TEMP/${{ matrix.artifact }}-SHA256SUMS.txt"
 
+      # One platform file per build for the release's latest.json
+      # (.github/scripts/updater_manifest.py). Eligible: signed with the
+      # release key, and on macOS also with the project's Apple identity;
+      # Linux packages are never updated in the app (app-updates FR-12).
+      - name: Collect update files
+        shell: bash
+        env:
+          UPDATER_SIGNING_ENABLED: ${{ steps.updater_signing.outputs.enabled }}
+          MAC_SIGNING_ENABLED: ${{ steps.mac_signing.outputs.enabled }}
+          DMG_ARCHITECTURE: ${{ matrix.dmg_architecture }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/updater"
+          mkdir -p "$out"
+          version="$(jq -r .version "$TAURI_DIR/tauri.conf.json")"
+          platform_file() { jq -n "$@" > "$out/${{ matrix.artifact }}-updater.json"; }
+          case "$RUNNER_OS" in
+            Windows)
+              setup="$(find "$BUNDLE_DIR/nsis" -maxdepth 1 -name '*-setup.exe' -print -quit)"
+              if [[ "$UPDATER_SIGNING_ENABLED" == "true" ]]; then
+                [[ -f "$setup.sig" ]] || { echo "The NSIS installer has no update signature." >&2; exit 1; }
+                platform_file --arg asset "$(basename "$setup")" --rawfile signature "$setup.sig" \
+                  '{platform: "windows-x86_64", eligible: true, asset: $asset, signature: $signature}'
+              else
+                platform_file '{platform: "windows-x86_64", eligible: false}'
+              fi
+              ;;
+            macOS)
+              case "$DMG_ARCHITECTURE" in x64) arch=x86_64 ;; *) arch="$DMG_ARCHITECTURE" ;; esac
+              if [[ "$UPDATER_SIGNING_ENABLED" == "true" && "$MAC_SIGNING_ENABLED" == "true" ]]; then
+                archive="$(find "$RUNNER_TEMP/updater-src" -maxdepth 1 -name '*.app.tar.gz' -print -quit 2>/dev/null || true)"
+                [[ -n "$archive" && -f "$archive.sig" ]] || { echo "The app bundle has no signed update archive." >&2; exit 1; }
+                # Both architectures produce the same name: make it unique.
+                asset="evo-harness_${version}_${DMG_ARCHITECTURE}.app.tar.gz"
+                cp "$archive" "$out/$asset"
+                platform_file --arg platform "darwin-$arch" --arg asset "$asset" --rawfile signature "$archive.sig" \
+                  '{platform: $platform, eligible: true, asset: $asset, signature: $signature}'
+              else
+                platform_file --arg platform "darwin-$arch" '{platform: $platform, eligible: false}'
+              fi
+              ;;
+            Linux)
+              platform_file '{platform: "linux-x86_64", eligible: false}'
+              ;;
+          esac
+          ls -la "$out"
+          cat "$out/${{ matrix.artifact }}-updater.json"
+
       - name: Upload DMG
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
@@ -527,6 +620,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: |
             ${{ env.BUNDLE_DIR }}/dmg/*.dmg
+            ${{ runner.temp }}/updater/*
             ${{ runner.temp }}/${{ matrix.artifact }}-SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -538,6 +632,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: |
             ${{ env.BUNDLE_DIR }}/nsis/*-setup.exe
+            ${{ runner.temp }}/updater/*
             ${{ runner.temp }}/${{ matrix.artifact }}-SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -549,6 +644,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: |
             ${{ env.BUNDLE_DIR }}/deb/*.deb
+            ${{ runner.temp }}/updater/*
             ${{ runner.temp }}/${{ matrix.artifact }}-SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -618,17 +714,38 @@ jobs:
               --title "evo v$VERSION"
           fi
 
-      - name: Upload assets and publish release
+      - name: Upload assets
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' assets < <(find release-assets -type f -print0 | sort -z)
+          # Platform files only feed latest.json; they are not published.
+          mapfile -d '' assets < <(find release-assets -type f ! -name '*-updater.json' -print0 | sort -z)
           if [[ ${#assets[@]} -eq 0 ]]; then
             echo "No release assets were downloaded." >&2
             exit 1
           fi
           gh release upload "$TAG" "${assets[@]}" --clobber
-          gh release edit "$TAG" --draft=false --latest
+
+      # Installed apps read latest.json from the latest release (app-updates
+      # FR-15). A missing or incomplete platform stops here, before the
+      # release is published, so it stays a draft.
+      - name: Write update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json assets > "$RUNNER_TEMP/assets.json"
+          python3 .github/scripts/updater_manifest.py             --platforms release-assets             --assets "$RUNNER_TEMP/assets.json"             --repo "$GITHUB_REPOSITORY"             --tag "$TAG"             --version "$VERSION"             --out "$RUNNER_TEMP/latest.json"
+          gh release upload "$TAG" "$RUNNER_TEMP/latest.json" --clobber
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false --latest

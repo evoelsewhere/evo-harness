@@ -2,6 +2,7 @@ import * as React from "react";
 import { XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_TOASTS, useNotificationStore, type AppNotification } from "@/stores/notification-store";
+import { NotificationActions } from "./notification-actions";
 import { NotificationIcon } from "./notification-icon";
 import { openNotification } from "./open-target";
 
@@ -43,6 +44,7 @@ function Toast({ notification }: { notification: AppNotification }) {
           )}
         </span>
       </button>
+      <NotificationActions notification={notification} className="-mt-1.5 pr-3.5 pb-3 pl-10" />
       <button
         type="button"
         aria-label="Dismiss"

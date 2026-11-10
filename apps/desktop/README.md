@@ -37,7 +37,8 @@ the engine binary path and `EVO_DESKTOP_ENGINE_ARGS` passes extra engine flags.
 | Area | Built from |
 | --- | --- |
 | Title bar: app menu (☰ on Windows/Linux, the native menu bar on macOS — `features/shell/mac-menu.tsx`), sidebar toggle, back/forward | `dropdown-menu` submenus, `dialog` (About), Tauri menu API |
-| Notifications: bell in the title bar, toasts, OS notifications — see [notifications spec](../../docs/features/notifications/spec.md) | `popover`, `tauri-plugin-notification` |
+| Notifications: bell in the title bar, toasts, OS notifications — see [notifications spec](../../docs/features/notifications/spec.md). A notification may carry buttons (`actions`, run through `registerNotificationCommand()` in `features/notifications/open-target.ts`) on its toast and bell row | `popover`, `button`, `tauri-plugin-notification` |
+| App updates ([spec](../../docs/features/app-updates/spec.md), shell `src-tauri/src/updates.rs`, `stores/updates-store.ts`): Settings → About has an **Updates** group (`sections/update-row.tsx`) whose row shows the state (up to date, checking, downloading with progress, ready, available on the download page, installing, failed with the reason), the last check, **Check for updates**, **What's new**, **Restart to update** and, when chats are working, a confirmation dialog. Settings → General → Updates switches automatic checks (`updates.autoCheck`). A ready update raises one notification with **Restart to update** | `button`, `progress`, `spinner`, `dialog`, `tauri-plugin-updater` (from Rust only) |
 | Sidebar: brand, search, quick actions, chats grouped by workspace; a running chat's title shimmers | shadcn `sidebar`, `collapsible`, `kbd`, `tooltip` |
 | Subagents: the engine's built-in `agent` tool (`crates/evo-engine/src/agent_tool.rs`, types from `.evo/agents/*.md`) streams the child's steps as `details.child`; `components/ai-elements/agent-run.tsx` shows them nested under the call with the report, kept worktree, tool uses, tokens and time; the child's cost counts toward the turn. Background agents (`background: true`) keep running after the turn; their steps arrive as session mesh events (`src/engine/mesh.ts`, [`docs/features/session-mesh-protocol/spec.md`](../../docs/features/session-mesh-protocol/spec.md)), and when one finishes while the chat is idle the store wakes it with an automated prompt (at most 5 in a row); reports and wakes show as event lines | `trace`, `markdown` |
 | Nested sessions: chats get `start_session` / `message_session` / `list_sessions` as external tools (`engine-store.ts`); a proposed session is a card (`session-proposal.tsx`) unless Settings → Sandbox allows starting directly; started sessions run in the background, sit under their parent in the sidebar (up to 3, then "N more nested sessions · M unread"), and send the parent a note per finished turn | `sidebar` sub-menu |
@@ -102,6 +103,7 @@ src/
   lib/            pure helpers (format, platform, cn)
 src-tauri/
   src/engine.rs   child-process bridge to evo-engine
+  src/updates.rs  app updates: check, download, verify, install (tauri-plugin-updater)
   src/window.rs   Mica / vibrancy material
   src/terminal.rs pseudo-terminals for the Terminal tool
   src/files.rs    list / search / read / save for the Files tool

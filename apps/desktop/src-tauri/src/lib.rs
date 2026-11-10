@@ -18,6 +18,7 @@ mod mesh;
 mod plugins;
 mod shell_integration;
 mod system;
+mod updates;
 mod worktrees;
 mod terminal;
 mod window;
@@ -37,6 +38,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        // App updates, driven from Rust only (updates.rs): the webview has no
+        // updater permission.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(engine::EngineState::default())
         .manage(apps::AppsState::default())
         .manage(match db::Db::open() {
@@ -83,6 +87,8 @@ pub fn run() {
             plugins::setup(app.handle());
             // Computer app control: put back windows a crashed run left off screen.
             computer::setup(app.handle());
+            // App updates: the check timer, after the window is shown.
+            updates::setup(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -113,6 +119,9 @@ pub fn run() {
             engine::engine_stop,
             engine::engine_info,
             engine::engine_running,
+            updates::updates_state,
+            updates::updates_check,
+            updates::updates_install,
             mesh::mesh_pending,
             mesh::mesh_pending_chats,
             mesh::mesh_hosted,
@@ -244,14 +253,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the evo desktop app")
         .run(|_app, _event| {
-            // Stop the connectors' servers with the app.
+            // Connectors, controlled apps and engines end with the app.
             if let tauri::RunEvent::Exit = _event {
-                mcp::shutdown(_app);
-                // Apps the agent controls go back where they were.
-                computer::shutdown();
-                // Chats' engines end with the app (on Windows a job object
-                // also covers a crash or a forced kill: engine.rs).
-                tauri::async_runtime::block_on(_app.state::<engine::EngineState>().stop_all());
+                system::shutdown(_app);
             }
             // The dock icon reopens the window hidden behind the tray.
             #[cfg(target_os = "macos")]

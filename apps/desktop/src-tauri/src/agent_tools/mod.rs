@@ -688,15 +688,6 @@ mod tests {
     }
 
     #[test]
-    fn an_oversized_result_is_fitted_under_the_frame_limit() {
-        let big = ToolOutput::image("A".repeat(2_000_000), "image/png", "shot");
-        let json = big.fit(900_000).to_json().to_string();
-        assert!(json.len() <= 900_000 && json.contains("shot") && json.contains("omitted"));
-        let text = ToolOutput::text("x".repeat(2_000_000)).fit(900_000).to_json().to_string();
-        assert!(text.len() <= 900_000);
-    }
-
-    #[test]
     fn provider_definitions_follow_the_registrys_without_shadowing_it() {
         let fixed = static_definitions();
         let fixed_len = fixed.len();

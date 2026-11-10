@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-10 |
 
 ## 1. Phases
 
@@ -35,7 +35,7 @@ Done when: mutes have a settings UI, toasts can carry actions, and the dock
 or taskbar shows the unread count.
 
 - [ ] T9 [FR-13] Settings › Notifications section that lists sources and toggles their mute through `setSourceMuted()` — `apps/desktop/src/features/settings/` — check: manual check, a muted source only reaches the bell
-- [ ] T10 [FR-14] Notification actions (buttons such as **Approve** on the toast) — `apps/desktop/src/features/notifications/` — check: manual check in the running app
+- [ ] T10 [FR-14] Notification actions (buttons such as **Approve** on the toast) — `apps/desktop/src/features/notifications/` — check: manual check in the running app — the button mechanism exists (2026-11-10, built for app updates); **Approve** on approval notifications is still to do
 - [ ] T11 [FR-15] Dock / taskbar badge with the unread count — `apps/desktop/src-tauri`, `apps/desktop/src/stores/notification-store.ts` — check: manual check on each platform
 
 ## 2. Verification
