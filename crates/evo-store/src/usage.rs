@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::DbError;
 
-/// Which part of a chat made the call.
-pub const SOURCES: [&str; 4] = ["chat", "subagent", "plugin", "side"];
+/// Which part of a chat made the call; `memory` is an index run reading the
+/// chat (docs/features/memory-topics-and-chat-recall/spec.md, FR-34).
+pub const SOURCES: [&str; 5] = ["chat", "subagent", "plugin", "side", "memory"];
 
 /// How many chats [`summary`] lists, most expensive first.
 pub const TOP_CHATS: i64 = 50;
@@ -649,13 +650,8 @@ mod tests {
             &conn,
             &NewChat {
                 id: "a".into(),
-                workspace_id: None,
                 title: "Fix the build".into(),
-                provider: None,
-                model: None,
-                parent_chat_id: None,
-                origin: None,
-                worktree_path: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -688,6 +684,69 @@ mod tests {
         assert!(events(&conn, &UsageQuery::default(), None, 10)
             .unwrap()
             .is_empty());
+    }
+
+    // docs/features/memory-topics-and-chat-recall/spec.md (FR-34).
+    #[test]
+    fn memory_source_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evo.db");
+        let mut older = Connection::open(&path).unwrap();
+        older.pragma_update(None, "foreign_keys", "ON").unwrap();
+        crate::migrate(&mut older, &path, &crate::MIGRATIONS[..11]).unwrap();
+        older
+            .execute(
+                "INSERT INTO usage_events (at_ms, chat_id, source, provider_id, model_id, input, cost_usd, duration_ms)
+                 VALUES (5, 'a', 'side', 'p', 'm', 7, 0.5, 900)",
+                [],
+            )
+            .unwrap();
+        drop(older);
+
+        let mut conn = crate::open_at(&path).unwrap();
+        record(
+            &mut conn,
+            &[NewUsage {
+                source: "memory".into(),
+                ..usage(6, "a", "m", 0.25)
+            }],
+        )
+        .unwrap();
+        let all = summary(&conn, &UsageQuery::default()).unwrap();
+        let mut sources: Vec<_> = all
+            .by_source
+            .iter()
+            .map(|s| (s.source.as_str(), s.totals.requests))
+            .collect();
+        sources.sort();
+        assert_eq!(
+            sources,
+            [("memory", 1), ("side", 1)],
+            "an index run is its own source; rows from before stay"
+        );
+        let kept = events(
+            &conn,
+            &UsageQuery {
+                source: Some("side".into()),
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .unwrap();
+        assert_eq!(
+            (kept[0].input, kept[0].duration_ms, kept[0].at_ms),
+            (7, Some(900), 5)
+        );
+        let indexes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index'
+                 AND name IN ('usage_events_at', 'usage_events_chat')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2, "the rebuilt table has its indexes");
     }
 
     #[test]

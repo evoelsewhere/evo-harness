@@ -620,6 +620,200 @@ pub fn searchable_text(state_json: &str) -> String {
     }
 }
 
+// ── Reading a saved transcript as messages ─────────────────────────────────
+//
+// The shell's `session_read` tool and the engine's memory index run both read
+// a chat this way, without starting its engine
+// (docs/features/memory-topics-and-chat-recall/plan.md, 3.2).
+
+/// Who a saved message is from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageKind {
+    User,
+    Assistant,
+    ToolResult,
+    /// A compaction or branch summary standing in for earlier messages.
+    Summary,
+    Other,
+}
+
+/// One saved message, as text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Message {
+    /// The transcript entry it came from.
+    pub entry_id: String,
+    pub kind: MessageKind,
+    /// `user`, `assistant`, `tool result (<tool>)`,
+    /// `summary of earlier messages`, or the saved role.
+    pub role: String,
+    pub text: String,
+}
+
+/// How much of tool calls and results a read keeps, in characters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MessageLimits {
+    /// A tool call's arguments are cut to this; 0 shows the tool's name only.
+    pub tool_args: usize,
+    /// A tool result is cut to this.
+    pub tool_result: usize,
+}
+
+impl Default for MessageLimits {
+    fn default() -> Self {
+        Self {
+            tool_args: 200,
+            tool_result: 1_500,
+        }
+    }
+}
+
+/// The messages of a saved session read from a mark on.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewMessages {
+    pub messages: Vec<Message>,
+    /// The last entry of the lane: the mark for the next read. `None` when
+    /// the lane is empty.
+    pub through: Option<String>,
+}
+
+/// `text` cut to `max` characters, and whether it was cut.
+fn cut_chars(text: &str, max: usize) -> (String, bool) {
+    match text.char_indices().nth(max) {
+        Some((at, _)) => (text[..at].to_string(), true),
+        None => (text.to_string(), false),
+    }
+}
+
+fn blocks_text(content: &serde_json::Value, limits: MessageLimits) -> String {
+    use serde_json::Value;
+    match content {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block.get("type").and_then(Value::as_str) {
+                Some("text") => block
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                Some("image") => Some("[image]".to_string()),
+                Some("toolCall") => {
+                    let name = block.get("name").and_then(Value::as_str).unwrap_or("tool");
+                    if limits.tool_args == 0 {
+                        return Some(format!("[tool call: {name}]"));
+                    }
+                    let args = block
+                        .get("arguments")
+                        .map(Value::to_string)
+                        .unwrap_or_default();
+                    let (args, was_cut) = cut_chars(&args, limits.tool_args);
+                    Some(format!(
+                        "[tool call: {name} {args}{}]",
+                        if was_cut { "…" } else { "" }
+                    ))
+                }
+                // Reasoning stays private to the chat that had it.
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// The messages of the saved session's `main` lane after entry `mark`, oldest
+/// first: the chain of entries from the lane's leaf back through `parentId`.
+/// A compaction shows as its summary. `mark: None`, or a mark that is no
+/// longer on the lane (the chat was compacted since), reads the whole lane.
+pub fn messages_after(
+    state: &serde_json::Value,
+    mark: Option<&str>,
+    limits: MessageLimits,
+) -> NewMessages {
+    use serde_json::Value;
+    let Some(entries) = state.get("entries").and_then(Value::as_array) else {
+        return NewMessages::default();
+    };
+    let by_id: std::collections::HashMap<&str, &Value> = entries
+        .iter()
+        .filter_map(|entry| Some((entry.get("id")?.as_str()?, entry)))
+        .collect();
+    let mut chain: Vec<(&str, &Value)> = Vec::new();
+    let mut next = state.pointer("/lanes/main").and_then(Value::as_str);
+    while let Some(id) = next {
+        // A chain cannot be longer than the entries: this stops a cycle.
+        if chain.len() >= entries.len() {
+            break;
+        }
+        let Some(entry) = by_id.get(id) else { break };
+        chain.push((id, entry));
+        next = entry.get("parentId").and_then(Value::as_str);
+    }
+    chain.reverse();
+    let through = chain.last().map(|(id, _)| (*id).to_string());
+    let start = mark
+        .and_then(|mark| chain.iter().position(|(id, _)| *id == mark))
+        .map_or(0, |at| at + 1);
+
+    let mut messages = Vec::new();
+    for (id, entry) in &chain[start..] {
+        match entry.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                let Some(message) = entry.get("message") else {
+                    continue;
+                };
+                let saved_role = message
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("message");
+                let mut text = blocks_text(message.get("content").unwrap_or(&Value::Null), limits);
+                let (kind, role) = match saved_role {
+                    "toolResult" => {
+                        let name = message
+                            .get("toolName")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tool");
+                        let (short, was_cut) = cut_chars(&text, limits.tool_result);
+                        text = if was_cut {
+                            format!("{short}\n[… result cut]")
+                        } else {
+                            short
+                        };
+                        (MessageKind::ToolResult, format!("tool result ({name})"))
+                    }
+                    "user" => (MessageKind::User, "user".to_string()),
+                    "assistant" => (MessageKind::Assistant, "assistant".to_string()),
+                    other => (MessageKind::Other, other.to_string()),
+                };
+                if !text.trim().is_empty() {
+                    messages.push(Message {
+                        entry_id: (*id).to_string(),
+                        kind,
+                        role,
+                        text,
+                    });
+                }
+            }
+            Some("compaction") | Some("branchSummary") => {
+                if let Some(summary) = entry.get("summary").and_then(Value::as_str) {
+                    messages.push(Message {
+                        entry_id: (*id).to_string(),
+                        kind: MessageKind::Summary,
+                        role: "summary of earlier messages".into(),
+                        text: summary.to_string(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    NewMessages { messages, through }
+}
+
+/// Every message of the saved session's `main` lane, oldest first.
+pub fn messages(state: &serde_json::Value, limits: MessageLimits) -> Vec<Message> {
+    messages_after(state, None, limits).messages
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -965,5 +1159,155 @@ mod tests {
             assert!(!text.contains(noise), "{noise} should not be indexed");
         }
         assert_eq!(searchable_text("not json"), "not json");
+    }
+
+    use serde_json::{json, Value};
+
+    fn entry(id: &str, parent: Option<&str>, message: Value) -> Value {
+        json!({ "type": "message", "id": id, "seq": 1, "parentId": parent, "timestamp": 1, "message": message })
+    }
+
+    fn user(text: &str) -> Value {
+        json!({ "kind": "user", "role": "user", "content": text, "timestamp": 1 })
+    }
+
+    fn assistant(blocks: Value) -> Value {
+        json!({ "kind": "assistant", "role": "assistant", "content": blocks, "model": "m", "timestamp": 1 })
+    }
+
+    /// user → assistant (text + tool call) → tool result → user → assistant, on the main lane.
+    fn session() -> Value {
+        json!({
+            "format": "indexed-session-v1",
+            "entries": [
+                entry("e1", None, user("How do I tune the cache?")),
+                entry("e2", Some("e1"), assistant(json!([
+                    { "type": "thinking", "thinking": "private reasoning" },
+                    { "type": "text", "text": "Let me look." },
+                    { "type": "toolCall", "id": "t1", "name": "read", "arguments": { "path": "src/cache.rs" } }
+                ]))),
+                entry("e3", Some("e2"), json!({ "kind": "tool_result", "role": "toolResult", "toolCallId": "t1", "toolName": "read", "content": [{ "type": "text", "text": "fn cache() {}" }], "isError": false, "timestamp": 1 })),
+                entry("e4", Some("e3"), user("Thanks, now the needle question")),
+                entry("e5", Some("e4"), assistant(json!([{ "type": "text", "text": "The needle is in the haystack." }]))),
+                // A branch the main lane does not follow.
+                entry("x1", Some("e1"), assistant(json!([{ "type": "text", "text": "abandoned branch" }]))),
+            ],
+            "lanes": { "main": "e5" }
+        })
+    }
+
+    #[test]
+    fn transcript_messages_walk_the_main_lane_from_its_leaf() {
+        let all = messages(&session(), MessageLimits::default());
+        let roles: Vec<&str> = all.iter().map(|m| m.role.as_str()).collect();
+        assert_eq!(
+            roles,
+            [
+                "user",
+                "assistant",
+                "tool result (read)",
+                "user",
+                "assistant"
+            ]
+        );
+        assert_eq!(
+            all.iter().map(|m| m.kind).collect::<Vec<_>>(),
+            [
+                MessageKind::User,
+                MessageKind::Assistant,
+                MessageKind::ToolResult,
+                MessageKind::User,
+                MessageKind::Assistant
+            ]
+        );
+        assert_eq!(all[2].entry_id, "e3");
+        assert!(all[1].text.contains("Let me look."));
+        assert!(
+            all[1]
+                .text
+                .contains("[tool call: read {\"path\":\"src/cache.rs\"}]"),
+            "{}",
+            all[1].text
+        );
+        assert!(!all[1].text.contains("private reasoning"));
+        assert!(all.iter().all(|m| !m.text.contains("abandoned")));
+        assert!(messages(&json!({}), MessageLimits::default()).is_empty());
+        assert!(messages(
+            &json!({ "entries": [], "lanes": { "main": null } }),
+            MessageLimits::default()
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn transcript_messages_after_a_mark_are_only_the_new_ones() {
+        let state = session();
+        let limits = MessageLimits::default();
+        let all = messages_after(&state, None, limits);
+        assert_eq!(all.messages.len(), 5);
+        assert_eq!(all.through.as_deref(), Some("e5"));
+
+        let new = messages_after(&state, Some("e3"), limits);
+        assert_eq!(
+            new.messages
+                .iter()
+                .map(|m| m.entry_id.as_str())
+                .collect::<Vec<_>>(),
+            ["e4", "e5"]
+        );
+        assert_eq!(new.through.as_deref(), Some("e5"));
+
+        // Nothing new after the leaf; the mark stays where it is.
+        let none = messages_after(&state, Some("e5"), limits);
+        assert!(none.messages.is_empty());
+        assert_eq!(none.through.as_deref(), Some("e5"));
+
+        // A mark that is no longer on the lane reads the lane from its start.
+        assert_eq!(messages_after(&state, Some("x1"), limits).messages.len(), 5);
+        assert_eq!(messages_after(&json!({}), Some("e1"), limits).through, None);
+    }
+
+    #[test]
+    fn transcript_messages_cut_tool_calls_and_results() {
+        let long = "x".repeat(MessageLimits::default().tool_result + 50);
+        let state = json!({
+            "entries": [
+                { "type": "compaction", "id": "c", "seq": 1, "parentId": null, "timestamp": 1, "summary": "We chose SQLite.", "retainedTail": [], "tokensBefore": 1 },
+                entry("m", Some("c"), json!({ "kind": "tool_result", "role": "toolResult", "toolName": "bash", "content": [{ "type": "text", "text": long }], "isError": false, "timestamp": 1 })),
+                entry("a", Some("m"), assistant(json!([{ "type": "toolCall", "id": "t", "name": "bash", "arguments": { "command": "ls" } }]))),
+            ],
+            "lanes": { "main": "a" }
+        });
+        let all = messages(&state, MessageLimits::default());
+        assert_eq!(all[0].kind, MessageKind::Summary);
+        assert_eq!(all[0].role, "summary of earlier messages");
+        assert_eq!(all[0].text, "We chose SQLite.");
+        assert!(all[1].text.ends_with("[… result cut]"));
+        assert!(all[1].text.chars().count() < MessageLimits::default().tool_result + 30);
+
+        // With no room for arguments, a tool call is its name only.
+        let names_only = messages(
+            &state,
+            MessageLimits {
+                tool_args: 0,
+                tool_result: 10,
+            },
+        );
+        assert_eq!(names_only[2].text, "[tool call: bash]");
+        assert!(names_only[1].text.starts_with("xxxxxxxxxx\n"));
+
+        // Multi-byte text is cut at a character, not inside one.
+        assert_eq!(cut_chars("café École", 4), ("café".to_string(), true));
+        assert_eq!(cut_chars("café", 4), ("café".to_string(), false));
+    }
+
+    #[test]
+    fn transcript_messages_stop_at_a_cycle_or_a_missing_parent() {
+        let limits = MessageLimits::default();
+        let looped = json!({ "entries": [entry("a", Some("b"), user("one")), entry("b", Some("a"), user("two"))], "lanes": { "main": "a" } });
+        assert!(messages(&looped, limits).len() <= 2);
+        let dangling =
+            json!({ "entries": [entry("a", Some("gone"), user("one"))], "lanes": { "main": "a" } });
+        assert_eq!(messages(&dangling, limits).len(), 1);
     }
 }

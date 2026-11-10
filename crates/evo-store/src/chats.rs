@@ -60,6 +60,14 @@ pub struct Chat {
     pub origin: String,
     /// A managed worktree the chat works in instead of its workspace folder.
     pub worktree_path: Option<String>,
+    /// The chat uses no memory, saves none and cannot search past chats
+    /// (docs/features/memory-topics-and-chat-recall/spec.md, FR-6).
+    pub memory_off: bool,
+    /// As `memory_off`, and the chat leaves no history: it has a fixed title,
+    /// no preview and no search text, and is removed when it ends (FR-19 – FR-22).
+    pub incognito: bool,
+    /// The Scheduler started it: indexing writes a summary but no topic (FR-30).
+    pub scheduled: bool,
 }
 
 /// A chat to create.
@@ -78,6 +86,12 @@ pub struct NewChat {
     pub origin: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub memory_off: bool,
+    #[serde(default)]
+    pub incognito: bool,
+    #[serde(default)]
+    pub scheduled: bool,
 }
 
 /// Fields to change on a chat; `None` leaves a field as it is.
@@ -111,7 +125,21 @@ pub struct TurnRecord {
 
 const WORKSPACE_COLUMNS: &str = "id, path, name, collapsed, position, created_at, opened_at";
 const CHAT_COLUMNS: &str = "id, workspace_id, title, title_source, preview, provider, model, pinned, unread, \
-     archived_at, turn_count, cost_usd, tokens, created_at, updated_at, parent_chat_id, origin, worktree_path";
+     archived_at, turn_count, cost_usd, tokens, created_at, updated_at, parent_chat_id, origin, worktree_path, \
+     memory_off, incognito, scheduled";
+
+/// How many columns [`CHAT_COLUMNS`] names; a query that selects more reads
+/// its own from this index on.
+const CHAT_COLUMN_COUNT: usize = 21;
+
+/// [`CHAT_COLUMNS`] for a query where `chats` is aliased `c`.
+fn chat_columns_of_c() -> String {
+    CHAT_COLUMNS
+        .split(", ")
+        .map(|column| format!("c.{}", column.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 fn workspace_row(row: &Row<'_>) -> rusqlite::Result<Workspace> {
     Ok(Workspace {
@@ -145,6 +173,9 @@ fn chat_row(row: &Row<'_>) -> rusqlite::Result<Chat> {
         parent_chat_id: row.get(15)?,
         origin: row.get(16)?,
         worktree_path: row.get(17)?,
+        memory_off: row.get(18)?,
+        incognito: row.get(19)?,
+        scheduled: row.get(20)?,
     })
 }
 
@@ -267,23 +298,36 @@ pub fn get_chat(conn: &Connection, id: &str) -> Result<Option<Chat>, DbError> {
         .optional()?)
 }
 
+/// The title of every incognito chat: none of its own text is kept here.
+pub const INCOGNITO_TITLE: &str = "Incognito chat";
+
 /// Create a chat (or return the existing one with that id).
 pub fn create_chat(conn: &Connection, chat: &NewChat) -> Result<Chat, DbError> {
     let now = now_ms();
+    let title = if chat.incognito {
+        INCOGNITO_TITLE
+    } else {
+        chat.title.as_str()
+    };
     conn.execute(
-        "INSERT INTO chats (id, workspace_id, title, title_source, provider, model, created_at, updated_at, parent_chat_id, origin, worktree_path)
-         VALUES (?1, ?2, ?3, 'auto', ?4, ?5, ?6, ?6, ?7, ?8, ?9)
+        "INSERT INTO chats (id, workspace_id, title, title_source, provider, model, created_at, updated_at, parent_chat_id, origin, worktree_path,
+                            memory_off, incognito, scheduled)
+         VALUES (?1, ?2, ?3, 'auto', ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT (id) DO NOTHING",
         params![
             chat.id,
             chat.workspace_id,
-            chat.title,
+            title,
             chat.provider,
             chat.model,
             now,
             chat.parent_chat_id,
             chat.origin.as_deref().unwrap_or("user"),
-            chat.worktree_path
+            chat.worktree_path,
+            // An incognito chat never uses memory either.
+            chat.memory_off || chat.incognito,
+            chat.incognito,
+            chat.scheduled
         ],
     )?;
     get_chat(conn, &chat.id)?.ok_or_else(|| DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
@@ -294,21 +338,23 @@ pub fn update_chat(
     id: &str,
     patch: &ChatPatch,
 ) -> Result<Option<Chat>, DbError> {
+    // An incognito chat keeps its fixed title and is never pinned or archived
+    // (docs/features/memory-topics-and-chat-recall/spec.md, FR-19).
     if let Some(title) = &patch.title {
         conn.execute(
-            "UPDATE chats SET title = ?2, title_source = 'user' WHERE id = ?1",
+            "UPDATE chats SET title = ?2, title_source = 'user' WHERE id = ?1 AND incognito = 0",
             params![id, title],
         )?;
     }
     if let Some(title) = &patch.auto_title {
         conn.execute(
-            "UPDATE chats SET title = ?2 WHERE id = ?1 AND title_source = 'auto'",
+            "UPDATE chats SET title = ?2 WHERE id = ?1 AND title_source = 'auto' AND incognito = 0",
             params![id, title],
         )?;
     }
     if let Some(pinned) = patch.pinned {
         conn.execute(
-            "UPDATE chats SET pinned = ?2 WHERE id = ?1",
+            "UPDATE chats SET pinned = ?2 WHERE id = ?1 AND incognito = 0",
             params![id, pinned],
         )?;
     }
@@ -321,7 +367,8 @@ pub fn update_chat(
     if let Some(archived) = patch.archived {
         let at = archived.then(now_ms);
         conn.execute(
-            "UPDATE chats SET archived_at = ?2, pinned = CASE WHEN ?2 IS NULL THEN pinned ELSE 0 END WHERE id = ?1",
+            "UPDATE chats SET archived_at = ?2, pinned = CASE WHEN ?2 IS NULL THEN pinned ELSE 0 END
+             WHERE id = ?1 AND incognito = 0",
             params![id, at],
         )?;
     }
@@ -349,7 +396,7 @@ pub fn record_turn(
              turn_count = turn_count + 1,
              cost_usd = cost_usd + ?2,
              tokens = tokens + ?3,
-             preview = COALESCE(?4, preview),
+             preview = CASE WHEN incognito THEN NULL ELSE COALESCE(?4, preview) END,
              provider = COALESCE(?5, provider),
              model = COALESCE(?6, model),
              unread = CASE WHEN ?7 THEN 1 ELSE unread END,
@@ -381,7 +428,8 @@ pub fn fork_chat(
     id: &str,
     title: &str,
 ) -> Result<Option<Chat>, DbError> {
-    if get_chat(conn, source)?.is_none() {
+    // An incognito chat leaves no copy of itself.
+    if get_chat(conn, source)?.is_none_or(|chat| chat.incognito) {
         return Ok(None);
     }
     let now = now_ms();
@@ -390,9 +438,9 @@ pub fn fork_chat(
     let inserted = (|| -> Result<usize, DbError> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let inserted = tx.execute(
-            "INSERT INTO chats (id, workspace_id, title, title_source, preview, provider, model, turn_count, created_at, updated_at)
-             SELECT ?2, workspace_id, ?3, 'user', preview, provider, model, turn_count, ?4, ?4
-             FROM chats WHERE id = ?1",
+            "INSERT INTO chats (id, workspace_id, title, title_source, preview, provider, model, turn_count, created_at, updated_at, memory_off)
+             SELECT ?2, workspace_id, ?3, 'user', preview, provider, model, turn_count, ?4, ?4, memory_off
+             FROM chats WHERE id = ?1 AND incognito = 0",
             params![source, id, title, now],
         )?;
         tx.commit()?;
@@ -469,8 +517,10 @@ pub fn delete_chat(conn: &mut Connection, id: &str) -> Result<(), DbError> {
 /// after a few turns reads a few files.
 pub fn refresh_search(conn: &mut Connection, transcripts_dir: &Path) -> Result<usize, DbError> {
     let known: Vec<(String, Option<String>)> = {
+        // Never an incognito chat: its words stay out of this file (NFR-4).
         let mut statement = conn.prepare(
-            "SELECT c.id, s.stamp FROM chats c LEFT JOIN chat_search s ON s.chat_id = c.id",
+            "SELECT c.id, s.stamp FROM chats c LEFT JOIN chat_search s ON s.chat_id = c.id
+             WHERE c.incognito = 0",
         )?;
         let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         rows.collect::<Result<_, _>>()?
@@ -529,17 +579,302 @@ pub fn search_chats(
         .replace('%', "\\%")
         .replace('_', "\\_");
     let pattern = format!("%{escaped}%");
-    let columns = CHAT_COLUMNS
-        .split(", ")
-        .map(|column| format!("c.{}", column.trim()))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let columns = chat_columns_of_c();
     let mut statement = conn.prepare(&format!(
         "SELECT {columns} FROM chats c LEFT JOIN chat_search s ON s.chat_id = c.id
-         WHERE c.title LIKE ?1 ESCAPE '\\' OR c.preview LIKE ?1 ESCAPE '\\' OR s.body LIKE ?1 ESCAPE '\\'
+         WHERE c.incognito = 0
+           AND (c.title LIKE ?1 ESCAPE '\\' OR c.preview LIKE ?1 ESCAPE '\\' OR s.body LIKE ?1 ESCAPE '\\')
          ORDER BY c.updated_at DESC LIMIT ?2"
     ))?;
     let rows = statement.query_map(params![pattern, limit], chat_row)?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+// ── Past chats for an agent ────────────────────────────────────────────────
+//
+// docs/features/memory-topics-and-chat-recall/spec.md (FR-11 – FR-13, FR-32),
+// plan 3.5 "Past-chat search".
+
+/// At most this many words of a query are looked for.
+pub const MAX_SEARCH_WORDS: usize = 8;
+
+/// Which past chats an agent asks for.
+#[derive(Debug, Clone, Default)]
+pub struct ChatQuery<'a> {
+    /// Words to look for. Empty: list chats by time instead.
+    pub query: &'a str,
+    /// The asking chat's project: a workspace id, or `None` for the home
+    /// folder. Chats of any other project are never returned.
+    pub workspace: Option<&'a str>,
+    /// The asking chat; never returned.
+    pub exclude: Option<&'a str>,
+    /// Only chats active at or after this time (ms).
+    pub after_ms: Option<i64>,
+    /// Only chats started before this time (ms).
+    pub before_ms: Option<i64>,
+    /// Without words: oldest first instead of newest first.
+    pub oldest_first: bool,
+    pub limit: u32,
+}
+
+/// A past chat an agent asked for.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundChat {
+    pub chat: Chat,
+    /// The summary indexing wrote, when there is one.
+    pub summary: Option<String>,
+    /// How well it matches (0 for a list by time).
+    pub score: f64,
+}
+
+/// The words of a query: split at whitespace, punctuation around a word
+/// dropped, repeats (ignoring case) dropped, at most [`MAX_SEARCH_WORDS`].
+/// Their case is kept: `LIKE` ignores it for ASCII letters only.
+pub fn search_words(query: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    for raw in query.split_whitespace() {
+        let word = raw.trim_matches(|c: char| !c.is_alphanumeric());
+        if word.is_empty() {
+            continue;
+        }
+        let folded = word.to_lowercase();
+        if words.iter().any(|known| known.to_lowercase() == folded) {
+            continue;
+        }
+        words.push(word.to_string());
+        if words.len() == MAX_SEARCH_WORDS {
+            break;
+        }
+    }
+    words
+}
+
+fn like_pattern(text: &str) -> String {
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+/// The chats of one project a query may return: never an incognito chat or
+/// the asking chat, inside the time window. `?1` workspace, `?2` asking chat,
+/// `?3` after, `?4` before.
+const FIND_SCOPE: &str = "c.incognito = 0 AND c.workspace_id IS ?1 AND c.id IS NOT ?2
+     AND (?3 IS NULL OR c.updated_at >= ?3) AND (?4 IS NULL OR c.created_at < ?4)";
+
+/// Past chats of one project for an agent: with words, the best matches first;
+/// without, the chats by time.
+///
+/// A chat matches when any word is in its title, summary, preview or search
+/// text. Score: 3 for a word in the title, 3 in the summary, 1 in the text;
+/// 2 more when every word is somewhere; 3 more when the whole query appears
+/// as one phrase; plus up to 1 for recency (`1 / (1 + age in days / 30)`).
+/// Best first, then newest. Refreshes the search text of changed transcripts
+/// first when there are words.
+pub fn find_chats(
+    conn: &mut Connection,
+    transcripts_dir: &Path,
+    query: &ChatQuery<'_>,
+) -> Result<Vec<FoundChat>, DbError> {
+    use rusqlite::types::Value as SqlValue;
+
+    let columns = chat_columns_of_c();
+    let mut values: Vec<SqlValue> = vec![
+        query
+            .workspace
+            .map_or(SqlValue::Null, |id| SqlValue::Text(id.to_string())),
+        query
+            .exclude
+            .map_or(SqlValue::Null, |id| SqlValue::Text(id.to_string())),
+        query.after_ms.map_or(SqlValue::Null, SqlValue::Integer),
+        query.before_ms.map_or(SqlValue::Null, SqlValue::Integer),
+    ];
+    let words = search_words(query.query);
+
+    if words.is_empty() {
+        let order = if query.oldest_first { "ASC" } else { "DESC" };
+        values.push(SqlValue::Integer(i64::from(query.limit.max(1))));
+        let mut statement = conn.prepare(&format!(
+            "SELECT {columns}, i.summary FROM chats c LEFT JOIN chat_index i ON i.chat_id = c.id
+             WHERE {FIND_SCOPE} ORDER BY c.updated_at {order} LIMIT ?5"
+        ))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+            Ok(FoundChat {
+                chat: chat_row(row)?,
+                summary: row.get(CHAT_COLUMN_COUNT)?,
+                score: 0.0,
+            })
+        })?;
+        return Ok(rows.collect::<Result<_, _>>()?);
+    }
+
+    refresh_search(conn, transcripts_dir)?;
+    // ?5 is the whole query as one phrase; each word follows from ?6.
+    let phrase = query.query.split_whitespace().collect::<Vec<_>>().join(" ");
+    values.push(SqlValue::Text(like_pattern(&phrase)));
+    let like = |column: &str, at: usize| format!("{column} LIKE ?{at} ESCAPE '\\'");
+    let anywhere = |at: usize| {
+        format!(
+            "{} OR {} OR {} OR {}",
+            like("c.title", at),
+            like("i.summary", at),
+            like("c.preview", at),
+            like("s.body", at)
+        )
+    };
+    let mut flags = vec![format!("COALESCE({}, 0)", anywhere(5))];
+    let mut matches = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        let at = 6 + index;
+        values.push(SqlValue::Text(like_pattern(word)));
+        flags.push(format!("COALESCE({}, 0)", like("c.title", at)));
+        flags.push(format!("COALESCE({}, 0)", like("i.summary", at)));
+        flags.push(format!(
+            "COALESCE({} OR {}, 0)",
+            like("c.preview", at),
+            like("s.body", at)
+        ));
+        matches.push(format!("({})", anywhere(at)));
+    }
+    let mut statement = conn.prepare(&format!(
+        "SELECT {columns}, i.summary, {} FROM chats c
+         LEFT JOIN chat_search s ON s.chat_id = c.id
+         LEFT JOIN chat_index i ON i.chat_id = c.id
+         WHERE {FIND_SCOPE} AND ({})",
+        flags.join(", "),
+        matches.join(" OR ")
+    ))?;
+    let now = now_ms();
+    let several = words.len() > 1;
+    let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+        let chat = chat_row(row)?;
+        let phrase_found: bool = row.get(CHAT_COLUMN_COUNT + 1)?;
+        let mut score = 0.0;
+        let mut every_word = true;
+        for index in 0..words.len() {
+            let at = CHAT_COLUMN_COUNT + 2 + index * 3;
+            let (title, summary, text): (bool, bool, bool) =
+                (row.get(at)?, row.get(at + 1)?, row.get(at + 2)?);
+            score += f64::from(u8::from(title)) * 3.0
+                + f64::from(u8::from(summary)) * 3.0
+                + f64::from(u8::from(text));
+            every_word &= title || summary || text;
+        }
+        if several && every_word {
+            score += 2.0;
+        }
+        if several && phrase_found {
+            score += 3.0;
+        }
+        let age_days = (now - chat.updated_at).max(0) as f64 / 86_400_000.0;
+        score += 1.0 / (1.0 + age_days / 30.0);
+        Ok(FoundChat {
+            summary: row.get(CHAT_COLUMN_COUNT)?,
+            chat,
+            score,
+        })
+    })?;
+    let mut found: Vec<FoundChat> = rows.collect::<Result<_, _>>()?;
+    found.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(b.chat.updated_at.cmp(&a.chat.updated_at))
+    });
+    found.truncate(query.limit.max(1) as usize);
+    Ok(found)
+}
+
+// ── Incognito chats and indexing ───────────────────────────────────────────
+
+/// Chat `id` and every chat nested under it, at any depth (the chat first).
+pub fn with_nested(conn: &Connection, id: &str) -> Result<Vec<String>, DbError> {
+    let mut statement = conn.prepare(
+        "WITH RECURSIVE tree (id, depth) AS (
+             SELECT id, 0 FROM chats WHERE id = ?1
+             UNION
+             SELECT c.id, t.depth + 1 FROM chats c JOIN tree t ON c.parent_chat_id = t.id
+         )
+         SELECT id FROM tree ORDER BY depth, id",
+    )?;
+    let rows = statement.query_map([id], |row| row.get(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Every incognito chat and the chats nested under one: the chats to remove
+/// when evo quits or starts again (spec FR-22).
+pub fn incognito_ids(conn: &Connection) -> Result<Vec<String>, DbError> {
+    let mut statement = conn.prepare(
+        "WITH RECURSIVE tree (id) AS (
+             SELECT id FROM chats WHERE incognito = 1
+             UNION
+             SELECT c.id FROM chats c JOIN tree t ON c.parent_chat_id = t.id
+         )
+         SELECT id FROM tree ORDER BY id",
+    )?;
+    let rows = statement.query_map([], |row| row.get(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Which chats automatic indexing may read now.
+#[derive(Debug, Clone, Default)]
+pub struct IndexFilter {
+    /// Only chats active at or after this time: when indexing was switched on.
+    pub since_ms: Option<i64>,
+    /// Only chats last active before this time: the "earlier chats".
+    pub before_ms: Option<i64>,
+    /// Only chats idle since this time or longer.
+    pub idle_since_ms: Option<i64>,
+    /// A chat whose last run failed waits until its failure is this old.
+    pub failed_before_ms: i64,
+    pub limit: u32,
+}
+
+/// A chat with messages no index run has read yet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexCandidate {
+    pub chat: Chat,
+    /// The last transcript entry an earlier run read.
+    pub indexed_through: Option<String>,
+}
+
+/// The chats with new messages that indexing may read, longest waiting
+/// first: top-level chats with a turn that are not incognito or memory-off,
+/// updated since they were last indexed, inside `filter`'s times
+/// (spec FR-26, FR-30, FR-33). `scheduled` is on each chat for the caller.
+pub fn index_candidates(
+    conn: &Connection,
+    filter: &IndexFilter,
+) -> Result<Vec<IndexCandidate>, DbError> {
+    let columns = chat_columns_of_c();
+    let mut statement = conn.prepare(&format!(
+        "SELECT {columns}, i.indexed_through FROM chats c
+         LEFT JOIN chat_index i ON i.chat_id = c.id
+         WHERE c.incognito = 0 AND c.memory_off = 0 AND c.parent_chat_id IS NULL AND c.turn_count > 0
+           AND (?1 IS NULL OR c.updated_at >= ?1)
+           AND (?2 IS NULL OR c.updated_at < ?2)
+           AND (?3 IS NULL OR c.updated_at <= ?3)
+           AND (i.indexed_at IS NULL OR i.indexed_at < c.updated_at)
+           AND (i.failed_at IS NULL OR i.failed_at <= ?4)
+         ORDER BY c.updated_at ASC LIMIT ?5"
+    ))?;
+    let rows = statement.query_map(
+        params![
+            filter.since_ms,
+            filter.before_ms,
+            filter.idle_since_ms,
+            filter.failed_before_ms,
+            filter.limit.max(1)
+        ],
+        |row| {
+            Ok(IndexCandidate {
+                chat: chat_row(row)?,
+                indexed_through: row.get(CHAT_COLUMN_COUNT)?,
+            })
+        },
+    )?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
@@ -828,6 +1163,507 @@ mod tests {
         )
         .unwrap();
         path
+    }
+
+    fn chat(conn: &Connection, id: &str, title: &str, workspace: Option<&str>) -> Chat {
+        create_chat(
+            conn,
+            &NewChat {
+                id: id.into(),
+                title: title.into(),
+                workspace_id: workspace.map(str::to_string),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    // docs/features/memory-topics-and-chat-recall/spec.md (FR-19, FR-21, NFR-4).
+    #[test]
+    fn incognito_chats_are_never_searched() {
+        let (dir, mut conn) = db();
+        let files = dir.path().join(transcripts::DIR_NAME);
+        let ghost = create_chat(
+            &conn,
+            &NewChat {
+                id: "g".into(),
+                title: "the secret plan".into(),
+                incognito: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ghost.title, INCOGNITO_TITLE, "its own words are not kept");
+        assert!(ghost.incognito && ghost.memory_off);
+        chat(&conn, "n", "Ordinary", None);
+        write_transcript(&files, "g", r#"{"records":[{"text":"needle"}]}"#);
+        write_transcript(&files, "n", r#"{"records":[{"text":"needle"}]}"#);
+
+        assert_eq!(refresh_search(&mut conn, &files).unwrap(), 1);
+        let found = search_chats(&mut conn, &files, "needle", 10).unwrap();
+        assert_eq!(
+            found.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["n"]
+        );
+        assert!(search_chats(&mut conn, &files, "incognito", 10)
+            .unwrap()
+            .is_empty());
+        let texts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM chat_search", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(texts, 1, "no search text of the incognito chat");
+
+        // No preview, no rename, pin or archive, no fork.
+        let turn = record_turn(
+            &conn,
+            "g",
+            &TurnRecord {
+                preview: Some("about the needle".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!((turn.preview, turn.turn_count), (None, 1));
+        let same = update_chat(
+            &conn,
+            "g",
+            &ChatPatch {
+                title: Some("Needle".into()),
+                auto_title: Some("Needle".into()),
+                pinned: Some(true),
+                archived: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            (same.title.as_str(), same.pinned, same.archived_at),
+            (INCOGNITO_TITLE, false, None)
+        );
+        assert!(fork_chat(&mut conn, &files, "g", "g2", "copy")
+            .unwrap()
+            .is_none());
+        assert!(!transcripts::path_in(&files, "g2").unwrap().exists());
+    }
+
+    const DAY: i64 = 86_400_000;
+
+    fn set_times(conn: &Connection, id: &str, created: i64, updated: i64) {
+        conn.execute(
+            "UPDATE chats SET created_at = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, created, updated],
+        )
+        .unwrap();
+    }
+
+    fn ids(found: &[FoundChat]) -> Vec<&str> {
+        found.iter().map(|hit| hit.chat.id.as_str()).collect()
+    }
+
+    // docs/features/memory-topics-and-chat-recall/spec.md (FR-11).
+    #[test]
+    fn find_chats_matches_words_and_ranks() {
+        let (dir, mut conn) = db();
+        let files = dir.path().join(transcripts::DIR_NAME);
+        for (id, title) in [
+            ("asker", "Now"),
+            ("both", "Planning"),
+            ("one", "Later"),
+            ("phrase", "Other"),
+        ] {
+            chat(&conn, id, title, None);
+        }
+        write_transcript(
+            &files,
+            "both",
+            r#"{"records":[{"text":"we set the release date"},{"text":"and agreed a code freeze"}]}"#,
+        );
+        write_transcript(
+            &files,
+            "one",
+            r#"{"records":[{"text":"a freeze warning for the garden"}]}"#,
+        );
+        write_transcript(
+            &files,
+            "phrase",
+            r#"{"records":[{"text":"the release freeze starts in December"}]}"#,
+        );
+        write_transcript(
+            &files,
+            "asker",
+            r#"{"records":[{"text":"what about the release freeze?"}]}"#,
+        );
+        let now = now_ms();
+        set_times(&conn, "both", now - 90 * DAY, now - 90 * DAY);
+        set_times(&conn, "phrase", now - 90 * DAY, now - 90 * DAY);
+        set_times(&conn, "one", now, now);
+
+        let query = ChatQuery {
+            query: "release freeze",
+            exclude: Some("asker"),
+            limit: 10,
+            ..Default::default()
+        };
+        let found = find_chats(&mut conn, &files, &query).unwrap();
+        assert_eq!(
+            ids(&found),
+            ["phrase", "both", "one"],
+            "the phrase first, then both words apart, then the newer chat with one word"
+        );
+        assert!(found[1].score > found[2].score);
+
+        // Case and punctuation around the words do not matter.
+        let loose = find_chats(
+            &mut conn,
+            &files,
+            &ChatQuery {
+                query: "FREEZE, release!",
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(loose.len(), 3);
+        assert_eq!(loose[2].chat.id, "one");
+
+        // A word in the title counts for more than one in the text.
+        chat(&conn, "titled", "Freeze checklist", None);
+        set_times(&conn, "titled", now - 90 * DAY, now - 90 * DAY);
+        let by_title = find_chats(
+            &mut conn,
+            &files,
+            &ChatQuery {
+                query: "freeze",
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(by_title[0].chat.id, "titled");
+
+        let limited = find_chats(&mut conn, &files, &ChatQuery { limit: 1, ..query }).unwrap();
+        assert_eq!(ids(&limited), ["phrase"]);
+        assert!(find_chats(
+            &mut conn,
+            &files,
+            &ChatQuery {
+                query: "nothing-like-it",
+                limit: 10,
+                ..Default::default()
+            }
+        )
+        .unwrap()
+        .is_empty());
+    }
+
+    // FR-32: a summary match ranks above a transcript match.
+    #[test]
+    fn find_chats_ranks_a_summary_match_above_a_transcript_match() {
+        let (dir, mut conn) = db();
+        let files = dir.path().join(transcripts::DIR_NAME);
+        chat(&conn, "s", "Storage", None);
+        chat(&conn, "t", "Ideas", None);
+        let now = now_ms();
+        set_times(&conn, "s", now, now);
+        set_times(&conn, "t", now, now);
+        // The transcript of `s` never uses the word; its summary does.
+        write_transcript(
+            &files,
+            "s",
+            r#"{"records":[{"text":"use the bigger database"}]}"#,
+        );
+        write_transcript(&files, "t", r#"{"records":[{"text":"postgres, maybe"}]}"#);
+        crate::chat_index::set_indexed(&conn, "s", Some("Decided to move to Postgres."), None, 1)
+            .unwrap();
+        let found = find_chats(
+            &mut conn,
+            &files,
+            &ChatQuery {
+                query: "postgres",
+                limit: 10,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(ids(&found), ["s", "t"]);
+        assert_eq!(
+            found[0].summary.as_deref(),
+            Some("Decided to move to Postgres.")
+        );
+        assert_eq!(found[1].summary, None);
+    }
+
+    // FR-13: one project only; never the asking chat or an incognito chat.
+    #[test]
+    fn find_chats_stays_in_one_project() {
+        let (dir, mut conn) = db();
+        let files = dir.path().join(transcripts::DIR_NAME);
+        let w1 = ensure_workspace(&conn, "/a").unwrap().id;
+        let w2 = ensure_workspace(&conn, "/b").unwrap().id;
+        chat(&conn, "mine", "needle here", Some(&w1));
+        chat(&conn, "same", "needle same project", Some(&w1));
+        chat(&conn, "other", "needle other project", Some(&w2));
+        chat(&conn, "home", "needle in the home folder", None);
+        create_chat(
+            &conn,
+            &NewChat {
+                id: "ghost".into(),
+                title: "needle".into(),
+                workspace_id: Some(w1.clone()),
+                incognito: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        update_chat(
+            &conn,
+            "same",
+            &ChatPatch {
+                archived: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let here = ChatQuery {
+            query: "needle",
+            workspace: Some(&w1),
+            exclude: Some("mine"),
+            limit: 10,
+            ..Default::default()
+        };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &here).unwrap()),
+            ["same"],
+            "archived chats count; other projects, the asker and incognito chats do not"
+        );
+        let home = ChatQuery {
+            workspace: None,
+            ..here.clone()
+        };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &home).unwrap()),
+            ["home"]
+        );
+        // The list by time keeps the same scope.
+        let listed = ChatQuery { query: "", ..here };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &listed).unwrap()),
+            ["same"]
+        );
+    }
+
+    // FR-12: without a query, chats by time.
+    #[test]
+    fn find_chats_lists_by_time() {
+        let (dir, mut conn) = db();
+        let files = dir.path().join(transcripts::DIR_NAME);
+        let day2 = 1_000 * DAY;
+        let day1 = day2 - DAY;
+        for id in ["d1", "d2", "d2b", "span"] {
+            chat(&conn, id, id, None);
+        }
+        set_times(&conn, "d1", day1 + 10, day1 + 20);
+        set_times(&conn, "d2", day2 + 10, day2 + 20);
+        set_times(&conn, "d2b", day2 + 30, day2 + 40);
+        // Started on the first day, continued on the second.
+        set_times(&conn, "span", day1 + 50, day2 + 5);
+        let base = ChatQuery {
+            limit: 10,
+            ..Default::default()
+        };
+        let after = ChatQuery {
+            after_ms: Some(day2),
+            ..base.clone()
+        };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &after).unwrap()),
+            ["d2b", "d2", "span"],
+            "newest first"
+        );
+        let oldest = ChatQuery {
+            oldest_first: true,
+            ..after.clone()
+        };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &oldest).unwrap()),
+            ["span", "d2", "d2b"]
+        );
+        let before = ChatQuery {
+            before_ms: Some(day2),
+            ..base.clone()
+        };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &before).unwrap()),
+            ["span", "d1"],
+            "a chat active on both days is listed for both"
+        );
+        let one = ChatQuery { limit: 1, ..after };
+        assert_eq!(ids(&find_chats(&mut conn, &files, &one).unwrap()), ["d2b"]);
+        // A time window narrows a search by words too.
+        let words_in_window = ChatQuery {
+            query: "d1 d2",
+            before_ms: Some(day2),
+            ..base
+        };
+        assert_eq!(
+            ids(&find_chats(&mut conn, &files, &words_in_window).unwrap()),
+            ["d1"]
+        );
+    }
+
+    // FR-22: the chats to remove with an incognito chat.
+    #[test]
+    fn incognito_ids_include_nested_chats() {
+        let (_dir, conn) = db();
+        let nested = |id: &str, parent: &str, incognito: bool| {
+            create_chat(
+                &conn,
+                &NewChat {
+                    id: id.into(),
+                    title: id.into(),
+                    parent_chat_id: Some(parent.into()),
+                    origin: Some("agent".into()),
+                    incognito,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        };
+        create_chat(
+            &conn,
+            &NewChat {
+                id: "g".into(),
+                title: "g".into(),
+                incognito: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        chat(&conn, "plain", "Plain", None);
+        nested("g1", "g", true);
+        // A nested chat that lost the flag still goes with its parent.
+        nested("g2", "g1", false);
+        nested("p1", "plain", false);
+        assert_eq!(incognito_ids(&conn).unwrap(), ["g", "g1", "g2"]);
+        assert_eq!(with_nested(&conn, "g1").unwrap(), ["g1", "g2"]);
+        assert_eq!(with_nested(&conn, "plain").unwrap(), ["plain", "p1"]);
+        assert!(with_nested(&conn, "missing").unwrap().is_empty());
+    }
+
+    // FR-26, FR-30, FR-33: which chats indexing may read.
+    #[test]
+    fn index_candidates_are_idle_chats_with_new_messages() {
+        let (_dir, conn) = db();
+        let turn = |id: &str, at: i64| {
+            conn.execute(
+                "UPDATE chats SET turn_count = 1, updated_at = ?2 WHERE id = ?1",
+                params![id, at],
+            )
+            .unwrap();
+        };
+        let candidates = |filter: &IndexFilter| -> Vec<String> {
+            index_candidates(&conn, filter)
+                .unwrap()
+                .into_iter()
+                .map(|candidate| candidate.chat.id)
+                .collect()
+        };
+        for id in ["old", "fresh", "busy", "empty"] {
+            chat(&conn, id, id, None);
+        }
+        for (id, flags) in [
+            ("ghost", (true, false, false)),
+            ("quiet", (false, true, false)),
+            ("task", (false, false, true)),
+        ] {
+            create_chat(
+                &conn,
+                &NewChat {
+                    id: id.into(),
+                    title: id.into(),
+                    incognito: flags.0,
+                    memory_off: flags.1,
+                    scheduled: flags.2,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        create_chat(
+            &conn,
+            &NewChat {
+                id: "child".into(),
+                title: "child".into(),
+                parent_chat_id: Some("fresh".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        turn("old", 100);
+        turn("fresh", 500);
+        turn("busy", 900);
+        turn("ghost", 500);
+        turn("quiet", 500);
+        turn("task", 600);
+        turn("child", 500);
+
+        let filter = IndexFilter {
+            since_ms: Some(400),
+            idle_since_ms: Some(800),
+            failed_before_ms: 1_000,
+            limit: 10,
+            ..Default::default()
+        };
+        assert_eq!(
+            candidates(&filter),
+            ["fresh", "task"],
+            "longest waiting first; not the chat before `since`, the one still active, \
+             the one with no turn, or an incognito, memory-off or nested chat"
+        );
+        let task = &index_candidates(&conn, &filter).unwrap()[1];
+        assert!(task.chat.scheduled);
+        assert_eq!(task.indexed_through, None);
+
+        // Indexed chats wait for new messages.
+        crate::chat_index::set_indexed(&conn, "fresh", Some("s"), Some("e3"), 700).unwrap();
+        assert_eq!(candidates(&filter), ["task"]);
+        turn("fresh", 750);
+        let again = index_candidates(&conn, &filter).unwrap();
+        assert_eq!(again[1].chat.id, "fresh");
+        assert_eq!(again[1].indexed_through.as_deref(), Some("e3"));
+
+        // A failed chat waits until its failure is old enough.
+        crate::chat_index::set_failed(&conn, "task", 1_200, "boom").unwrap();
+        assert_eq!(candidates(&filter), ["fresh"]);
+        let later = IndexFilter {
+            failed_before_ms: 1_200,
+            ..filter.clone()
+        };
+        assert_eq!(candidates(&later), ["task", "fresh"]);
+
+        // "Index now" drops the idle rule; "earlier chats" are those before `since`.
+        let now = IndexFilter {
+            idle_since_ms: None,
+            ..later.clone()
+        };
+        assert_eq!(candidates(&now), ["task", "fresh", "busy"]);
+        let earlier = IndexFilter {
+            since_ms: None,
+            before_ms: Some(400),
+            idle_since_ms: None,
+            ..later
+        };
+        assert_eq!(candidates(&earlier), ["old"]);
+    }
+
+    #[test]
+    fn search_words_are_trimmed_and_unique() {
+        assert_eq!(
+            search_words("  Release,  FREEZE! release  (v2) "),
+            ["Release", "FREEZE", "v2"]
+        );
+        assert!(search_words(" ,, ! ").is_empty());
+        assert_eq!(search_words("a b c d e f g h i j").len(), MAX_SEARCH_WORDS);
     }
 
     #[test]

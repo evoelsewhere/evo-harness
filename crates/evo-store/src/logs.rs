@@ -212,6 +212,13 @@ pub fn clear(conn: &Connection) -> Result<usize, DbError> {
     Ok(conn.execute("DELETE FROM app_logs", [])?)
 }
 
+/// Drop every entry tagged with `chat_id`: an incognito chat ended
+/// (docs/features/memory-topics-and-chat-recall/spec.md, FR-22, NFR-4).
+/// Returns how many were removed.
+pub fn delete_chat(conn: &Connection, chat_id: &str) -> Result<usize, DbError> {
+    Ok(conn.execute("DELETE FROM app_logs WHERE chat_id = ?1", [chat_id])?)
+}
+
 pub fn stats(conn: &Connection) -> Result<LogStats, DbError> {
     let (count, oldest_ms, newest_ms) = conn.query_row(
         "SELECT COUNT(*), MIN(at_ms), MAX(at_ms) FROM app_logs",
@@ -367,6 +374,27 @@ mod tests {
         assert!(export_text(&conn, &LogQuery::default())
             .unwrap()
             .contains("ERROR ui boom {\"stack\":\"x\"}"));
+    }
+
+    #[test]
+    fn delete_chat_logs_removes_only_that_chat() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut conn = crate::open_at(&dir.path().join("evo.db")).unwrap();
+        append(
+            &mut conn,
+            &[
+                NewLog::new("info", "engine", "spawned").chat(Some("gone")),
+                NewLog::new("error", "engine", "exited").chat(Some("gone")),
+                NewLog::new("info", "engine", "spawned").chat(Some("kept")),
+                NewLog::new("info", "shell", "started"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(delete_chat(&conn, "gone").unwrap(), 2);
+        assert_eq!(delete_chat(&conn, "gone").unwrap(), 0);
+        let left = query(&conn, &LogQuery::default()).unwrap();
+        assert_eq!(left.len(), 2);
+        assert!(left.iter().all(|e| e.chat_id.as_deref() != Some("gone")));
     }
 
     #[test]

@@ -2,8 +2,9 @@
 //! files, stored on this machine.
 //!
 //! `evo.db` holds what the desktop and the engine share: provider settings,
-//! the models.dev cache, workspaces and chats, the chats' search text, shared
-//! app settings, mail between sessions, usage and cost history, the windows
+//! the models.dev cache, workspaces and chats, the chats' search text, their
+//! summaries and the list of memory changes made by indexing, shared app
+//! settings, mail between sessions, usage and cost history, the windows
 //! computer app control moved off screen, and the run log. Both the engine and
 //! the desktop shell open it through this crate, so there is one schema and
 //! one migration history (`docs/features/app-database/spec.md`).
@@ -49,10 +50,12 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
+pub mod chat_index;
 pub mod chats;
 pub mod computer;
 pub mod logs;
 pub mod mail;
+pub mod memory_log;
 pub mod settings;
 pub mod transcripts;
 pub mod usage;
@@ -112,6 +115,16 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 10,
         name: "computer_parked",
         sql: include_str!("migrations/0010_computer_parked.sql"),
+    },
+    Migration {
+        version: 11,
+        name: "memory_topics",
+        sql: include_str!("migrations/0011_memory_topics.sql"),
+    },
+    Migration {
+        version: 12,
+        name: "usage_memory_source",
+        sql: include_str!("migrations/0012_usage_memory_source.sql"),
     },
 ];
 
@@ -689,5 +702,61 @@ mod tests {
             [],
         );
         assert!(refused.is_err(), "unknown sources are refused");
+    }
+
+    // docs/features/memory-topics-and-chat-recall/spec.md (FR-6, FR-19, FR-27, FR-29, FR-30).
+    #[test]
+    fn upgrade_to_11_adds_chat_flags_and_memory_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evo.db");
+        let mut connection = Connection::open(&path).unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        migrate(&mut connection, &path, &MIGRATIONS[..10]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO chats (id, title, created_at, updated_at) VALUES ('c', 'C', 0, 0)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let connection = open_at(&path).unwrap();
+        assert_eq!(version(&connection), MIGRATIONS.len() as i64);
+        let flags: (i64, i64, i64) = connection
+            .query_row(
+                "SELECT memory_off, incognito, scheduled FROM chats WHERE id = 'c'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(flags, (0, 0, 0), "existing chats keep memory and history");
+        connection
+            .execute_batch(
+                "INSERT INTO chat_index (chat_id, summary, indexed_through, indexed_at) VALUES ('c', 's', 'e1', 1);
+                 INSERT INTO memory_changes (at_ms, scope, project, name, action, chat_id, before_text, after_text)
+                 VALUES (1, 'project', 'p', 'n', 'updated', 'c', 'a', 'b');",
+            )
+            .unwrap();
+        let refused = connection.execute(
+            "INSERT INTO memory_changes (at_ms, scope, name, action) VALUES (1, 'elsewhere', 'n', 'added')",
+            [],
+        );
+        assert!(refused.is_err(), "unknown scopes are refused");
+        connection
+            .execute("DELETE FROM chats WHERE id = 'c'", [])
+            .unwrap();
+        let left: (i64, i64) = connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM chat_index), (SELECT COUNT(*) FROM memory_changes)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            left,
+            (0, 1),
+            "a summary goes with its chat; the change list stays"
+        );
     }
 }
