@@ -40,8 +40,8 @@ What exists today:
   carry buttons yet: that is [notifications](../notifications/spec.md) FR-14,
   open as its task T10.
 
-The updater library: `tauri-plugin-updater` 2.10 (read from its source, not
-only its docs):
+The updater library: `tauri-plugin-updater` 2.14 (read from its source, not
+only its docs; 2.10 when this plan was written, see the as-built notes):
 
 - `check()` downloads a JSON manifest from fixed endpoints over HTTPS, picks
   the platform entry `{os}-{arch}-{installer}`, then `{os}-{arch}` (for
@@ -49,7 +49,8 @@ only its docs):
   returns an `Update` when the remote version is higher.
 - A version comparator can be set. It is called with the remote release
   **before** the platform entry is looked up. A missing entry makes
-  `check()` fail with `TargetsNotFound`, even when the version is not newer.
+  `check()` fail with `TargetsNotFound` when the version is newer. (2.10
+  failed even when it was not; 2.14 returns no update then.)
 - `Update::download()` keeps the whole file in memory and checks its
   minisign signature against the public key in `plugins.updater.pubkey`
   before returning it. Checking the signature cannot be turned off. The
@@ -125,7 +126,7 @@ always describes the latest published release.
 | desktop shell | `apps/desktop/src-tauri/src/updates.rs` (new) | The updater: the check timer, the state machine and its `updates://state` event, the version comparator, the notice-only decision, the download with progress, the copy on disk, the second signature check before install, the install and restart. Tauri commands `updates_state`, `updates_check`, `updates_install`. | FR-1, FR-2, FR-4, FR-5, FR-6, FR-8, FR-10, FR-12, FR-13, FR-14, NFR-2, NFR-3, NFR-5, NFR-6 |
 | desktop shell | `apps/desktop/src-tauri/src/engine.rs` | `EngineState::working()`: chats between `agent_start` and `agent_end`, cleared when an engine stops or exits. | FR-9 |
 | desktop shell | `apps/desktop/src-tauri/src/lib.rs` | Register the updater plugin, the commands and `updates::setup`. Move the exit steps (connectors, controlled apps, engines) into one function, `system::shutdown`, used by `RunEvent::Exit` and before an install. | FR-10 |
-| desktop shell | `apps/desktop/src-tauri/Cargo.toml` | `tauri-plugin-updater = "~2.10"` (desktop targets only), `minisign-verify = "0.2"`, `base64` (already present). | FR-6 |
+| desktop shell | `apps/desktop/src-tauri/Cargo.toml` | `tauri-plugin-updater = "~2.14"` (desktop targets only), `minisign-verify = "0.2"`, `base64` (already present). | FR-6 |
 | desktop shell | `apps/desktop/src-tauri/tauri.conf.json` | `plugins.updater`: `pubkey`, `endpoints`, `windows.installMode: "passive"`. Not `createUpdaterArtifacts` (NFR-7). | FR-6, FR-15, NFR-2, NFR-4 |
 | desktop UI | `apps/desktop/src/stores/updates-store.ts` (new) | Mirrors the shell's state (`updates_state`, then `updates://state`); actions `check()` and `install(force)`; raises the update notifications from the main window only. | FR-3, FR-7, FR-9, FR-13 |
 | desktop UI | `apps/desktop/src/features/settings/sections/update-row.tsx` (new) | The **Updates** row in **Settings → About**: state, progress, last check, **Check for updates**, **Restart to update**, **What's new**, and the confirmation dialog when chats are working. | FR-3, FR-9, FR-11, FR-12, FR-14 |
@@ -433,7 +434,7 @@ Owner setup, once, before the first release with the updater:
 | A custom update server returning one platform's entry | A service to run and secure. A static `latest.json` on the release is enough for one channel. |
 | Keep the downloaded update in memory until install | Holds the whole installer in memory for as long as the person waits, possibly days, and loses it on quit. On disk with a second check costs a few lines. |
 | `createUpdaterArtifacts` in `tauri.conf.json` | Every local `tauri build` would then need the private key (NFR-7). It is set only in CI's override for tag builds. |
-| Fetch `latest.json` ourselves for the notice-only platforms | A second HTTP client and parser in the shell. The comparator already sees the remote version; this relies on the plugin calling it before the platform lookup, which is pinned (`~2.10`) and checked again on each plugin upgrade (tasks). |
+| Fetch `latest.json` ourselves for the notice-only platforms | A second HTTP client and parser in the shell. The comparator already sees the remote version; this relies on the plugin calling it before the platform lookup, which is pinned (`~2.14`) and checked again on each plugin upgrade (tasks). |
 | Check for updates in the engine | The engine is per chat and has no business replacing the app (ADD 4). |
 
 ## 5. As-built notes
@@ -471,3 +472,17 @@ Owner setup, once, before the first release with the updater:
   T22–T25). Unit tests, the manifest tests, clippy, the type-check and
   the screenshot harness ran; a real update, the signing in CI and the
   release's `latest.json` have not been seen working yet.
+
+Updater 2.14 (2026-11-10):
+
+- `tauri-plugin-updater` moved from 2.10.1 to 2.14.1 for its `zip` 9
+  (Dependabot: three `zip` advisories, the worst critical; `zip` is used
+  only on Windows, to unpack updates).
+- Re-read for T26: `update_from_release` still calls the version comparator
+  before `get_urls` looks up the platform. New in 2.14: a release that is
+  not newer returns no update even without a platform entry, where 2.10
+  failed with `TargetsNotFound`. `decide` treats both as up to date, so the
+  outcome is the same. 2.14 also adds `require_signed_version` (off by
+  default); not turned on here.
+- The plugin now uses `minisign-verify` 0.3; the shell's own second check
+  stays on 0.2.

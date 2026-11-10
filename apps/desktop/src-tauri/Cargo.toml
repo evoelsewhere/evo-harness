@@ -62,7 +62,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # pinned to the minor version whose check order the notice path relies on;
 # the same signature verifier for the second check before install; versions
 # of downloaded updates.
-tauri-plugin-updater = "~2.10"
+tauri-plugin-updater = "~2.14"
 minisign-verify = "0.2"
 semver = "1"
 
