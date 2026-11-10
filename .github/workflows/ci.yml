@@ -15,6 +15,14 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
+  release-scripts:
+    name: release scripts
+    runs-on: ubuntu-latest
+    steps:
+      # History is needed only by the tests' own throw-away repositories.
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
