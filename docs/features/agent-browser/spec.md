@@ -205,3 +205,8 @@ Safety and structure.
 - 2026-11-08 — Changed: NFR-2 allows the page read its existing 30,000-character default; FR-16's "asks" is the approval of `browser_download_folder` for the showing page's site (downloads from other sites stay blocked).
 - 2026-11-07 — Clarified: all three waves, approvals by class, the bridge as its own
   feature with FR-25 here.
+- 2026-11-10 — FR-20 extended by [Memory topics and chat recall](../memory-topics-and-chat-recall/spec.md)
+  (FR-11 – FR-16): `session_search` matches words and ranks, lists chats by
+  time without a query, and with `session_read` stays in the asking chat's
+  project (the option to search every workspace is gone); both follow the
+  **Search past chats** setting and never return an incognito chat.

@@ -106,6 +106,14 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   Idle engines are restarted to pick up settings, credentials or
   customization changes; the app itself never restarts for that
   ([ADR 0005](decisions/0005-real-engine-and-live-reload.md)).
+- **Memory indexing is a short-lived engine process**
+  (`evo-engine --mode index`,
+  [ADR 0016](decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md)).
+  A worker in the shell starts one for an idle chat with new messages, at
+  most one at a time. It reads that chat's transcript read-only, changes
+  memory topics with the model the person chose for indexing, prints one
+  result line and exits. It loads no plugins, hooks, skills or connectors
+  and has two tools (docs/features/memory-topics-and-chat-recall).
 - **The shell owns native capabilities and cross-chat coordination**: windows,
   pseudo-terminals, file access for the Files tool, browser webviews, the MCP
   connection pool, plugin installs, the session mesh hub, the app database.
@@ -175,7 +183,7 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 | `evo-plugin-sdk` / `evo-extensions` | Stable `#[repr(C)]` plugin ABI / the host that loads `cdylib` plugins |
 | `evo-protocol` | Engine ↔ client wire contract (JSONL default, CBOR frames optional) |
 | `evo-mesh` | Session mesh wire types and the hub that routes mail between sessions |
-| `evo-store` | `evo.db`: schema, migrations, chats, chat search, logs, mail, settings, usage and cost history; the transcript files' location, identity and life cycle |
+| `evo-store` | `evo.db`: schema, migrations, chats and their memory flags, chat search (also ranked, for agents), chat summaries, the list of memory changes made by indexing, logs, mail, settings, usage and cost history; the transcript files' location, identity and life cycle, and reading one as messages |
 | `evo-mcp` | MCP client and connection pool |
 | `evo-plugins` | Plugin bundles and marketplaces |
 | `evo-hooks` | Hook commands and web requests on agent events |
@@ -247,7 +255,7 @@ has a local router for its in-process nodes. Design:
 
 | Where | What | Owner |
 | --- | --- | --- |
-| `~/.evo/agent/evo.db` (SQLite, WAL) | chats, workspaces, chat search text, app settings, run log, mail, provider settings, models.dev cache, usage and cost history, windows the agent moved off screen (put back on the next start, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)) | `evo-store` (schema + migrations); shell and engines both open it |
+| `~/.evo/agent/evo.db` (SQLite, WAL) | chats, workspaces, chat search text, app settings, run log, mail, provider settings, models.dev cache, usage and cost history, windows the agent moved off screen (put back on the next start, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)), each chat's memory flags, summary and "indexed up to" mark, the list of memory changes made by indexing | `evo-store` (schema + migrations); shell and engines both open it |
 | `~/.evo/agent/transcripts/<chat id>.db` (SQLite, WAL) | one chat's transcript: evo-harness's `sessions` row and progress frames | written only by that chat's engine; the shell reads, forks and removes them (`evo_store::transcripts`, [ADR 0007](decisions/0007-one-transcript-file-per-chat.md)) |
 | `~/.evo/agent/auth.json` | credentials (owner-only on Unix) | engine |
 | `~/.evo/agent/settings.json`, `models.json`, `trust.json` | defaults, user model catalog, project trust | engine |
@@ -365,3 +373,6 @@ The index of decisions, their status and links is in
 | Connector | An MCP server |
 | Skill | A folder with `SKILL.md` the agent can load on demand |
 | Sidecar | The `evo-engine` binary shipped next to the desktop app |
+| Topic | A memory: one short document about one subject, changed in place |
+| Index run | A short-lived `evo-engine --mode index` process that reads what is new in one idle chat, updates memory topics and writes the chat's summary |
+| Incognito chat | A chat that uses no memory and leaves no history: it is removed when it ends |

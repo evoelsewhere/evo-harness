@@ -168,3 +168,9 @@ n/a — the old design notes record no questions.
 
 - 2026-11-06 — Built.
 - 2026-11-07 — Moved to the spec / plan / tasks format.
+- 2026-11-10 — Extended by [Memory topics and chat recall](../memory-topics-and-chat-recall/spec.md): a
+  memory is a topic changed in place (FR-2, FR-5, FR-6: the `memory` tool's
+  `update` action and its transcript row), the prompt tells the agent to
+  update a covering topic (FR-4), the switch is shown as **Pause memory** and
+  the panel stays usable while paused (FR-7, FR-8), and a chat can be started
+  without memory. FR-3's four types are unchanged.
