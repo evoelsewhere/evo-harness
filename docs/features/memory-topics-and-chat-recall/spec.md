@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | In progress |
+| Status | Implemented |
 | Area | engine, protocol, `evo-store`, desktop shell, desktop UI |
 | Created | 2026-11-10 |
 | Updated | 2026-11-10 |
@@ -349,3 +349,5 @@ n/a — no open questions.
   proposed.
 - 2026-11-10 — Plan and ADR 0016 accepted by the owner (gate B);
   implementation started.
+- 2026-11-10 — Implemented: every check in the verification table has a
+  recorded pass.

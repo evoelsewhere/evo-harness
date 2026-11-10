@@ -456,14 +456,27 @@ chats and the index run):
 - **`search_speed`** (NFR-2) measured 116 ms over 1,000 chats in a release
   build.
 
-Not yet tried in the running app: the panel while memory is paused (FR-8),
-a past-chat search in approval mode "ask" (FR-16), declining a password
-(FR-18), the message for an index model that cannot be used (FR-25), an
-index run while memory is paused (FR-28), and a message sent to a chat
-while it is being indexed (NFR-5).
+A second pass in the running app (T43, 2026-11-10, again on a copy of the
+data) ran the checks the first one left: memory files in the earlier
+format, the panel while memory is paused, a past-chat search in approval
+mode "ask", a health condition and a password the agent was asked to
+remember, five rules told in five chats, a memory-off chat after a restart,
+the Usage row of an incognito chat, an index model that cannot be used, an
+index run while memory is paused, and a message sent to a chat while it is
+being indexed. All passed; one fault was found and fixed:
+
+- **The panel's pause switch wakes the index worker.** Only **Settings →
+  Memory** did: indexing that stopped for a paused memory stayed stopped
+  after memory was switched on from the panel. `memory-panel.tsx` now calls
+  `memory_index_poke` after `set_memory_enabled` and `set_memory_settings`.
 
 Known gaps:
 
+- The reason shown for an index model without credentials is the engine's
+  general text, which names command-line options (`--api-key`, `evo auth
+  login`) the desktop app does not have.
+- A run skipped for a paused memory is logged as "chat indexed" with
+  `skipped: paused`.
 - Text an incognito chat left in webview storage (notifications, panel
   state) is not audited; notifications of an incognito chat carry its fixed
   title only.

@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { baseName, formatRelative } from "@/lib/format";
+import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -115,6 +116,8 @@ function useMemories() {
       setState(next);
       setError(null);
       if (command !== "list_memories") await engine.reloadIdleResources().catch(() => undefined);
+      // Indexing that stopped for a paused memory may go on (as in Settings → Memory).
+      if (command === "set_memory_enabled" || command === "set_memory_settings") await db.memoryIndexPoke().catch(() => undefined);
       return true;
     } catch (e) {
       setError(String(e).replace(/^Error:\s*/, ""));
