@@ -109,6 +109,9 @@ function SplitLayout() {
         </ResizablePanel>
         <ResizableHandle
           onPointerDown={startDrag}
+          // With the panel closed there is nothing to resize: the library
+          // hit-tests the separator itself, so pointer-events alone don't stop it.
+          disabled={!rightPanelOpen}
           className={cn(
             // A narrow gap of window material between the two cards; the line shows on hover.
             "w-1.5 bg-transparent after:w-px after:bg-transparent hover:after:bg-ring/60 focus-visible:after:bg-ring",
