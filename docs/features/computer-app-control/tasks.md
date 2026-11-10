@@ -352,9 +352,35 @@ Phase 6 results so far (2026-11-09):
 Done when: the same checks pass on macOS 14+.
 
 - [ ] T41 [FR-28, NFR-1] Port the macOS backend without temporary activation; ScreenCaptureKit capture for every window — `computer/mac/*.rs` — check: live `drives_textedit_in_the_background`, `drives_a_parked_chrome_form`
-- [ ] T42 [FR-29] Refuse menu commands that need activation — `computer/mac/keyboard.rs`, `computer/mac/menus.rs` — check: live `refuses_menu_commands_that_need_activation` (the frontmost app is unchanged)
+- [x] T42 [FR-29] Refuse menu commands that need activation — `computer/mac/keyboard.rs`, `computer/mac/menus.rs` — check: live `refuses_menu_commands_that_need_activation` (the frontmost app is unchanged)
 - [ ] T43 [FR-28] macOS permissions card: Allow, Restart evo — `features/settings/sections/computer-apps-settings.tsx`, `computer.rs` — check: on a Mac with permissions revoked
 - [ ] T44 [SC-1 – SC-5] The benchmark on macOS — `computer/mac/live_tests.rs` — check: rows recorded
+
+Progress (2026-11-10):
+
+- T41 – T43: the code is in place and builds on macOS; `bun run test:shell computer`
+  passes there (49 tests, among them the macOS unit tests and the FR-5 grep
+  test with the macOS names). The boxes stay open until their live checks
+  run: the process running the tests needs Accessibility and Screen
+  Recording in System Settings, which it does not have yet.
+- T42's live test `refuses_menu_commands_that_need_activation` is written;
+  `drives_textedit_in_the_background` no longer saves with ⌘S (that needed
+  the activation FR-29 removes) and reads the typed text back instead.
+- T44 not started.
+- Live run 1 (2026-11-10, macOS, from Terminal with Accessibility granted):
+  `drives_a_parked_chrome_form`, `refuses_menu_commands_that_need_activation`,
+  `puts_back_a_window_parked_by_a_run_that_crashed` and `lists_apps_with_icons`
+  passed. `drives_textedit_in_the_background` and
+  `captures_a_parked_chrome_window` failed at their first capture: Screen
+  Recording was granted but macOS applies it only after the terminal
+  restarts. Those two failures left their windows behind; the live tests now
+  put them away in a `Drop` guard (`Leftovers`), panic or not.
+- Live run 2 (2026-11-10): Screen Recording still not in effect for
+  `drives_textedit_in_the_background`. `captures_a_parked_chrome_window` saw
+  its Chrome as a native app (`web_content: false`; run 1 saw it as web).
+  `is_chromium_app` now also asks AppKit for the bundle and logs why it
+  answers no; the cause is not known yet. The guard now waits for the test's
+  Chrome to exit and answers a document's save sheet.
 
 ## 2. Verification
 
@@ -387,10 +413,10 @@ Done when: the same checks pass on macOS 14+.
 | FR-25 | `computer::tool` untrusted wrapping (T13) | passed (2026-11-10) |
 | FR-26 | `computer::tool` timeouts (T13); quit with a hung app (T16) | not run |
 | FR-27 | `skills_require_tools`, `bundled_computer_app_skill_requires_its_tool` (T34, T35) | passed (2026-11-10); trigger cases not run |
-| FR-28 | T43 on a Mac | not run |
-| FR-29 | live `refuses_menu_commands_that_need_activation` (T42) | not run |
+| FR-28 | T43 on a Mac | not run (the settings page builds; not checked in the app) |
+| FR-29 | live `refuses_menu_commands_that_need_activation` (T42) | passed (2026-11-10): ⌘S and the Save item refused with the reason; frontmost app unchanged |
 | FR-30 | `front` hold count (T45); input monitor on the dialog cases (T45, T40); front line and card warning (T47) | not run |
-| NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | not run |
+| NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | macOS build and unit tests passed (2026-11-10, local); CI and the macOS live checks not run |
 | NFR-2 | input monitor during the benchmark (T36, T40) | failed (2026-11-09): 8 front-window changes by driven apps |
 | NFR-3 | T10, T24, T25; benchmark freshness column (T40) | not run |
 | NFR-4 | step timings (T46); timing table (T39) | evo's part passed (2026-11-09, step timings): key about 100 ms, click about 250 ms; whole actions in Excel about 1 s, mostly its tree reads; the 10-run table not run |

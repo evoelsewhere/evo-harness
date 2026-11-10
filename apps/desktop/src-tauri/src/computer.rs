@@ -193,7 +193,46 @@ pub async fn computer_reveal(chat: String) -> Result<Value, String> {
     if let Some(window) = revealed.get("hwnd").and_then(Value::as_i64) {
         bring_to_front(window);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(pid) = revealed.get("pid").and_then(Value::as_i64) {
+        activate_app(pid as i32);
+    }
     Ok(revealed)
+}
+
+/// The person pressed Show the app in evo, the active app, so handing the
+/// front to the app they asked for is theirs to do (macOS).
+#[cfg(target_os = "macos")]
+fn activate_app(pid: i32) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+    std::thread::spawn(move || {
+        // After the window is back where it was.
+        std::thread::sleep(Duration::from_millis(300));
+        if let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
+            app.activateWithOptions(NSApplicationActivationOptions::empty());
+        }
+    });
+}
+
+/// The macOS permissions control needs, for Settings → Computer apps (FR-28):
+/// `{required, accessibility, screen_recording, restart_needed}`.
+#[tauri::command]
+pub fn computer_permissions() -> Value {
+    computer::permissions()
+}
+
+/// **Allow** next to a missing permission: macOS lists evo and its pane
+/// opens. Only the person's click calls this (FR-28).
+#[tauri::command]
+pub fn computer_request_permission(kind: String) -> Result<Value, String> {
+    computer::request_permission(&kind)
+}
+
+/// **Restart evo**, once Screen Recording waits for it (FR-28).
+#[tauri::command]
+pub fn computer_restart(app: AppHandle) {
+    computer::release_all();
+    app.restart();
 }
 
 #[cfg(target_os = "windows")]

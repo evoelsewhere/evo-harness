@@ -387,8 +387,7 @@ Phase 1 (2026-11-10):
   - `image` and `walkdir` are added.
   - App icons in the catalog come from `src/apps.rs::shell_icon`, not from
     `file_icon_provider`.
-- **The macOS backend** is not ported yet (phase 7). On macOS the factory
-  returns the unsupported backend.
+- **The macOS backend** came in phase 7; see its notes below.
 - **The journal** is `evo.db`'s `computer_parked` (migration 0010), reached
   through a `Journal` trait. The app uses `src/computer.rs::DbJournal`; tests
   use a `MemoryJournal`.
@@ -657,3 +656,41 @@ Phase 6 (2026-11-09, in progress):
   reported per app. Reusing one action's "after" as the next "before"
   would halve it, at the risk of counting a late change of the app toward
   the next action; not done.
+
+Phase 7 (2026-11-10, in progress):
+
+- **Port.** v3's `computer_app/mac/` is under `agent_tools/computer/mac/`,
+  one module per concern as before; the factory returns `mac::MacBackend` on
+  macOS and the tool is offered there (`tool::enabled`). Dependencies are the
+  versions Tauri already brings in (`core-graphics`, `core-foundation`,
+  `objc2*`, `block2`) plus `walkdir`; `build.rs` links ScreenCaptureKit
+  weakly, so the app still starts on macOS 11 (the tool then reports that
+  capture needs macOS 14).
+- **Capture.** ScreenCaptureKit first for every window, not only Chromium
+  ones as in v3; `CGWindowListCreateImage` is the fallback when it is missing
+  or fails. Screenshots take `marks` and `zoom` as on Windows; the marks
+  table also knows the macOS roles (`TextField`, `PopUpButton`, `Row`, …).
+- **No activation (FR-5, FR-29).** v3 activated the app for a menu command
+  and gave the front back afterwards. Now a menu bar command that reports
+  itself disabled while the app is in the background is refused with the
+  reason, by shortcut (`key`) or by menu item (`invoke`); `menus::check_menu_command`
+  is the one place that decides. The FR-5 grep test also forbids
+  `activateWithOptions`, `AXFrontmost`, session-wide event posting and
+  cursor warping in the module.
+- **Show the app.** `reveal` raises the window among the app's own and
+  returns the pid; `src/computer.rs::activate_app` activates the app on the
+  person's click, as `bring_to_front` does on Windows.
+- **Journal.** v3 kept parked windows in `computer_app_parked.json`; they now
+  go through the `Journal` (`evo.db`'s `computer_parked`) with the window
+  number as `window` and `{origin, minimized, web}` as `placement_json`.
+- **Permissions (FR-28).** The agent's actions never make macOS prompt (v3
+  did on attach and capture); they return which permission is missing.
+  `computer_permissions`, `computer_request_permission` and
+  `computer_restart` serve Settings → Computer apps, which shows both
+  permissions with Allow, and Restart evo while Screen Recording was asked
+  for in this run but macOS still reports it missing.
+- **Front window (FR-30).** `holds_the_front` is "the attached app is the
+  frontmost app".
+- **Not done yet.** The read-back layer (`readback.rs`, phase 3) is not
+  wired into the macOS dispatch: results do not list what changed. The
+  benchmark (T44) is not ported.

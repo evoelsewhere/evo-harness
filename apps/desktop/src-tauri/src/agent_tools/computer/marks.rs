@@ -19,10 +19,15 @@ pub(crate) struct Mark {
 /// At most this many marks are drawn; more would hide the picture.
 pub(crate) const MAX_MARKS: usize = 150;
 
-/// Roles worth a mark: what a person would click, type into or pick.
+/// Roles worth a mark: what a person would click, type into or pick. UI
+/// Automation's names first, then the macOS accessibility roles without
+/// their `AX` prefix.
 const MARKED_ROLES: &[&str] = &[
     "Button", "SplitButton", "CheckBox", "RadioButton", "ComboBox", "Edit", "Document", "Hyperlink", "ListItem",
     "MenuItem", "TabItem", "TreeItem", "DataItem", "Slider", "Spinner", "MenuBar", "Menu",
+    // macOS
+    "TextField", "TextArea", "SearchField", "PopUpButton", "MenuButton", "Link", "Row", "Cell", "Switch",
+    "Incrementor", "DisclosureTriangle", "MenuBarItem",
 ];
 
 /// The marks of a snapshot's lines: elements of a marked role with a ref and a
@@ -150,6 +155,21 @@ mod tests {
             ],
             "windows, text and tiny boxes get no mark"
         );
+    }
+
+    #[test]
+    fn reads_marks_from_macos_snapshot_lines() {
+        let lines: Vec<String> = [
+            "- Window \"notes.txt\" [ref=e1] @0,0 1280x800",
+            "  - TextArea value=\"start\" [ref=e2] @0,30 1280x770",
+            "  - PopUpButton \"Font\" [ref=e3] @20,4 80x20",
+            "  - StaticText \"Label\" [ref=e4] @200,4 80x20",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let numbers: Vec<u64> = from_snapshot(&lines).iter().map(|mark| mark.number).collect();
+        assert_eq!(numbers, vec![2, 3]);
     }
 
     #[test]

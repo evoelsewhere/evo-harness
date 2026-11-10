@@ -118,6 +118,22 @@ wry = "0.57"
 [target.'cfg(target_os = "macos")'.dependencies]
 # App icons from NSWorkspace.
 file_icon_provider = "0.4"
+# Computer app control (src/agent_tools/computer/mac): accessibility and
+# window-server calls, events posted to one process ("elcapitan"), scroll
+# wheel events ("highsierra"). Same versions Tauri already brings in.
+core-graphics = { version = "0.25", features = ["elcapitan", "highsierra"] }
+core-foundation = "0.10"
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace"] }
+# The app catalog: bundles under the Applications folders.
+walkdir = "2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSArray", "NSError", "NSString", "NSURL"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFData"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGDataProvider", "CGImage"] }
+# Capture of one window wherever it is, parked windows included (macOS 14+).
+# Weakly linked in build.rs, so the app still starts on older macOS.
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "objc2-core-graphics", "SCScreenshotManager", "SCShareableContent", "SCStream"] }
 
 # Keep debug builds small: full DWARF for every dependency made target/ grow to
 # 150+ GB. Line tables still give file:line in backtraces and panics.

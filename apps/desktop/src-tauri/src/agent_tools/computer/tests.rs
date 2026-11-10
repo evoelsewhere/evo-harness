@@ -18,6 +18,17 @@ const FORBIDDEN: &[&str] = &[
     "SwitchToThisWindow",
     "InjectSyntheticPointerInput",
     "InjectTouchInput",
+    // macOS: the person's cursor, events posted to the whole session (a
+    // `CGEventTapLocation`) rather than to one process, and activating an
+    // app (FR-29).
+    "CGWarpMouseCursorPosition",
+    "CGDisplayMoveCursorToPoint",
+    "CGAssociateMouseAndMouseCursorPosition",
+    "CGEventTapLocation",
+    "CGEventPost",
+    "activateWithOptions",
+    "activateIgnoringOtherApps",
+    "AXFrontmost",
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
