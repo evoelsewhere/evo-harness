@@ -41,9 +41,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
-    // Keep the Mica tint in step with the app theme (no-op elsewhere).
-    invoke("window_set_theme", { dark }).catch(() => undefined);
-  }, [dark]);
+    // Keep the native window (Mica tint, macOS appearance behind the sidebar
+    // vibrancy) in step with the app theme; "system" hands it back to the OS.
+    invoke("window_set_theme", { dark, system: theme === "system" }).catch(() => undefined);
+  }, [dark, theme]);
 
   const setTheme = React.useCallback((next: Theme) => {
     setThemeState(next);

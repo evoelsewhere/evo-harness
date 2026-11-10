@@ -54,12 +54,31 @@ pub fn window_material(state: State<'_, MaterialState>) -> Material {
     *state.0.lock().expect("material lock")
 }
 
-/// Re-tint the material when the app theme changes (Mica only; vibrancy
-/// follows the system appearance on its own).
+/// Follow the app theme in the native window: re-tint Mica on Windows; on
+/// macOS set the window appearance, which the vibrancy material (and the
+/// title bar) draw from. With `system` the window goes back to following the
+/// OS appearance, so the webview's `prefers-color-scheme` keeps tracking it.
 #[tauri::command]
 // `Window`, not `WebviewWindow`: with browser tabs (child webviews) open the
 // window holds several webviews and is no longer a `WebviewWindow`.
-pub fn window_set_theme(window: Window, state: State<'_, MaterialState>, dark: bool) {
+#[allow(unused_variables)]
+pub fn window_set_theme(
+    window: Window,
+    state: State<'_, MaterialState>,
+    dark: bool,
+    system: Option<bool>,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        let theme = if system.unwrap_or(false) {
+            None
+        } else if dark {
+            Some(tauri::Theme::Dark)
+        } else {
+            Some(tauri::Theme::Light)
+        };
+        let _ = window.set_theme(theme);
+    }
     let mut material = state.0.lock().expect("material lock");
     if *material == Material::Mica {
         *material = apply(&window, Some(dark));
