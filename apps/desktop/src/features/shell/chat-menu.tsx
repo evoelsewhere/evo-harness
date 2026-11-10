@@ -58,6 +58,14 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
       );
   };
 
+  // An incognito chat has a fixed title and is never pinned, forked, moved
+  // or archived: it can only be ended
+  // (docs/features/memory-topics-and-chat-recall/spec.md, FR-19, FR-22).
+  if (chat.incognito) {
+    const end: Action[] = [{ key: "e", label: "End chat", run: onDelete, destructive: true }];
+    return { main: end, newWindow: null, openIn: [], busy, archived, incognito: true };
+  }
+
   const main: Action[] = archived
     ? [{ key: "a", label: "Restore", run: () => void setArchived(chat.id, false) }]
     : [
@@ -80,7 +88,7 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
         .filter((entry) => entry.key.length === 1)
     : [];
 
-  return { main, newWindow, openIn, busy, archived };
+  return { main, newWindow, openIn, busy, archived, incognito: false };
 }
 
 /** Run the action whose key was pressed (no modifiers) and close the menu. */
@@ -117,7 +125,7 @@ function Item({ action }: { action: Action }) {
 /** The menu body: Open in ›, Pin, Mark as unread, Rename, Fork, Move to ›, Archive, Delete. */
 export function ChatMenuItems(props: ChatMenuProps) {
   const { chat, onClose } = props;
-  const { main, newWindow, openIn, busy, archived } = useChatActions(props);
+  const { main, newWindow, openIn, busy, archived, incognito } = useChatActions(props);
   const workspaces = useSessionStore((s) => s.workspaces);
   const moveChat = useEngineStore((s) => s.moveChat);
   const parent = useSessionStore((s) => (chat.parentChatId ? s.sessions.find((x) => x.id === chat.parentChatId) : undefined));
@@ -127,6 +135,7 @@ export function ChatMenuItems(props: ChatMenuProps) {
   const subActions = [...(newWindow ? [newWindow] : []), ...openIn];
   const places = [{ id: null as string | null, name: "This computer" }, ...workspaces.map((w) => ({ id: w.id as string | null, name: w.name }))];
 
+  if (incognito) return <Item action={main[0]} />;
   return (
     <>
       {subActions.length > 0 && (

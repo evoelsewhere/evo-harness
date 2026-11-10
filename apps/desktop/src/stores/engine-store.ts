@@ -131,6 +131,11 @@ interface EngineStore extends Mirrored {
   /** Move a chat to another workspace (`null`: "This computer"); its engine restarts there. */
   moveChat(id: string, workspaceId: string | null): Promise<void>;
   /**
+   * Memory off or incognito for a chat, before its first message only: its
+   * engine starts again with the choice (docs/features/memory-topics-and-chat-recall).
+   */
+  setChatFlags(chat: string, flags: { memoryOff?: boolean; incognito?: boolean }): Promise<void>;
+  /**
    * Restart the engines of chats that are not running a turn, so they pick up
    * new startup settings (Settings → Sandbox). Running ones keep going and
    * pick them up when they next start.
@@ -423,7 +428,9 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         void get().refreshState(chat);
         return;
       }
-      await client?.start(chat, cwd);
+      // A draft has no row yet: the shell is told what it was set to.
+      const row = useSessionStore.getState().sessions.find((s) => s.id === chat);
+      await client?.start(chat, cwd, row ? { memoryOff: row.memoryOff, incognito: row.incognito } : undefined);
     } catch (error) {
       update(chat, () => ({ status: "error", error: String(error) }));
       log("error", "engine", `could not start: ${String(error)}`, { chatId: chat });
@@ -976,6 +983,8 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       // swapped its provider runtimes; the others reload, and the UI refreshes.
       void get().refreshState(chat);
       broadcastProviders(chat);
+      // Memory indexing stopped for a model it could not use may go on now.
+      void db.memoryIndexPoke().catch(() => undefined);
       window.dispatchEvent(new CustomEvent("evo:providers-changed", { detail: message }));
       return;
     }
@@ -1008,7 +1017,10 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         source: "agent",
         level: "warning",
         title: "Approval needed",
-        body: `${chatTitle(chat)}: ${ui.title ?? ui.question ?? ui.message ?? "the agent needs your input"}`,
+        // Nothing an incognito chat says is kept, a notification's text included.
+        body: useSessionStore.getState().sessions.find((s) => s.id === chat)?.incognito
+          ? chatTitle(chat)
+          : `${chatTitle(chat)}: ${ui.title ?? ui.question ?? ui.message ?? "the agent needs your input"}`,
         key: `agent:${chat}`,
         target: { type: "session", id: chat },
       });
@@ -1084,6 +1096,15 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       void listen("agent-tools://changed", () => {
         for (const rt of Object.values(get().runtimes)) {
           if (rt.status === "ready") void configureSessionTools(rt.chatId);
+        }
+      });
+      // Memory indexing changed topics: every idle chat reads the new lists
+      // from its next message.
+      void listen("memory://changed", () => {
+        for (const rt of Object.values(get().runtimes)) {
+          if (rt.status === "ready" && !rt.transcript.busy && client) {
+            void client.request(rt.chatId, "reload_resources").catch(() => undefined);
+          }
         }
       });
       void useConnectorsStore.getState().load();
@@ -1280,6 +1301,16 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         const workspace = sessions.workspaces.find((w) => w.id === workspaceId);
         await launch(id, workspace?.path ?? (await localRoot()), true);
       }
+    },
+
+    async setChatFlags(chat, flags) {
+      const rt = runtime(chat);
+      const row = useSessionStore.getState().sessions.find((s) => s.id === chat);
+      // Only before the first message: afterwards the choice is locked.
+      if (!row?.draft || (rt?.transcript.turns.length ?? 0) > 0 || rt?.transcript.busy) return;
+      useSessionStore.getState().setDraftFlags(chat, flags);
+      // The draft's engine was started without the choice: start it again.
+      await launch(chat, rt?.cwd, false);
     },
 
     async setChatConnector(chat, key, on) {

@@ -1,11 +1,12 @@
 import type * as React from "react";
-import { AppWindowIcon, CpuIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
+import { AppWindowIcon, BrainIcon, CpuIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
 import type { SettingsSection } from "@/stores/ui-store";
 import { AppearanceSettings } from "./sections/appearance-settings";
 import { ComputerAppsSettings } from "./sections/computer-apps-settings";
 import { GeneralSettings } from "./sections/general-settings";
 import { ProviderSettings } from "./sections/provider-settings";
 import { LogsSettings } from "./sections/logs-settings";
+import { MemorySettings } from "./sections/memory-settings";
 import { SandboxSettings } from "./sections/sandbox-settings";
 import { AboutSettings, EngineSettings } from "./sections/system-settings";
 
@@ -43,6 +44,14 @@ export const settingsPages: SettingsPage[] = [
     group: "Application",
     keywords: ["provider", "api key", "key", "model", "models", "connect", "openai", "anthropic", "claude", "gemini", "openrouter", "deepseek", "ollama", "base url"],
     component: ProviderSettings,
+  },
+  {
+    id: "memory",
+    title: "Memory",
+    icon: BrainIcon,
+    group: "Application",
+    keywords: ["memory", "remember", "forget", "topics", "pause", "reset", "sensitive", "private", "past chats", "search", "history", "index", "indexing", "summary", "model", "incognito"],
+    component: MemorySettings,
   },
   {
     id: "computer-apps",

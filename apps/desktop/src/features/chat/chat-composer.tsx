@@ -1,7 +1,18 @@
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { AtSignIcon, ChevronDownIcon, PaperclipIcon, PlugIcon, PlusIcon, ShieldCheckIcon, SlashIcon, XIcon } from "lucide-react";
+import {
+  AtSignIcon,
+  BrainIcon,
+  ChevronDownIcon,
+  GhostIcon,
+  PaperclipIcon,
+  PlugIcon,
+  PlusIcon,
+  ShieldCheckIcon,
+  SlashIcon,
+  XIcon,
+} from "lucide-react";
 import { ModelSelector } from "@/components/ai-elements/model-selector";
 import { PromptInput, type PromptAttachment } from "@/components/ai-elements/prompt-input";
 import {
@@ -29,6 +40,7 @@ import { useAnnotationsStore } from "@/stores/annotations-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
 import { useApprovalGrants, useEngineStore } from "@/stores/engine-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useUiStore, type ApprovalMode } from "@/stores/ui-store";
 import { ComposerAnnotations } from "./annotation-chips";
 import { CommandMenu, commandItems, leadingCommand, matchCommands, type CommandItem } from "./command-menu";
@@ -495,6 +507,7 @@ export function ChatComposer() {
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          <ChatFlagsMark />
           {chatId &&
             grants.filter((grant) => grant in grantChips).map((grant) => (
               <InputGroupButton
@@ -542,6 +555,13 @@ function PlusMenu({
   const chat = useEngineStore((s) => s.activeId);
   const off = useUiStore((s) => (chat ? s.chatConnectorsOff[chat] : undefined)) ?? [];
   const cwd = useEngineStore((s) => s.cwd);
+  // Memory and incognito are chosen before the first message; a saved chat's
+  // choice is locked (docs/features/memory-topics-and-chat-recall/spec.md, FR-6, FR-19).
+  const row = useSessionStore((s) => s.sessions.find((x) => x.id === chat));
+  const started = useEngineStore((s) => (s.activeId ? (s.runtimes[s.activeId]?.transcript.turns.length ?? 0) > 0 : false));
+  const locked = !chat || !row?.draft || started;
+  const setFlags = (flags: { memoryOff?: boolean; incognito?: boolean }) =>
+    chat && void useEngineStore.getState().setChatFlags(chat, flags);
   // Your connectors, and the approved servers of this chat's project.
   const shown = connectors.filter((c) => !c.project || (cwd && c.project && cwdIn(cwd, c.project)));
   const withResources = shown.filter((c) => c.status === "connected" && !c.project && c.resources.length > 0);
@@ -602,6 +622,22 @@ function PlusMenu({
             <DropdownMenuItem onClick={() => useUiStore.getState().openCustomize("connectors")}>Manage connectors…</DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{locked ? "Set when this chat started" : "For this chat"}</DropdownMenuLabel>
+          <DropdownMenuCheckboxItem
+            checked={!row?.memoryOff}
+            disabled={locked || !!row?.incognito}
+            onCheckedChange={(on) => setFlags({ memoryOff: !on })}
+          >
+            <BrainIcon />
+            Memory
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem checked={!!row?.incognito} disabled={locked} onCheckedChange={(on) => setFlags({ incognito: on })}>
+            <GhostIcon />
+            Incognito chat
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuGroup>
         {withResources.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
@@ -626,6 +662,23 @@ function PlusMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Says in the toolbar that this chat has no memory, or is incognito. */
+function ChatFlagsMark() {
+  const chat = useEngineStore((s) => s.activeId);
+  const row = useSessionStore((s) => s.sessions.find((x) => x.id === chat));
+  if (!row?.memoryOff && !row?.incognito) return null;
+  const incognito = !!row.incognito;
+  const hint = incognito
+    ? "Incognito: this chat uses no memory and is removed when it ends"
+    : "Memory is off for this chat: nothing is remembered from it";
+  return (
+    <span className="flex items-center gap-1 px-1.5 text-xs text-muted-foreground" title={hint} aria-label={hint}>
+      {incognito ? <GhostIcon className="size-3.5" /> : <BrainIcon className="size-3.5 opacity-50" />}
+      <span className="hidden @2xl:inline">{incognito ? "Incognito" : "Memory off"}</span>
+    </span>
   );
 }
 

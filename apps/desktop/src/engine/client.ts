@@ -72,11 +72,12 @@ export class EngineClient {
   }
 
   /** Start (or restart) `chat`'s engine with `cwd` as the project directory. */
-  async start(chat: string, cwd?: string): Promise<void> {
+  async start(chat: string, cwd?: string, options?: { memoryOff?: boolean; incognito?: boolean }): Promise<void> {
     this.failPending(chat, "engine restarted");
     // Events of the new process can arrive before `invoke` returns; `accept`
-    // adopts the newer generation as soon as one shows up.
-    const generation = await invoke<number>("engine_start", { chat, cwd: cwd ?? null });
+    // adopts the newer generation as soon as one shows up. `options` is what a
+    // draft was set to; for a saved chat the shell reads its row.
+    const generation = await invoke<number>("engine_start", { chat, cwd: cwd ?? null, options: options ?? null });
     this.generations.set(chat, Math.max(this.generations.get(chat) ?? 0, generation));
   }
 

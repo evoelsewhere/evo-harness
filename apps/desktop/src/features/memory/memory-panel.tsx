@@ -1,5 +1,6 @@
 import * as React from "react";
-import { BrainIcon, FolderOpenIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
+import { BrainIcon, FolderOpenIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
@@ -9,12 +10,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { baseName, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
+import { useSessionStore } from "@/stores/session-store";
 
 // The Memory tool: what the agent keeps across chats (RPC `list_memories`,
 // `save_memory`, `delete_memory`, `set_memory_enabled`;
 // crates/evo-engine/src/memory.rs). Personal memories hold in every project,
 // project ones in this chat's folder. The agent saves them with its `memory`
 // tool; here you read, correct, add and remove them.
+//
+// Topics (docs/features/memory-topics-and-chat-recall/spec.md): each memory
+// says who changed it last; a project can do without personal topics
+// (`set_memory_settings`); a paused memory is still listed and edited; and
+// the changes automatic indexing made are listed with the chat they came
+// from and can be undone (`list_memory_changes`, `undo_memory_change`).
 
 type Scope = "personal" | "project";
 type MemoryType = "user" | "feedback" | "project" | "reference";
@@ -27,13 +35,37 @@ interface MemoryItem {
   updated: number;
   path: string;
   scope: Scope;
+  /** Who changed it last; absent for memories from before topics. */
+  by?: "chat" | "index" | "person" | null;
+  /** It holds a sensitive subject the person allowed. */
+  sensitive?: boolean;
 }
 
 interface MemoryState {
   enabled: boolean;
+  /** False for a chat started with memory off, or incognito. */
+  chatMemory?: boolean;
+  /** This project uses personal topics. */
+  usePersonal?: boolean;
   personal: { dir: string; items: MemoryItem[] };
   project: { dir: string; folder: string; items: MemoryItem[] };
 }
+
+/** One change automatic indexing made to a topic. */
+interface MemoryChange {
+  id: number;
+  at: number;
+  scope: Scope;
+  name: string;
+  action: "added" | "updated" | "deleted";
+  chatId: string | null;
+  chatTitle: string | null;
+  removed: string[];
+  added: string[];
+  undone: boolean;
+}
+
+const BY_LABEL: Record<string, string> = { chat: "by the agent", index: "by indexing", person: "by you" };
 
 const TYPES: { id: MemoryType; label: string; hint: string }[] = [
   { id: "user", label: "About you", hint: "Your role, expertise and preferences" },
@@ -59,7 +91,20 @@ function useMemories() {
   // A finished turn may have saved memories.
   const busy = useEngineStore((s) => (s.activeId ? Boolean(s.runtimes[s.activeId]?.transcript.busy) : false));
   const [state, setState] = React.useState<MemoryState | null>(null);
+  const [changes, setChanges] = React.useState<MemoryChange[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+
+  /** The changes indexing made; an engine that does not know them has none. */
+  const loadChanges = React.useCallback(async (command = "list_memory_changes", args?: Record<string, unknown>) => {
+    try {
+      const next = await useEngineStore.getState().request<{ changes?: MemoryChange[] }>(command, args);
+      if (Array.isArray(next?.changes)) setChanges(next.changes);
+      return true;
+    } catch (e) {
+      if (command !== "list_memory_changes") setError(String(e).replace(/^Error:\s*/, ""));
+      return false;
+    }
+  }, []);
 
   const request = React.useCallback(async (command: string, args?: Record<string, unknown>) => {
     const engine = useEngineStore.getState();
@@ -78,10 +123,33 @@ function useMemories() {
   }, []);
 
   React.useEffect(() => {
-    if (ready && !busy) void request("list_memories");
-  }, [ready, busy, chat, request]);
+    if (!ready || busy) return;
+    void request("list_memories");
+    void loadChanges();
+  }, [ready, busy, chat, request, loadChanges]);
 
-  return { state, error, ready, request };
+  // An index run changed topics while the panel was open.
+  React.useEffect(() => {
+    const stop = listen("memory://changed", () => {
+      void request("list_memories");
+      void loadChanges();
+    });
+    return () => void stop.then((off) => off());
+  }, [request, loadChanges]);
+
+  /** Undo one indexing change, then show the topics as they are now. */
+  const undo = React.useCallback(
+    async (id: number) => {
+      if (await loadChanges("undo_memory_change", { change: id })) {
+        setError(null);
+        await request("list_memories");
+        await useEngineStore.getState().reloadIdleResources().catch(() => undefined);
+      }
+    },
+    [loadChanges, request],
+  );
+
+  return { state, changes, error, ready, request, undo };
 }
 
 function Editor({
@@ -201,7 +269,18 @@ function MemoryCard({
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-[12.5px] font-medium">{item.name}</span>
           <span className="shrink-0 rounded bg-brand/10 px-1.5 text-[10.5px] leading-4 text-brand">{typeLabel(item.type)}</span>
-          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">{formatRelative(item.updated)}</span>
+          {item.sensitive && (
+            <span className="shrink-0 rounded bg-muted px-1.5 text-[10.5px] leading-4 text-muted-foreground" title="A sensitive subject you allowed">
+              Sensitive
+            </span>
+          )}
+          <span
+            className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums"
+            title={item.by ? `Last changed ${BY_LABEL[item.by] ?? ""}` : undefined}
+          >
+            {formatRelative(item.updated)}
+            {item.by && BY_LABEL[item.by] ? ` · ${BY_LABEL[item.by]}` : ""}
+          </span>
         </span>
         <span className={cn("text-xs leading-4 text-muted-foreground", !open && "line-clamp-2")}>{item.description}</span>
       </button>
@@ -248,8 +327,60 @@ function MemoryCard({
   );
 }
 
+/** One change indexing made: what it did, where it came from, and undo. */
+function ChangeRow({ change, onUndo }: { change: MemoryChange; onUndo(): void }) {
+  const [open, setOpen] = React.useState(false);
+  const listed = useSessionStore((s) => (change.chatId ? s.sessions.some((chat) => chat.id === change.chatId) : false));
+  const verb = change.action === "added" ? "Added" : change.action === "deleted" ? "Deleted" : "Updated";
+  return (
+    <div className={cn("rounded-lg px-2.5 py-1.5 transition-colors", open ? "bg-muted/60 dark:bg-accent/40" : "hover:bg-accent/50")}>
+      <div className="flex min-w-0 items-center gap-2">
+        <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
+          <span className="shrink-0 text-xs text-muted-foreground">{verb}</span>
+          <span className={cn("truncate font-mono text-[12.5px]", change.undone && "text-muted-foreground line-through")}>{change.name}</span>
+          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">{formatRelative(change.at)}</span>
+        </button>
+        {change.undone ? (
+          <span className="shrink-0 text-[11px] text-muted-foreground">Undone</span>
+        ) : (
+          <Button size="sm" variant="ghost" className="h-6 shrink-0 gap-1 px-2 text-xs" onClick={onUndo}>
+            <Undo2Icon className="size-3" /> Undo
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-1.5 flex flex-col gap-1.5">
+          <div className="rounded-md bg-background px-3 py-2 font-mono text-xs ring-1 ring-border/70">
+            {change.removed.map((line, index) => (
+              <p key={`r${index}`} className="text-destructive">
+                − {line}
+              </p>
+            ))}
+            {change.added.map((line, index) => (
+              <p key={`a${index}`}>+ {line}</p>
+            ))}
+            {change.removed.length + change.added.length === 0 && <p className="text-muted-foreground">No line changed.</p>}
+          </div>
+          {change.chatId &&
+            (listed ? (
+              <button
+                type="button"
+                className="self-start truncate text-xs text-link"
+                onClick={() => void useEngineStore.getState().selectSession(change.chatId!)}
+              >
+                From “{change.chatTitle ?? "a chat"}”
+              </button>
+            ) : (
+              <span className="text-xs text-muted-foreground">From {change.chatTitle ? `“${change.chatTitle}”` : "a chat that is gone"}</span>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MemoryPanel() {
-  const { state, error, ready, request } = useMemories();
+  const { state, changes, error, ready, request, undo } = useMemories();
   const [query, setQuery] = React.useState("");
   const [filter, setFilter] = React.useState<"all" | MemoryType>("all");
   const [open, setOpen] = React.useState<string | null>(null);
@@ -287,9 +418,20 @@ export function MemoryPanel() {
       hint: "Kept outside the repository",
       items: state.project.items.filter(matches),
     },
-    { scope: "personal", title: "Every project", hint: "About you and how you work", items: state.personal.items.filter(matches) },
+    {
+      scope: "personal",
+      title: "Every project",
+      hint: state.usePersonal === false ? "Not used in this project" : "About you and how you work",
+      items: state.personal.items.filter(matches),
+    },
   ];
   const total = state.personal.items.length + state.project.items.length;
+  // Why this chat is not using what is listed, if it is not.
+  const notice = !state.enabled
+    ? "Memory is paused: no chat reads or saves topics. You can still read and edit them here."
+    : state.chatMemory === false
+      ? "Memory is off for this chat: it reads and saves no topic. That was chosen when the chat started."
+      : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -306,7 +448,6 @@ export function MemoryPanel() {
                   size="icon-sm"
                   variant="ghost"
                   aria-label="Add a memory"
-                  disabled={!state.enabled}
                   onClick={() => setDraft({ scope: "project", name: "", description: "", type: "user", content: "" })}
                 />
               }
@@ -316,12 +457,13 @@ export function MemoryPanel() {
             <TooltipContent>Add a memory</TooltipContent>
           </Tooltip>
           <Switch
-            aria-label="Memory on"
+            aria-label="Memory on (off pauses it)"
+            title={state.enabled ? "Pause memory" : "Memory is paused"}
             checked={state.enabled}
             onCheckedChange={(on) => void request("set_memory_enabled", { enabled: on })}
           />
         </div>
-        {state.enabled && total > 0 && (
+        {total > 0 && (
           <>
             <label className="flex h-7 items-center gap-1.5 rounded-md bg-muted/70 px-2 text-xs dark:bg-accent/50">
               <SearchIcon className="size-3.5 text-muted-foreground" />
@@ -358,15 +500,8 @@ export function MemoryPanel() {
 
       <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {error && <p className="mb-2 px-1 text-xs text-destructive">{error}</p>}
-        {!state.enabled ? (
-          <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
-            <BrainIcon className="size-6 text-muted-foreground" />
-            <p className="text-[13px] font-medium">Memory is off</p>
-            <p className="text-xs text-balance text-muted-foreground">
-              Chats neither read nor save memories. Your {total} saved {total === 1 ? "memory stays" : "memories stay"} on disk.
-            </p>
-          </div>
-        ) : (
+        {notice && <p className="mb-2 rounded-md bg-muted/70 px-2.5 py-2 text-xs text-muted-foreground dark:bg-accent/50">{notice}</p>}
+        {
           <>
             {draft && !draft.previous && (
               <div className="mb-3">
@@ -385,9 +520,19 @@ export function MemoryPanel() {
             ) : (
               groups.map((group) => (
                 <section key={group.scope} className="mb-3 flex flex-col gap-0.5">
-                  <p className="flex items-baseline gap-1.5 px-2 pb-1 text-[11px] font-medium text-muted-foreground">
+                  <p className="flex items-center gap-1.5 px-2 pb-1 text-[11px] font-medium text-muted-foreground">
                     <span className="truncate">{group.title}</span>
                     <span className="shrink-0 font-normal opacity-70">{group.hint}</span>
+                    {group.scope === "personal" && (
+                      <label className="ml-auto flex shrink-0 items-center gap-1.5 font-normal" title="Whether chats in this project read and save personal topics">
+                        Use in this project
+                        <Switch
+                          aria-label="Use personal memory in this project"
+                          checked={state.usePersonal !== false}
+                          onCheckedChange={(on) => void request("set_memory_settings", { usePersonal: on })}
+                        />
+                      </label>
+                    )}
                   </p>
                   {group.items.length === 0 ? (
                     <p className="px-2 pb-1 text-xs text-muted-foreground/80">{q || filter !== "all" ? "No matches" : "None yet"}</p>
@@ -428,8 +573,19 @@ export function MemoryPanel() {
                 </section>
               ))
             )}
+            {changes.length > 0 && (
+              <section className="mb-3 flex flex-col gap-0.5">
+                <p className="flex items-baseline gap-1.5 px-2 pb-1 text-[11px] font-medium text-muted-foreground">
+                  <span className="truncate">Changed by indexing</span>
+                  <span className="shrink-0 font-normal opacity-70">Newest first</span>
+                </p>
+                {changes.map((change) => (
+                  <ChangeRow key={change.id} change={change} onUndo={() => void undo(change.id)} />
+                ))}
+              </section>
+            )}
           </>
-        )}
+        }
       </div>
     </div>
   );

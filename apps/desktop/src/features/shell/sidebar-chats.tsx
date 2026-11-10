@@ -5,6 +5,7 @@ import {
   ArchiveIcon,
   ChevronRightIcon,
   FolderOpenIcon,
+  GhostIcon,
   MoreHorizontalIcon,
   PinIcon,
   PlusIcon,
@@ -188,6 +189,8 @@ ${chat.preview}` : chat.title}
         className="h-7 pr-8 text-[13px]"
       >
         {chat.pinned && !archived && <PinIcon className="size-3! text-muted-foreground" />}
+        {/* An incognito chat: no memory, and gone when it ends. */}
+        {chat.incognito && <GhostIcon className="size-3! text-muted-foreground" aria-label="Incognito chat" />}
         <span
           className={cn(
             "truncate",
@@ -225,9 +228,13 @@ ${chat.preview}` : chat.title}
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete this chat?"
-        description={`"${chat.title}" and its whole conversation are removed from this computer. This cannot be undone.`}
-        action="Delete chat"
+        title={chat.incognito ? "End this incognito chat?" : "Delete this chat?"}
+        description={
+          chat.incognito
+            ? "The chat and its whole conversation are removed from this computer now. This cannot be undone."
+            : `"${chat.title}" and its whole conversation are removed from this computer. This cannot be undone.`
+        }
+        action={chat.incognito ? "End chat" : "Delete chat"}
         onConfirm={() => void closeChat(chat.id, "delete")}
       />
     </>

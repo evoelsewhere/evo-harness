@@ -39,6 +39,8 @@ import { TodoList } from "@/features/chat/todo-bar";
 import { SentFiles } from "./sent-files";
 import { WidgetFrame } from "@/components/widget-frame";
 import { kinds, type Kind } from "./tool-kinds";
+import { useEngineStore } from "@/stores/engine-store";
+import { useSessionStore } from "@/stores/session-store";
 
 // shadcn/ui AI Elements · Tool on Trace, following a call through DeepSeek
 // Harness's phases: preparing (the model is still writing the arguments, so
@@ -216,6 +218,77 @@ function WebResults({ results }: { results: { title: string; url: string; snippe
   );
 }
 
+/** One past chat a search found (`session_search`'s `structuredContent`). */
+interface PastChat {
+  id: string;
+  title: string;
+  date: string;
+  summary?: string | null;
+}
+
+/**
+ * The chats a past-chat search found; selecting one opens it
+ * (docs/features/memory-topics-and-chat-recall/spec.md, FR-14).
+ */
+function PastChats({ hits }: { hits: PastChat[] }) {
+  // Only chats still in the list can be opened from here.
+  const listed = useSessionStore((s) => s.sessions);
+  if (!hits.length) return <p className="px-1 text-xs text-muted-foreground">No past chat found.</p>;
+  return (
+    <ol className="flex flex-col gap-0.5">
+      {hits.map((hit) => {
+        const open = listed.some((chat) => chat.id === hit.id);
+        const body = (
+          <>
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className={open ? "truncate text-[13px] text-link" : "truncate text-[13px]"}>{hit.title}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{hit.date}</span>
+            </span>
+            {hit.summary && <span className="line-clamp-2 text-xs text-muted-foreground">{hit.summary}</span>}
+          </>
+        );
+        return (
+          <li key={hit.id}>
+            {open ? (
+              <button
+                type="button"
+                title={`Open "${hit.title}"`}
+                onClick={() => void useEngineStore.getState().selectSession(hit.id)}
+                className="flex w-full min-w-0 flex-col rounded-md px-2 py-1 text-left transition-colors hover:bg-accent/60"
+              >
+                {body}
+              </button>
+            ) : (
+              <div className="flex min-w-0 flex-col px-2 py-1">{body}</div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** The lines a topic update took out and put in. */
+function MemoryChange({ removed, added }: { removed: string[]; added: string[] }) {
+  if (!removed.length && !added.length) return <p className="px-1 text-xs text-muted-foreground">No line changed.</p>;
+  return (
+    <CodeBlock size="sm">
+      <CodeBlockContent wrap className="max-h-64" data-selectable>
+        {removed.map((line, index) => (
+          <CodeBlockLine key={`r${index}`} variant="removed" className="ps-6!">
+            {line}
+          </CodeBlockLine>
+        ))}
+        {added.map((line, index) => (
+          <CodeBlockLine key={`a${index}`} variant="added" className="ps-6!">
+            {line}
+          </CodeBlockLine>
+        ))}
+      </CodeBlockContent>
+    </CodeBlock>
+  );
+}
+
 /** The page's text without the `<web_page>` wrapper. */
 function webPageBody(output: string | undefined): string {
   const text = output ?? "";
@@ -231,12 +304,15 @@ function memoryLabel(part: ToolPart, phase: ToolPart["phase"]): string {
   const updated = /^Updated /.test(part.output ?? "");
   const verb: Record<string, [string, string]> = {
     save: ["Saving memory", updated ? "Updated memory" : "Saved memory"],
+    update: ["Updating memory", "Updated memory"],
     read: ["Reading memory", "Read memory"],
     list: ["Listing memories", "Listed memories"],
     delete: ["Forgetting", "Forgot"],
   };
   const [doing, did] = verb[String(args.action ?? "")] ?? ["Using memory", "Used memory"];
-  return `${phase === "error" ? "Memory failed" : live ? doing : did}${name ? ` · ${name}` : ""}`;
+  // A sensitive subject the person allowed is marked (spec FR-17).
+  const sensitive = phase === "done" && part.details?.sensitive === true ? " · sensitive" : "";
+  return `${phase === "error" ? "Memory failed" : live ? doing : did}${name ? ` · ${name}` : ""}${sensitive}`;
 }
 
 /** The first loading message of a `show_widget` call, from its arguments or the JSON still streaming. */
@@ -497,12 +573,15 @@ export function Tool({
     start_session: phase === "done" ? "Session" : "Starting a session",
     message_session: phase === "done" ? "Messaged a session" : "Messaging a session",
     list_sessions: phase === "done" ? "Listed sessions" : "Listing sessions",
+    session_search: phase === "done" ? "Searched past chats" : "Searching past chats",
+    session_read: phase === "done" ? "Read a past chat" : "Reading a past chat",
   };
+  const searched = part.name === "session_search" ? String((part.args as any)?.query ?? "").trim() : "";
   const label =
     kind === "session"
       ? `${phase === "error" ? "Session tool failed" : (sessionLabel[part.name] ?? part.name)}${
           about && part.name === "start_session" ? ` · ${about}` : ""
-        }`
+        }${searched ? ` · ${searched}` : ""}`
       : kind === "memory"
       ? memoryLabel(part, phase)
       : kind === "code"
@@ -663,6 +742,15 @@ export function Tool({
   else if (diff && !failed) body = <Diff diff={diff} path={about} />;
   else if (kind === "read" && !failed) body = <Plain text={part.output} failed={false} title={about} />;
   else if (kind === "skill" && !failed) body = <Plain text={skillBody(part.output)} failed={false} title="Instructions" />;
+  else if (part.name === "session_search" && !failed && Array.isArray(part.details?.externalToolResult?.structuredContent?.hits))
+    body = <PastChats hits={part.details.externalToolResult.structuredContent.hits} />;
+  else if (kind === "memory" && !failed && (part.args as any)?.action === "update" && part.details?.diff)
+    body = (
+      <MemoryChange
+        removed={Array.isArray(part.details.diff.removed) ? part.details.diff.removed : []}
+        added={Array.isArray(part.details.diff.added) ? part.details.diff.added : []}
+      />
+    );
   else if (kind === "memory" && !failed && (part.args as any)?.action === "save")
     body = <Plain text={String((part.args as any)?.content ?? "")} failed={false} title={String((part.args as any)?.description ?? "Memory")} />;
   else if (kind === "other" || kind === "mcp")

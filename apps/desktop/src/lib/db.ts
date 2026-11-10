@@ -38,6 +38,27 @@ export interface DbChat {
   origin: "user" | "agent";
   /** A managed worktree the chat works in instead of its workspace folder. */
   worktreePath: string | null;
+  /** The chat uses no memory, saves none and cannot search past chats. */
+  memoryOff: boolean;
+  /** As `memoryOff`, and the chat leaves no history: it is removed when it ends. */
+  incognito: boolean;
+  /** The Scheduler started it. */
+  scheduled: boolean;
+}
+
+/** What a chat is started with, chosen before its first message. */
+export interface ChatFlags {
+  memoryOff?: boolean;
+  incognito?: boolean;
+}
+
+/** The memory index worker in the shell (`src-tauri/src/memory_index.rs`). */
+export interface MemoryIndexStatus {
+  /** `off`: not switched on, or no model. `stopped`: it cannot go on; `message` says why. */
+  state: "off" | "idle" | "running" | "stopped";
+  chat: string | null;
+  message: string | null;
+  waiting: number;
 }
 
 export interface ChatPatch {
@@ -60,7 +81,7 @@ export interface TurnRecord {
 }
 
 /** Which part of a chat made a model call (`crates/evo-store/src/usage.rs`). */
-export type UsageSource = "chat" | "subagent" | "plugin" | "side";
+export type UsageSource = "chat" | "subagent" | "plugin" | "side" | "memory";
 
 /** Which recorded responses a usage query covers; every field narrows. */
 export interface UsageQuery {
@@ -183,6 +204,9 @@ export const db = {
     parentChatId?: string | null;
     origin?: "user" | "agent";
     worktreePath?: string | null;
+    memoryOff?: boolean;
+    incognito?: boolean;
+    scheduled?: boolean;
   }) => invoke<DbChat>("chat_create", { chat }),
   /** The worktree a chat works in, or its workspace folder again (`null`). */
   setWorktree: (id: string, worktreePath: string | null) =>
@@ -208,6 +232,15 @@ export const db = {
   usageEvents: (query: UsageQuery, beforeId?: number, limit?: number) =>
     invoke<UsageEvent[]>("usage_events", { query, beforeId: beforeId ?? null, limit: limit ?? null }),
   clearUsage: () => invoke<number>("usage_clear"),
+
+  memoryIndexStatus: () => invoke<MemoryIndexStatus>("memory_index_status"),
+  /** Index every chat with new messages now, idle or not. */
+  memoryIndexNow: () => invoke<void>("memory_index_now"),
+  /** How many chats from before indexing was switched on have not been read. */
+  memoryIndexEarlierCount: () => invoke<number>("memory_index_earlier_count"),
+  memoryIndexEarlier: () => invoke<void>("memory_index_earlier"),
+  /** A memory setting kept by the engine, or the providers, changed. */
+  memoryIndexPoke: () => invoke<void>("memory_index_poke"),
 };
 
 /**

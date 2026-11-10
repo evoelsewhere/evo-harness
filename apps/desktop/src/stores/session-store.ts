@@ -28,6 +28,8 @@ export interface SessionSummary extends Omit<DbChat, "preview" | "provider" | "m
 }
 
 export const UNTITLED = "New chat";
+/** The title of every incognito chat: none of its own words are kept. */
+export const INCOGNITO_TITLE = "Incognito chat";
 export const LOCAL_GROUP = "local";
 
 const LAST_CHAT_KEY = "ui.lastChat";
@@ -56,6 +58,8 @@ interface SessionStore {
   addDraft(id: string, workspaceId: string | null): SessionSummary;
   /** Drop an unsaved chat. */
   discardDraft(id: string): void;
+  /** Memory off or incognito for an unsaved chat; a saved chat's choice is locked. */
+  setDraftFlags(id: string, flags: { memoryOff?: boolean; incognito?: boolean }): void;
   /** Save a draft on its first prompt, titled after it. */
   saveDraft(id: string, prompt: string, model?: { provider?: string; model?: string }): Promise<void>;
   select(id: string): void;
@@ -200,6 +204,9 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         parentChatId: null,
         origin: "user",
         worktreePath: null,
+        memoryOff: false,
+        incognito: false,
+        scheduled: false,
         draft: true,
       };
       set((s) => ({
@@ -214,15 +221,37 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
       set((s) => ({ sessions: s.sessions.filter((x) => !(x.id === id && x.draft)) }));
     },
 
+    setDraftFlags(id, flags) {
+      set((s) => ({
+        sessions: s.sessions.map((x) => {
+          if (x.id !== id || !x.draft) return x;
+          const incognito = flags.incognito ?? x.incognito;
+          // An incognito chat never uses memory.
+          const memoryOff = incognito || (flags.memoryOff ?? (flags.incognito === false ? false : x.memoryOff));
+          return { ...x, incognito, memoryOff, title: incognito ? INCOGNITO_TITLE : UNTITLED };
+        }),
+      }));
+    },
+
     async saveDraft(id, prompt, model) {
       const draft = get().sessions.find((s) => s.id === id);
       if (!draft?.draft) return;
-      // Show the title at once; the row follows.
+      // Show the title at once; the row follows. An incognito chat keeps its
+      // fixed title: none of its words are saved.
+      const title = draft.incognito ? INCOGNITO_TITLE : titleFrom(prompt);
       set((s) => ({
-        sessions: s.sessions.map((x) => (x.id === id ? { ...x, title: titleFrom(prompt), updatedAt: Date.now() } : x)),
+        sessions: s.sessions.map((x) => (x.id === id ? { ...x, title, updatedAt: Date.now() } : x)),
       }));
       const chat = await db
-        .createChat({ id, workspaceId: draft.workspaceId, title: titleFrom(prompt), provider: model?.provider, model: model?.model })
+        .createChat({
+          id,
+          workspaceId: draft.workspaceId,
+          title,
+          provider: model?.provider,
+          model: model?.model,
+          memoryOff: draft.memoryOff,
+          incognito: draft.incognito,
+        })
         .catch((error) => {
           report("saving the chat")(error);
           return null;
@@ -289,7 +318,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
     },
 
     async createTaskChat({ id, workspaceId, title }) {
-      const chat = await db.createChat({ id, workspaceId, title: titleFrom(title) }).catch((error) => {
+      const chat = await db.createChat({ id, workspaceId, title: titleFrom(title), scheduled: true }).catch((error) => {
         report("saving the scheduled chat")(error);
         return null;
       });
@@ -298,8 +327,19 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
     },
 
     async createChild({ id, parentChatId, workspaceId, title, worktreePath = null }) {
+      // A nested chat follows its parent: no memory, no history.
+      const parent = get().sessions.find((s) => s.id === parentChatId);
       const chat = await db
-        .createChat({ id, parentChatId, workspaceId, title: titleFrom(title), origin: "agent", worktreePath })
+        .createChat({
+          id,
+          parentChatId,
+          workspaceId,
+          title: titleFrom(title),
+          origin: "agent",
+          worktreePath,
+          memoryOff: parent?.memoryOff,
+          incognito: parent?.incognito,
+        })
         .catch((error) => {
           report("saving the nested chat")(error);
           return null;

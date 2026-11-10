@@ -46,6 +46,7 @@ const SOURCE_LABELS: Record<UsageSource, string> = {
   subagent: "Subagents",
   plugin: "Plugin runs",
   side: "Side questions",
+  memory: "Memory indexing",
 };
 
 const METRICS: { id: Metric; label: string }[] = [
