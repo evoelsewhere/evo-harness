@@ -435,6 +435,9 @@ pub fn agent_window_chat(state: State<'_, AgentTools>, window: Window, chat: Opt
 /// (connector tools), the chat working in `folder` or else in its own folder.
 #[tauri::command]
 pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folder: Option<String>) -> Vec<Value> {
+    // The past-chat tools follow **Search past chats** and the chat's memory
+    // flags (chat_flags.rs).
+    let hidden = crate::chat_flags::hidden_tools(&app, chat.as_deref().filter(|c| !c.is_empty())).await;
     let mut extra = Vec::new();
     if let Some(chat) = chat.filter(|c| !c.is_empty()) {
         let folder = folder.filter(|f| !f.is_empty()).map(PathBuf::from);
@@ -442,7 +445,11 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
             extra.push(provider.definitions_for(app.clone(), chat.clone(), folder.clone()).await);
         }
     }
-    let fixed = static_definitions().into_iter().filter(|definition| offered(&app, definition)).collect();
+    let fixed = static_definitions()
+        .into_iter()
+        .filter(|definition| offered(&app, definition))
+        .filter(|definition| !definition.get("name").and_then(Value::as_str).is_some_and(|name| hidden.contains(&name)))
+        .collect();
     merge_definitions(fixed, extra)
 }
 

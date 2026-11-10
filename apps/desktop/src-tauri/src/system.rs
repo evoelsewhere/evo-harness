@@ -134,7 +134,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 pub fn shutdown(app: &AppHandle) {
     crate::mcp::shutdown(app);
     crate::computer::shutdown();
+    crate::memory_index::shutdown(app);
     tauri::async_runtime::block_on(app.state::<crate::engine::EngineState>().stop_all());
+    // After the engines: Windows keeps a transcript locked while one has it open.
+    crate::chat_flags::forget_incognito(app);
 }
 
 /// Quit for real: stop every chat's engine, then exit.

@@ -9,11 +9,13 @@
 mod agent_tools;
 mod apps;
 mod browser;
+mod chat_flags;
 mod computer;
 mod db;
 mod engine;
 mod files;
 mod mcp;
+mod memory_index;
 mod mesh;
 mod plugins;
 mod shell_integration;
@@ -52,6 +54,7 @@ pub fn run() {
         .manage(system::SystemState::default())
         .manage(terminal::TerminalState::default())
         .manage(agent_tools::AgentTools::default())
+        .manage(memory_index::IndexWorker::default())
         .manage(browser::BrowserState::default())
         .setup(|app| {
             // The session mesh hub: mail between chats' engines.
@@ -89,6 +92,8 @@ pub fn run() {
             computer::setup(app.handle());
             // App updates: the check timer, after the window is shown.
             updates::setup(app.handle());
+            // Memory: index idle chats with the model the person chose.
+            memory_index::setup(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -152,6 +157,11 @@ pub fn run() {
             db::chat_delete,
             db::settings_all,
             db::settings_set,
+            memory_index::memory_index_status,
+            memory_index::memory_index_now,
+            memory_index::memory_index_earlier_count,
+            memory_index::memory_index_earlier,
+            memory_index::memory_index_poke,
             db::logs_append,
             db::logs_query,
             db::logs_clear,

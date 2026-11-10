@@ -156,6 +156,9 @@ impl MailStore for DbMailStore {
                         parent_chat_id: Some(parent.to_string()),
                         origin: Some("agent".into()),
                         worktree_path: worktree_path.clone(),
+                        // A nested chat follows its parent: no memory, no history.
+                        memory_off: crate::chat_flags::ChatFlags::of(&parent_row).memory_off,
+                        incognito: parent_row.incognito,
                         ..Default::default()
                     },
                 )

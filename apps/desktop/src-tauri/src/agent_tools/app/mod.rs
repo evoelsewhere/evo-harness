@@ -59,6 +59,7 @@ pub(crate) fn optional_count(args: &Value, key: &str, default: u64, min: u64, ma
 }
 
 /// An optional boolean argument; `default` when absent.
+#[allow(dead_code)] // No tool of this group takes one now; kept with its tests for the next that does.
 pub(crate) fn optional_bool(args: &Value, key: &str, default: bool) -> Result<bool, String> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(default),

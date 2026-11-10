@@ -41,6 +41,8 @@ struct EngineProcess {
     child: Child,
     stdin: ChildStdin,
     generation: u64,
+    /// What the chat was started with (memory off, incognito).
+    flags: crate::chat_flags::ChatFlags,
 }
 
 #[derive(Default)]
@@ -81,6 +83,10 @@ impl WorkingChats {
         self.lock().len()
     }
 
+    pub fn contains(&self, chat: &str) -> bool {
+        self.lock().contains(chat)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -110,7 +116,7 @@ pub struct EngineInfo {
 /// Where the engine binary lives: an explicit override, then the sidecar next
 /// to this executable (Tauri places `externalBin` there, in `tauri dev` and in
 /// bundles), then — debug builds only — the engine workspace's build output.
-fn engine_binary() -> PathBuf {
+pub(crate) fn engine_binary() -> PathBuf {
     if let Some(path) = std::env::var_os(ENGINE_BIN_ENV) {
         return PathBuf::from(path);
     }
@@ -264,8 +270,17 @@ fn run_end_outcome(message: &Value) -> &'static str {
     }
 }
 
-/// The protocol events worth keeping in the run log.
-fn log_message(db: &Db, chat: &str, message: &Value) {
+/// The protocol events worth keeping in the run log. `quiet` is an incognito
+/// chat: the events are kept without any of the chat's text
+/// (docs/features/memory-topics-and-chat-recall/spec.md, NFR-4).
+fn log_message(db: &Db, chat: &str, message: &Value, quiet: bool) {
+    if let Some(entry) = log_entry(message) {
+        let entry = if quiet { crate::chat_flags::quiet_entry(message, entry) } else { entry };
+        db.log(entry.chat(Some(chat)));
+    }
+}
+
+fn log_entry(message: &Value) -> Option<NewLog> {
     let kind = message.get("type").and_then(Value::as_str).unwrap_or("");
     let entry = match kind {
         "response" if message.get("success") == Some(&Value::Bool(false)) => NewLog::new(
@@ -291,7 +306,7 @@ fn log_message(db: &Db, chat: &str, message: &Value) {
         "message_end" => {
             let msg = message.get("message");
             if msg.and_then(|m| m.get("stopReason")).and_then(Value::as_str) != Some("error") {
-                return;
+                return None;
             }
             NewLog::new(
                 "error",
@@ -310,9 +325,9 @@ fn log_message(db: &Db, chat: &str, message: &Value) {
             let level = if kind == "extension_error" { "error" } else { "info" };
             NewLog::new(level, "engine", kind.replace('_', " ")).data(message.clone())
         }
-        _ => return,
+        _ => return None,
     };
-    db.log(entry.chat(Some(chat)));
+    Some(entry)
 }
 
 #[tauri::command]
@@ -341,6 +356,7 @@ pub async fn engine_start(
     db: State<'_, Db>,
     chat: String,
     cwd: Option<String>,
+    options: Option<crate::chat_flags::ChatFlags>,
 ) -> Result<u64, String> {
     let mut processes = state.processes.lock().await;
     if let Some(mut old) = processes.remove(&chat) {
@@ -367,6 +383,13 @@ pub async fn engine_start(
         db.log(NewLog::new("error", "shell", error.clone()).chat(Some(&chat)));
     })?;
 
+    // Memory off or incognito: the chat's row decides; a draft has none yet,
+    // so the window says what was chosen (chat_flags.rs).
+    let flags = db
+        .with(|conn| Ok(crate::chat_flags::ChatFlags::for_engine(conn, &chat, options)))
+        .unwrap_or_default();
+    let quiet = flags.incognito;
+
     let mut command = Command::new(&binary);
     command
         .args(["--mode", "rpc", "--session-id", &chat])
@@ -377,6 +400,7 @@ pub async fn engine_start(
         .arg(sandbox_config(&db).to_string())
         // Which tool calls wait for the person (the composer's Approvals menu).
         .args(["--approval-mode", approval_mode(&db)])
+        .args(flags.engine_args())
         .args(extra_args())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -435,7 +459,7 @@ pub async fn engine_start(
             }
             match serde_json::from_str::<Value>(&line) {
                 Ok(message) => {
-                    log_message(&out_app.state::<Db>(), &out_chat, &message);
+                    log_message(&out_app.state::<Db>(), &out_chat, &message, quiet);
                     out_app.state::<EngineState>().working.on_line(&out_chat, &message);
                     let _ = out_app.emit(
                         "engine://message",
@@ -445,9 +469,12 @@ pub async fn engine_start(
                     crate::agent_tools::on_line(&out_app, &out_chat, &message).await;
                 }
                 Err(_) => {
-                    out_app
-                        .state::<Db>()
-                        .log(NewLog::new(stderr_level(&line), "engine", line.clone()).chat(Some(&out_chat)));
+                    // An incognito chat's output is not kept: it can quote the chat.
+                    if !quiet {
+                        out_app
+                            .state::<Db>()
+                            .log(NewLog::new(stderr_level(&line), "engine", line.clone()).chat(Some(&out_chat)));
+                    }
                     let _ = out_app.emit(
                         "engine://stderr",
                         LinePayload { chat: &out_chat, generation, line },
@@ -465,9 +492,11 @@ pub async fn engine_start(
             if line.trim().is_empty() {
                 continue;
             }
-            err_app
-                .state::<Db>()
-                .log(NewLog::new(stderr_level(&line), "engine", line.clone()).chat(Some(&err_chat)));
+            if !quiet {
+                err_app
+                    .state::<Db>()
+                    .log(NewLog::new(stderr_level(&line), "engine", line.clone()).chat(Some(&err_chat)));
+            }
             let _ = err_app.emit(
                 "engine://stderr",
                 LinePayload { chat: &err_chat, generation, line },
@@ -481,6 +510,7 @@ pub async fn engine_start(
             child,
             stdin,
             generation,
+            flags,
         },
     );
     drop(processes);
@@ -549,6 +579,11 @@ impl EngineState {
             .map_err(|error| format!("engine write failed: {error}"))
     }
 
+    /// What `chat`'s running engine was started with; `None` when it has none.
+    pub async fn flags(&self, chat: &str) -> Option<crate::chat_flags::ChatFlags> {
+        self.processes.lock().await.get(chat).map(|process| process.flags)
+    }
+
     /// The chats whose engine runs now.
     pub async fn running(&self) -> Vec<String> {
         self.processes.lock().await.keys().cloned().collect()
@@ -557,6 +592,11 @@ impl EngineState {
     /// How many chats are in a run now (app updates, FR-9).
     pub fn working(&self) -> usize {
         self.working.count()
+    }
+
+    /// Whether `chat` is in a run now: memory indexing waits for its turn to end.
+    pub fn is_working(&self, chat: &str) -> bool {
+        self.working.contains(chat)
     }
 
     /// Kill `chat`'s engine if it runs; true when there was one. The app the

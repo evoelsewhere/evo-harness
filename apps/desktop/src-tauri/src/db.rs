@@ -149,6 +149,20 @@ fn tidy_transcripts(conn: &mut Connection, dir: &std::path::Path) -> Vec<NewLog>
             format!("could not move chat transcripts out of evo.db: {error}"),
         )),
     }
+    // Incognito chats the last run left behind (a crash, a kill) go before
+    // anything is shown; the sweep below removes their transcript files
+    // (docs/features/memory-topics-and-chat-recall/spec.md, FR-22).
+    match crate::chat_flags::forget_incognito_rows(conn) {
+        Ok(ids) => {
+            for id in &ids {
+                let _ = crate::chat_flags::remove_document_versions(id);
+            }
+            if !ids.is_empty() {
+                notes.push(NewLog::new("info", "db", format!("removed {} incognito chats the last run left", ids.len())));
+            }
+        }
+        Err(error) => notes.push(NewLog::new("warn", "db", format!("could not remove incognito chats: {error}"))),
+    }
     match transcripts::sweep(conn, dir) {
         Ok(swept) => {
             if !swept.orphans.is_empty() {
@@ -386,7 +400,12 @@ pub fn chat_record_turn(db: State<'_, Db>, id: String, turn: TurnRecord) -> Resu
 
 /// Delete a chat, stop its engine and remove its transcript file.
 #[tauri::command]
-pub async fn chat_delete(db: State<'_, Db>, engines: State<'_, EngineState>, id: String) -> Result<(), String> {
+pub async fn chat_delete(app: AppHandle, db: State<'_, Db>, engines: State<'_, EngineState>, id: String) -> Result<(), String> {
+    // An index run reading this chat holds its transcript open.
+    crate::memory_index::stop_running(&app, Some(&id));
+    // An incognito chat ends with its nested chats and its log entries
+    // (chat_flags.rs); read before the row goes.
+    let ending = crate::chat_flags::ending(&db, &id);
     db.with(|conn| chats::delete_chat(conn, &id))?;
     // The engine holds its transcript open; Windows will not delete it.
     engines.stop(&id).await;
@@ -402,6 +421,7 @@ pub async fn chat_delete(db: State<'_, Db>, engines: State<'_, EngineState>, id:
         }
     }
     db.log(NewLog::new("info", "shell", "deleted chat").chat(Some(&id)));
+    crate::chat_flags::finish(ending, &db, &engines, &id).await;
     Ok(())
 }
 
@@ -417,6 +437,15 @@ pub fn settings_set(app: AppHandle, db: State<'_, Db>, key: String, value: Value
     db.with(|conn| evo_store::settings::set(conn, &key, &value))?;
     if key.starts_with("computer_apps.") {
         crate::computer::settings_changed(&app, &key, &value);
+    }
+    // Memory indexing follows its settings at once (memory_index.rs).
+    if key.starts_with("memory.") {
+        crate::memory_index::settings_changed(&app, &key, &value);
+    }
+    // **Search past chats**: running chats are offered their tools again.
+    if key == crate::chat_flags::SEARCH_PAST_CHATS_KEY {
+        use tauri::Emitter;
+        let _ = app.emit(crate::computer::TOOLS_CHANGED, json!({ "reason": key }));
     }
     if key == crate::updates::AUTO_CHECK_KEY {
         crate::updates::settings_changed(&app, &key, &value);
