@@ -69,6 +69,21 @@ pub struct ToolOutput {
     pub structured: Option<Value>,
 }
 
+/// An image at 75% of each side, as JPEG; `None` when it cannot be decoded or is already tiny.
+fn shrink_image(data: &str) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+    let bytes = B64.decode(data).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?;
+    let (w, h) = (img.width() * 3 / 4, img.height() * 3 / 4);
+    if w < 200 || h < 200 {
+        return None;
+    }
+    let rgb = img.resize_exact(w, h, image::imageops::FilterType::Triangle).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 70).encode_image(&rgb).ok()?;
+    Some(B64.encode(out))
+}
+
 impl ToolOutput {
     pub fn text(text: impl Into<String>) -> Self {
         Self { content: vec![Content::Text(text.into())], is_error: false, structured: None }
@@ -108,6 +123,12 @@ impl ToolOutput {
                 })
                 .max_by_key(|(_, len)| *len);
             if let Some((i, _)) = biggest {
+                if let Content::Image { data, mime_type } = &self.content[i] {
+                    if let Some(smaller) = shrink_image(data) {
+                        self.content[i] = Content::Image { data: smaller, mime_type: "image/jpeg".into() };
+                        continue;
+                    }
+                }
                 self.content[i] = Content::Text("[image omitted: it exceeded the engine's frame size limit]".into());
                 continue;
             }
@@ -645,6 +666,25 @@ mod tests {
             panic!("claimed");
         };
         assert!(provider.claims("fake_z"));
+    }
+
+    #[test]
+    fn an_oversized_result_is_fitted_under_the_frame_limit() {
+        let mut noise = image::RgbaImage::new(1600, 1200);
+        for (i, p) in noise.pixels_mut().enumerate() {
+            let v = (i as u32).wrapping_mul(2654435761);
+            *p = image::Rgba([v as u8, (v >> 8) as u8, (v >> 16) as u8, 255]);
+        }
+        let mut png = std::io::Cursor::new(Vec::new());
+        noise.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let png = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png.into_inner());
+        let fitted = ToolOutput::image(png, "image/png", "shot").fit(900_000).to_json().to_string();
+        assert!(fitted.len() <= 900_000 && fitted.contains("image/jpeg"));
+        let big = ToolOutput::image("A".repeat(2_000_000), "image/png", "shot");
+        let json = big.fit(900_000).to_json().to_string();
+        assert!(json.len() <= 900_000 && json.contains("shot") && json.contains("omitted"));
+        let text = ToolOutput::text("x".repeat(2_000_000)).fit(900_000).to_json().to_string();
+        assert!(text.len() <= 900_000);
     }
 
     #[test]
