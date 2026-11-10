@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { db } from "@/lib/db";
-import { inTauri, isWindows } from "@/lib/platform";
+import { inTauri, isMac, isWindows } from "@/lib/platform";
 import { Segmented, SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
-// Settings → Computer apps (docs/features/computer-app-control FR-1, FR-24):
-// whether the agent may control apps on this computer, whether each acting
-// call asks first, and which apps it may or may not use. The shell reads these
+// Settings → Computer apps (docs/features/computer-app-control FR-1, FR-24,
+// FR-28): whether the agent may control apps on this computer, whether each
+// acting call asks first, which apps it may or may not use, and on macOS the
+// two system permissions it needs. The shell reads these
 // keys on every call (src-tauri/src/agent_tools/computer/tool.rs); switching
 // the feature on or off reaches every chat's tools at once.
 
@@ -29,6 +30,19 @@ interface CatalogApp {
   icon: string | null;
 }
 
+/** What `computer_permissions` answers (macOS; `required` false elsewhere). */
+interface Permissions {
+  required: boolean;
+  accessibility: boolean;
+  screen_recording: boolean;
+  restart_needed?: boolean;
+}
+
+type PermissionKind = "accessibility" | "screen_recording";
+
+/** Computer app control has a backend here (NFR-1). */
+const supported = isWindows || isMac;
+
 interface Saved {
   enabled: boolean;
   permission: Permission;
@@ -46,6 +60,25 @@ export function ComputerAppsSettings() {
   const [apps, setApps] = React.useState<CatalogApp[] | null>(null);
   const [query, setQuery] = React.useState("");
   const [typed, setTyped] = React.useState("");
+  const [granted, setGranted] = React.useState<Permissions | null>(null);
+
+  // macOS permissions change in System Settings, outside evo: read them again
+  // whenever the window comes back into focus.
+  React.useEffect(() => {
+    if (!inTauri || !isMac) return;
+    const read = () =>
+      void invoke<Permissions>("computer_permissions")
+        .then(setGranted)
+        .catch(() => setGranted(null));
+    read();
+    window.addEventListener("focus", read);
+    return () => window.removeEventListener("focus", read);
+  }, []);
+
+  const ask = (kind: PermissionKind) =>
+    void invoke<Permissions>("computer_request_permission", { kind })
+      .then(setGranted)
+      .catch(() => undefined);
 
   React.useEffect(() => {
     if (!inTauri) return;
@@ -60,7 +93,7 @@ export function ComputerAppsSettings() {
   }, []);
 
   React.useEffect(() => {
-    if (!inTauri || !isWindows || !saved?.enabled || apps) return;
+    if (!inTauri || !supported || !saved?.enabled || apps) return;
     void invoke<{ apps: CatalogApp[] }>("computer_list_apps")
       .then((result) => setApps(result.apps))
       .catch(() => setApps([]));
@@ -102,11 +135,11 @@ export function ComputerAppsSettings() {
     return q ? all.filter((app) => app.name.toLowerCase().includes(q) || app.exe.toLowerCase().includes(q)) : all;
   }, [apps, saved?.allowed, saved?.blocked, query]);
 
-  if (!isWindows) {
+  if (!supported) {
     return (
       <div className="flex flex-col gap-8">
         <SettingsHeader icon={AppWindowIcon} title="Computer apps" description="Let the agent work in apps on this computer, in the background." />
-        <p className="text-[13px] text-muted-foreground">Computer app control is available on Windows for now.</p>
+        <p className="text-[13px] text-muted-foreground">Computer app control is available on Windows and macOS.</p>
       </div>
     );
   }
@@ -149,6 +182,30 @@ export function ComputerAppsSettings() {
         />
       </SettingsGroup>
 
+      {isMac && granted?.required && (
+        <SettingsGroup title="macOS permissions" description="macOS asks you to allow these in System Settings. evo never asks on its own: only these buttons do.">
+          <PermissionRow
+            id="computer-apps-accessibility"
+            label="Accessibility"
+            description="Reads and operates the app's controls."
+            granted={granted.accessibility}
+            onAllow={() => ask("accessibility")}
+          />
+          <PermissionRow
+            id="computer-apps-screen-recording"
+            label="Screen Recording"
+            description={
+              granted.restart_needed
+                ? "macOS applies this after evo restarts."
+                : "Takes the pictures of the app the agent and the card see."
+            }
+            granted={granted.screen_recording}
+            onAllow={() => ask("screen_recording")}
+            restart={granted.restart_needed ? () => void invoke("computer_restart") : undefined}
+          />
+        </SettingsGroup>
+      )}
+
       <SettingsGroup
         title="Apps"
         description={
@@ -162,7 +219,7 @@ export function ComputerAppsSettings() {
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search apps" className="h-8 pl-8 text-[13px]" aria-label="Search apps" />
           </div>
-          <Input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="app.exe" className="h-8 w-36 text-[13px]" aria-label="Executable name" />
+          <Input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={isMac ? "App name" : "app.exe"} className="h-8 w-36 text-[13px]" aria-label="Executable name" />
           <Button
             variant="outline"
             size="sm"
@@ -204,5 +261,45 @@ export function ComputerAppsSettings() {
         ))}
       </SettingsGroup>
     </div>
+  );
+}
+
+function PermissionRow({
+  id,
+  label,
+  description,
+  granted,
+  onAllow,
+  restart,
+}: {
+  id: string;
+  label: string;
+  description: string;
+  granted: boolean;
+  onAllow: () => void;
+  restart?: () => void;
+}) {
+  return (
+    <SettingsRow
+      labelId={id}
+      label={label}
+      description={description}
+      control={
+        granted ? (
+          <span className="text-[13px] text-muted-foreground">Allowed</span>
+        ) : (
+          <div className="flex items-center gap-2">
+            {restart && (
+              <Button variant="outline" size="sm" onClick={restart}>
+                Restart evo
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={onAllow}>
+              Allow
+            </Button>
+          </div>
+        )
+      }
+    />
   );
 }

@@ -249,6 +249,9 @@ pub fn run() {
             computer::computer_close,
             computer::computer_input,
             computer::computer_list_apps,
+            computer::computer_permissions,
+            computer::computer_request_permission,
+            computer::computer_restart,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the evo desktop app")

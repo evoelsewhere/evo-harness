@@ -4,8 +4,8 @@
 //! Every capture and input is addressed to the attached window (and the
 //! dialogs and popups it opens), never to the desktop:
 //!
-//! - Capture reads the window's own pixels (`PrintWindow` on Windows), so the
-//!   app can sit off the person's screen.
+//! - Capture reads the window's own pixels (`PrintWindow` on Windows,
+//!   ScreenCaptureKit on macOS), so the app can sit off the person's screen.
 //! - Input goes through background channels only: the accessibility tree
 //!   (UI Automation and MSAA), messages posted to the window, and (to come,
 //!   tasks phase 3) a DevTools pipe into web-based apps evo started. The
@@ -18,7 +18,8 @@
 //!
 //! - [`backend`]: the `ComputerAppBackend` trait and the factory that returns
 //!   the platform's implementation. Everything here talks to it.
-//! - `win/`: the Windows product of the factory, one module per concern.
+//! - `win/`, `mac/`: the Windows and macOS products of the factory, one
+//!   module per concern.
 //! - [`action`]: the closed set of agent actions, parsed once.
 //! - [`workers`], [`interrupt`]: per-chat worker threads and Stop.
 //! - [`apps`]: the app catalog behind `search_apps` / `open_app`.
@@ -43,6 +44,8 @@ mod policy;
 
 #[cfg(target_os = "windows")]
 mod win;
+#[cfg(target_os = "macos")]
+mod mac;
 
 pub(crate) mod tool;
 
@@ -172,6 +175,17 @@ pub(crate) fn resume(chat: &str) -> Result<Value, String> {
         notify_released(Some(chat), "resume");
     }
     Ok(json!({ "stopped": false }))
+}
+
+/// Which operating-system permissions control needs and has (FR-28).
+pub(crate) fn permissions() -> Value {
+    backend().permissions()
+}
+
+/// Ask the operating system for one permission; the person's click in
+/// Settings only (FR-28).
+pub(crate) fn request_permission(kind: &str) -> Result<Value, String> {
+    backend().request_permission(kind)
 }
 
 /// Hand the window back to the person's screen for good ("Show the app").

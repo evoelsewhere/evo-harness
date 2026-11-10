@@ -8,7 +8,7 @@
 //! | Platform | Product              | Capture                   | Input                                  |
 //! |----------|----------------------|---------------------------|----------------------------------------|
 //! | Windows  | `win::WindowsBackend` | `PrintWindow`             | `PostMessage` to the window, UI Automation |
-//! | macOS    | `mac::MacBackend` (to come, tasks phase 7) | ScreenCaptureKit | Accessibility API, per-process events |
+//! | macOS    | `mac::MacBackend`     | ScreenCaptureKit          | Accessibility API, per-process events  |
 //! | other    | [`UnsupportedBackend`] | —                        | —                                      |
 //!
 //! A new platform only has to implement the trait and be returned here.
@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use super::action::Action;
 
 /// Why a session the user stopped may not attach, open or close apps.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 pub(crate) const STOPPED_REFUSAL: &str = "The user stopped Computer App Control in this chat. Ask them before trying again: the preview card is showing again, and they can press Allow again there.";
 
 /// What a platform has to provide to drive one app window per chat session.
@@ -94,7 +94,11 @@ pub(crate) fn backend() -> &'static dyn ComputerAppBackend {
     {
         &super::win::WindowsBackend
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        &super::mac::MacBackend
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         &UnsupportedBackend
     }
@@ -102,10 +106,10 @@ pub(crate) fn backend() -> &'static dyn ComputerAppBackend {
 
 /// Every platform without a backend: nothing can be attached, and the UI is
 /// told so rather than shown an error for passive calls.
-#[cfg_attr(target_os = "windows", allow(dead_code))]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), allow(dead_code))]
 pub(crate) struct UnsupportedBackend;
 
-#[cfg_attr(target_os = "windows", allow(dead_code))]
+#[cfg_attr(any(target_os = "windows", target_os = "macos"), allow(dead_code))]
 fn unsupported<T>() -> Result<T, String> {
     Err("Computer app control is not available on this platform yet.".to_string())
 }

@@ -714,7 +714,10 @@ where
             Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
                 // Oversized frame: reject it but keep the engine alive.
                 eprintln!("[evo] rpc stdin error: {error}");
-                if crate::rpc::framing::discard_frame(&mut input).await.is_err() {
+                if crate::rpc::framing::discard_frame(&mut input)
+                    .await
+                    .is_err()
+                {
                     run_cancel.cancel();
                     let _ = lane.abort().await;
                     external_tools.shutdown();
