@@ -77,6 +77,10 @@ pub enum Mode {
     Text,
     Json,
     Rpc,
+    /// A memory index run: read one chat's transcript, change memory topics
+    /// with two tools, print one result line and exit (`memory_index.rs`,
+    /// docs/architecture/decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md).
+    Index,
 }
 
 /// RPC message-update wire representation; defined by the wire protocol.
@@ -194,6 +198,19 @@ pub struct Args {
     /// `--no-context-files`/`-nc`: skip context-file (`AGENTS.md`/`CLAUDE.md`)
     /// discovery + the `<project_context>` system-prompt block.
     pub no_context_files: bool,
+    /// `--no-memory`: the chat uses no memory: no Memory section in the system
+    /// prompt and no `memory` tool
+    /// (docs/features/memory-topics-and-chat-recall/spec.md, FR-6).
+    pub no_memory: bool,
+    /// `--incognito`: as `--no-memory`, and the chat's usage is recorded
+    /// without its id (FR-20, FR-23). Removing the chat is the shell's part.
+    pub incognito: bool,
+    /// `--index-after <entry id>` (index mode): the last transcript entry an
+    /// earlier index run read; only what follows it is read now.
+    pub index_after: Option<String>,
+    /// `--index-summary-only` (index mode): write the chat's summary but
+    /// change no topic (a chat the Scheduler started).
+    pub index_summary_only: bool,
     /// `--no-extensions`/`-ne`: skip Rust cdylib extension loading.
     /// Honored by `session.rs`: when set, no extension directory is scanned.
     pub no_extensions: bool,
@@ -354,6 +371,7 @@ pub fn parse_args(args: &[String]) -> Args {
                         "text" => Mode::Text,
                         "json" => Mode::Json,
                         "rpc" => Mode::Rpc,
+                        "index" => Mode::Index,
                         other => {
                             result.errors.push(format!(
                                 "Invalid --mode \"{other}\". Valid: text, json, rpc"
@@ -396,6 +414,13 @@ pub fn parse_args(args: &[String]) -> Args {
             "--no-skills" | "-ns" => result.no_skills = true,
             "--no-prompt-templates" | "-np" => result.no_prompt_templates = true,
             "--no-context-files" | "-nc" => result.no_context_files = true,
+            "--no-memory" => result.no_memory = true,
+            "--index-after" => result.index_after = take_value(&mut result, "--index-after"),
+            "--index-summary-only" => result.index_summary_only = true,
+            "--incognito" => {
+                result.incognito = true;
+                result.no_memory = true;
+            }
             "--no-extensions" | "-ne" => result.no_extensions = true,
             "--local-only" => result.dev_local_only = true,
             "--package-only" | "--project-only" => result.project_only = true,

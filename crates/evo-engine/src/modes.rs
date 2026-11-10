@@ -1326,8 +1326,48 @@ where
             }
             // The Memory panel. Changes re-read this chat's resources so its
             // prompt has the new index; the app reloads the other idle chats.
-            "list_memories" => crate::memory::describe(&rpc_cwd(&rpc_providers)),
-            "save_memory" | "delete_memory" | "set_memory_enabled" => {
+            "list_memories" => {
+                crate::memory::describe(&rpc_cwd(&rpc_providers), rpc_chat_memory(&rpc_providers))
+            }
+            // The changes indexing made, and undoing one
+            // (docs/features/memory-topics-and-chat-recall/spec.md, FR-29).
+            "list_memory_changes" => crate::memory::changes(
+                &rpc_cwd(&rpc_providers),
+                msg.get("limit")
+                    .and_then(serde_json::Value::as_u64)
+                    .map_or(100, |limit| limit.min(200) as u32),
+            ),
+            "undo_memory_change" => {
+                let cwd = rpc_cwd(&rpc_providers);
+                let change = msg.get("change").and_then(serde_json::Value::as_i64);
+                match change
+                    .ok_or_else(|| "`change` is required".to_string())
+                    .and_then(|id| crate::memory::undo_change(&cwd, id))
+                {
+                    Ok(()) => {
+                        let _ = rpc_reload_resources(harness, &rpc_providers).await;
+                        crate::memory::changes(&cwd, 100)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            // **Reset memory** (FR-9): every topic in every scope goes.
+            "reset_memory" => {
+                let cwd = rpc_cwd(&rpc_providers);
+                match crate::memory::reset() {
+                    Ok(deleted) => {
+                        let _ = rpc_reload_resources(harness, &rpc_providers).await;
+                        crate::memory::describe(&cwd, rpc_chat_memory(&rpc_providers)).map(
+                            |mut state| {
+                                state["deleted"] = serde_json::json!(deleted);
+                                state
+                            },
+                        )
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            "save_memory" | "delete_memory" | "set_memory_enabled" | "set_memory_settings" => {
                 let cwd = rpc_cwd(&rpc_providers);
                 let text = |key: &str| {
                     msg.get(key)
@@ -1353,6 +1393,15 @@ where
                     }
                     "delete_memory" => crate::memory::Scope::parse(&text("scope"))
                         .and_then(|scope| crate::memory::delete(&cwd, scope, &text("name"))),
+                    "set_memory_settings" => {
+                        let flag = |key: &str| msg.get(key).and_then(serde_json::Value::as_bool);
+                        flag("sensitive")
+                            .map_or(Ok(()), crate::memory::set_sensitive)
+                            .and_then(|()| {
+                                flag("usePersonal")
+                                    .map_or(Ok(()), |on| crate::memory::set_personal(&cwd, on))
+                            })
+                    }
                     _ => crate::memory::set_enabled(
                         msg.get("enabled")
                             .and_then(serde_json::Value::as_bool)
@@ -1362,7 +1411,7 @@ where
                 match done {
                     Ok(()) => {
                         let _ = rpc_reload_resources(harness, &rpc_providers).await;
-                        crate::memory::describe(&cwd)
+                        crate::memory::describe(&cwd, rpc_chat_memory(&rpc_providers))
                     }
                     Err(error) => Err(error),
                 }
@@ -2975,6 +3024,12 @@ async fn rpc_prompt_hooks(
             ParsedPrompt::Blocks(blocks)
         }
     })
+}
+
+/// Whether this chat uses memory: false when it was started with
+/// `--no-memory` or `--incognito`.
+fn rpc_chat_memory(providers: &RpcProviders<'_>) -> bool {
+    providers.reload.is_none_or(|ctx| !ctx.args.no_memory)
 }
 
 /// The session's folder for RPC handlers.

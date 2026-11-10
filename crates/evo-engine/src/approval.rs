@@ -97,7 +97,7 @@ pub fn classify(tool: &str, args: &Value) -> Kind {
             }
         }
         "memory" => match args.get("action").and_then(Value::as_str) {
-            Some("save" | "delete") => Kind::Edit,
+            Some("save" | "update" | "delete") => Kind::Edit,
             _ => Kind::Read,
         },
         name => crate::tools::info::class_of(name),
@@ -187,7 +187,7 @@ impl ApprovalState {
         *self.external.lock().unwrap() = names.into_iter().collect();
     }
 
-    fn is_external(&self, tool: &str) -> bool {
+    pub(crate) fn is_external(&self, tool: &str) -> bool {
         self.external.lock().unwrap().contains(tool)
     }
 

@@ -939,8 +939,9 @@ pub async fn build_prepared(
             }
         }
     }
-    // Memory across chats: how to use it and its index (`memory.rs`).
-    if resource_selection.is_none() {
+    // Memory across chats: how to use it and its index (`memory.rs`). A chat
+    // started without memory gets no section (`--no-memory`).
+    if resource_selection.is_none() && !args.no_memory {
         append_texts.extend(crate::memory::prompt_block(cwd));
     }
     let append_join = if append_texts.is_empty() {
@@ -2290,7 +2291,9 @@ where
             }
         }
     }
-    append_texts.extend(crate::memory::prompt_block(&ctx.cwd));
+    if !effective_args.no_memory {
+        append_texts.extend(crate::memory::prompt_block(&ctx.cwd));
+    }
     context_paths.extend(
         context_files
             .iter()
@@ -2376,6 +2379,10 @@ where
         let _ = harness.lane("main").set_model(resolved.model.clone()).await;
     }
 
+    // The tools the app configured over RPC (`configure_external_tools`) are
+    // not built here: carry them over, or a reload would drop the app's
+    // browser, terminal and past-chat tools until it configured them again.
+    let (tools, active) = keep_external_tools(harness, tools, active).await;
     let _ = harness.set_tools(tools, Some(active)).await;
 
     let summary = format!(
@@ -2822,6 +2829,38 @@ fn merge_extension_tools(
     }
 }
 
+/// `tools` and `active` with the registry's external tools added: the tools
+/// the app configured that a rebuilt tool list does not have, each active if
+/// it was active before.
+async fn keep_external_tools(
+    harness: &AgentHarness,
+    mut tools: Vec<HarnessTool>,
+    mut active: Vec<String>,
+) -> (Vec<HarnessTool>, Vec<String>) {
+    let approval = crate::approval::global();
+    let Ok(current) = harness.get_tools().await else {
+        return (tools, active);
+    };
+    let was_active = harness
+        .lane("main")
+        .get_active_tools()
+        .await
+        .unwrap_or_default();
+    for tool in current {
+        let name = tool.tool.schema().name.clone();
+        if !approval.is_external(&name)
+            || tools.iter().any(|built| built.tool.schema().name == name)
+        {
+            continue;
+        }
+        if was_active.contains(&name) && !active.contains(&name) {
+            active.push(name);
+        }
+        tools.push(tool);
+    }
+    (tools, active)
+}
+
 /// Build the tool list per `--tools`/`--exclude-tools`/`--no-tools`/
 /// `--no-builtin-tools`. Mirrors the TS `tools`/`excludeTools`/`noTools`
 /// resolution in `createAgentSession`. The tools themselves come from
@@ -2860,6 +2899,10 @@ pub(crate) fn build_tools(
     // Denylist (`--exclude-tools`): drop named tools.
     if let Some(deny) = &args.exclude_tools {
         all.retain(|(name, _)| !deny.iter().any(|d| d == name));
+    }
+    // A chat started without memory has no `memory` tool (`--no-memory`).
+    if args.no_memory {
+        all.retain(|(name, _)| *name != "memory");
     }
 
     all.into_iter().map(|(_, t)| t).collect()
@@ -4051,6 +4094,8 @@ fn read_prompt_source(path: &Path, sources: &mut Vec<String>) -> Option<String> 
 
 #[cfg(test)]
 mod goal_outbox_smoke_tests;
+#[cfg(test)]
+mod memory_flags_tests;
 #[cfg(all(test, feature = "experimental-native-store"))]
 mod native_roundtrip_tests;
 #[cfg(all(test, feature = "experimental-native-store"))]

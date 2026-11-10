@@ -34,6 +34,8 @@ pub enum Source {
     Subagent,
     Plugin,
     Side,
+    /// A memory index run reading the chat.
+    Memory,
 }
 
 impl Source {
@@ -43,6 +45,7 @@ impl Source {
             Source::Subagent => "subagent",
             Source::Plugin => "plugin",
             Source::Side => "side",
+            Source::Memory => "memory",
         }
     }
 }

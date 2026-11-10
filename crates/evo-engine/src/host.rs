@@ -178,6 +178,11 @@ async fn run_inner() -> i32 {
     if let Some(code) = handle_parse_short_circuits(&parsed) {
         return code;
     }
+    // A memory index run is not a chat: no session, no tools but its two
+    // (memory_index.rs).
+    if parsed.mode == crate::args::Mode::Index {
+        return crate::memory_index::main(&parsed).await;
+    }
     // Process security for this engine's shell and file tools.
     if let Some(json) = &parsed.sandbox_config {
         let applied = serde_json::from_str::<evo_tools::sandbox::SandboxConfig>(json)
@@ -612,8 +617,10 @@ async fn run_inner() -> i32 {
         RunMode::Rpc => {
             // A chat's engine (the desktop passes the chat id) keeps the
             // chat's usage and cost history in evo.db.
+            // An incognito chat's usage is counted without its id
+            // (docs/features/memory-topics-and-chat-recall/spec.md, FR-23).
             if let Some(chat_id) = parsed.session_id.clone() {
-                crate::usage_log::start(Some(chat_id));
+                crate::usage_log::start((!parsed.incognito).then_some(chat_id));
             }
             // Headless lifecycle (P0): no TUI, but a session still starts/ends —
             // extensions (e.g. evo-server) auto-start on SessionStart and clean

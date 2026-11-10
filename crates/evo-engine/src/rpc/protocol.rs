@@ -281,6 +281,26 @@ pub enum Command {
         #[serde(default)]
         enabled: bool,
     },
+    /// **Include sensitive subjects** and this project's **Use personal
+    /// memory** (docs/features/memory-topics-and-chat-recall/plan.md, 3.3).
+    #[serde(rename_all = "camelCase")]
+    SetMemorySettings {
+        #[serde(default)]
+        sensitive: Option<bool>,
+        #[serde(default)]
+        use_personal: Option<bool>,
+    },
+    /// Forget every topic in every scope.
+    ResetMemory,
+    /// The changes indexing made to this project's and personal topics.
+    ListMemoryChanges {
+        #[serde(default)]
+        limit: Option<u32>,
+    },
+    /// `change` is the change's id (`id` is the request's own).
+    UndoMemoryChange {
+        change: i64,
+    },
     /// Re-read skills, templates and extensions in place.
     ReloadResources,
     /// The hooks in effect, problems, and recent runs (`hooks.rs`).
@@ -412,6 +432,10 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "save_memory",
     "delete_memory",
     "set_memory_enabled",
+    "set_memory_settings",
+    "reset_memory",
+    "list_memory_changes",
+    "undo_memory_change",
     "save_instructions",
     "reload_resources",
     "list_hooks",
@@ -626,6 +650,12 @@ mod tests {
             json!({"type": "save_memory", "scope": "project", "name": "a", "kind": "user", "content": "b"}),
             json!({"type": "delete_memory", "scope": "project", "name": "a"}),
             json!({"type": "set_memory_enabled", "enabled": false}),
+            json!({"type": "set_memory_settings", "sensitive": true, "usePersonal": false}),
+            json!({"type": "set_memory_settings"}),
+            json!({"type": "reset_memory"}),
+            json!({"type": "list_memory_changes"}),
+            json!({"type": "list_memory_changes", "limit": 20}),
+            json!({"type": "undo_memory_change", "change": 7}),
             json!({"type": "save_instructions", "scope": "personal", "content": "Be brief."}),
             json!({"type": "reload_resources"}),
         ] {

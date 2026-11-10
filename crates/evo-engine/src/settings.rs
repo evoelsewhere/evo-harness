@@ -183,6 +183,14 @@ pub struct Settings {
     /// Memory across chats (`memory.rs`); on unless `false`.
     #[serde(default)]
     pub memory_enabled: Option<bool>,
+    /// Sensitive subjects may be saved to memory; off unless `true`
+    /// (docs/features/memory-topics-and-chat-recall/spec.md, FR-17).
+    #[serde(default)]
+    pub memory_sensitive: Option<bool>,
+    /// Project folders (as memory slugs) whose chats do without personal
+    /// topics (FR-7).
+    #[serde(default)]
+    pub memory_personal_off: Option<Vec<String>>,
     /// The built-in `web_search` and `web_fetch` tools; on unless `false`.
     #[serde(default)]
     pub web_tools: Option<bool>,

@@ -37,6 +37,8 @@ fn classification_table() {
     assert_eq!(kind("edit", json!({ "path": "a" })), Kind::Edit);
     assert_eq!(kind("memory", json!({ "action": "save" })), Kind::Edit);
     assert_eq!(kind("memory", json!({ "action": "delete" })), Kind::Edit);
+    // docs/features/memory-topics-and-chat-recall/spec.md (FR-3): a topic update is an edit.
+    assert_eq!(kind("memory", json!({ "action": "update" })), Kind::Edit);
     assert_eq!(kind("memory", json!({ "action": "read" })), Kind::Read);
     assert_eq!(kind("memory", json!({ "action": "list" })), Kind::Read);
 }

@@ -42,6 +42,7 @@ pub mod host;
 pub mod install;
 pub mod instructions;
 pub mod memory;
+pub mod memory_index;
 pub mod mesh;
 pub mod model_registry;
 pub mod models_dev;
