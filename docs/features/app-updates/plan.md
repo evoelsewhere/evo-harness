@@ -466,3 +466,8 @@ Owner setup, once, before the first release with the updater:
 - While building, the shell's test build failed at HEAD on a test defined
   twice in `agent_tools/mod.rs` (a merge leftover; the second copy checked
   a subset of the first). The second copy was removed.
+- **Not verified end to end.** The owner closed the feature on
+  2026-11-10 without the remaining checks (tasks T4, T9, T14, T18–T20,
+  T22–T25). Unit tests, the manifest tests, clippy, the type-check and
+  the screenshot harness ran; a real update, the signing in CI and the
+  release's `latest.json` have not been seen working yet.

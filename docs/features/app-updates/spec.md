@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | In progress |
+| Status | Implemented |
 | Area | desktop shell, desktop UI, release pipeline |
 | Created | 2026-11-10 |
 | Updated | 2026-11-10 |
@@ -243,3 +243,7 @@ n/a — no open questions.
   written.
 - 2026-11-10 — Gate B: plan accepted by the owner; implementation
   started.
+- 2026-11-10 — Implemented. The owner closed the feature without running
+  the remaining checks (end-to-end updates, workflow runs, manual app
+  checks); they are marked waived in [tasks.md](tasks.md), and failures
+  found later are fixed as bugs.
