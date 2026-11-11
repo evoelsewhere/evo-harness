@@ -139,6 +139,7 @@ pub fn run() {
             agent_tools::app::panel::agent_panels_report,
             agent_tools::user::agent_notify_muted,
             mesh::mesh_start_session,
+            mesh::mesh_dismiss_proposal,
             db::db_info,
             db::db_reveal,
             db::workspaces_list,

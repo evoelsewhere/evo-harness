@@ -4,7 +4,8 @@
 //! session tools (`start_session`, `message_session`, `list_sessions`), turns
 //! a nested session's finished turn into a note for the chat that started it,
 //! stores mail in the app database and writes it to the receiving engine,
-//! whichever window shows that chat.
+//! whichever window shows that chat. A proposed session's card starts it with
+//! [`mesh_start_session`] or dismisses it with [`mesh_dismiss_proposal`].
 //!
 //! The windows still start and hold engines (they set up each engine's other
 //! tools). When the hub needs an engine that runs nowhere — a session it just
@@ -12,12 +13,14 @@
 //! window starts that engine and, once its tools are set up, calls
 //! [`mesh_hosted`], and the hub sends what waits for it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use evo_mesh::hub::{ChildInfo, CreatedSession, Effect, Hub, Mail, MailStore, SessionSpec};
 use evo_mesh::wire::MailBody;
-use evo_store::chats::{self, ChatPatch, NewChat};
+use evo_store::chats::{self, Chat, NewChat};
 use evo_store::mail::{self, StoredMail};
+use evo_store::rusqlite::Connection;
+use evo_store::{transcripts, DbError};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -119,7 +122,11 @@ impl MailStore for DbMailStore {
         let parent_row = db
             .with(|conn| chats::get_chat(conn, parent))?
             .ok_or_else(|| format!("no chat {parent}"))?;
-        let title: String = spec.title.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(80).collect();
+        if spec.fork && parent_row.incognito {
+            // An incognito chat leaves no copy of itself (`chats::fork_chat`).
+            return Err("an incognito chat cannot be forked; start the session with context \"fresh\"".into());
+        }
+        let title = evo_mesh::hub::session_title(&spec.title);
         let id = new_chat_id();
         // Its own worktree of the parent's repository (fails outside a repository).
         let worktree = if spec.worktree {
@@ -130,39 +137,24 @@ impl MailStore for DbMailStore {
                     .unwrap_or_else(home),
                 None => home(),
             };
-            Some(crate::worktrees::create_blocking(&db, &base)?)
+            let (path, cwd) = crate::worktrees::create_blocking(&db, &base)?;
+            Some((base, path, cwd))
         } else {
             None
         };
-        let worktree_path = worktree.as_ref().map(|(path, _)| path.display().to_string());
-        let chat = if spec.fork {
-            db.with(|conn| {
-                // The parent's engine is running: its transcript is copied
-                // as far as it has been written.
-                chats::fork_chat(conn, &db.transcripts, parent, &id, &title)?;
-                chats::set_parent(conn, &id, Some(parent))?;
-                chats::update_chat(conn, &id, &ChatPatch { title: Some(title.clone()), ..Default::default() })?;
-                chats::set_worktree(conn, &id, worktree_path.as_deref())
-            })?
-            .ok_or("the fork was not created")?
-        } else {
-            db.with(|conn| {
-                chats::create_chat(
-                    conn,
-                    &NewChat {
-                        id: id.clone(),
-                        workspace_id: parent_row.workspace_id.clone(),
-                        title: title.clone(),
-                        parent_chat_id: Some(parent.to_string()),
-                        origin: Some("agent".into()),
-                        worktree_path: worktree_path.clone(),
-                        // A nested chat follows its parent: no memory, no history.
-                        memory_off: crate::chat_flags::ChatFlags::of(&parent_row).memory_off,
-                        incognito: parent_row.incognito,
-                        ..Default::default()
-                    },
-                )
-            })?
+        let worktree_path = worktree.as_ref().map(|(_, path, _)| path.display().to_string());
+        let row = db
+            .with(|conn| session_row(conn, &db.transcripts, &parent_row, &id, &title, spec.fork, worktree_path.as_deref()))
+            .and_then(|chat| chat.ok_or_else(|| "the fork was not created".to_string()));
+        let chat = match row {
+            Ok(chat) => chat,
+            Err(error) => {
+                // No session was made: its worktree must not stay behind.
+                if let Some((base, path, _)) = &worktree {
+                    discard_worktree(&db, base, path);
+                }
+                return Err(error);
+            }
         };
         db.log(evo_store::logs::NewLog::new("info", "mesh", format!("started nested session {id}")).chat(Some(parent)));
         // The windows' sidebars add it (session-store.ts listens).
@@ -170,8 +162,66 @@ impl MailStore for DbMailStore {
         Ok(CreatedSession {
             id,
             title: chat.title,
-            cwd: worktree.map(|(_, cwd)| cwd.display().to_string()),
+            cwd: worktree.map(|(_, _, cwd)| cwd.display().to_string()),
         })
+    }
+}
+
+/// The chat row of a nested session of `parent`: a copy of its conversation
+/// (`fork`) or a fresh chat. Either way it is linked to the parent, has origin
+/// `agent`, and follows the parent's folder, model and memory flags. `None`:
+/// the parent cannot be copied (it is gone, or incognito).
+fn session_row(
+    conn: &mut Connection,
+    transcripts_dir: &Path,
+    parent: &Chat,
+    id: &str,
+    title: &str,
+    fork: bool,
+    worktree_path: Option<&str>,
+) -> Result<Option<Chat>, DbError> {
+    if !fork {
+        let new = NewChat {
+            id: id.to_string(),
+            workspace_id: parent.workspace_id.clone(),
+            title: title.to_string(),
+            // The model the parent runs on, when its row names one.
+            provider: parent.provider.clone(),
+            model: parent.model.clone(),
+            parent_chat_id: Some(parent.id.clone()),
+            origin: Some("agent".into()),
+            worktree_path: worktree_path.map(str::to_string),
+            // A nested chat follows its parent: no memory, no history.
+            memory_off: crate::chat_flags::ChatFlags::of(parent).memory_off,
+            incognito: parent.incognito,
+            ..Default::default()
+        };
+        return chats::create_chat(conn, &new).map(Some);
+    }
+    // The parent's engine is running: its transcript is copied as far as it
+    // has been written. The copy has the parent's folder, model and memory
+    // flag (`chats::fork_chat`); what makes it a nested session is added here.
+    if chats::fork_chat(conn, transcripts_dir, &parent.id, id, title)?.is_none() {
+        return Ok(None);
+    }
+    let nested = chats::set_parent(conn, id, Some(&parent.id))
+        .and_then(|_| chats::set_origin(conn, id, "agent"))
+        .and_then(|_| chats::set_worktree(conn, id, worktree_path));
+    if !matches!(nested, Ok(Some(_))) {
+        // Half made: no copy stays that is not a nested session.
+        let _ = chats::delete_chat(conn, id);
+        let _ = transcripts::path_in(transcripts_dir, id).and_then(|path| transcripts::remove(&path));
+    }
+    nested
+}
+
+/// Remove the worktree at `path` (of `base`'s repository), made for a session
+/// that was not created after all.
+fn discard_worktree(db: &Db, base: &Path, path: &Path) {
+    // The same root as `worktrees.rs` creates them under.
+    let root = db.path.parent().map(|dir| dir.join("worktrees")).unwrap_or_else(|| PathBuf::from("worktrees"));
+    if let Err(error) = evo_worktrees::Worktrees::with_data_root(root).remove(base, path) {
+        db.log(evo_store::logs::NewLog::new("warn", "mesh", format!("worktree {} not removed: {error}", path.display())));
     }
 }
 
@@ -262,14 +312,113 @@ pub fn mesh_session_tools() -> Value {
     evo_mesh::hub::session_tools()
 }
 
-/// Start a nested session of `parent` (a proposal card's Start): returns its id.
+/// Start a nested session of `parent` (a proposal card's Start): returns its
+/// id. With `proposal_id` the proposal starts once: a second call returns the
+/// same session, and the parent's agent gets a queued note with the id.
 #[tauri::command]
-pub async fn mesh_start_session(app: AppHandle, parent: String, spec: SessionSpec) -> Result<String, String> {
+pub async fn mesh_start_session(
+    app: AppHandle,
+    parent: String,
+    spec: SessionSpec,
+    proposal_id: Option<String>,
+) -> Result<String, String> {
     let app2 = app.clone();
-    let (created, effects) =
-        tauri::async_runtime::spawn_blocking(move || app2.state::<MeshHub>().0.start_session(&parent, &spec))
+    let (session, effects) = tauri::async_runtime::spawn_blocking(move || {
+        let hub = &app2.state::<MeshHub>().0;
+        match proposal_id.as_deref() {
+            Some(proposal) => hub.start_proposed(&parent, &spec, proposal),
+            None => hub.start_session(&parent, &spec).map(|(created, effects)| (created.id, effects)),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    apply(&app, effects).await;
+    Ok(session)
+}
+
+/// A proposal card's Dismiss: the proposal can no longer be started, and the
+/// parent's agent gets a queued note that the person dismissed it.
+#[tauri::command]
+pub async fn mesh_dismiss_proposal(app: AppHandle, parent: String, proposal_id: String) -> Result<(), String> {
+    let app2 = app.clone();
+    let effects =
+        tauri::async_runtime::spawn_blocking(move || app2.state::<MeshHub>().0.dismiss_proposal(&parent, &proposal_id))
             .await
             .map_err(|e| e.to_string())??;
     apply(&app, effects).await;
-    Ok(created.id)
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A scratch folder with an app database and a transcripts folder, removed on drop.
+    struct Fixture {
+        root: PathBuf,
+        conn: Connection,
+        dir: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let root = std::env::temp_dir().join(format!("evo-mesh-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir_all(&root).unwrap();
+            let conn = evo_store::open_at(&root.join("evo.db")).unwrap();
+            let dir = root.join("transcripts");
+            Self { root, conn, dir }
+        }
+
+        /// A parent chat on a model the person picked.
+        fn parent(&self, new: NewChat) -> Chat {
+            let new = NewChat { id: "p".into(), title: "Parent".into(), provider: Some("acme".into()), model: Some("acme-large".into()), ..new };
+            chats::create_chat(&self.conn, &new).unwrap()
+        }
+
+        fn child(&mut self, parent: &Chat, fork: bool, worktree: Option<&str>) -> Option<Chat> {
+            let dir = self.dir.clone();
+            session_row(&mut self.conn, &dir, parent, "c", "Child", fork, worktree).unwrap()
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn a_fresh_session_follows_its_parents_model_and_flags() {
+        let mut fx = Fixture::new();
+        let parent = fx.parent(NewChat { memory_off: true, ..Default::default() });
+        let child = fx.child(&parent, false, Some("/wt/c")).unwrap();
+        assert_eq!((child.provider.as_deref(), child.model.as_deref()), (Some("acme"), Some("acme-large")));
+        assert_eq!((child.parent_chat_id.as_deref(), child.origin.as_str()), (Some("p"), "agent"));
+        assert_eq!((child.memory_off, child.incognito), (true, false));
+        assert_eq!(child.worktree_path.as_deref(), Some("/wt/c"));
+    }
+
+    #[test]
+    fn a_forked_session_is_a_nested_session_on_its_parents_model() {
+        let mut fx = Fixture::new();
+        let parent = fx.parent(NewChat { memory_off: true, ..Default::default() });
+        let child = fx.child(&parent, true, Some("/wt/c")).unwrap();
+        assert_eq!((child.provider.as_deref(), child.model.as_deref()), (Some("acme"), Some("acme-large")));
+        assert_eq!((child.parent_chat_id.as_deref(), child.origin.as_str()), (Some("p"), "agent"));
+        assert_eq!((child.title.as_str(), child.memory_off), ("Child", true));
+        assert_eq!(child.worktree_path.as_deref(), Some("/wt/c"));
+    }
+
+    #[test]
+    fn an_incognito_parent_has_incognito_sessions_and_no_copy() {
+        let mut fx = Fixture::new();
+        let parent = fx.parent(NewChat { incognito: true, ..Default::default() });
+        // No copy of an incognito chat: the caller removes the worktree it made.
+        assert_eq!(fx.child(&parent, true, Some("/wt/c")), None);
+        assert_eq!(chats::get_chat(&fx.conn, "c").unwrap(), None);
+        let child = fx.child(&parent, false, None).unwrap();
+        assert_eq!((child.incognito, child.memory_off, child.origin.as_str()), (true, true, "agent"));
+    }
 }

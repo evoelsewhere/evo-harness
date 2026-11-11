@@ -486,6 +486,15 @@ pub fn set_parent(
     get_chat(conn, id)
 }
 
+/// Who started a chat: `user`, or `agent` (a copy made for a nested session).
+pub fn set_origin(conn: &Connection, id: &str, origin: &str) -> Result<Option<Chat>, DbError> {
+    conn.execute(
+        "UPDATE chats SET origin = ?2 WHERE id = ?1",
+        params![id, origin],
+    )?;
+    get_chat(conn, id)
+}
+
 /// Move a chat to another workspace (`None`: "This computer").
 pub fn move_chat(
     conn: &Connection,
@@ -886,6 +895,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = crate::open_at(&dir.path().join("evo.db")).unwrap();
         (dir, conn)
+    }
+
+    #[test]
+    fn a_chats_origin_can_be_set() {
+        let (_dir, conn) = db();
+        let new = NewChat {
+            id: "c".into(),
+            title: "Copy".into(),
+            ..Default::default()
+        };
+        assert_eq!(create_chat(&conn, &new).unwrap().origin, "user");
+        let chat = set_origin(&conn, "c", "agent").unwrap().unwrap();
+        assert_eq!(chat.origin, "agent");
+        // Only the two origins the schema knows; a missing chat is `None`.
+        assert!(set_origin(&conn, "c", "robot").is_err());
+        assert_eq!(get_chat(&conn, "c").unwrap().unwrap().origin, "agent");
+        assert_eq!(set_origin(&conn, "nobody", "agent").unwrap(), None);
     }
 
     #[test]
