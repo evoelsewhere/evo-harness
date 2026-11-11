@@ -3,9 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { AppWindowIcon, PlusIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { db } from "@/lib/db";
 import { inTauri, isMac, isWindows } from "@/lib/platform";
+import { cn } from "@/lib/utils";
 import { Segmented, SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
 // Settings → Computer apps (docs/features/computer-app-control FR-1, FR-24,
@@ -233,7 +235,7 @@ export function ComputerAppsSettings() {
             Block
           </Button>
         </div>
-        {saved?.enabled && apps === null && <p className="py-3 text-[13px] text-muted-foreground">Looking for apps…</p>}
+        {saved?.enabled && apps === null && <AppRowsSkeleton />}
         {!saved?.enabled && <p className="py-3 text-[13px] text-muted-foreground">Turn app control on to list the apps on this computer.</p>}
         {listed.map((app) => (
           <SettingsRow
@@ -260,6 +262,33 @@ export function ComputerAppsSettings() {
           />
         ))}
       </SettingsGroup>
+    </div>
+  );
+}
+
+/** Name widths vary so the placeholder reads as a list, not a block. */
+const SKELETON_ROWS = [
+  { name: "w-24", exe: "w-20" },
+  { name: "w-32", exe: "w-16" },
+  { name: "w-20", exe: "w-24" },
+  { name: "w-28", exe: "w-14" },
+  { name: "w-36", exe: "w-20" },
+];
+
+/** Placeholder rows shaped like the app rows while the catalog loads. */
+function AppRowsSkeleton() {
+  return (
+    <div role="status" aria-label="Looking for apps" aria-busy="true" className="divide-y">
+      {SKELETON_ROWS.map((row, index) => (
+        <div key={index} className="flex items-center justify-between gap-6 py-3.5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-4 rounded" />
+            <Skeleton className={cn("h-3.5 rounded-full", row.name)} />
+            <Skeleton className={cn("h-3 rounded-full opacity-60", row.exe)} />
+          </div>
+          <Skeleton className="h-8 w-[13.5rem] rounded-lg" />
+        </div>
+      ))}
     </div>
   );
 }
