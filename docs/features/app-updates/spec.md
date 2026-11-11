@@ -5,7 +5,7 @@
 | Status | Implemented |
 | Area | desktop shell, desktop UI, release pipeline |
 | Created | 2026-11-10 |
-| Updated | 2026-11-10 |
+| Updated | 2026-11-11 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Notifications](../notifications/spec.md) (the update notice), [Memory and the Scheduler](../memory-and-scheduler/spec.md) (scheduled tasks across a restart) |
@@ -51,7 +51,8 @@ interrupts a working chat without asking.
   working chats to finish before restarting. Ignoring the notification is
   enough.
 - Updates forced by the project (a release the person cannot decline).
-- Showing release notes inside the app; the app links to them.
+- Release notes of the versions between the installed one and the latest:
+  the dialog shows the latest release's notes only (FR-16).
 
 ## 3. User scenarios
 
@@ -110,8 +111,8 @@ wants to turn automatic checks off.
 
 Acceptance scenarios:
 
-1. **Given** **Check for updates automatically** is off in **Settings →
-   General**, **when** the app runs for days, **then** it makes no update
+1. **Given** **Check for updates** is set to **Manually** in **Settings →
+   About**, **when** the app runs for days, **then** it makes no update
    request and downloads nothing.
 2. **Given** the setting is off, **when** the person clicks **Check for
    updates** in **Settings → About**, **then** the check runs as in US-3.
@@ -126,6 +127,25 @@ Acceptance scenarios:
 1. **Given** evo installed from a Linux package and a newer release,
    **when** a check finds it, **then** a notification names the new version
    and opens the download page; the app downloads and installs nothing.
+
+### US-6 See what changed before updating (priority P2)
+
+A person told about a new version wants to read what it changes, in the
+app, before they restart for it.
+
+Acceptance scenarios:
+
+1. **Given** automatic checks are on, **when** a check finds a newer
+   version, **then** a dialog opens by itself with the version, its release
+   date and its notes grouped as breaking changes, features, fixes,
+   performance and other changes, and the action that applies (**Restart to
+   update**, or **Download** where the app cannot install).
+2. **Given** the person closed that dialog, **when** later checks find the
+   same version, or the app restarts, **then** the dialog does not open by
+   itself again; **What's new** in **Settings → About** opens it.
+3. **Given** the person checks by hand in **Settings → About**, **when** the
+   check finds a newer version, **then** the About row shows it and no
+   dialog opens by itself.
 
 ### Edge cases
 
@@ -161,7 +181,7 @@ Acceptance scenarios:
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | FR-1 | With automatic checks on, the app checks for a newer release shortly after it starts and then at a regular interval for as long as it runs, including while it is only in the tray. The interval is 6 hours. | Given a running app and a release published after it started, when 6 hours have passed, then the app has found the release. |
-| FR-2 | **Settings → General** has **Check for updates automatically**, on by default. When it is off the app makes no automatic check and no download; a check by hand still works. The setting applies without restarting the app. | Given the setting is off, when the app runs past one interval, then no update request was made. |
+| FR-2 | **Settings → About** has **Check for updates**: **Automatically** (the default) or **Manually**. Set to manually, the app makes no automatic check and no download; a check by hand still works. The setting applies without restarting the app. | Given the setting is Manually, when the app runs past one interval, then no update request was made. |
 | FR-3 | **Settings → About** shows the installed version, the update state and the time of the last check, with a **Check for updates** button. The states are: up to date, checking, downloading (with progress), ready to install (with the new version), could not check (with the reason), and not available in this build. | Given the About page, when a check by hand runs against a newer release, then the row moves through checking, downloading and ready to install. |
 | FR-4 | A release is offered only when its version is higher than the installed one. An equal or lower version is never offered or installed. | Given the latest release equals the installed version, when a check runs, then the state is up to date and nothing is downloaded. |
 | FR-5 | A found update is downloaded in the background straight away, without asking the person. Chats, the terminal and the rest of the app keep working during the download. | Given a chat is streaming a reply, when an update downloads, then the reply continues without a pause the person can notice. |
@@ -170,10 +190,12 @@ Acceptance scenarios:
 | FR-8 | The update is installed only when the person chooses **Restart to update** (on the notification or in **Settings → About**). The app never installs or restarts on its own. | Given an update has been ready for 24 hours and the person did nothing, when they look at the app, then it still runs the installed version. |
 | FR-9 | If any chat is working when the person chooses **Restart to update**, the app first asks for confirmation and says how many chats are working. Cancelling leaves everything running and the update ready. The app does not offer to wait for the chats to finish; the person chooses **Restart to update** again later. | Given one working chat, when the person chooses **Restart to update** and then cancels, then the chat is still working and the update is still ready. |
 | FR-10 | On confirmation the app stops every chat's engine cleanly, installs the update and reopens by itself on the new version. Chats, settings, credentials and connectors are kept; a chat that was working is saved as after any other stop and can be continued. | Given an update is ready, when the person confirms the restart, then the app reopens and **Settings → About** shows the new version with the earlier chats in the sidebar. |
-| FR-11 | Wherever the app names a new version (the notification, the About row), it links to that release's notes on the download page. | Given an update is ready, when the person clicks **What's new**, then the release's notes open in their browser. |
+| FR-11 | Wherever the app names a new version (the notification, the About row, the new-version dialog), the person can reach that release's notes: **What's new** in the About row opens the dialog of FR-16, and the dialog links to the release page (or the full comparison with the previous release). | Given an update is ready, when the person clicks **What's new**, then the dialog shows the release's notes. |
 | FR-12 | Where the app cannot install an update itself, it downloads and installs nothing: on a Linux package install, and on macOS when the release was not signed with the project's Apple developer identity. A found release raises a notification that names the version and opens the download page, and the About row says a new version is available with the same link. | Given evo installed from a Linux package and a newer release, when a check runs, then nothing is downloaded and the notification opens the download page. |
 | FR-13 | A failed automatic check is silent to the person and is recorded in the app's log. A failed check by hand, a failed download and a failed install are shown with the reason and can be retried. After any failure the installed version keeps working. | Given no network, when the person clicks **Check for updates**, then the row says it could not check and why, and the button can be clicked again. |
 | FR-14 | Development builds and the browser preview do not check for updates; the About row says updates are not available in this build. | Given a development build, when the app runs, then no update request is made. |
+| FR-16 | The new-version dialog shows the version found, the installed version, the release date, and the release's notes laid out by kind (breaking changes, features, fixes, performance, other changes) with a count of each; each change shows its area and links to its commit. Notes in another shape are shown as formatted text; a release without notes links to its release page. The dialog offers the action that applies to the update's state: **Restart to update** when ready, the download progress while downloading, **Download** (the download page) where the app cannot install (FR-12). The notes come with the update information every release publishes (FR-15); nothing else is requested. | Given a release whose notes list two features and one fix, when the dialog opens, then it shows a Features group with two entries, a Fixes group with one, and "2 features · 1 fix". |
+| FR-17 | When an automatic check finds a newer version (ready to install, or available on the download page), the dialog of FR-16 opens by itself, once per version: after the person closes it, it does not open by itself for that version again, also after a restart. A check by hand does not open it (the About row shows the result). The notification of FR-7 is raised as before. | Given an automatic check found 4.4.0 and the person closed the dialog, when the app restarts and finds 4.4.0 again, then no dialog opens. |
 | FR-15 | Every published release carries what the installed apps need to find it, verify it and install it, for each platform that installs in the app (NFR-1). A release that is missing any of it is not published as the latest release. One exception: a macOS build made without the project's Apple developer identity is published without the macOS part, so those apps get the notice of FR-12. | Given a new release is published, when an app one version behind checks, then it finds, verifies and installs that release. |
 
 ### 4.2 Non-functional
@@ -243,6 +265,10 @@ n/a — no open questions.
   written.
 - 2026-11-10 — Gate B: plan accepted by the owner; implementation
   started.
+- 2026-11-11 — Owner request: show the release notes in a new-version
+  dialog when an automatic check finds a version (US-6, FR-16, FR-17;
+  FR-11 updated, the release-notes non-goal narrowed), and choose automatic
+  or manual checks in **Settings → About** (FR-2 moved from General).
 - 2026-11-10 — Implemented. The owner closed the feature without running
   the remaining checks (end-to-end updates, workflow runs, manual app
   checks); they are marked waived in [tasks.md](tasks.md), and failures

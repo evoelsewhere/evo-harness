@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-10 |
+| Updated | 2026-11-11 |
 
 ## 1. Phases
 
@@ -66,12 +66,25 @@ Done when: every row of the verification table has a result.
 - [ ] ~~T25~~ waived 2026-11-10 by the owner (not run; failures are reported as bugs) — [FR-12] Linux package: install release N from the DEB, publish N+1, check — check: notice with the download page, nothing downloaded
 - [ ] ~~T26~~ standing rule, not a step to finish ([ADR 0017](../../architecture/decisions/0017-app-updates-from-signed-github-releases.md), consequences) — [FR-15] After every upgrade of `tauri-plugin-updater`: rerun T24's Windows case and T25 (the comparator-before-lookup behaviour) — check: noted in the upgrade's commit
 
+### Phase 5 — New-version dialog and check mode (2026-11-11)
+
+Done when: an automatic check that finds a version opens the dialog with
+the notes in sections, once per version, and About chooses automatic or
+manual checks.
+
+- [x] T27 [FR-16, FR-15] Test first: `--notes` puts the release notes in the manifest, empty notes fall back to the release URL — `.github/scripts/updater_manifest.py`, `.github/scripts/test_updater_manifest.py`, `.github/workflows/desktop-packages.yml` — check: `python -m unittest discover -s .github/scripts -p "test_*.py"`
+- [x] T28 [FR-16] The comparator records the release's notes and date; `UpdateState.release`; `release_notes` drops a bare link — `apps/desktop/src-tauri/src/updates.rs` — check: `bun run test:shell` (`release_notes_are_markdown_or_nothing`, `the_state_is_sent_as_the_plan_writes_it`)
+- [x] T29 [FR-16] Test first: parse the notes into sections, scopes, commits and the compare link; other shapes return null — `apps/desktop/src/features/updates/changelog.ts`, `changelog.test.ts` — check: `bun test src/features/updates`
+- [x] T30 [FR-11, FR-16, FR-17, FR-9] The dialog, the restart question moved into `UpdatesHost` (main window only), `openWhatsNew`, once-per-version opening after automatic checks (`updates.dialogShownFor`) — `apps/desktop/src/features/updates/`, `apps/desktop/src/stores/updates-store.ts`, `apps/desktop/src/app/app.tsx` — check: `bun run typecheck`; browser preview with the store filled by hand
+- [x] T31 [FR-2] **Check for updates: Automatically / Manually** in About; the General switch removed; About's search words — `apps/desktop/src/features/settings/sections/update-row.tsx`, `system-settings.tsx`, `general-settings.tsx`, `settings-registry.ts` — check: browser preview
+- [x] T32 UI map row — `apps/desktop/README.md` — check: review
+
 ## 2. Verification
 
 | Requirement | Test or check | Result |
 | --- | --- | --- |
 | FR-1 | T24: automatic check finds N+1 | not run — waived by the owner (2026-11-10) |
-| FR-2 | T14 manual; T6 timer reads the setting | partly: the switch renders and saves `updates.autoCheck` in the screenshot harness (2026-11-10); restart and live check not run; the rest waived by the owner (2026-11-10) |
+| FR-2 | T14 manual; T6 timer reads the setting; T31 | partly: the switch renders and saves `updates.autoCheck` in the screenshot harness (2026-11-10); the About control switches between Automatically and Manually and the Status line follows, in the browser preview (2026-11-11); saving from the real app, restart and live check not run |
 | FR-3 | T13 every state; T24 | partly: every state rendered in the screenshot harness with fake IPC, light and dark (2026-11-10); T24 not run; the rest waived by the owner (2026-11-10) |
 | FR-4 | T5 tests (equal and lower versions) | passed (2026-11-10): `a_release_without_our_platform_is_announced_only_when_newer`, `a_newer_release_is_downloaded_or_announced` |
 | FR-5 | T24: chat keeps streaming during the download | not run — waived by the owner (2026-11-10) |
@@ -80,11 +93,13 @@ Done when: every row of the verification table has a result.
 | FR-8 | T24: nothing installed without a click after 24 h | not run — waived by the owner (2026-11-10) |
 | FR-9 | T2 test; T24 confirm and cancel with a working chat | partly: `working_chats_follow_runs_and_forget_stopped_engines` passed; the dialog shows the count (harness) (2026-11-10); T24 not run; the rest waived by the owner (2026-11-10) |
 | FR-10 | T24: reopens on N+1 with chats and settings | not run — waived by the owner (2026-11-10) |
-| FR-11 | T24: **What's new** opens the release notes | not run — waived by the owner (2026-11-10) |
+| FR-11 | T24: **What's new** opens the release notes; T30 | partly: **What's new** opens the dialog over Settings in the browser preview (2026-11-11); T24 not run |
 | FR-12 | T5 tests; T25 | partly: decision tests passed (2026-11-10); T25 not run; the rest waived by the owner (2026-11-10) |
 | FR-13 | T5 tests; T24 offline check by hand | partly: failed states render with the reason and a retry (harness, 2026-11-10); T24 not run; the rest waived by the owner (2026-11-10) |
 | FR-14 | T23 | not run — waived by the owner (2026-11-10) |
 | FR-15 | T16 tests; T20 fork release | partly: 10 manifest tests passed (2026-11-10); T20 not run; the rest waived by the owner (2026-11-10) |
+| FR-16 | T27, T28, T29 tests; T30 preview | partly: 12 manifest tests, `release_notes_are_markdown_or_nothing`, 5 parser tests passed; the dialog rendered ready (sections, counts, Restart to update), downloading (progress) and no-notes states in the browser preview (2026-11-11); a real release's `latest.json` with notes not seen yet |
+| FR-17 | T30 | not run: needs an automatic check against a release with notes (debug build with `EVO_UPDATES_ENDPOINT`) |
 | NFR-1 | T24 on Windows and macOS; T25 on Linux | not run — waived by the owner (2026-11-10) |
 | NFR-2 | T18 log review; T21 | not run — waived by the owner (2026-11-10) |
 | NFR-3 | T22 | not run — waived by the owner (2026-11-10) |

@@ -7,7 +7,7 @@ import { EvoLogo } from "@/components/icons/evo-logo";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { REPOSITORY_URL, openLink } from "@/features/shell/app-commands";
-import { UpdateRow } from "./update-row";
+import { UpdateModeRow, UpdateRow } from "./update-row";
 import { inTauri } from "@/lib/platform";
 import { useEngineStore, type EngineStatus } from "@/stores/engine-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
@@ -161,6 +161,7 @@ export function AboutSettings() {
       </header>
       <SettingsGroup title="Updates">
         <UpdateRow />
+        <UpdateModeRow />
       </SettingsGroup>
       <SettingsGroup title="Help">
         <SettingsRow

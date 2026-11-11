@@ -1,16 +1,18 @@
-// The Updates row in Settings → About (docs/features/app-updates/spec.md,
-// FR-3, FR-9, FR-11 to FR-14): the update state, Check for updates, Restart
-// to update, and the question when chats are working.
+// The Updates rows in Settings → About (docs/features/app-updates/spec.md,
+// FR-2, FR-3, FR-11 to FR-14, FR-16): how evo checks (automatically or by
+// hand), the update state, Check for updates, What's new (the new-version
+// dialog) and Restart to update. The question when chats are working is in
+// features/updates, mounted once for every place that restarts.
 
 import * as React from "react";
-import { DownloadIcon, ExternalLinkIcon, RefreshCwIcon, RotateCwIcon } from "lucide-react";
+import { DownloadIcon, ExternalLinkIcon, HandIcon, RefreshCwIcon, RotateCwIcon, SparklesIcon, ZapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
+import { notify } from "@/features/notifications/notify";
 import { openLink } from "@/features/shell/app-commands";
-import { SettingsRow } from "../settings-controls";
-import { DOWNLOAD_URL, releaseNotesUrl, useUpdatesStore, type UpdateState } from "@/stores/updates-store";
+import { Segmented, SettingsRow } from "../settings-controls";
+import { DOWNLOAD_URL, useUpdatesStore, type UpdateState } from "@/stores/updates-store";
 
 const when = (at: number) =>
   new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -21,10 +23,48 @@ function percent(received: number, total: number | null) {
   return total ? Math.min(100, Math.round((received / total) * 100)) : null;
 }
 
+/** Automatic or manual checks (FR-2): the app setting `updates.autoCheck`. */
+export function UpdateModeRow() {
+  const autoCheck = useUpdatesStore((s) => s.autoCheck);
+  const load = useUpdatesStore((s) => s.loadAutoCheck);
+  const setAutoCheck = useUpdatesStore((s) => s.setAutoCheck);
+  React.useEffect(() => {
+    if (autoCheck === null) void load();
+  }, [autoCheck, load]);
+  const change = (mode: "auto" | "manual") =>
+    setAutoCheck(mode === "auto").catch((error: unknown) =>
+      notify({ source: "settings", level: "error", title: "Could not change the setting", body: String(error) }),
+    );
+  return (
+    <SettingsRow
+      labelId="setting-updatesAutoCheck"
+      label="Check for updates"
+      description={
+        autoCheck === false
+          ? "Only when you choose Check for updates below. evo makes no update request on its own."
+          : "Shortly after evo starts and every 6 hours, downloading a new version in the background and showing what changed. Nothing is installed until you choose Restart to update."
+      }
+      control={
+        <Segmented
+          labelledBy="setting-updatesAutoCheck"
+          value={autoCheck === false ? "manual" : "auto"}
+          onValueChange={change}
+          options={[
+            { value: "auto", label: "Automatically", icon: ZapIcon },
+            { value: "manual", label: "Manually", icon: HandIcon },
+          ]}
+        />
+      }
+    />
+  );
+}
+
 export function UpdateRow() {
   const state = useUpdatesStore((s) => s.state);
   const check = useUpdatesStore((s) => s.check);
   const install = useUpdatesStore((s) => s.install);
+  const autoCheck = useUpdatesStore((s) => s.autoCheck);
+  const openWhatsNew = useUpdatesStore((s) => s.openWhatsNew);
   const [error, setError] = React.useState<string | null>(null);
 
   const run = (action: () => Promise<void>) => {
@@ -37,8 +77,9 @@ export function UpdateRow() {
       {label}
     </Button>
   );
-  const notesButton = (version: string) => (
-    <Button variant="ghost" size="sm" onClick={() => openLink(releaseNotesUrl(version))}>
+  const notesButton = (_version: string) => (
+    <Button variant="ghost" size="sm" onClick={openWhatsNew}>
+      <SparklesIcon />
       What's new
     </Button>
   );
@@ -59,7 +100,10 @@ export function UpdateRow() {
   } else {
     switch (status.kind) {
       case "idle":
-        description = `evo looks for new versions on its own.${lastChecked(state)}`;
+        description =
+          autoCheck === false
+            ? `Automatic checks are off.${lastChecked(state)}`
+            : `evo looks for new versions on its own.${lastChecked(state)}`;
         control = checkButton();
         break;
       case "checking":
@@ -139,50 +183,17 @@ export function UpdateRow() {
   }
 
   return (
-    <>
-      <SettingsRow
-        label="Status"
-        description={
-          <>
-            {description}
-            {error && <span className="mt-1 block text-destructive">{error}</span>}
-          </>
-        }
-        control={control}
-      >
-        {progress}
-      </SettingsRow>
-      <ConfirmRestart />
-    </>
-  );
-}
-
-/** Chats are working: restarting stops them (FR-9). */
-function ConfirmRestart() {
-  const confirm = useUpdatesStore((s) => s.confirm);
-  const dismiss = useUpdatesStore((s) => s.dismissConfirm);
-  const install = useUpdatesStore((s) => s.install);
-  const working = confirm?.working ?? 0;
-  return (
-    <Dialog open={confirm !== null} onOpenChange={(open) => !open && dismiss()}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>Restart to update?</DialogTitle>
-          <DialogDescription>
-            {working === 1 ? "A chat is" : `${working} chats are`} working. Restarting stops{" "}
-            {working === 1 ? "it" : "them"}; you can continue after the update. Or wait, and choose Restart to update
-            later.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={dismiss}>
-            Cancel
-          </Button>
-          <Button autoFocus onClick={() => void install(true)}>
-            Restart anyway
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <SettingsRow
+      label="Status"
+      description={
+        <>
+          {description}
+          {error && <span className="mt-1 block text-destructive">{error}</span>}
+        </>
+      }
+      control={control}
+    >
+      {progress}
+    </SettingsRow>
   );
 }

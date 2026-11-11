@@ -16,7 +16,11 @@ fails (exit 1) instead of writing an incomplete manifest, so the release
 stays a draft.
 
     updater_manifest.py --platforms DIR --assets assets.json --repo OWNER/NAME \
-        --tag v4.3.0 --version 4.3.0 --out latest.json
+        --tag v4.3.0 --version 4.3.0 [--notes CHANGELOG.md] --out latest.json
+
+`--notes` is the release's Markdown notes (release_notes.py): the app shows
+them in its new-version dialog (FR-16). Without it, or when the file is
+empty, `notes` is the link to the release page, as before.
 
 `assets.json` is `gh release view <tag> --json assets`.
 """
@@ -58,7 +62,7 @@ def github_name(local: str) -> str:
     return local.replace(" ", ".")
 
 
-def build(platforms: dict[str, dict], assets: list[dict], repo: str, tag: str, version: str, now: datetime) -> dict:
+def build(platforms: dict[str, dict], assets: list[dict], repo: str, tag: str, version: str, now: datetime, notes: str | None = None) -> dict:
     missing = [name for name in REQUIRED if name not in platforms]
     if missing:
         raise ManifestError(f"no platform file for {', '.join(missing)}")
@@ -84,7 +88,7 @@ def build(platforms: dict[str, dict], assets: list[dict], repo: str, tag: str, v
         }
     return {
         "version": version,
-        "notes": f"https://github.com/{repo}/releases/tag/{tag}",
+        "notes": (notes or "").strip() or f"https://github.com/{repo}/releases/tag/{tag}",
         "pub_date": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "platforms": entries,
     }
@@ -97,13 +101,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--notes", type=Path, help="the release notes (Markdown) for the app's dialog")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         if args.tag != f"v{args.version}":
             raise ManifestError(f"tag {args.tag} does not match version {args.version}")
         assets = json.loads(args.assets.read_text(encoding="utf-8")).get("assets", [])
-        manifest = build(load_platforms(args.platforms), assets, args.repo, args.tag, args.version, datetime.now(timezone.utc))
+        notes = args.notes.read_text(encoding="utf-8") if args.notes else None
+        manifest = build(load_platforms(args.platforms), assets, args.repo, args.tag, args.version, datetime.now(timezone.utc), notes)
     except (ManifestError, OSError, json.JSONDecodeError) as error:
         print(f"update manifest: {error}", file=sys.stderr)
         return 1

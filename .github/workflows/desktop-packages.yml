@@ -773,11 +773,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.value }}
+          # The app shows these in its new-version dialog (FR-16).
+          NOTES: release-assets/release-notes/CHANGELOG.md
         shell: bash
         run: |
           set -euo pipefail
           gh release view "$TAG" --json assets > "$RUNNER_TEMP/assets.json"
-          python3 .github/scripts/updater_manifest.py             --platforms release-assets             --assets "$RUNNER_TEMP/assets.json"             --repo "$GITHUB_REPOSITORY"             --tag "$TAG"             --version "$VERSION"             --out "$RUNNER_TEMP/latest.json"
+          python3 .github/scripts/updater_manifest.py             --platforms release-assets             --assets "$RUNNER_TEMP/assets.json"             --repo "$GITHUB_REPOSITORY"             --tag "$TAG"             --version "$VERSION"             --notes "$NOTES"             --out "$RUNNER_TEMP/latest.json"
           gh release upload "$TAG" "$RUNNER_TEMP/latest.json" --clobber
 
       - name: Publish release

@@ -10,7 +10,6 @@ import { inTauri, isMac } from "@/lib/platform";
 import { autoOpenGeneratedEnabled, setAutoOpenGenerated } from "@/stores/office-store";
 import { setShellIntegration, shellIntegrationEnabled } from "@/features/terminal";
 import { useUiStore } from "@/stores/ui-store";
-import { autoCheckEnabled, setAutoCheck } from "@/stores/updates-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
 // Startup and background, applied by the shell (src-tauri/src/system.rs), and
@@ -102,20 +101,6 @@ export function GeneralSettings() {
     });
   }
 
-  // Updates: check automatically (app setting `updates.autoCheck`, read by the shell).
-  const [autoCheck, setAutoCheckState] = React.useState<boolean | null>(inTauri ? null : true);
-  React.useEffect(() => {
-    if (inTauri) void autoCheckEnabled().then(setAutoCheckState);
-  }, []);
-  function changeAutoCheck(enabled: boolean) {
-    setAutoCheckState(enabled);
-    if (!inTauri) return;
-    setAutoCheck(enabled).catch((error: unknown) => {
-      setAutoCheckState(!enabled);
-      notify({ source: "settings", level: "error", title: "Could not change the setting", body: String(error) });
-    });
-  }
-
   return (
     <div className="flex flex-col gap-8">
       <SettingsHeader
@@ -149,21 +134,6 @@ export function GeneralSettings() {
           label="Keep computer awake"
           description="Stop this computer from going to sleep while evo is running, so scheduled tasks and long agent runs keep going while you are away. The display can still turn off."
           control={toggle("keepAwake")}
-        />
-      </SettingsGroup>
-      <SettingsGroup title="Updates">
-        <SettingsRow
-          labelId="setting-updatesAutoCheck"
-          label="Check for updates automatically"
-          description="Look for a new version of evo shortly after it starts and every 6 hours, and download it in the background. Nothing is installed until you choose Restart to update. When off, check from Settings › About."
-          control={
-            <Switch
-              aria-labelledby="setting-updatesAutoCheck"
-              checked={autoCheck ?? true}
-              disabled={autoCheck === null}
-              onCheckedChange={changeAutoCheck}
-            />
-          }
         />
       </SettingsGroup>
       <SettingsGroup title="Workspace">

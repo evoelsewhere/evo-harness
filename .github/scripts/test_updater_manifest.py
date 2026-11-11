@@ -51,6 +51,14 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(windows["url"], "https://github.com/evoelsewhere/evo-harness/releases/download/v4.3.0/Evo.Harness_4.3.0_x64-setup.exe")
         self.assertEqual(windows["signature"], "c2lnLXdpbg==")
 
+    def test_the_release_notes_ride_in_the_manifest(self):
+        notes = "## What's changed\n\n### Fixes\n\n- **desktop:** A fix\n"
+        manifest = m.build(platforms(), ASSETS, REPO, TAG, VERSION, NOW, notes)
+        self.assertEqual(manifest["notes"], notes.strip())
+        # Empty notes fall back to the release page.
+        manifest = m.build(platforms(), ASSETS, REPO, TAG, VERSION, NOW, "  \n")
+        self.assertTrue(manifest["notes"].startswith("https://"))
+
     def test_an_unsigned_mac_build_is_left_out(self):
         manifest = m.build(platforms(darwin_x86_64={"platform": "darwin-x86_64", "eligible": False}), ASSETS, REPO, TAG, VERSION, NOW)
         self.assertNotIn("darwin-x86_64", manifest["platforms"])
@@ -82,7 +90,7 @@ class BuildTests(unittest.TestCase):
 
 
 class MainTests(unittest.TestCase):
-    def run_main(self, tag=TAG, entries=None):
+    def run_main(self, tag=TAG, entries=None, notes=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             folder = root / "release-assets" / "evo-windows-x64"
@@ -91,9 +99,13 @@ class MainTests(unittest.TestCase):
                 (folder / f"{name}-updater.json").write_text(json.dumps(entry), encoding="utf-8")
             (root / "assets.json").write_text(json.dumps({"assets": ASSETS}), encoding="utf-8")
             out = root / "latest.json"
+            extra = []
+            if notes is not None:
+                (root / "CHANGELOG.md").write_text(notes, encoding="utf-8")
+                extra = ["--notes", str(root / "CHANGELOG.md")]
             code = m.main([
                 "--platforms", str(root / "release-assets"), "--assets", str(root / "assets.json"),
-                "--repo", REPO, "--tag", tag, "--version", VERSION, "--out", str(out),
+                "--repo", REPO, "--tag", tag, "--version", VERSION, "--out", str(out), *extra,
             ])
             return code, (json.loads(out.read_text(encoding="utf-8")) if out.exists() else None)
 
@@ -101,6 +113,11 @@ class MainTests(unittest.TestCase):
         code, manifest = self.run_main()
         self.assertEqual(code, 0)
         self.assertEqual(len(manifest["platforms"]), 3)
+
+    def test_writes_the_notes_file(self):
+        code, manifest = self.run_main(notes="### Features\n\n- New\n")
+        self.assertEqual(code, 0)
+        self.assertEqual(manifest["notes"], "### Features\n\n- New")
 
     def test_fails_without_writing_on_a_bad_release(self):
         code, manifest = self.run_main(entries=platforms(windows_x86_64=None))

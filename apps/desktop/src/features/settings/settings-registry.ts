@@ -90,7 +90,7 @@ export const settingsPages: SettingsPage[] = [
     title: "About",
     icon: InfoIcon,
     group: "System",
-    keywords: ["version", "help", "docs", "issue", "github", "license"],
+    keywords: ["version", "help", "docs", "issue", "github", "license", "update", "updates", "upgrade", "release", "changelog", "what's new", "automatic", "manual"],
     component: AboutSettings,
   },
 ];

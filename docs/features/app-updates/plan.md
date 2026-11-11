@@ -473,6 +473,34 @@ Owner setup, once, before the first release with the updater:
   the screenshot harness ran; a real update, the signing in CI and the
   release's `latest.json` have not been seen working yet.
 
+New-version dialog and the check mode (2026-11-11, FR-2, FR-16, FR-17):
+
+- **Notes travel in `latest.json`.** `updater_manifest.py --notes` puts the
+  release body (the notes job's `CHANGELOG.md`) into the manifest's
+  `notes`, which used to hold the release URL; empty notes fall back to the
+  URL. The comparator already sees the remote release, so it records its
+  `notes` and `pub_date` with the version (`Seen`), also for a release
+  without our platform (FR-12). `updates::release_notes` drops a value
+  that is only a link, so manifests published before this change show the
+  "notes are on the release page" view. No extra request (NFR-3).
+- **`UpdateState.release`** (`{ version, notes, publishedAt }`) is set when
+  a check decides to download or announce, cleared when up to date, kept
+  on a failed check. The status enum is unchanged.
+- **The dialog is its own feature** (`features/updates/`): the parser
+  (`changelog.ts`, the format `release_notes.py` writes; other shapes go to
+  the shared Markdown view), the dialog, and the restart question, which
+  moved out of the About row and is mounted once in the main window with
+  the dialog (`UpdatesHost`). The About row's **What's new** opens the
+  dialog through `useUpdatesStore.openWhatsNew()`; with no release known it
+  opens the release page as before.
+- **Once per version:** the store opens the dialog when a `ready` or
+  `notice` status follows a check whose `checking.manual` was false, and
+  remembers the version in the app setting `updates.dialogShownFor`.
+- **The check mode moved to About** as a segmented **Automatically /
+  Manually** control (`UpdateModeRow`) under the Status row; the same
+  `updates.autoCheck` setting, now held by the updates store. General no
+  longer has an Updates group.
+
 Updater 2.14 (2026-11-10):
 
 - `tauri-plugin-updater` moved from 2.10.1 to 2.14.1 for its `zip` 9

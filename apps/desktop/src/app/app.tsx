@@ -8,6 +8,7 @@ import { SummaryCard } from "@/features/chat/summary-card";
 import { RightPanel, ToolRail } from "@/features/panels/right-panel";
 import { CommandPalette } from "@/features/sessions/command-palette";
 import { SettingsDialog } from "@/features/settings/settings-view";
+import { UpdatesHost } from "@/features/updates";
 import { AppSidebar } from "@/features/shell/app-sidebar";
 import { Toaster } from "@/features/notifications/toaster";
 import { WindowTitleBar, WorkspaceToolbar } from "@/features/shell/workspace-header";
@@ -232,6 +233,7 @@ export function App() {
       </SidebarInset>
       <CommandPalette />
       <SettingsDialog />
+      {!solo && <UpdatesHost />}
       <MacMenu />
       <Toaster />
     </SidebarProvider>

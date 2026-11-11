@@ -91,6 +91,31 @@ pub struct UpdateState {
     current: String,
     last_checked_at: Option<u64>,
     status: Status,
+    /// The newer release the last check found, with its notes (FR-16).
+    release: Option<Release>,
+}
+
+/// A newer release as the manifest describes it: what the new-version
+/// dialog shows (FR-16, FR-17).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Release {
+    version: String,
+    /// The release's notes as Markdown; `None` when the manifest has none
+    /// (a release made before FR-16 carries only a link).
+    notes: Option<String>,
+    /// Milliseconds since the epoch.
+    published_at: Option<u64>,
+}
+
+/// What the version comparator saw of the release: the plugin calls it
+/// before it looks up this platform's entry (plan 3.5).
+#[derive(Clone, Debug)]
+struct Seen {
+    version: String,
+    newer: bool,
+    notes: Option<String>,
+    published_at: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -115,6 +140,7 @@ struct Inner {
     status: Status,
     last_checked_at: Option<u64>,
     ready: Option<Ready>,
+    release: Option<Release>,
 }
 
 pub struct UpdatesState {
@@ -132,6 +158,7 @@ impl Default for UpdatesState {
                 status: Status::Idle,
                 last_checked_at: None,
                 ready: None,
+                release: None,
             }),
             busy: tokio::sync::Mutex::new(()),
             pubkey: Mutex::new(String::new()),
@@ -190,6 +217,15 @@ fn decide(found: Found, seen: Option<(String, bool)>, notice_only: bool) -> Deci
         },
         Found::Error(message) => Decision::Error(message),
     }
+}
+
+/// The manifest's `notes` as the dialog shows them: Markdown, or nothing
+/// when they are empty or only the link to the release page (FR-16).
+fn release_notes(notes: Option<&str>) -> Option<String> {
+    let notes = notes?.trim();
+    let only_a_link = !notes.contains(char::is_whitespace)
+        && (notes.starts_with("https://") || notes.starts_with("http://"));
+    (!notes.is_empty() && !only_a_link).then(|| notes.to_string())
 }
 
 /// An automatic check is due after `CHECK_EVERY_MS` (or when the clock went back).
@@ -267,6 +303,7 @@ fn snapshot(app: &AppHandle) -> UpdateState {
         current: current_version(app).to_string(),
         last_checked_at: inner.last_checked_at,
         status: inner.status.clone(),
+        release: inner.release.clone(),
     }
 }
 
@@ -397,7 +434,7 @@ async fn check(app: &AppHandle, manual: bool) {
     let before = state.lock().status.clone();
     set_status(app, Status::Checking { manual });
 
-    let seen: Arc<Mutex<Option<(String, bool)>>> = Arc::default();
+    let seen: Arc<Mutex<Option<Seen>>> = Arc::default();
     let found = match updater(app, seen.clone()) {
         Err(error) => Found::Error(error),
         Ok(updater) => match updater.check().await {
@@ -424,7 +461,7 @@ async fn check(app: &AppHandle, manual: bool) {
 
 fn updater(
     app: &AppHandle,
-    seen: Arc<Mutex<Option<(String, bool)>>>,
+    seen: Arc<Mutex<Option<Seen>>>,
 ) -> Result<tauri_plugin_updater::Updater, String> {
     let handle = app.clone();
     let mut builder = app
@@ -434,8 +471,15 @@ fn updater(
         // platform; offer only a higher version (FR-4).
         .version_comparator(move |current, release| {
             let newer = release.version > current;
-            *seen.lock().unwrap_or_else(PoisonError::into_inner) =
-                Some((release.version.to_string(), newer));
+            *seen.lock().unwrap_or_else(PoisonError::into_inner) = Some(Seen {
+                version: release.version.to_string(),
+                newer,
+                notes: release_notes(release.notes.as_deref()),
+                published_at: release
+                    .pub_date
+                    .and_then(|date| u64::try_from(date.unix_timestamp()).ok())
+                    .map(|seconds| seconds * 1000),
+            });
             newer
         })
         // Windows: the plugin ends the app right after this, without the
@@ -458,13 +502,30 @@ fn updater(
 async fn after_check(
     app: &AppHandle,
     found: Found,
-    seen: Arc<Mutex<Option<(String, bool)>>>,
+    seen: Arc<Mutex<Option<Seen>>>,
     before: Status,
     manual: bool,
     update: Option<Update>,
 ) {
     let seen = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
-    let decision = decide(found, seen, notice_only());
+    let decision = decide(
+        found,
+        seen.as_ref().map(|seen| (seen.version.clone(), seen.newer)),
+        notice_only(),
+    );
+    // The release the person is offered, with its notes (FR-16).
+    match &decision {
+        Decision::UpToDate => app.state::<UpdatesState>().lock().release = None,
+        Decision::Notice(version) | Decision::Download(version) => {
+            let seen = seen.as_ref().filter(|seen| &seen.version == version);
+            app.state::<UpdatesState>().lock().release = Some(Release {
+                version: version.clone(),
+                notes: seen.and_then(|seen| seen.notes.clone()),
+                published_at: seen.and_then(|seen| seen.published_at),
+            });
+        }
+        Decision::Error(_) => {}
+    }
     if !matches!(decision, Decision::Error(_)) {
         let now = now_ms();
         app.state::<UpdatesState>().lock().last_checked_at = Some(now);
@@ -836,6 +897,23 @@ mod tests {
     }
 
     #[test]
+    fn release_notes_are_markdown_or_nothing() {
+        let notes = "## What's changed\n\n### Fixes\n\n- Something";
+        assert_eq!(release_notes(Some(notes)), Some(notes.to_string()));
+        assert_eq!(release_notes(Some("  ")), None);
+        assert_eq!(release_notes(None), None);
+        // A manifest from before FR-16 carries only the release page.
+        assert_eq!(
+            release_notes(Some("https://github.com/o/r/releases/tag/v4.3.1\n")),
+            None
+        );
+        assert_eq!(
+            release_notes(Some("See https://github.com/o/r")),
+            Some("See https://github.com/o/r".to_string())
+        );
+    }
+
+    #[test]
     fn an_automatic_check_is_due_every_six_hours() {
         let hour = 60 * 60 * 1000;
         assert!(due(10 * hour, None));
@@ -881,10 +959,15 @@ mod tests {
                 received: 5,
                 total: None,
             },
+            release: Some(Release {
+                version: "4.3.0".into(),
+                notes: Some("- A".into()),
+                published_at: Some(2),
+            }),
         };
         assert_eq!(
             serde_json::to_value(state).unwrap(),
-            json!({ "current": "4.2.1", "lastCheckedAt": 1, "status": { "kind": "downloading", "version": "4.3.0", "received": 5, "total": null } })
+            json!({ "current": "4.2.1", "lastCheckedAt": 1, "status": { "kind": "downloading", "version": "4.3.0", "received": 5, "total": null }, "release": { "version": "4.3.0", "notes": "- A", "publishedAt": 2 } })
         );
         let failed = Status::Failed {
             stage: Stage::Verify,
