@@ -153,26 +153,6 @@ fn decode_content(raw: &Value) -> Result<Vec<TextContentOrImage>, AgentError> {
 fn decode_result(raw: Value) -> Result<AgentToolResult, AgentError> {
     validate_result(&raw)?;
     let mut content = decode_content(&raw)?;
-    if raw.get("isError") == Some(&Value::Bool(true)) {
-        // AgentToolResult has no error flag: the native execution boundary
-        // carries errors through AgentError, never through a successful result.
-        // AgentError has no details channel. Only explicit result content is
-        // projected on errors; unknown raw metadata must not leak to providers.
-        let blocks = content
-            .iter()
-            .map(|block| match block {
-                TextContentOrImage::Text(text) => json!({"type":"text", "text":text.text}),
-                TextContentOrImage::Image(image) => {
-                    json!({"type":"image", "data":image.data, "mimeType":image.mime_type})
-                }
-            })
-            .collect::<Vec<_>>();
-        let mut error = json!({"content": blocks, "isError": true});
-        if let Some(structured) = raw.get("structuredContent") {
-            error["structuredContent"] = structured.clone();
-        }
-        return Err(AgentError::Tool(error.to_string()));
-    }
     if let Some(structured) = raw.get("structuredContent") {
         // Details do not reach providers. Project only the explicit structured
         // result, never backend metadata, and avoid repeating equivalent JSON.
@@ -185,6 +165,20 @@ fn decode_result(raw: Value) -> Result<AgentToolResult, AgentError> {
         if !represented {
             content.push(TextContentOrImage::text(structured.to_string()));
         }
+    }
+    if raw.get("isError") == Some(&Value::Bool(true)) {
+        // A failed call: the model reads the backend's own words, as it reads
+        // a successful result's, not a JSON dump of the reply. The details
+        // keep the explicit result only; unknown raw metadata stays out.
+        let mut kept = json!({ "content": raw["content"], "isError": true });
+        if let Some(structured) = raw.get("structuredContent") {
+            kept["structuredContent"] = structured.clone();
+        }
+        return Err(AgentError::StructuredTool(Box::new(AgentToolResult {
+            content,
+            details: json!({ "externalToolResult": kept }),
+            ..Default::default()
+        })));
     }
     Ok(AgentToolResult {
         content,

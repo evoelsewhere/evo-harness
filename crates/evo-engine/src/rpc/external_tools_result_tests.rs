@@ -94,10 +94,24 @@ fn error_keeps_complete_raw_content_and_structured_result() {
         "_meta":{"trace":"original"},
         "isError":true
     });
-    let Err(AgentError::Tool(error)) = decode_result(raw.clone()) else {
+    let Err(AgentError::StructuredTool(error)) = decode_result(raw.clone()) else {
         panic!("isError must remain a tool error");
     };
-    let projected: Value = serde_json::from_str(&error).unwrap();
+    // The model reads the backend's text and the structured result, not JSON
+    // around them.
+    let texts: Vec<&str> = error
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            TextContentOrImage::Text(text) => Some(text.text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        ["backend failure", r#"{"reason":"failed","retry":false}"#]
+    );
+    let projected = &error.details["externalToolResult"];
     assert_eq!(projected["content"], raw["content"]);
     assert_eq!(projected["structuredContent"], raw["structuredContent"]);
     assert_eq!(projected["isError"], true);
