@@ -337,8 +337,15 @@ function ProviderListItem({ row, open, onToggle }: { row: ProviderRow; open: boo
   return (
     <Collapsible open={open} onOpenChange={onToggle}>
       <div ref={ref} className={cn(open && "bg-muted/25")}>
-        <div className={cn("flex items-stretch", !row.supported && "opacity-70")}>
-          <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none">
+        {/* One row: the hover covers the whole header, and the link button sits in it with no
+            divider, so nothing ends abruptly above the unfolded form. */}
+        <div className={cn("flex items-center transition-colors hover:bg-muted/50", !row.supported && "opacity-70")}>
+          <CollapsibleTrigger
+            className={cn(
+              "group flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left focus-visible:bg-muted/50 focus-visible:outline-none",
+              row.docsUrl ? "pr-2" : "pr-4",
+            )}
+          >
             <ProviderMark row={row} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
@@ -371,14 +378,15 @@ function ProviderListItem({ row, open, onToggle }: { row: ProviderRow; open: boo
               aria-label={`Open ${row.label} website`}
               title="Get an API key"
               onClick={() => openLink(row.docsUrl)}
-              className="flex w-12 shrink-0 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              className="mr-4 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
             >
               <ExternalLinkIcon className="size-4" />
             </button>
           )}
         </div>
         <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out data-ending-style:h-0 data-starting-style:h-0">
-          <div className="pt-1 pr-4 pb-4 pl-16">
+          {/* The full width of the card, at the header's padding on both sides. */}
+          <div className="px-4 pt-1 pb-4">
             <ProviderForm row={row} />
           </div>
         </CollapsibleContent>
@@ -466,7 +474,7 @@ function ProviderForm({ row }: { row: ProviderRow }) {
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg bg-muted/40 px-3 py-2.5 text-[13px]">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg px-3 py-2.5 text-[13px] shadow-hairline">
         <dt className="text-muted-foreground">Status</dt>
         <dd className="flex items-center gap-1.5">
           <StatusDot tone={!row.supported ? "idle" : row.connected ? (row.discoveryError ? "warn" : "ok") : "idle"} />
