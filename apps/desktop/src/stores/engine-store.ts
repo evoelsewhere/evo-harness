@@ -32,6 +32,8 @@ import type {
   ModelDescriptor,
 } from "@/engine/protocol";
 import {
+  carryPermissions,
+  hasOpenPermission,
   initialTranscript,
   transcriptFromMessages,
   transcriptReducer,
@@ -60,7 +62,8 @@ function promptPayload(text: string, images: PromptImage[] = []): Record<string,
 import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log } from "@/lib/db";
 import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow } from "@/lib/windows";
-import { APPROVAL_CHANGED, useUiStore } from "@/stores/ui-store";
+import { worktrees } from "@/lib/worktrees";
+import { APPROVAL_CHANGED, useUiStore, worktreeKey } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
 import { connectorsChanged, useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
@@ -100,6 +103,8 @@ interface EngineStore extends Mirrored {
   runtimes: Record<string, ChatRuntime>;
   /** Chats running in another window (whose engine this window does not hold). */
   busyElsewhere: Record<string, true>;
+  /** Chats of this window with a subagent still working (their engine must stay up). */
+  agentsRunning: Record<string, true>;
   logs: LogLine[];
   /** Chats whose `compact` is still running (outlives the context panel that started it). */
   compactingChats: Record<string, boolean>;
@@ -128,7 +133,11 @@ interface EngineStore extends Mirrored {
   openInNewWindow(id: string): Promise<void>;
   /** Copy a saved chat (whole transcript) into a new chat and show it. */
   forkChat(id: string): Promise<void>;
-  /** Move a chat to another workspace (`null`: "This computer"); its engine restarts there. */
+  /**
+   * Move a chat to another workspace (`null`: "This computer"); its engine
+   * restarts there. Refused, with a notification, while the chat runs a turn
+   * or has subagents working.
+   */
   moveChat(id: string, workspaceId: string | null): Promise<void>;
   /**
    * Memory off or incognito for a chat, before its first message only: its
@@ -137,8 +146,8 @@ interface EngineStore extends Mirrored {
   setChatFlags(chat: string, flags: { memoryOff?: boolean; incognito?: boolean }): Promise<void>;
   /**
    * Restart the engines of chats that are not running a turn, so they pick up
-   * new startup settings (Settings → Sandbox). Running ones keep going and
-   * pick them up when they next start.
+   * new startup settings (Settings → Sandbox). Running ones, and ones whose
+   * subagents still work, keep going and pick them up when they next start.
    */
   restartIdleEngines(): Promise<void>;
   /**
@@ -152,15 +161,33 @@ interface EngineStore extends Mirrored {
   cancelBackgroundAgent(chat: string, agentId: string): Promise<void>;
   /**
    * Start a nested session of `parentId`: a new chat (fresh, or a fork of the
-   * parent's conversation) that runs `prompt` in the background. Returns its id.
+   * parent's conversation) that runs `prompt` in the background. Returns its
+   * id. With `proposalId` (a proposal card's Start) the hub starts it once:
+   * a second Start gets the same session, and a dismissed proposal is refused.
    */
   startChildSession(
     parentId: string,
     options: { title: string; prompt: string; context?: "fresh" | "fork"; worktree?: boolean },
+    proposalId?: string,
   ): Promise<string | null>;
+  /** A proposal card's Dismiss: the hub starts nothing for it any more. */
+  dismissChildProposal(parentId: string, proposalId: string): Promise<void>;
+  /** Show the chat that started nested session `id` (an archived one included). */
+  openParent(id: string): Promise<void>;
+  /** The chat's composer holds a draft: no automated wake of it meanwhile (FR-19). */
+  setComposing(chat: string, composing: boolean): void;
+  /**
+   * Stop `chat`'s engine and wait until its process is gone (its worktree is
+   * about to be removed); the chat stays on screen. Rejects while the chat
+   * runs a turn, has subagents working, or is held by another window.
+   * `resumeEngine` or `leaveWorktree` starts it again.
+   */
+  stopEngine(chat: string): Promise<void>;
+  /** Start the engine `stopEngine` stopped, in the chat's folder. */
+  resumeEngine(chat: string): Promise<void>;
   /**
    * A worktree session's changes were applied or discarded: it works in its
-   * workspace folder again (its engine restarts there when idle).
+   * workspace folder again (its engine restarts there, also after `stopEngine`).
    */
   leaveWorktree(id: string): Promise<void>;
   /** Send a nested session a message: queued if it is running, else a new turn. */
@@ -255,6 +282,29 @@ export const useRestoring = () =>
     return Boolean(rt?.restore && rt.transcript.turns.length === 0);
   });
 
+/**
+ * What a worktree review needs for the worktree `chat` works in: Apply and
+ * Discard wait while the chat is working (`busy`); its engine is stopped
+ * before the folder goes (`beforeSettle`: an engine keeps its folder open, so
+ * on Windows it could not be removed); afterwards the chat goes on in its
+ * workspace (`onSettled`); a review closed without either starts the engine
+ * again (`onClosed`).
+ */
+export function useWorktreeSession(chat: string | undefined) {
+  const busy = useEngineStore((s) =>
+    Boolean(chat && (s.runtimes[chat]?.transcript.busy || s.busyElsewhere[chat] || s.agentsRunning[chat])),
+  );
+  if (!chat) return { busy: false, beforeSettle: undefined, onSettled: undefined, onClosed: () => undefined };
+  const { stopEngine, resumeEngine, leaveWorktree } = useEngineStore.getState();
+  return {
+    busy,
+    beforeSettle: () => stopEngine(chat),
+    onSettled: () => void leaveWorktree(chat),
+    // After `onSettled`, whichever the dialog calls first.
+    onClosed: () => void setTimeout(() => void resumeEngine(chat), 0),
+  };
+}
+
 const chatTitle = (chat: string) => useSessionStore.getState().sessions.find((s) => s.id === chat)?.title ?? UNTITLED;
 
 export const useEngineStore = create<EngineStore>((set, get) => {
@@ -293,7 +343,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   };
   const dispatch = (chat: string, action: TranscriptAction) => {
     flushDeltas();
+    const before = runtime(chat);
+    const asked = before ? hasOpenPermission(before.transcript) : false;
     update(chat, (rt) => ({ transcript: transcriptReducer(rt.transcript, action) }));
+    // An approval request held the chat's wake back (FR-19): look again now that it closed.
+    const after = runtime(chat);
+    if (asked && after && !hasOpenPermission(after.transcript)) scheduleWake(chat);
   };
 
   /** Count a finished turn in the chat's totals, and flag it if nobody saw it finish. */
@@ -378,6 +433,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
 
   const stopChat = async (chat: string) => {
     pendingDeltas.delete(chat);
+    forgetEngine(chat);
+    pausedEngines.delete(chat);
     set((store) => {
       const runtimes = { ...store.runtimes };
       delete runtimes[chat];
@@ -389,6 +446,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   /** Forget `chat`'s runtime here but keep its engine running (another window takes it). */
   const release = (chat: string) => {
     pendingDeltas.delete(chat);
+    forgetEngine(chat);
     set((store) => {
       const runtimes = { ...store.runtimes };
       delete runtimes[chat];
@@ -402,6 +460,9 @@ export const useEngineStore = create<EngineStore>((set, get) => {
    * reload) is picked up as it is instead of restarted.
    */
   const launch = async (chat: string, cwd: string | undefined, restore: boolean, attach = false) => {
+    // What this window knew of an earlier process (its agents, its setup) is void.
+    forgetEngine(chat);
+    pausedEngines.delete(chat);
     set((store) => {
       const rt: ChatRuntime = {
         chatId: chat,
@@ -461,9 +522,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     trimIdle();
   };
 
-  /** Restore the saved messages once a reopened chat's engine is ready. */
-  /** `engineStarted`: the engine just sent `ready` (a new process: none of its background agents run). */
-  const restoreTranscript = async (chat: string, engineStarted = false) => {
+  /**
+   * Restore the saved messages once a reopened chat's engine is ready.
+   * `engineStarted`: the engine just sent `ready` (a new process: none of its
+   * background agents run); `lostAgents` are the ids it reported lost (FR-12).
+   */
+  const restoreTranscript = async (chat: string, engineStarted = false, lostAgents?: string[]) => {
     if (!client) return;
     try {
       const [data, state] = await Promise.all([
@@ -475,9 +539,11 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       const transcript = transcriptFromMessages((data?.messages ?? []) as (AgentMessage & Record<string, any>)[], {
         running: Boolean(state?.activeOperation),
         engineStarted,
+        lostAgents,
       });
       update(chat, (rt) => ({
-        transcript,
+        // The same engine goes on: a request it still waits on is not sent again.
+        transcript: engineStarted ? transcript : carryPermissions(transcript, rt.transcript),
         restore: false,
         error: undefined,
         recordedTurn: state?.activeOperation ? rt.recordedTurn : (transcript.turns.at(-1)?.id ?? rt.recordedTurn),
@@ -531,9 +597,46 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   const hasRunningAgents = (chat: string) =>
     [...(meshViews.get(chat)?.nodes.values() ?? [])].some((node) => node.kind !== "session" && node.state === "running");
 
+  /** Keep `agentsRunning` (what components read) in step with the mesh view. */
+  const syncAgentsRunning = (chat: string) => {
+    const running = hasRunningAgents(chat);
+    set((store) => {
+      if (Boolean(store.agentsRunning[chat]) === running) return store;
+      const agentsRunning = { ...store.agentsRunning };
+      if (running) agentsRunning[chat] = true;
+      else delete agentsRunning[chat];
+      return { agentsRunning };
+    });
+  };
+
+  /**
+   * Drop what this window keeps about `chat`'s engine process (it stopped,
+   * restarts, or went to another window): its mesh view, setup and timers.
+   */
+  const forgetEngine = (chat: string) => {
+    for (const node of meshViews.get(chat)?.nodes.values() ?? []) counted.delete(node.id);
+    meshViews.delete(chat);
+    openCalls.delete(chat);
+    engineSetup.delete(chat);
+    toolsStale.delete(chat);
+    clearTimeout(wakeTimers.get(chat));
+    wakeTimers.delete(chat);
+    syncAgentsRunning(chat);
+  };
+
+  /** Chats whose engine `stopEngine` stopped; their runtime stays, status `idle`. */
+  const pausedEngines = new Set<string>();
+  /** Chats `leaveWorktree` is moving back to their workspace folder. */
+  const leavingWorktree = new Set<string>();
+
+  const ended = (node: MeshNode | undefined) => node?.state === "settled" || node?.state === "closed";
+
   const onMesh = (chat: string, envelope: MeshEnvelope) => {
     const view = meshViews.get(chat) ?? emptyView();
     meshViews.set(chat, view);
+    const id = envelope.op === "node_state" ? (envelope.body?.node?.id as string | undefined) : undefined;
+    const known = id !== undefined && view.nodes.has(id);
+    const wasEnded = id !== undefined && ended(view.nodes.get(id));
     const changed = applyMeshEvent(view, envelope);
     if (!changed) return;
     const node = view.nodes.get(changed);
@@ -541,52 +644,65 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       // A run read every queued message and cleared the wake list.
       if (node.state === "running") handledWakes.delete(chat);
       scheduleWake(chat);
-    } else drawAgent(chat, view, changed);
+      return;
+    }
+    drawAgent(chat, view, changed);
+    if (!node || changed !== id) return;
+    syncAgentsRunning(chat);
+    if (node.kind !== "agent" || typeof node.meta.callId !== "string") return;
+    // First heard of (a replay after subscribing): what it used so far is not this window's to count.
+    if (!known) {
+      if (!counted.has(node.id)) counted.set(node.id, usageOf(node.usage));
+      // A foreground run in progress: its call is open, though this window missed its start.
+      if (!ended(node) && node.meta.background !== true) {
+        openCalls.set(chat, (openCalls.get(chat) ?? new Set<string>()).add(node.meta.callId));
+      }
+    } else if (!wasEnded && ended(node) && !openCalls.get(chat)?.has(node.meta.callId)) {
+      // A background (or released) run ended: no tool result carries its usage.
+      countAgent(chat, node);
+    }
   };
 
   // ── Background subagents ────────────────────────────────────────────────
   //
   // A background `agent` call returns at once; the subagent keeps running in
-  // the chat's engine (crates/evo-engine/src/agent_tool.rs). When it finishes
+  // the chat's engine (crates/evo-engine/src/tools/agent.rs). When it finishes
   // while the chat is idle, its report is queued for the chat's next run and
   // the engine lists it in the session node's `meta.wake`; this window then
   // wakes the chat with an automated prompt. The list clears when any run
   // starts. Wakes coalesce for WAKE_DELAY_MS, and at most MAX_AUTO_WAKES
-  // happen in a row: then reports wait for the person's next message.
-  const WAKE_DELAY_MS = 1000;
+  // happen in a row: then reports wait for the person's next message. No
+  // wake while the person has a draft in the chat's composer or an approval
+  // request is open there, and none of an archived chat (FR-19).
+  const WAKE_DELAY_MS = 2000;
   const MAX_AUTO_WAKES = 5;
   const autoWakes = new Map<string, number>();
   const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Wake requests already acted on (or set aside) since the chat's last run, per chat. */
   const handledWakes = new Map<string, Set<string>>();
-  /** Usage already counted per agent (it accumulates over continued runs). */
-  const counted = new Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }>();
-  /** Usage of reports delivered without a wake, for the person's next turn. */
-  const pendingUsage = new Map<string, Record<string, number>>();
+  /** Chats whose composer holds a draft (`setComposing`). */
+  const composing = new Set<string>();
 
-  /** The part of the agents' usage not counted yet. */
-  const takeUsage = (agents: MeshNode[]) => {
-    const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-    for (const agent of agents) {
-      const now = agent.usage;
-      const before = counted.get(agent.id) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-      const next = {
-        input: now?.input ?? 0,
-        output: now?.output ?? 0,
-        cacheRead: now?.cacheRead ?? 0,
-        cacheWrite: now?.cacheWrite ?? 0,
-        cost: now?.cost ?? 0,
-      };
-      counted.set(agent.id, next);
-      sum.input += next.input - before.input;
-      sum.output += next.output - before.output;
-      sum.cacheRead += next.cacheRead - before.cacheRead;
-      sum.cacheWrite += next.cacheWrite - before.cacheWrite;
-      sum.cost += next.cost - before.cost;
-    }
-    return sum;
-  };
-  const asMessageUsage = (u: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }) => ({
+  // A subagent's usage counts toward a turn of its chat once (FR-6). A
+  // foreground run's usage comes on its tool result (the transcript adds it);
+  // a background or released run's has no result to ride on, so it is added
+  // here when the run ends: to the turn in progress, or kept for the next one.
+  type AgentUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+  const usageOf = (u?: Partial<AgentUsage> | null): AgentUsage => ({
+    input: u?.input ?? 0,
+    output: u?.output ?? 0,
+    cacheRead: u?.cacheRead ?? 0,
+    cacheWrite: u?.cacheWrite ?? 0,
+    cost: typeof u?.cost === "number" ? u.cost : 0,
+  });
+  /** Usage already counted per agent node (it accumulates over continued runs). */
+  const counted = new Map<string, AgentUsage>();
+  /** Usage of runs that ended while their chat was idle, for the chat's next turn. */
+  const pendingUsage = new Map<string, AgentUsage>();
+  /** Tool calls in progress per chat: an agent whose call is open reports its usage on the result. */
+  const openCalls = new Map<string, Set<string>>();
+
+  const asMessageUsage = (u: AgentUsage) => ({
     input: u.input,
     output: u.output,
     cacheRead: u.cacheRead,
@@ -594,10 +710,87 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     cost: { total: u.cost },
   });
 
+  /** Count the part of `agent`'s usage no turn has yet. */
+  const countAgent = (chat: string, agent: MeshNode) => {
+    const now = usageOf(agent.usage);
+    const before = counted.get(agent.id) ?? usageOf();
+    counted.set(agent.id, now);
+    const delta: AgentUsage = {
+      input: Math.max(0, now.input - before.input),
+      output: Math.max(0, now.output - before.output),
+      cacheRead: Math.max(0, now.cacheRead - before.cacheRead),
+      cacheWrite: Math.max(0, now.cacheWrite - before.cacheWrite),
+      cost: Math.max(0, now.cost - before.cost),
+    };
+    if (!(delta.input || delta.output || delta.cacheRead || delta.cacheWrite || delta.cost)) return;
+    if (runtime(chat)?.transcript.busy) {
+      dispatch(chat, { type: "extra-usage", usage: asMessageUsage(delta) });
+      return;
+    }
+    const kept = pendingUsage.get(chat) ?? usageOf();
+    pendingUsage.set(chat, {
+      input: kept.input + delta.input,
+      output: kept.output + delta.output,
+      cacheRead: kept.cacheRead + delta.cacheRead,
+      cacheWrite: kept.cacheWrite + delta.cacheWrite,
+      cost: kept.cost + delta.cost,
+    });
+  };
+
+  /** A turn of `chat` just started: it takes the usage kept for it. */
+  const takePendingUsage = (chat: string) => {
+    const kept = pendingUsage.get(chat);
+    if (!kept) return;
+    pendingUsage.delete(chat);
+    dispatch(chat, { type: "extra-usage", usage: asMessageUsage(kept) });
+  };
+
+  /**
+   * Follow the chat's tool calls for the usage of `agent` / `message_agent`
+   * runs: a result with `usage` was added to the turn by the transcript, so
+   * the agent is counted up to its snapshot (cumulative); a call that ended
+   * without one (it failed) has its agent counted here once it has ended.
+   */
+  const trackAgentCall = (chat: string, message: EngineMessage) => {
+    const callId = message.toolCallId;
+    if (typeof callId !== "string") return;
+    if (message.type === "tool_execution_start") {
+      const calls = openCalls.get(chat) ?? new Set<string>();
+      openCalls.set(chat, calls);
+      calls.add(callId);
+      return;
+    }
+    openCalls.get(chat)?.delete(callId);
+    const view = meshViews.get(chat);
+    if (!view) return;
+    const result = message.result as { usage?: unknown; details?: { child?: { agentId?: unknown; usage?: Partial<AgentUsage> } } } | undefined;
+    const child = result?.details?.child;
+    const agent = [...view.nodes.values()].find(
+      (node) =>
+        node.kind === "agent" &&
+        (typeof child?.agentId === "string" ? node.id.endsWith(`/a_${child.agentId}`) : node.meta.callId === callId),
+    );
+    if (!agent) return;
+    if (result?.usage && child?.usage) counted.set(agent.id, usageOf(child.usage));
+    // Still running: it went to the background and is counted when it ends.
+    else if (ended(agent) && agent.meta.callId === callId) countAgent(chat, agent);
+  };
+
+  /** A run of `chat` ended: no call outlives it. Agents whose calls it cut short are counted. */
+  const closeCalls = (chat: string) => {
+    const calls = openCalls.get(chat);
+    openCalls.delete(chat);
+    const view = meshViews.get(chat);
+    if (!calls?.size || !view) return;
+    for (const node of view.nodes.values()) {
+      if (node.kind === "agent" && calls.has(node.meta.callId) && ended(node)) countAgent(chat, node);
+    }
+  };
+
   /** Start an automated run of `chat` (not the person typing). */
-  const startAutomatedRun = (chat: string, text: string, usage: unknown) => {
+  const startAutomatedRun = (chat: string, text: string) => {
     dispatch(chat, { type: "prompt", text });
-    dispatch(chat, { type: "extra-usage", usage });
+    takePendingUsage(chat);
     void setupDone(chat)
       .then(() => client?.request(chat, "prompt", { message: text }))
       .catch((error) => {
@@ -606,20 +799,9 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   };
 
   const wake = (chat: string, agents: MeshNode[], sessions: string[], mails: string[] = []) => {
-    const usage = takeUsage(agents);
     const wakes = autoWakes.get(chat) ?? 0;
-    if (wakes >= MAX_AUTO_WAKES) {
-      // The reports stay queued; they reach the model with the next message.
-      const pending = pendingUsage.get(chat) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-      pendingUsage.set(chat, {
-        input: pending.input + usage.input,
-        output: pending.output + usage.output,
-        cacheRead: pending.cacheRead + usage.cacheRead,
-        cacheWrite: pending.cacheWrite + usage.cacheWrite,
-        cost: pending.cost + usage.cost,
-      });
-      return;
-    }
+    // The reports stay queued (and their usage kept): they reach the model with the next message.
+    if (wakes >= MAX_AUTO_WAKES) return;
     autoWakes.set(chat, wakes + 1);
     const quoted = (names: string[]) => names.map((name) => `"${name.replace(/"/g, "'")}"`).join(", ");
     // The chip under the wake shows what woke the chat (chat-turn.tsx).
@@ -642,7 +824,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
           mails.length ? ` Messages also arrived from ${quoted(mails)}; answer questions with the reply tool.` : ""
         } Continue the work with ${sessions.length === 1 ? "it" : "them"}.
 </nested-sessions-done>`;
-    startAutomatedRun(chat, text, asMessageUsage(usage));
+    startAutomatedRun(chat, text);
   };
 
   /** Wake `chat` for the reports its session node says are waiting, if it is idle. */
@@ -650,11 +832,17 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     const view = meshViews.get(chat);
     const rt = runtime(chat);
     if (!view || rt?.status !== "ready" || rt.transcript.busy) return;
+    // Not while the person writes there or is asked for an approval: their
+    // Send would become a steer. Both look again when they end
+    // (`setComposing`, `dispatch`).
+    if (composing.has(chat) || hasOpenPermission(rt.transcript)) return;
+    // An archived (or deleted) chat is never woken.
+    if (!useSessionStore.getState().sessions.some((s) => s.id === chat)) return;
     const handled = handledWakes.get(chat) ?? new Set<string>();
     handledWakes.set(chat, handled);
     const agents: MeshNode[] = [];
     const sessions: string[] = [];
-    // Messages and questions from this chat's agents (mesh_tools.rs).
+    // Messages and questions from this chat's agents (crates/evo-engine/src/tools/mesh.rs).
     const mails: string[] = [];
     for (const session of view.nodes.values()) {
       if (session.kind !== "session" || session.state !== "idle") continue;
@@ -709,9 +897,38 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     const workspace = useSessionStore.getState().workspaces.find((w) => w.id === chat?.workspaceId);
     return workspace?.path ?? (await localRoot());
   };
+  /**
+   * A deleted chat's worktree: removed when nothing changed in it. A changed
+   * one stays, and the person is told once where to review it.
+   */
+  const dropWorktree = async (title: string, path: string, workspaceId: string | null) => {
+    const repo = useSessionStore.getState().workspaces.find((w) => w.id === workspaceId)?.path;
+    if (!repo) return;
+    try {
+      const key = worktreeKey(path);
+      const worktree = (await worktrees.list(repo)).find((w) => worktreeKey(w.path) === key);
+      // Not listed: it was applied or discarded already.
+      if (!worktree) return;
+      if (!worktree.changed) {
+        await worktrees.discard(repo, worktree.path);
+        return;
+      }
+      notify({
+        source: "worktrees",
+        title: "A worktree was kept",
+        body: `"${title}" was deleted, but its worktree ${worktree.branch} still has changes. Review or discard them in Settings → Sandbox.`,
+        key: `worktree:${key}`,
+        target: { type: "settings", section: "sandbox" },
+      });
+    } catch (error) {
+      log("warn", "worktrees", `could not remove a deleted chat's worktree: ${String(error)}`);
+    }
+  };
+
   /** Start a turn of any chat (not only the one on screen). */
   const promptChat = async (chat: string, text: string) => {
     dispatch(chat, { type: "prompt", text });
+    takePendingUsage(chat);
     try {
       await client?.request(chat, "prompt", { message: text });
     } catch (error) {
@@ -907,10 +1124,29 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
   /**
    * A new chat starts on the default model. The engine already honours the
    * saved default; this covers providers its automatic pick does not know.
+   * A chat whose row already names a model (a nested session: the hub gives
+   * it its parent's) starts on that one instead.
    */
   const startOnDefault = async (chat: string) => {
     await loadDefault(chat);
     await get().refreshState(chat);
+    const row = chatRow(chat);
+    if (client && row && !row.draft && row.provider && row.model) {
+      const state = runtime(chat)?.state;
+      if (state?.provider === row.provider && (state.modelId ?? state.model) === row.model) return;
+      const switched = await client
+        .request(chat, "set_model", { provider: row.provider, modelId: row.model })
+        .then(() => true)
+        .catch((error) => {
+          log("warn", "engine", `could not start on the chat's model: ${String(error)}`, { chatId: chat });
+          return false;
+        });
+      if (switched) {
+        await get().refreshState(chat);
+        return;
+      }
+      // That model is gone (its provider was removed): the default, as for any new chat.
+    }
     const { defaultModel, defaultSaved } = get();
     const state = runtime(chat)?.state;
     if (!client || !defaultSaved || !defaultModel || !state?.provider) return;
@@ -946,10 +1182,14 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       update(chat, () => ({ status: "ready", error: undefined }));
       if (message.mesh?.version === MESH_VERSION) void subscribeMesh(chat);
       else log("warn", "engine", "this engine does not speak the session mesh: subagents will not update live", { chatId: chat });
+      // The background agents of an earlier engine that never reported (FR-12).
+      const lost = Array.isArray(message.lostBackgroundAgents)
+        ? message.lostBackgroundAgents.filter((id: unknown): id is string => typeof id === "string")
+        : undefined;
       const setup = (async () => {
         if (runtime(chat)?.restore) {
           // `ready` comes from a new process: an earlier engine's background agents are gone.
-          await restoreTranscript(chat, true);
+          await restoreTranscript(chat, true, lost);
           void loadDefault(chat);
           void get().refreshState(chat);
         } else {
@@ -998,7 +1238,10 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       });
       return;
     }
+    // Before the turn closes: agents whose calls the run's end cut short count toward it.
+    if (message.type === "agent_settled" || message.type === "agent_end") closeCalls(chat);
     dispatch(chat, { type: "engine", message });
+    if (message.type === "tool_execution_start" || message.type === "tool_execution_end") trackAgentCall(chat, message);
     if (message.type === "agent_settled" && message.compact === true) {
       compactWaiters.get(chat)?.(message);
       compactWaiters.delete(chat);
@@ -1028,20 +1271,23 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
   };
 
   const onExit = (chat: string, code: number | null) => {
-    meshViews.delete(chat);
-    engineSetup.delete(chat);
-    toolsStale.delete(chat);
-    clearTimeout(wakeTimers.get(chat));
-    wakeTimers.delete(chat);
+    // Its subagents went with it: what they used so far still counts.
+    const hadAgents = hasRunningAgents(chat);
     const rt = runtime(chat);
+    for (const node of (rt && meshViews.get(chat)?.nodes.values()) || []) {
+      if (node.kind === "agent" && typeof node.meta.callId === "string" && !ended(node)) countAgent(chat, node);
+    }
+    forgetEngine(chat);
+    pausedEngines.delete(chat);
     if (!rt) {
       trackElsewhere(chat, false);
       return;
     }
     const wasBusy = rt.transcript.busy;
     update(chat, () => ({ status: "exited", error: code ? `Engine exited with code ${code}` : "The engine stopped" }));
-    if (wasBusy) dispatch(chat, { type: "fail", error: "The engine stopped" });
-    if (chat === get().activeId || wasBusy) {
+    // Also for an idle chat whose subagents were working: the transcript settles them.
+    if (wasBusy || hadAgents) dispatch(chat, { type: "fail", error: "The engine stopped" });
+    if (chat === get().activeId || wasBusy || hadAgents) {
       notify({
         source: "engine",
         level: "error",
@@ -1057,6 +1303,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     activeId: null,
     runtimes: {},
     busyElsewhere: {},
+    agentsRunning: {},
     logs: [],
     compactingChats: {},
     defaultSaved: false,
@@ -1107,6 +1354,17 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
           }
         }
       });
+      // A chat was detached from its parent (or its parent was deleted), in
+      // any window: it is top-level now and gets the session tools.
+      useSessionStore.subscribe((state, before) => {
+        if (state.sessions === before.sessions) return;
+        for (const rt of Object.values(get().runtimes)) {
+          if (rt.status !== "ready") continue;
+          const now = state.sessions.find((s) => s.id === rt.chatId);
+          const was = before.sessions.find((s) => s.id === rt.chatId);
+          if (now && was && Boolean(now.parentChatId) !== Boolean(was.parentChatId)) void configureSessionTools(rt.chatId);
+        }
+      });
       void useConnectorsStore.getState().load();
       // Plugins were installed, removed or switched: every ready chat re-reads
       // its skills, commands, subagents and hooks.
@@ -1124,7 +1382,9 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       // The hub starts a turn of a chat this window may show (a nested
       // session's brief, its parent's message): show it like a typed prompt.
       void listen<{ chat: string; text: string }>("mesh://prompted", ({ payload }) => {
-        if (runtime(payload.chat)) dispatch(payload.chat, { type: "prompt", text: payload.text });
+        if (!runtime(payload.chat)) return;
+        dispatch(payload.chat, { type: "prompt", text: payload.text });
+        takePendingUsage(payload.chat);
       });
       // The hub starts sessions at once or proposes them (Settings → Sandbox).
       const pushMeshSettings = (autoStartSessions: boolean) =>
@@ -1232,9 +1492,10 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       // Even a click on the chat already shown overtakes selections still on their way.
       const ticket = ++selection;
       if (id === get().activeId && useSessionStore.getState().currentId === id) return;
-      // A chat window keeps to its chat; a chat open in its own window is shown there.
-      if (chatWindowId && id !== chatWindowId) return;
+      // A chat open in its own window is shown there (also when asked from
+      // another chat's window); otherwise a chat window keeps to its chat.
       if (await focusChatWindow(id)) return;
+      if (chatWindowId && id !== chatWindowId) return;
       if (ticket !== selection) return;
       const sessions = useSessionStore.getState();
       const chat = sessions.sessions.find((s) => s.id === id) ?? sessions.archived.find((s) => s.id === id);
@@ -1257,8 +1518,11 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       const wasActive = id === get().activeId;
       void closeChatWindow(id);
       await stopChat(id);
-      if (how === "delete") await sessions.remove(id);
-      else await sessions.setArchived(id, true);
+      if (how === "delete") {
+        await sessions.remove(id);
+        // Its engine is gone, so its worktree's folder is free. An archived chat keeps its worktree.
+        if (chat?.worktreePath) void dropWorktree(chat.title, chat.worktreePath, chat.workspaceId);
+      } else await sessions.setArchived(id, true);
       if (wasActive) {
         set({ activeId: null, ...mirror(undefined) });
         await get().newChat(chat?.workspaceId ?? null);
@@ -1294,13 +1558,23 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
 
     async moveChat(id, workspaceId) {
       const sessions = useSessionStore.getState();
-      await sessions.move(id, workspaceId);
       const rt = runtime(id);
-      // The engine works in the chat's folder: restart it in the new one.
-      if (rt && !rt.transcript.busy) {
-        const workspace = sessions.workspaces.find((w) => w.id === workspaceId);
-        await launch(id, workspace?.path ?? (await localRoot()), true);
+      // Moving restarts the engine in the new folder, which would end the
+      // turn and the subagents working in the old one: not while they run.
+      if (rt?.transcript.busy || get().busyElsewhere[id] || hasRunningAgents(id)) {
+        notify({
+          source: "shell",
+          level: "warning",
+          title: "This chat is still working",
+          body: `"${chatTitle(id)}" ${rt?.transcript.busy || get().busyElsewhere[id] ? "is in the middle of a turn" : "has subagents still working"}. Move it when it has finished, or stop it first.`,
+          key: `move:${id}`,
+          target: { type: "session", id },
+        });
+        return;
       }
+      await sessions.move(id, workspaceId);
+      // The engine works in the chat's folder: restart it in the new one.
+      if (rt) await launch(id, await chatFolder(id), true);
     },
 
     async setChatFlags(chat, flags) {
@@ -1335,6 +1609,8 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     async restartIdleEngines() {
       for (const rt of Object.values(get().runtimes)) {
         if (rt.transcript.busy || rt.status === "starting") continue;
+        // Subagents run in the chat's engine: a restart would kill them.
+        if (hasRunningAgents(rt.chatId) || pausedEngines.has(rt.chatId)) continue;
         await launch(rt.chatId, rt.cwd, !isDraft(rt.chatId));
       }
     },
@@ -1349,21 +1625,83 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       return id;
     },
 
-    async startChildSession(parentId, { title, prompt, context = "fresh", worktree = false }) {
+    async startChildSession(parentId, { title, prompt, context = "fresh", worktree = false }, proposalId) {
       const parent = chatRow(parentId);
       if (!parent || parent.draft) return null;
       // The shell's mesh hub creates it, has a window host its engine and
-      // sends it the brief (src-tauri/src/mesh.rs).
+      // sends it the brief (src-tauri/src/mesh.rs). A proposal starts once:
+      // the hub answers a second Start with the same session.
       return invoke<string>("mesh_start_session", {
         parent: parentId,
         spec: { title, prompt, fork: context === "fork", worktree },
+        proposalId: proposalId ?? null,
       });
     },
 
+    async dismissChildProposal(parentId, proposalId) {
+      await invoke("mesh_dismiss_proposal", { parent: parentId, proposalId }).catch((error) =>
+        log("warn", "engine", `mesh hub: could not dismiss the proposal: ${String(error)}`, { chatId: parentId }),
+      );
+    },
+
+    async openParent(id) {
+      const parentId = chatRow(id)?.parentChatId;
+      if (!parentId) return;
+      // An archived parent is loaded with the archive.
+      if (!chatRow(parentId)) await useSessionStore.getState().loadArchived();
+      if (chatRow(parentId)) await get().selectSession(parentId);
+      else notify({ source: "shell", title: "The parent chat is gone", body: "It was deleted.", key: `parent:${id}` });
+    },
+
+    setComposing(chat, on) {
+      if (on) composing.add(chat);
+      // A wake held back for the draft may go ahead.
+      else if (composing.delete(chat)) scheduleWake(chat);
+    },
+
+    async stopEngine(chat) {
+      const rt = runtime(chat);
+      if (rt?.transcript.busy || get().busyElsewhere[chat]) throw new Error("This chat is in the middle of a turn. Stop it first.");
+      if (hasRunningAgents(chat)) throw new Error("This chat has subagents still working. Wait for them, or stop them first.");
+      if (!rt) {
+        // Not shown here: another window may hold it, or nothing does (kept across a reload).
+        if (!client || !(await client.running().catch((): string[] => [])).includes(chat)) return;
+        if (chatWindowId || (await focusChatWindow(chat))) {
+          throw new Error("This chat is open in another window. Apply or discard its worktree there.");
+        }
+        await client.stop(chat);
+        return;
+      }
+      pendingDeltas.delete(chat);
+      forgetEngine(chat);
+      pausedEngines.add(chat);
+      update(chat, () => ({ status: "idle", error: undefined }));
+      // Resolves once the process is gone: only then is its folder free (Windows).
+      await client?.stop(chat);
+    },
+
+    async resumeEngine(chat) {
+      // `leaveWorktree` starts it itself, in the workspace folder.
+      if (!pausedEngines.has(chat) || leavingWorktree.has(chat) || !runtime(chat)) return;
+      await launch(chat, await chatFolder(chat), !isDraft(chat));
+    },
+
     async leaveWorktree(id) {
-      await useSessionStore.getState().setWorktree(id, null);
-      const rt = runtime(id);
-      if (rt && !rt.transcript.busy) await launch(id, await chatFolder(id), true);
+      leavingWorktree.add(id);
+      try {
+        await useSessionStore.getState().setWorktree(id, null);
+        const rt = runtime(id);
+        if (!rt) return;
+        // The worktree is gone: the engine starts again in the workspace
+        // folder, also when `stopEngine` stopped it for the removal.
+        if (pausedEngines.has(id) || !(rt.transcript.busy || hasRunningAgents(id))) {
+          await launch(id, await chatFolder(id), !isDraft(id));
+        } else {
+          log("warn", "engine", "the chat left its worktree while working: it moves to its workspace when its engine next starts", { chatId: id });
+        }
+      } finally {
+        leavingWorktree.delete(id);
+      }
     },
 
     async cancelBackgroundAgent(chat, agentId) {
@@ -1385,11 +1723,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       }
       dispatch(chat, { type: "prompt", text: message, images: images.map(dataUrl) });
       autoWakes.delete(chat);
-      const waiting = pendingUsage.get(chat);
-      if (waiting) {
-        pendingUsage.delete(chat);
-        dispatch(chat, { type: "extra-usage", usage: asMessageUsage(waiting as any) });
-      }
+      takePendingUsage(chat);
       try {
         // A new chat's engine may still be setting up its tools.
         await setupDone(chat);
@@ -1504,7 +1838,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     async answerQuestions(requestId, answers) {
       const chat = get().activeId;
       if (!client || !chat) return;
-      dispatch(chat, { type: "permission-answered" });
+      dispatch(chat, { type: "permission-answered", requestId });
       await client
         .request(chat, "ui_dialog_response", answers ? { requestId, answer: { answers } } : { requestId, cancelled: true })
         .catch(() => undefined);
@@ -1514,13 +1848,13 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       const approval = appApprovals.get(requestId);
       if (approval) {
         appApprovals.delete(requestId);
-        dispatch(approval.chat, { type: "permission-answered" });
+        dispatch(approval.chat, { type: "permission-answered", requestId });
         approval.resolve(index);
         return;
       }
       const chat = get().activeId;
       if (!client || !chat) return;
-      dispatch(chat, { type: "permission-answered" });
+      dispatch(chat, { type: "permission-answered", requestId });
       await client
         .request(chat, "ui_dialog_response", {
           requestId,

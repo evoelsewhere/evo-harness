@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { db, log } from "@/lib/db";
 import { inTauri } from "@/lib/platform";
-import { SANDBOX_CHANGED } from "@/stores/engine-store";
-import { useUiStore } from "@/stores/ui-store";
+import { SANDBOX_CHANGED, useWorktreeSession } from "@/stores/engine-store";
+import { useSessionStore } from "@/stores/session-store";
+import { useUiStore, worktreeKey } from "@/stores/ui-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { worktrees as worktreeApi, type WorktreeInfo } from "@/lib/worktrees";
 import { WorktreeReview } from "@/components/ai-elements/worktree-review";
@@ -204,46 +205,98 @@ function DeniedPatterns({
   );
 }
 
+/**
+ * The review of one listed worktree. When a chat works in it (a worktree
+ * session), that chat's engine is stopped before the folder is removed and
+ * the chat goes on in its workspace, as from the chat's toolbar chip.
+ */
+function ListedWorktreeReview({ repo, worktree, onClose }: { repo: string; worktree: WorktreeInfo; onClose(): void }) {
+  const key = worktreeKey(worktree.path);
+  const owner = useSessionStore((s) =>
+    s.sessions.find((chat) => chat.worktreePath != null && worktreeKey(chat.worktreePath) === key),
+  );
+  // Its changes go to the chat's workspace folder (the open chat may be the one in the worktree).
+  const workspace = useSessionStore((s) => (owner ? s.workspaces.find((w) => w.id === owner.workspaceId)?.path : undefined));
+  const session = useWorktreeSession(owner?.id);
+  return (
+    <WorktreeReview
+      open
+      onOpenChange={(open) => {
+        if (open) return;
+        session.onClosed();
+        onClose();
+      }}
+      repo={workspace ?? repo}
+      path={worktree.path}
+      branch={worktree.branch}
+      busy={session.busy}
+      beforeSettle={session.beforeSettle}
+      onSettled={session.onSettled}
+    />
+  );
+}
+
 /** The open chat's repository's managed worktrees, each reviewable. */
 function ExistingWorktrees() {
   const cwd = useEngineStore((s) => s.cwd);
+  // Settled worktrees, under the same key the transcript's badges read (`worktreeKey`).
+  const settled = useUiStore((s) => s.settledWorktrees);
   const [list, setList] = React.useState<WorktreeInfo[]>([]);
   const [reviewing, setReviewing] = React.useState<WorktreeInfo | null>(null);
+  // Git could not list them: not the same as having none.
+  const [failed, setFailed] = React.useState<string | null>(null);
   const load = React.useCallback(() => {
     if (!cwd || !inTauri) return;
-    worktreeApi.list(cwd).then(setList).catch(() => setList([]));
+    worktreeApi
+      .list(cwd)
+      .then((found) => {
+        setList(found);
+        setFailed(null);
+      })
+      .catch((error) => {
+        setList([]);
+        setFailed(String(error));
+      });
   }, [cwd]);
   React.useEffect(load, [load]);
+  if (cwd && failed) {
+    return (
+      <div className="flex flex-col gap-1.5 py-3.5">
+        <p className="text-[13px] font-medium">Worktrees of this repository</p>
+        <p className="text-[13px] text-destructive">Could not list them: {failed}</p>
+      </div>
+    );
+  }
   if (!cwd || list.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5 py-3.5">
       <p className="text-[13px] font-medium">Worktrees of this repository</p>
-      {list.map((worktree) => (
-        <div key={worktree.path} className="flex items-center gap-2 text-[13px]">
-          <code className="min-w-0 truncate font-mono text-xs" title={worktree.path}>
-            {worktree.branch}
-          </code>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {worktree.location === "repository" ? "in repository" : "user data"}
-            {worktree.changed ? " · changed" : ""}
-          </span>
-          <Button variant="outline" size="sm" className="ml-auto h-6 px-2 text-xs" onClick={() => setReviewing(worktree)}>
-            Review
-          </Button>
-        </div>
-      ))}
+      {list.map((worktree) => {
+        // Applied, but its folder could not be removed then.
+        const applied = settled[worktreeKey(worktree.path)] === "applied";
+        return (
+          <div key={worktree.path} className="flex items-center gap-2 text-[13px]">
+            <code className="min-w-0 truncate font-mono text-xs" title={worktree.path}>
+              {worktree.branch}
+            </code>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {worktree.location === "repository" ? "in repository" : "user data"}
+              {applied ? " · applied, not removed yet" : worktree.changed ? " · changed" : ""}
+            </span>
+            <Button variant="outline" size="sm" className="ml-auto h-6 px-2 text-xs" onClick={() => setReviewing(worktree)}>
+              Review
+            </Button>
+          </div>
+        );
+      })}
       {reviewing && (
-        <WorktreeReview
-          open
-          onOpenChange={(open) => {
-            if (!open) {
-              setReviewing(null);
-              load();
-            }
-          }}
+        <ListedWorktreeReview
           repo={cwd}
-          path={reviewing.path}
-          branch={reviewing.branch}
+          worktree={reviewing}
+          onClose={() => {
+            setReviewing(null);
+            load();
+          }}
         />
       )}
     </div>

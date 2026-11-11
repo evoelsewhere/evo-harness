@@ -76,7 +76,8 @@ export function AppSidebar() {
   const { resolved, setTheme } = useTheme();
 
   const byUpdated = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt;
-  // Nested sessions show under their parent; at the top only if it is gone.
+  // Nested sessions show under their parent; at the top level only when it is
+  // not among the live chats (archived: the archive lists its chats flat).
   const ids = new Set(sessions.map((s) => s.id));
   const topLevel = sessions.filter((s) => !s.parentChatId || !ids.has(s.parentChatId));
   const pinned = topLevel.filter((s) => s.pinned).sort(byUpdated);

@@ -2,7 +2,7 @@ import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ChevronDownIcon,
-  CornerLeftUpIcon,
+  ChevronRightIcon,
   FolderOpenIcon,
   FolderIcon,
   GhostIcon,
@@ -27,20 +27,31 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { inTauri, isMac, modKey } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { chatWindowId } from "@/lib/windows";
-import { useEngineStore } from "@/stores/engine-store";
-import { useSessionStore } from "@/stores/session-store";
+import { useEngineStore, useWorktreeSession } from "@/stores/engine-store";
+import { useSessionStore, type SessionSummary } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { TitleBarActions } from "./title-bar";
 import { NotificationCenter } from "@/features/notifications/notification-center";
 import { OpenInMenu } from "./open-in-menu";
 import { WindowControls } from "./window-controls";
 
-/** A chat working in a worktree: review its changes, apply or discard them. */
+/**
+ * A chat working in a worktree: review its changes, apply or discard them.
+ * The chat's engine has its folder there, so it is stopped before the
+ * worktree is removed and starts again in the workspace (or, when nothing
+ * was applied or discarded, where it was).
+ */
 function WorktreeChip() {
   const chat = useSessionStore((s) => s.sessions.find((x) => x.id === s.currentId));
   const workspace = useSessionStore((s) => s.workspaces.find((w) => w.id === chat?.workspaceId));
-  const leaveWorktree = useEngineStore((s) => s.leaveWorktree);
+  const session = useWorktreeSession(chat?.worktreePath ? chat.id : undefined);
   const [open, setOpen] = React.useState(false);
+  const id = chat?.id;
+  // The chat left the screen with its review open: its engine starts again.
+  React.useEffect(() => {
+    if (!id) return;
+    return () => void useEngineStore.getState().resumeEngine(id);
+  }, [id]);
   if (!chat?.worktreePath || !workspace) return null;
   const name = chat.worktreePath.replace(/\\/g, "/").split("/").filter(Boolean).at(-1);
   return (
@@ -57,10 +68,15 @@ function WorktreeChip() {
       </Button>
       <WorktreeReview
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) session.onClosed();
+        }}
         repo={workspace.path}
         path={chat.worktreePath}
-        onSettled={() => void leaveWorktree(chat.id)}
+        busy={session.busy}
+        beforeSettle={session.beforeSettle}
+        onSettled={session.onSettled}
       />
     </>
   );
@@ -79,25 +95,48 @@ function IncognitoChip() {
   );
 }
 
-/** In a nested session: the chat that started it, one click away. */
-function ParentLink() {
-  const parent = useSessionStore((s) => {
-    const current = s.sessions.find((x) => x.id === s.currentId);
-    return current?.parentChatId ? s.sessions.find((x) => x.id === current.parentChatId) : undefined;
-  });
-  const selectSession = useEngineStore((s) => s.selectSession);
-  if (!parent) return null;
+/**
+ * In a nested session: "Parent title › Child title". The parent part opens
+ * the parent (an archived one too). A chat window shows only its own chat, so
+ * there the parent is plain text.
+ */
+function ParentCrumb() {
+  const find = (s: { sessions: SessionSummary[]; archived: SessionSummary[] }, id: string | null | undefined) =>
+    id ? (s.sessions.find((x) => x.id === id) ?? s.archived.find((x) => x.id === id)) : undefined;
+  const child = useSessionStore((s) => find(s, s.currentId));
+  const parentId = child?.parentChatId ?? null;
+  const parent = useSessionStore((s) => find(s, parentId));
+  const loaded = useSessionStore((s) => s.loaded);
+  const openParent = useEngineStore((s) => s.openParent);
+  // A parent that is not among the live chats is archived: read its title.
+  React.useEffect(() => {
+    if (parentId && loaded && !parent) void useSessionStore.getState().loadArchived();
+  }, [parentId, loaded, parent === undefined]);
+  if (!child || !parentId) return null;
+  const title = parent?.title ?? "Archived chat";
+  const archived = !parent || parent.archivedAt != null;
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="no-drag min-w-0 gap-1.5 text-muted-foreground"
-      title={`Started from ${parent.title}`}
-      onClick={() => void selectSession(parent.id)}
-    >
-      <CornerLeftUpIcon />
-      <span className="max-w-48 truncate">{parent.title}</span>
-    </Button>
+    <span className="flex min-w-0 items-center text-sm">
+      {chatWindowId ? (
+        <span className="max-w-48 truncate px-2 text-muted-foreground" title={`Started from ${title}`}>
+          {title}
+        </span>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="no-drag min-w-0 text-muted-foreground"
+          title={`Open ${title}${archived ? " (archived)" : ""}`}
+          onClick={() => void openParent(child.id)}
+        >
+          <span className="max-w-48 truncate">{title}</span>
+        </Button>
+      )}
+      <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="max-w-48 truncate px-2 font-medium" title={child.title}>
+        {child.title}
+      </span>
+    </span>
   );
 }
 
@@ -245,7 +284,7 @@ export function WorkspaceToolbar() {
     <div className="@container/header flex h-12 shrink-0 items-center gap-1 px-2">
       <WorkspaceSwitcher />
       <IncognitoChip />
-      <ParentLink />
+      <ParentCrumb />
       <WorktreeChip />
       <div className="min-w-4 flex-1" />
 

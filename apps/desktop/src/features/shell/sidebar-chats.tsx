@@ -166,10 +166,11 @@ export function ChatItem({ chat, active }: { chat: SessionSummary; active: boole
     );
   }
 
-  const status = busy ? (
-    <Spinner className="size-3.5 text-muted-foreground" aria-label="Running" />
-  ) : waiting ? (
+  // A run that waits for an approval is still running: the amber dot wins.
+  const status = waiting ? (
     <StatusDot tone="warn" pulse label="Waiting for approval" />
+  ) : busy ? (
+    <Spinner className="size-3.5 text-muted-foreground" aria-label="Running" />
   ) : failed ? (
     <StatusDot tone="error" label="Engine stopped" />
   ) : chat.unread ? (
@@ -255,13 +256,33 @@ ${chat.preview}` : chat.title}
 /** Nested sessions shown before the rest fold into the footer. */
 const NESTED_SHOWN = 3;
 
+const NO_CHILDREN: SessionSummary[] = [];
+let indexedSessions: SessionSummary[] | null = null;
+let childIndex = new Map<string, SessionSummary[]>();
+
+/** The live chats each chat started, by parent id: built once per change of the chat list. */
+function childrenByParent(sessions: SessionSummary[]): Map<string, SessionSummary[]> {
+  if (sessions !== indexedSessions) {
+    const index = new Map<string, SessionSummary[]>();
+    for (const chat of sessions) {
+      if (!chat.parentChatId) continue;
+      const list = index.get(chat.parentChatId);
+      if (list) list.push(chat);
+      else index.set(chat.parentChatId, [chat]);
+    }
+    indexedSessions = sessions;
+    childIndex = index;
+  }
+  return childIndex;
+}
+
 /**
  * The sessions a chat started, under its row with a guide line: running,
  * waiting and unread ones first, then the most recent; the rest fold into
- * "N more nested sessions · M unread".
+ * "N more nested sessions · M running · K unread".
  */
 function NestedChats({ parentId, currentId }: { parentId: string; currentId: string | null }) {
-  const children = useSessionStore(useShallow((s) => s.sessions.filter((x) => x.parentChatId === parentId)));
+  const children = useSessionStore(useShallow((s) => childrenByParent(s.sessions).get(parentId) ?? NO_CHILDREN));
   const attention = useEngineStore((s) => {
     const marks: Record<string, number> = {};
     for (const child of children) {
@@ -281,6 +302,7 @@ function NestedChats({ parentId, currentId }: { parentId: string; currentId: str
     : sorted.filter((chat, index) => index < NESTED_SHOWN || chat.id === currentId);
   const hidden = sorted.filter((chat) => !shown.includes(chat));
   const unread = hidden.filter((chat) => chat.unread).length;
+  const running = hidden.filter((chat) => (marks[chat.id] ?? 0) > 0).length;
   return (
     <SidebarMenuSub className="mr-0 ml-3.5 gap-0 pr-0 pl-1.5">
       {shown.map((chat) => (
@@ -298,6 +320,7 @@ function NestedChats({ parentId, currentId }: { parentId: string; currentId: str
             ) : (
               <>
                 {hidden.length} more nested {hidden.length === 1 ? "session" : "sessions"}
+                {running > 0 && <span> · {running} running</span>}
                 {unread > 0 && <span className="text-link"> · {unread} unread</span>}
               </>
             )}
@@ -308,7 +331,12 @@ function NestedChats({ parentId, currentId }: { parentId: string; currentId: str
   );
 }
 
-export function ChatList({ chats, empty }: { chats: SessionSummary[]; empty?: string }) {
+/**
+ * A list of chat rows. With `nested` (the default) each row is followed by the
+ * live sessions it started; the archive lists its chats flat, so a live child
+ * of an archived parent shows once, at the top level.
+ */
+export function ChatList({ chats, empty, nested = true }: { chats: SessionSummary[]; empty?: string; nested?: boolean }) {
   const currentId = useEngineStore((s) => s.activeId);
   useMinuteTick();
   return (
@@ -317,7 +345,7 @@ export function ChatList({ chats, empty }: { chats: SessionSummary[]; empty?: st
       {chats.map((chat) => (
         <React.Fragment key={chat.id}>
           <ChatItem chat={chat} active={chat.id === currentId} />
-          <NestedChats parentId={chat.id} currentId={currentId} />
+          {nested && <NestedChats parentId={chat.id} currentId={currentId} />}
         </React.Fragment>
       ))}
     </SidebarMenu>
@@ -340,8 +368,14 @@ export function WorkspaceGroup({
   const toggleCollapsed = useSessionStore((s) => s.toggleCollapsed);
   const removeWorkspace = useSessionStore((s) => s.removeWorkspace);
   const { newChat, forgetChats } = useEngineStore.getState();
-  const running = useEngineStore((s) => chats.some((chat) => s.runtimes[chat.id]?.transcript.busy));
-  const unread = chats.some((s) => s.unread);
+  // The roll-up of a collapsed group covers the nested sessions drawn under
+  // its chats, and chats running in another window.
+  const index = useSessionStore((s) => childrenByParent(s.sessions));
+  const family = chats.flatMap((chat) => [chat, ...(index.get(chat.id) ?? NO_CHILDREN)]);
+  const running = useEngineStore((s) =>
+    family.some((chat) => s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id]),
+  );
+  const unread = family.some((s) => s.unread);
   const [confirmRemove, setConfirmRemove] = React.useState(false);
 
   return (
@@ -359,7 +393,11 @@ export function WorkspaceGroup({
         </SidebarGroupLabel>
         {collapsed && (running || unread) && (
           <span className="pointer-events-none absolute top-2.5 right-16 flex items-center">
-            {running ? <Spinner className="size-3.5 text-muted-foreground" /> : <StatusDot tone="info" label="Unread replies" />}
+            {running ? (
+              <Spinner className="size-3.5 text-muted-foreground" aria-label="Running" />
+            ) : (
+              <StatusDot tone="info" label="Unread replies" />
+            )}
           </span>
         )}
         {path && (
@@ -436,7 +474,7 @@ export function ArchivedGroup() {
         </SidebarGroupLabel>
         <CollapsibleContent>
           <SidebarGroupContent>
-            <ChatList chats={archived} empty="Nothing archived" />
+            <ChatList chats={archived} empty="Nothing archived" nested={false} />
           </SidebarGroupContent>
         </CollapsibleContent>
       </SidebarGroup>

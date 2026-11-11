@@ -128,8 +128,15 @@ export function ChatMenuItems(props: ChatMenuProps) {
   const { main, newWindow, openIn, busy, archived, incognito } = useChatActions(props);
   const workspaces = useSessionStore((s) => s.workspaces);
   const moveChat = useEngineStore((s) => s.moveChat);
-  const parent = useSessionStore((s) => (chat.parentChatId ? s.sessions.find((x) => x.id === chat.parentChatId) : undefined));
-  const selectSession = useEngineStore((s) => s.selectSession);
+  // Moving restarts the chat's engine, which would end its subagents.
+  const agentsRunning = useEngineStore((s) => Boolean(s.agentsRunning[chat.id]));
+  // The parent may be archived: its row is then known only once the archive was opened.
+  const parent = useSessionStore((s) =>
+    chat.parentChatId
+      ? (s.sessions.find((x) => x.id === chat.parentChatId) ?? s.archived.find((x) => x.id === chat.parentChatId))
+      : undefined,
+  );
+  const openParent = useEngineStore((s) => s.openParent);
   const setParent = useSessionStore((s) => s.setParent);
   const byKey = (key: string) => main.find((a) => a.key === key);
   const subActions = [...(newWindow ? [newWindow] : []), ...openIn];
@@ -170,11 +177,15 @@ export function ChatMenuItems(props: ChatMenuProps) {
           <DropdownMenuSeparator />
         </>
       )}
-      {parent && (
+      {chat.parentChatId && (
         <>
-          <DropdownMenuItem onClick={() => void selectSession(parent.id)}>
-            <span className="truncate">Open parent · {parent.title}</span>
+          <DropdownMenuItem onClick={() => void openParent(chat.id)}>
+            <span className="truncate">
+              Open parent{parent ? ` · ${parent.title}` : ""}
+              {!parent || parent.archivedAt != null ? " (archived)" : ""}
+            </span>
           </DropdownMenuItem>
+          {/* The chat becomes top-level; the store gives it the session tools (engine-store.ts). */}
           <DropdownMenuItem onClick={() => void setParent(chat.id, null)}>Detach from parent</DropdownMenuItem>
           <DropdownMenuSeparator />
         </>
@@ -188,7 +199,7 @@ export function ChatMenuItems(props: ChatMenuProps) {
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={busy}>Move to</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger disabled={busy || agentsRunning}>Move to</DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-56">
               <DropdownMenuGroup>
                 <DropdownMenuLabel>Workspace</DropdownMenuLabel>

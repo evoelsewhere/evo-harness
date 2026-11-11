@@ -102,6 +102,15 @@ function put(list: SessionSummary[], id: string, chat: SessionSummary | null): S
   return chat ? [chat, ...rest] : rest;
 }
 
+/**
+ * Drop a deleted chat from a list. The chats it started stay, at the top
+ * level: the database clears their parent, and so do the rows here.
+ */
+function without(list: SessionSummary[], id: string): SessionSummary[] {
+  if (!list.some((s) => s.id === id || s.parentChatId === id)) return list;
+  return list.filter((s) => s.id !== id).map((s) => (s.parentChatId === id ? { ...s, parentChatId: null } : s));
+}
+
 export const useSessionStore = create<SessionStore>()((set, get) => {
   /** Apply a saved row to whichever list it belongs in, and tell the other windows. */
   const apply = (chat: DbChat | null | undefined, share = true) => {
@@ -137,7 +146,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         });
         void listen<{ from: string; id: string }>(CHAT_REMOVED, ({ payload }) => {
           if (payload.from === WINDOW_TOKEN) return;
-          set((s) => ({ sessions: put(s.sessions, payload.id, null), archived: put(s.archived, payload.id, null) }));
+          set((s) => ({ sessions: without(s.sessions, payload.id), archived: without(s.archived, payload.id) }));
         });
       }
       const [workspaces, chats, settings] = await Promise.all([db.workspaces(), db.chats(false), db.settings()]);
@@ -170,10 +179,16 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
 
     async removeWorkspace(id) {
       const removed = await db.removeWorkspace(id);
+      // Chats elsewhere that a removed chat started stay, at the top level.
+      const gone = new Set(removed);
+      const keep = (list: SessionSummary[]) =>
+        list
+          .filter((session) => session.workspaceId !== id)
+          .map((session) => (session.parentChatId && gone.has(session.parentChatId) ? { ...session, parentChatId: null } : session));
       set((s) => ({
         workspaces: s.workspaces.filter((w) => w.id !== id),
-        sessions: s.sessions.filter((session) => session.workspaceId !== id),
-        archived: s.archived.filter((session) => session.workspaceId !== id),
+        sessions: keep(s.sessions),
+        archived: keep(s.archived),
       }));
       return removed;
     },
@@ -360,7 +375,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
 
     async remove(id) {
       const chat = get().sessions.find((s) => s.id === id) ?? get().archived.find((s) => s.id === id);
-      set((s) => ({ sessions: put(s.sessions, id, null), archived: put(s.archived, id, null) }));
+      set((s) => ({ sessions: without(s.sessions, id), archived: without(s.archived, id) }));
       if (chat && !chat.draft) {
         await db.deleteChat(id).catch(report("deleting the chat"));
         if (inTauri) void emit(CHAT_REMOVED, { from: WINDOW_TOKEN, id }).catch(() => undefined);

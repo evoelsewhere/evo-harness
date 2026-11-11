@@ -124,6 +124,17 @@ export function ChatComposer() {
   }, [menuOpen]);
   React.useEffect(() => setMenuActive(0), [query]);
 
+  // A draft in the field holds this chat's automated wakes (a nested session's
+  // note, a background agent's report) until it is sent or cleared: a wake
+  // would turn the person's Send into a steer of a run they did not start.
+  const drafting = text.trim().length > 0 || attachments.length > 0;
+  React.useEffect(() => {
+    if (!chatId || !drafting) return;
+    const { setComposing } = useEngineStore.getState();
+    setComposing(chatId, true);
+    return () => setComposing(chatId, false);
+  }, [chatId, drafting]);
+
   React.useEffect(() => {
     const listener = (draft: string) => setText(draft);
     composerDraft.listeners.add(listener);
