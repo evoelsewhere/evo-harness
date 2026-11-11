@@ -3,7 +3,8 @@
 //! `start` with `"isolation": "worktree"` runs the child in a managed Git
 //! worktree of the project (see `crate::worktrees`): its file and shell tools
 //! work there, and when it finishes an unchanged worktree is removed while a
-//! changed one is kept and reported (`result.worktree`).
+//! changed one is kept and reported: in `result.worktree` when it finished, and
+//! in the poll's own `worktree` however it ended (failed, cancelled, timed out).
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -57,6 +58,10 @@ struct State {
     result: Option<Value>,
     error: Option<String>,
     usage: crate::mesh::MeshUsage,
+    /// Its worktree is not settled yet: the run is not over for a poll.
+    settling: bool,
+    /// The settled worktree (kept or removed), however the run ended.
+    worktree: Option<Value>,
 }
 
 impl Job {
@@ -213,13 +218,16 @@ impl ChildAgents {
                     bytes += delta.len();
                     deltas.push(state.deltas.pop_front().expect("front exists"));
                 }
-                // Terminal result is delivered only after queued deltas drain.
-                let drained = state.deltas.is_empty();
-                Ok(
-                    json!({"childId":id, "status":if drained {status} else {"running"}, "deltas":deltas,
+                // Terminal result is delivered only after queued deltas drain, and
+                // once the worktree is settled: the answer says whether it was kept.
+                let drained = state.deltas.is_empty() && !state.settling;
+                let mut value = json!({"childId":id, "status":if drained {status} else {"running"}, "deltas":deltas,
                     "turns":state.turns, "result":if drained {state.result.clone()} else {None},
-                    "error":if drained {state.error.clone()} else {None}}),
-                )
+                    "error":if drained {state.error.clone()} else {None}});
+                if let Some(worktree) = state.worktree.as_ref().filter(|_| drained) {
+                    value["worktree"] = worktree.clone();
+                }
+                Ok(value)
             }
             "cancel" | "dispose" => {
                 job.fail("child cancelled");
@@ -401,6 +409,7 @@ impl ChildAgents {
         let started_worktree = worktree
             .as_ref()
             .map(|created| worktree_json(created, None));
+        job.state.lock().unwrap_or_else(|e| e.into_inner()).settling = worktree.is_some();
         let weak = Arc::downgrade(&job);
         crate::mesh::router().spawn(
             job.address.clone(),
@@ -439,6 +448,11 @@ impl ChildAgents {
             .is_err()
             {
                 worker.fail("child runner panicked");
+                worker
+                    .state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .settling = false;
                 let _ = cleanup_harness.close().await;
             }
             // Also retain capacity when run_child unwinds after starting a
@@ -485,11 +499,19 @@ pub(crate) async fn finish_worktree(created: crate::worktrees::Created, repo: Pa
         if !changed {
             let removed =
                 crate::worktrees::manager().and_then(|w| w.remove(&repo, &created.worktree.path));
-            if let Err(error) = removed {
-                tracing::warn!("could not remove an unused child worktree: {error}");
-                let mut value = worktree_json(&created, Some(false));
-                value["kept"] = json!(true);
-                return value;
+            match removed {
+                Err(error) => {
+                    tracing::warn!("could not remove an unused child worktree: {error}");
+                    let mut value = worktree_json(&created, Some(false));
+                    value["kept"] = json!(true);
+                    return value;
+                }
+                // Its branch is gone; a later removal deletes the folder.
+                Ok(removed) if !removed.cleaned => tracing::warn!(
+                    "an unused child worktree's folder is still in use and stays for now: {}",
+                    removed.detail.unwrap_or_default()
+                ),
+                Ok(_) => {}
             }
         }
         worktree_json(&created, Some(changed))
@@ -561,6 +583,11 @@ async fn run_child(
         }
         None => None,
     };
+    {
+        let mut state = job.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.worktree = worktree.clone();
+        state.settling = false;
+    }
     if let Some(result) = result {
         match result {
             Ok(result) => {
@@ -596,43 +623,75 @@ async fn run_child(
     announce(&job);
 }
 
-/// Tell the mesh how the child ended: its report, then the settled state.
-fn announce(job: &Job) {
-    use crate::mesh::{NodeState, RunStatus};
-    let (status, text, reason, usage, worktree) = {
-        let state = job.state.lock().unwrap_or_else(|e| e.into_inner());
-        match (&state.result, &state.error) {
-            (Some(result), _) => (
-                RunStatus::Done,
-                result
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                None,
-                state.usage,
-                result.get("worktree").cloned(),
-            ),
-            (None, error) => {
-                let reason = error.clone().unwrap_or_else(|| "child stopped".into());
-                let status = if reason.contains("cancel") {
-                    RunStatus::Cancelled
-                } else {
-                    RunStatus::Failed
-                };
-                (
-                    status,
-                    format!("The child stopped: {reason}."),
-                    Some(reason),
-                    state.usage,
-                    None,
-                )
+/// How a child ended, for the mesh.
+struct Ended {
+    status: crate::mesh::RunStatus,
+    text: String,
+    reason: Option<String>,
+    usage: crate::mesh::MeshUsage,
+    worktree: Option<Value>,
+}
+
+fn ended(job: &Job) -> Ended {
+    use crate::mesh::RunStatus;
+    let state = job.state.lock().unwrap_or_else(|e| e.into_inner());
+    match (&state.result, &state.error) {
+        (Some(result), _) => Ended {
+            status: RunStatus::Done,
+            text: result
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            reason: None,
+            usage: state.usage,
+            worktree: result.get("worktree").cloned(),
+        },
+        (None, error) => {
+            let reason = error.clone().unwrap_or_else(|| "child stopped".into());
+            let status = if reason.contains("cancel") {
+                RunStatus::Cancelled
+            } else {
+                RunStatus::Failed
+            };
+            // A failed child's kept worktree is reported like a finished one's.
+            let worktree = state.worktree.clone().filter(|w| !w.is_null());
+            let mut text = format!("The child stopped: {reason}.");
+            if let Some(kept) = worktree.as_ref().filter(|w| w["kept"] == json!(true)) {
+                text.push_str(&format!(
+                    "\n\n[Its changes are in the worktree {} on branch {}.]",
+                    kept["path"].as_str().unwrap_or(""),
+                    kept["branch"].as_str().unwrap_or("")
+                ));
+            }
+            Ended {
+                status,
+                text,
+                reason: Some(reason),
+                usage: state.usage,
+                worktree,
             }
         }
-    };
+    }
+}
+
+/// Tell the mesh how the child ended: its report, then the settled state.
+fn announce(job: &Job) {
+    let ended = ended(job);
     let router = crate::mesh::router();
-    router.report(&job.address, status, text, usage, worktree);
-    router.transition(&job.address, NodeState::Settled, Some(status), reason);
+    router.report(
+        &job.address,
+        ended.status,
+        ended.text,
+        ended.usage,
+        ended.worktree,
+    );
+    router.transition(
+        &job.address,
+        crate::mesh::NodeState::Settled,
+        Some(ended.status),
+        ended.reason,
+    );
 }
 
 #[cfg(test)]

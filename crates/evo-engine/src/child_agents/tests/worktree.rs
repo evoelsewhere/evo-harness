@@ -196,3 +196,71 @@ async fn worktree_isolation_needs_a_repository_and_a_known_mode() {
         .unwrap_err();
     assert!(error.contains("unknown isolation"), "{error}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cancelled_child_still_reports_its_kept_worktree() {
+    let _agent = crate::config::test_support::AgentDirEnv::new();
+    let Some((_dir, root)) = repo() else { return };
+    // Writes a file, then talks for longer than the test waits.
+    let script = FauxScript::new()
+        .with_tool_call(
+            "write",
+            json!({"path":"from-child.txt","content":"made by the child\n"}),
+        )
+        .with_text("word ".repeat(20_000))
+        .with_tokens_per_second(200.0);
+    let parent = parent_in(&root, script).await;
+    let manager = ChildAgents::default();
+    let started = manager
+        .handle(
+            &parent,
+            7,
+            &root,
+            json!({"op":"start","task":"write a file","isolation":"worktree"}),
+        )
+        .await
+        .unwrap();
+    let id = started["childId"].as_str().unwrap();
+    let path = PathBuf::from(started["worktree"]["path"].as_str().unwrap());
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !path.join("from-child.txt").exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the child writes its file");
+    manager
+        .handle(&parent, 7, &root, json!({"op":"cancel","childId":id}))
+        .await
+        .unwrap();
+
+    let done = finish(&manager, &parent, id).await;
+    assert_eq!(done["status"], "failed", "{done}");
+    assert!(done["error"].as_str().unwrap().contains("cancel"), "{done}");
+    // FR-13: a kept worktree's path and branch are reported, also on failure.
+    let worktree = &done["worktree"];
+    assert_eq!(
+        (worktree["changed"].as_bool(), worktree["kept"].as_bool()),
+        (Some(true), Some(true)),
+        "{done}"
+    );
+    assert_eq!(worktree["path"], started["worktree"]["path"]);
+    assert_eq!(worktree["branch"], started["worktree"]["branch"]);
+    // The mesh report carries it too.
+    let job = manager.jobs.lock().unwrap().get(id).cloned().unwrap();
+    let report = ended(&job);
+    assert_eq!(report.worktree.as_ref(), Some(&done["worktree"]));
+    assert!(
+        report.text.contains(path.to_string_lossy().as_ref())
+            && report
+                .text
+                .contains(started["worktree"]["branch"].as_str().unwrap()),
+        "{}",
+        report.text
+    );
+    assert!(path.join("from-child.txt").is_file());
+    crate::worktrees::manager()
+        .unwrap()
+        .remove(&root, &path)
+        .unwrap();
+}

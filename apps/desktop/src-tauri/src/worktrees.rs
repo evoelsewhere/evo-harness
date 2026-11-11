@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use evo_worktrees::{Changes, Location, Worktree, Worktrees};
+use evo_worktrees::{Location, Worktree, Worktrees};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
@@ -33,6 +33,25 @@ fn location(db: &Db) -> Location {
 
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
+}
+
+/// Seconds between tries to delete a worktree folder that was still in use.
+const RETRY_AFTER: [u64; 6] = [2, 5, 15, 60, 300, 900];
+
+/// The folder of an applied or discarded worktree was still in use (a process
+/// working in it): try again while the app runs, until it is gone.
+fn remove_later(worktrees: Worktrees, cwd: PathBuf, path: PathBuf) {
+    tauri::async_runtime::spawn(async move {
+        for seconds in RETRY_AFTER {
+            tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
+            let (worktrees, cwd, path) = (worktrees.clone(), cwd.clone(), path.clone());
+            match blocking(move || worktrees.remove(&cwd, &path)).await {
+                Ok(removed) if !removed.cleaned => {}
+                // Gone, or not removable any more.
+                _ => return,
+            }
+        }
+    });
 }
 
 #[derive(Serialize)]
@@ -62,14 +81,23 @@ pub async fn worktree_create(db: State<'_, Db>, cwd: String) -> Result<Created, 
     .await
 }
 
-/// The managed worktrees of `cwd`'s repository (empty outside a repository).
+/// The managed worktrees of `cwd`'s repository: empty outside a repository,
+/// an error when git fails inside one.
 #[tauri::command]
 pub async fn worktree_list(db: State<'_, Db>, cwd: String) -> Result<Vec<Worktree>, String> {
     let worktrees = manager(&db);
-    blocking(move || Ok(worktrees.list(&PathBuf::from(cwd)).unwrap_or_default())).await
+    blocking(move || {
+        let cwd = PathBuf::from(cwd);
+        if evo_worktrees::repo_root(&cwd).is_none() {
+            return Ok(Vec::new());
+        }
+        worktrees.list(&cwd)
+    })
+    .await
 }
 
 /// What the worktree at `path` changed, for review (`patch` cut when huge).
+/// `hash` names the whole patch: `worktree_apply` takes it back as `expected`.
 #[tauri::command]
 pub async fn worktree_changes(db: State<'_, Db>, cwd: String, path: String) -> Result<Value, String> {
     let worktrees = manager(&db);
@@ -90,15 +118,28 @@ pub async fn worktree_changes(db: State<'_, Db>, cwd: String, path: String) -> R
     .await
 }
 
-fn summary(changes: Changes) -> Value {
-    serde_json::json!({ "files": changes.files.len(), "added": changes.added, "removed": changes.removed })
-}
-
-/// Apply the worktree's changes to the workspace (uncommitted) and remove it.
+/// Apply the worktree's changes to the folder `cwd` is in (uncommitted) and
+/// remove it. `expected` is the `hash` the review showed: a worktree that
+/// changed since is refused. `cleaned` is false when the changes are applied
+/// but the worktree's folder is still in use and stays for now.
 #[tauri::command]
-pub async fn worktree_apply(db: State<'_, Db>, cwd: String, path: String) -> Result<Value, String> {
+pub async fn worktree_apply(db: State<'_, Db>, cwd: String, path: String, expected: Option<String>) -> Result<Value, String> {
     let worktrees = manager(&db);
-    blocking(move || worktrees.apply(&PathBuf::from(cwd), &PathBuf::from(path)).map(summary)).await
+    blocking(move || {
+        let (cwd, path) = (PathBuf::from(cwd), PathBuf::from(path));
+        let applied = worktrees.apply(&cwd, &path, expected.as_deref())?;
+        if !applied.cleaned {
+            remove_later(worktrees, cwd, path);
+        }
+        let changes = applied.changes;
+        Ok(serde_json::json!({
+            "files": changes.files.len(),
+            "added": changes.added,
+            "removed": changes.removed,
+            "cleaned": applied.cleaned,
+        }))
+    })
+    .await
 }
 
 /// Where the repository `cwd` is in stands (branch, upstream, changes against
@@ -122,9 +163,18 @@ pub async fn git_file_base(cwd: String, path: String) -> Result<Option<String>, 
     blocking(move || evo_worktrees::file_at_head(&PathBuf::from(cwd), &PathBuf::from(path))).await
 }
 
-/// Throw the worktree and its branch away.
+/// Throw the worktree and its branch away. `cleaned` is false when its folder
+/// is still in use and stays for now (a later discard removes it).
 #[tauri::command]
-pub async fn worktree_discard(db: State<'_, Db>, cwd: String, path: String) -> Result<(), String> {
+pub async fn worktree_discard(db: State<'_, Db>, cwd: String, path: String) -> Result<Value, String> {
     let worktrees = manager(&db);
-    blocking(move || worktrees.remove(&PathBuf::from(cwd), &PathBuf::from(path))).await
+    blocking(move || {
+        let (cwd, path) = (PathBuf::from(cwd), PathBuf::from(path));
+        let removed = worktrees.remove(&cwd, &path)?;
+        if !removed.cleaned {
+            remove_later(worktrees, cwd, path);
+        }
+        Ok(serde_json::json!({ "cleaned": removed.cleaned }))
+    })
+    .await
 }

@@ -13,11 +13,17 @@
 //! Branches are named `evo/worktree-<name>`; removing a worktree deletes its
 //! branch too.
 //!
-//! What a worktree changed ([`Worktrees::changes`]) is measured from where it
-//! was cut, commits and new files included; [`Worktrees::apply`] brings those
-//! changes into the repository's working folder (uncommitted) and removes the
-//! worktree. Used by the engine (child agents) and by the desktop shell
-//! (review, apply, discard, worktree sessions); it only shells out to `git`.
+//! What a worktree changed ([`Worktrees::changes`]) is measured from the commit
+//! it was cut from (recorded when it is made), commits and new files included;
+//! [`Worktrees::apply`] brings those changes into the working folder it was cut
+//! from (uncommitted), all of them or none, and removes the worktree. Used by
+//! the engine (child agents) and by the desktop shell (review, apply, discard,
+//! worktree sessions); it only shells out to `git`.
+//!
+//! Spec: `docs/features/subagents-and-nested-sessions/spec.md` (FR-13, FR-21,
+//! FR-22, NFR-4).
+
+mod snapshot;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -65,12 +71,15 @@ pub struct Created {
     pub cwd: PathBuf,
 }
 
+#[derive(Debug, Clone)]
 pub struct Worktrees {
     /// `~/.evo/agent/worktrees` (tests use a temporary folder).
     data_root: PathBuf,
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+/// `git` output byte for byte: a patch must keep its trailing newline and
+/// text that is not UTF-8.
+fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     let mut command = Command::new("git");
     command.arg("-C").arg(dir).args(args);
     #[cfg(windows)]
@@ -84,13 +93,20 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         .output()
         .map_err(|e| format!("could not run git: {e}"))?;
     if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout)
-            .trim_end()
-            .to_string())
+        Ok(output.stdout)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("git {} failed: {}", args.join(" "), stderr.trim()))
     }
+}
+
+/// `git` output as text, for reading and display only.
+fn git_raw(dir: &Path, args: &[&str]) -> Result<String, String> {
+    git_bytes(dir, args).map(|out| String::from_utf8_lossy(&out).to_string())
+}
+
+fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    git_raw(dir, args).map(|out| out.trim_end().to_string())
 }
 
 /// Paths as one comparable string: forward slashes, no trailing slash, and
@@ -105,8 +121,48 @@ fn key(path: &Path) -> String {
     }
 }
 
+/// Without the `\\?\` prefix Windows puts on resolved paths.
+fn plain(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest.to_string());
+        }
+    }
+    path
+}
+
+/// `path` with links and junctions resolved, as far as it exists: git records
+/// a worktree by its resolved path.
+fn resolved(path: &Path) -> PathBuf {
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        if let Ok(real) = std::fs::canonicalize(current) {
+            let mut real = plain(real);
+            real.extend(missing.iter().rev());
+            return real;
+        }
+        match (current.parent(), current.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name);
+                current = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+fn same(a: &Path, b: &Path) -> bool {
+    key(&resolved(a)) == key(&resolved(b))
+}
+
 fn is_under(path: &Path, dir: &Path) -> bool {
-    let (path, dir) = (key(path), key(dir));
+    let (path, dir) = (key(&resolved(path)), key(&resolved(dir)));
     path.len() > dir.len() && path.starts_with(&dir) && path.as_bytes()[dir.len()] == b'/'
 }
 
@@ -115,6 +171,63 @@ fn fnv(text: &str) -> u32 {
     text.bytes().fold(0x811c_9dc5u32, |hash, byte| {
         (hash ^ byte as u32).wrapping_mul(0x0100_0193)
     })
+}
+
+/// What the review dialog showed, to apply exactly that.
+fn patch_hash(patch: &[u8]) -> String {
+    let hash = patch.iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ *byte as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    format!("{hash:016x}{:x}", patch.len())
+}
+
+/// A path as git printed it (`-z`: not quoted).
+fn path_of(bytes: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(bytes).to_string())
+    }
+}
+
+/// In a worktree's own git folder: the commit it was cut from.
+const BASE_FILE: &str = "evo-base";
+
+fn git_dir(worktree: &Path) -> Result<PathBuf, String> {
+    git(
+        worktree,
+        &["rev-parse", "--path-format=absolute", "--git-dir"],
+    )
+    .map(PathBuf::from)
+}
+
+fn record_base(worktree: &Path, base: &str) -> Result<(), String> {
+    let file = git_dir(worktree)?.join(BASE_FILE);
+    std::fs::write(&file, format!("{base}\n"))
+        .map_err(|e| format!("could not write {}: {e}", file.display()))
+}
+
+/// `None` for a worktree made before the fork was recorded.
+fn recorded_base(worktree: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(git_dir(worktree).ok()?.join(BASE_FILE)).ok()?;
+    let base = text.trim();
+    (base.len() >= 40 && base.bytes().all(|b| b.is_ascii_hexdigit())).then(|| base.to_string())
+}
+
+/// The top folder of the working tree `dir` is in.
+fn toplevel(dir: &Path) -> Result<PathBuf, String> {
+    git(dir, &["rev-parse", "--show-toplevel"])
+        .map(PathBuf::from)
+        .map_err(|_| "this folder is not in a Git repository".to_string())
+}
+
+/// The top folder of the working tree `dir` is in; `None` outside a repository.
+pub fn repo_root(dir: &Path) -> Option<PathBuf> {
+    toplevel(dir).ok()
 }
 
 /// Unique per process and moment: time, process id and a counter.
@@ -140,12 +253,10 @@ impl Worktrees {
     }
 
     /// The repository's main working folder, also when `cwd` is inside one of
-    /// its worktrees, so a worktree is never nested in another.
+    /// its worktrees, so a worktree is never nested in another. Only for where
+    /// worktrees live: changes are applied to `cwd`'s own working tree.
     fn main_root(cwd: &Path) -> Result<PathBuf, String> {
-        let top = PathBuf::from(
-            git(cwd, &["rev-parse", "--show-toplevel"])
-                .map_err(|_| "this folder is not in a Git repository".to_string())?,
-        );
+        let top = toplevel(cwd)?;
         let common = PathBuf::from(git(
             cwd,
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -215,17 +326,22 @@ impl Worktrees {
             .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
         let path = dir.join(&name);
         let branch = format!("{BRANCH_PREFIX}{name}");
-        git(
-            &main,
-            &[
-                "worktree",
-                "add",
-                "-b",
-                &branch,
-                &path.to_string_lossy(),
-                &base,
-            ],
-        )?;
+        let folder = path.to_string_lossy().to_string();
+        let added = git(&main, &["worktree", "add", "-b", &branch, &folder, &base])
+            .and_then(|_| record_base(&path, &base));
+        if let Err(error) = added {
+            // Leave nothing behind: git may have made the branch and the folder.
+            let _ = git(
+                &main,
+                &["worktree", "remove", "--force", "--force", &folder],
+            );
+            if path.symlink_metadata().is_ok() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+            let _ = git(&main, &["worktree", "prune"]);
+            let _ = git(&main, &["branch", "-D", &branch]);
+            return Err(error);
+        }
         let child_cwd = path.join(prefix.trim_end_matches('/'));
         let cwd = if child_cwd.is_dir() {
             child_cwd
@@ -244,8 +360,12 @@ impl Worktrees {
         })
     }
 
-    /// Whether `path` has uncommitted changes or commits beyond `base`.
+    /// Whether `path` has uncommitted changes or commits beyond `base`. A
+    /// folder that is gone, or is no longer a worktree, has nothing to keep.
     pub fn changed(path: &Path, base: Option<&str>) -> bool {
+        if path.join(".git").symlink_metadata().is_err() {
+            return false;
+        }
         let dirty = git(path, &["status", "--porcelain"])
             .map(|out| !out.trim().is_empty())
             .unwrap_or(true);
@@ -266,10 +386,9 @@ impl Worktrees {
                 self.dir(&main, WorktreeLocation::Repository),
                 WorktreeLocation::Repository,
             ),
-            (
-                self.dir(&main, WorktreeLocation::UserData),
-                WorktreeLocation::UserData,
-            ),
+            // Anything of this repository under the data root, however the
+            // repository's own path was spelled when it was made.
+            (self.data_root.clone(), WorktreeLocation::UserData),
         ];
         let porcelain = git(&main, &["worktree", "list", "--porcelain"])?;
         let mut found = Vec::new();
@@ -285,12 +404,20 @@ impl Worktrees {
             }
             let Some(path) = path else { continue };
             if let Some((_, location)) = places.iter().find(|(dir, _)| is_under(&path, dir)) {
-                // Commits on the branch beyond where `main` is now count as changes.
-                let ahead = git(&main, &["rev-list", "--count", &format!("HEAD..{branch}")])
-                    .map(|n| n.trim() != "0")
-                    .unwrap_or(false);
+                let changed = match recorded_base(&path) {
+                    Some(base) => Self::changed(&path, Some(&base)),
+                    // Made before the fork was recorded: commits on the branch
+                    // beyond where `main` is now count as changes.
+                    None => {
+                        let ahead =
+                            git(&main, &["rev-list", "--count", &format!("HEAD..{branch}")])
+                                .map(|n| n.trim() != "0")
+                                .unwrap_or(false);
+                        ahead || Self::changed(&path, None)
+                    }
+                };
                 found.push(Worktree {
-                    changed: ahead || Self::changed(&path, None),
+                    changed,
                     path,
                     branch,
                     location: location_name(*location),
@@ -300,120 +427,320 @@ impl Worktrees {
         Ok(found)
     }
 
-    /// A managed worktree of `cwd`'s repository at `path`, or an error.
-    fn managed(&self, cwd: &Path, path: &Path) -> Result<Worktree, String> {
-        self.list(cwd)?
-            .into_iter()
-            .find(|w| key(&w.path) == key(path))
-            .ok_or_else(|| {
-                format!(
-                    "{} is not a managed worktree of this repository",
-                    path.display()
-                )
-            })
+    /// The managed worktree of `cwd`'s repository that git has at `path`.
+    fn registered(&self, cwd: &Path, path: &Path) -> Result<Option<Worktree>, String> {
+        Ok(self.list(cwd)?.into_iter().find(|w| same(&w.path, path)))
     }
 
-    /// Everything the worktree at `path` changed since it was cut from the
-    /// repository: its commits, uncommitted edits and new files, as one patch.
-    pub fn changes(&self, cwd: &Path, path: &Path) -> Result<Changes, String> {
-        let main = Self::main_root(cwd)?;
-        self.managed(cwd, path)?;
-        let head = git(&main, &["rev-parse", "HEAD"])?;
-        let base = git(path, &["merge-base", "HEAD", &head])?;
+    /// A managed worktree of `cwd`'s repository at `path`, or an error.
+    fn managed(&self, cwd: &Path, path: &Path) -> Result<Worktree, String> {
+        self.registered(cwd, path)?.ok_or_else(|| not_managed(path))
+    }
+
+    /// A folder directly under a managed location of this repository that git
+    /// no longer has as a worktree: what a removal leaves when something was
+    /// still using the folder. Names are the ones [`new_name`] makes.
+    fn leftover(&self, main: &Path, path: &Path) -> Result<PathBuf, String> {
+        let named = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| !name.is_empty() && name.bytes().all(|b| b.is_ascii_hexdigit()));
+        let placed = path.parent().is_some_and(|parent| {
+            [WorktreeLocation::Repository, WorktreeLocation::UserData]
+                .iter()
+                .any(|location| same(parent, &self.dir(main, *location)))
+        });
+        if named && placed {
+            Ok(path.to_path_buf())
+        } else {
+            Err(not_managed(path))
+        }
+    }
+
+    /// What the worktree at `path` changed, against the working tree `cwd` is in.
+    fn diff(&self, cwd: &Path, path: &Path) -> Result<Diff, String> {
+        // Where it was cut from: `cwd`'s own working tree, which is not the
+        // repository's main one when `cwd` is in a worktree itself.
+        let target = toplevel(cwd)?;
+        let worktree = self.managed(cwd, path)?.path;
+        if same(&target, &worktree) {
+            return Err(
+                "a worktree's changes go to the folder it was cut from, not to itself".into(),
+            );
+        }
+        let base = match recorded_base(&worktree) {
+            Some(base) => base,
+            // Made before the fork was recorded: where its history left the folder's.
+            None => {
+                let head = git(&target, &["rev-parse", "HEAD"])?;
+                git(&worktree, &["merge-base", "HEAD", &head])?
+            }
+        };
         // Stage everything in the worktree's own index so new files count; the
         // repository's index is untouched.
-        git(path, &["add", "-A"])?;
-        let patch = git_raw(
-            path,
+        git(&worktree, &["add", "-A"])?;
+        let patch = git_bytes(
+            &worktree,
             &[
+                "-c",
+                "core.quotePath=false",
                 "diff",
                 "--cached",
                 "--binary",
                 "--no-color",
                 "--no-ext-diff",
+                "--no-textconv",
+                "--src-prefix=a/",
+                "--dst-prefix=b/",
                 &base,
             ],
         )?;
-        let mut files = Vec::new();
-        let numstat = git(
-            path,
-            &["diff", "--cached", "--numstat", "--no-renames", &base],
+        // `-z`: names as they are, not quoted.
+        let numstat = git_bytes(
+            &worktree,
+            &["diff", "--cached", "--numstat", "--no-renames", "-z", &base],
         )?;
-        let statuses = git(
-            path,
-            &["diff", "--cached", "--name-status", "--no-renames", &base],
+        let statuses = git_bytes(
+            &worktree,
+            &[
+                "diff",
+                "--cached",
+                "--name-status",
+                "--no-renames",
+                "-z",
+                &base,
+            ],
         )?;
-        for (line, status) in numstat.lines().zip(statuses.lines()) {
-            let mut parts = line.splitn(3, '\t');
-            let added = parts.next().and_then(|n| n.parse().ok());
-            let removed = parts.next().and_then(|n| n.parse().ok());
-            let file = parts.next().unwrap_or_default().to_string();
-            let status = match status.chars().next() {
-                Some('A') => "added",
-                Some('D') => "deleted",
+        let mut counts = std::collections::HashMap::new();
+        for record in numstat.split(|b| *b == 0) {
+            let mut parts = record.splitn(3, |b| *b == b'\t');
+            let mut number = || {
+                let text = std::str::from_utf8(parts.next()?).ok()?;
+                text.parse::<usize>().ok()
+            };
+            let (added, removed) = (number(), number());
+            if let Some(name) = parts.next() {
+                counts.insert(name, (added, removed));
+            }
+        }
+        let (mut files, mut touched) = (Vec::new(), Vec::new());
+        let mut fields = statuses.split(|b| *b == 0);
+        while let (Some(status), Some(name)) = (fields.next(), fields.next()) {
+            let status = match status.first() {
+                Some(b'A') => "added",
+                Some(b'D') => "deleted",
                 _ => "modified",
             };
+            let (added, removed) = counts.get(name).copied().unwrap_or((None, None));
             files.push(FileChange {
-                path: file,
+                path: String::from_utf8_lossy(name).to_string(),
                 status,
                 added,
                 removed,
             });
+            touched.push(path_of(name));
         }
-        Ok(Changes {
-            added: files.iter().filter_map(|f| f.added).sum(),
-            removed: files.iter().filter_map(|f| f.removed).sum(),
-            base,
-            files,
+        Ok(Diff {
+            changes: Changes {
+                added: files.iter().filter_map(|f| f.added).sum(),
+                removed: files.iter().filter_map(|f| f.removed).sum(),
+                base,
+                files,
+                hash: patch_hash(&patch),
+                patch: String::from_utf8_lossy(&patch).to_string(),
+            },
             patch,
+            target,
+            touched,
         })
     }
 
-    /// Bring the worktree's changes into the repository's working folder
+    /// Everything the worktree at `path` changed since it was cut from the
+    /// working tree `cwd` is in: its commits, uncommitted edits and new files,
+    /// as one patch.
+    pub fn changes(&self, cwd: &Path, path: &Path) -> Result<Changes, String> {
+        self.diff(cwd, path).map(|diff| diff.changes)
+    }
+
+    /// Bring the worktree's changes into the working tree `cwd` is in
     /// (uncommitted, nothing staged), then remove the worktree and its branch.
-    /// Nothing is changed when the patch does not apply cleanly.
-    pub fn apply(&self, cwd: &Path, path: &Path) -> Result<Changes, String> {
-        let main = Self::main_root(cwd)?;
-        let changes = self.changes(cwd, path)?;
-        if !changes.patch.trim().is_empty() {
-            let file = std::env::temp_dir().join(format!("evo-worktree-{}.patch", new_name()));
-            std::fs::write(&file, &changes.patch)
-                .map_err(|e| format!("could not write the patch: {e}"))?;
-            let file_arg = file.to_string_lossy().to_string();
-            let checked = git(
-                &main,
-                &["apply", "--check", "--whitespace=nowarn", &file_arg],
-            );
-            let applied =
-                checked.and_then(|_| git(&main, &["apply", "--whitespace=nowarn", &file_arg]));
-            let _ = std::fs::remove_file(&file);
-            applied.map_err(|e| {
-                format!("the changes do not apply cleanly to your working folder (it changed in the same places): {e}")
-            })?;
+    /// All of the patch lands or nothing is changed. `expected` is the
+    /// [`Changes::hash`] that was reviewed: other changes are refused.
+    pub fn apply(
+        &self,
+        cwd: &Path,
+        path: &Path,
+        expected: Option<&str>,
+    ) -> Result<Applied, String> {
+        let diff = self.diff(cwd, path)?;
+        if expected.is_some_and(|hash| hash != diff.changes.hash) {
+            return Err(CHANGED_SINCE_REVIEW.into());
         }
-        self.remove(cwd, path)?;
-        Ok(changes)
+        if !diff.patch.iter().all(u8::is_ascii_whitespace) {
+            apply_patch(&diff.target, &diff.patch, &diff.touched)?;
+        }
+        // The changes are in: a folder that cannot be removed yet is not a failure.
+        let cleaned = self.remove(cwd, path).is_ok_and(|removed| removed.cleaned);
+        Ok(Applied {
+            changes: diff.changes,
+            cleaned,
+        })
     }
 
     /// Remove a managed worktree and its branch. Refuses anything else.
-    pub fn remove(&self, cwd: &Path, path: &Path) -> Result<(), String> {
+    ///
+    /// A folder something still uses (a process working in it, on Windows) is
+    /// left: its branch and git's record of it go, `cleaned` is `false`, and
+    /// removing the same path again later deletes what is left.
+    pub fn remove(&self, cwd: &Path, path: &Path) -> Result<Removed, String> {
         let main = Self::main_root(cwd)?;
-        let worktree = self.managed(cwd, path)?;
-        git(
-            &main,
-            &[
-                "worktree",
-                "remove",
-                "--force",
-                &worktree.path.to_string_lossy(),
-            ],
-        )?;
-        if worktree.branch.starts_with(BRANCH_PREFIX) {
-            git(&main, &["branch", "-D", &worktree.branch])?;
+        let (folder, registered) = match self.registered(cwd, path)? {
+            Some(worktree) => (worktree.path, true),
+            None => (self.leftover(&main, path)?, false),
+        };
+        let mut detail = None;
+        if registered {
+            let folder = folder.to_string_lossy();
+            // Twice: a locked worktree too.
+            if let Err(error) = git(
+                &main,
+                &["worktree", "remove", "--force", "--force", &folder],
+            ) {
+                detail = Some(error);
+            }
+        }
+        // Whatever git left, or a folder it no longer knows.
+        if folder.symlink_metadata().is_ok() {
+            if let Err(error) = std::fs::remove_dir_all(&folder) {
+                detail.get_or_insert(format!("could not delete {}: {error}", folder.display()));
+            }
         }
         let _ = git(&main, &["worktree", "prune"]);
-        Ok(())
+        // By name: the child may have switched to another branch.
+        if let Some(name) = folder.file_name().and_then(|name| name.to_str()) {
+            let branch = format!("{BRANCH_PREFIX}{name}");
+            let exists = git(
+                &main,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{branch}"),
+                ],
+            );
+            if exists.is_ok() {
+                if let Err(error) = git(&main, &["branch", "-D", &branch]) {
+                    detail.get_or_insert(error);
+                }
+            }
+        }
+        let cleaned = folder.symlink_metadata().is_err();
+        Ok(Removed {
+            detail: if cleaned { None } else { detail },
+            cleaned,
+        })
     }
+}
+
+fn not_managed(path: &Path) -> String {
+    format!(
+        "{} is not a managed worktree of this repository",
+        path.display()
+    )
+}
+
+/// Said when the worktree is not what the review showed any more.
+pub const CHANGED_SINCE_REVIEW: &str =
+    "the worktree changed since you opened this review: look at the changes again, then apply them";
+
+/// A worktree's changes and what applying them needs.
+struct Diff {
+    changes: Changes,
+    /// As git wrote it: text that is not UTF-8 stays what it is.
+    patch: Vec<u8>,
+    /// The working tree it applies to.
+    target: PathBuf,
+    /// Every path the patch writes or deletes, relative to `target`.
+    touched: Vec<PathBuf>,
+}
+
+/// How an apply ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Applied {
+    pub changes: Changes,
+    /// The worktree's folder is gone. `false`: the changes are applied but
+    /// something still uses the folder; see [`Worktrees::remove`].
+    pub cleaned: bool,
+}
+
+/// How a removal ended.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Removed {
+    /// The folder is gone.
+    pub cleaned: bool,
+    /// Why it is still there.
+    pub detail: Option<String>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the apply fails after git wrote the files.
+    static FAIL_AFTER_APPLY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Apply `patch` to the working tree `target`: all of it, or nothing.
+fn apply_patch(target: &Path, patch: &[u8], touched: &[PathBuf]) -> Result<(), String> {
+    let work = std::env::temp_dir().join(format!("evo-worktree-{}", new_name()));
+    std::fs::create_dir_all(&work).map_err(|e| format!("could not write the patch: {e}"))?;
+    let file = work.join("changes.patch");
+    let file_arg = file.to_string_lossy().to_string();
+    let mut keep = false;
+    let result = (|| {
+        std::fs::write(&file, patch).map_err(|e| format!("could not write the patch: {e}"))?;
+        git(
+            target,
+            &["apply", "--check", "--whitespace=nowarn", &file_arg],
+        )
+        .map_err(|error| {
+            // What git says when the folder differs where the patch changes it.
+            if error.contains("patch does not apply") || error.contains("patch failed") {
+                format!("the changes do not apply cleanly to your working folder (it changed in the same places): {error}")
+            } else {
+                format!("the changes cannot be applied to your working folder: {error}")
+            }
+        })?;
+        // The check does not see a file another program holds: keep what is
+        // there to put it back if git stops part-way.
+        let saved = snapshot::Snapshot::take(target, touched, &work.join("saved"))
+            .map_err(|e| format!("could not save your working folder before applying: {e}"))?;
+        let applied = git(target, &["apply", "--whitespace=nowarn", &file_arg]);
+        #[cfg(test)]
+        let applied = applied.and_then(|out| {
+            if FAIL_AFTER_APPLY.with(|fail| fail.get()) {
+                Err("stopped by the test".into())
+            } else {
+                Ok(out)
+            }
+        });
+        let Err(error) = applied else { return Ok(()) };
+        match saved.restore() {
+            Ok(()) => Err(format!(
+                "applying the changes failed and your working folder was put back as it was: {error}"
+            )),
+            Err(left) => {
+                keep = true;
+                Err(format!(
+                    "applying the changes failed ({error}) and some files could not be put back: {left}. What they held before is saved in {}",
+                    work.join("saved").display()
+                ))
+            }
+        }
+    })();
+    if !keep {
+        let _ = std::fs::remove_dir_all(&work);
+    }
+    result
 }
 
 /// Git's empty tree: the base of a repository with no commit yet.
@@ -615,8 +942,12 @@ pub struct Changes {
     pub files: Vec<FileChange>,
     pub added: usize,
     pub removed: usize,
-    /// A `git apply` patch (binary-safe).
+    /// The `git apply` patch as text, for display: bytes that are not UTF-8
+    /// show as U+FFFD here, and are applied as they are.
     pub patch: String,
+    /// Names exactly this patch: pass it to [`Worktrees::apply`] to apply
+    /// what was reviewed and nothing newer.
+    pub hash: String,
 }
 
 /// Largest file whose `HEAD` text is read for line markers.
@@ -701,30 +1032,6 @@ pub fn file_at_head(dir: &Path, path: &Path) -> Result<Option<String>, String> {
     Ok(Some(text))
 }
 
-/// `git` output as is (a patch must keep its trailing newline).
-fn git_raw(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let mut command = Command::new("git");
-    command.arg("-C").arg(dir).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    let output = command
-        .output()
-        .map_err(|e| format!("could not run git: {e}"))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
-}
-
 fn location_name(location: WorktreeLocation) -> &'static str {
     match location {
         WorktreeLocation::Repository => "repository",
@@ -733,11 +1040,14 @@ fn location_name(location: WorktreeLocation) -> &'static str {
 }
 
 #[cfg(test)]
+mod review_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     /// A repository with one commit, in a temporary folder; `None` without git.
-    fn repo() -> Option<(tempfile::TempDir, PathBuf)> {
+    pub(super) fn repo() -> Option<(tempfile::TempDir, PathBuf)> {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("project");
         std::fs::create_dir_all(root.join("src")).unwrap();
@@ -958,7 +1268,7 @@ mod tests {
         // The repository is untouched until applied.
         assert_eq!(git(&root, &["status", "--porcelain"]).unwrap(), "");
 
-        worktrees.apply(&root, wt).unwrap();
+        worktrees.apply(&root, wt, None).unwrap();
         // Line endings follow the repository's own settings (core.autocrlf).
         let read = |p: &str| {
             std::fs::read_to_string(root.join(p))
@@ -994,7 +1304,9 @@ mod tests {
         .unwrap();
         // The working folder changed the same line meanwhile.
         std::fs::write(root.join("src/main.rs"), "fn main() { mine(); }\n").unwrap();
-        let error = worktrees.apply(&root, &created.worktree.path).unwrap_err();
+        let error = worktrees
+            .apply(&root, &created.worktree.path, None)
+            .unwrap_err();
         assert!(error.contains("do not apply cleanly"), "{error}");
         assert_eq!(
             std::fs::read_to_string(root.join("src/main.rs"))
