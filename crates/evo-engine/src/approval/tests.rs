@@ -43,6 +43,33 @@ fn classification_table() {
     assert_eq!(kind("memory", json!({ "action": "list" })), Kind::Read);
 }
 
+/// Commands that ran without a prompt in Ask mode (found by running the app).
+#[test]
+fn commands_the_checker_misread_are_commands() {
+    for command in [
+        "echo hi >&2file",
+        "GIT_EXTERNAL_DIFF='touch x;:' git diff",
+        "opts='-o out'; sort $opts in",
+    ] {
+        assert_eq!(
+            kind("bash", json!({ "command": command })),
+            Kind::Command,
+            "{command}"
+        );
+    }
+    for command in [
+        "Get-ChildItem <# c #> ; Remove-Item x",
+        "git log ('--output=x')",
+        "[IO.StreamWriter]'x.txt'",
+    ] {
+        assert_eq!(
+            kind("powershell", json!({ "command": command })),
+            Kind::Command,
+            "{command}"
+        );
+    }
+}
+
 #[test]
 fn shell_commands_split_into_reads_and_commands() {
     for tool in ["bash", "powershell"] {
@@ -57,6 +84,11 @@ fn shell_commands_split_into_reads_and_commands() {
         );
         assert_eq!(
             kind(tool, json!({ "command": "echo hi > out.txt" })),
+            Kind::Command
+        );
+        // Not a read just because the checker once took it for one.
+        assert_eq!(
+            kind(tool, json!({ "command": "git log $opts" })),
             Kind::Command
         );
         // A call with no command cannot be proven to read.
