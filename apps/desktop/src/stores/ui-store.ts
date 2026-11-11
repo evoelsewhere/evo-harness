@@ -40,6 +40,12 @@ export interface ChatPanels {
   open: boolean;
 }
 
+/**
+ * One spelling per worktree folder: the engine reports backslashes on
+ * Windows, the worktree list forward slashes. `settledWorktrees` is keyed by it.
+ */
+export const worktreeKey = (path: string): string => path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
 export const SIDEBAR_WIDTH ={ min: 220, default: 272, max: 420 } as const;
 export const SIDE_PANEL_WIDTH = { min: 300, default: 440 } as const;
 
@@ -122,7 +128,7 @@ interface UiStore {
   /** What became of each proposed session: started (with its id) or dismissed. */
   proposals: Record<string, { status: "started" | "dismissed"; sessionId?: string }>;
   settleProposal(id: string, outcome: { status: "started" | "dismissed"; sessionId?: string }): void;
-  /** Worktrees whose changes were applied or discarded, by path. */
+  /** Worktrees whose changes were applied or discarded, by `worktreeKey(path)`. */
   settledWorktrees: Record<string, "applied" | "discarded">;
   settleWorktree(path: string, outcome: "applied" | "discarded"): void;
   setZoom(zoom: number): void;
@@ -230,7 +236,8 @@ export const useUiStore = create<UiStore>()(
       proposals: {},
       settleProposal: (id, outcome) => set((s) => ({ proposals: { ...s.proposals, [id]: outcome } })),
       settledWorktrees: {},
-      settleWorktree: (path, outcome) => set((s) => ({ settledWorktrees: { ...s.settledWorktrees, [path]: outcome } })),
+      settleWorktree: (path, outcome) =>
+        set((s) => ({ settledWorktrees: { ...s.settledWorktrees, [worktreeKey(path)]: outcome } })),
       setZoom: (zoom) => set({ zoom }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
       setSidebarWidth: (width) => set({ sidebarWidth: clampWidth(width) }),
@@ -340,7 +347,10 @@ export const useUiStore = create<UiStore>()(
             open: panels?.open ?? tabs.length > 0,
           };
         }
-        return { ...current, ...saved, openTabs, activePanel, panelsByChat };
+        // Earlier builds keyed settled worktrees by the path as it was reported.
+        const settledWorktrees: UiStore["settledWorktrees"] = {};
+        for (const [path, outcome] of Object.entries(saved.settledWorktrees ?? {})) settledWorktrees[worktreeKey(path)] = outcome;
+        return { ...current, ...saved, openTabs, activePanel, panelsByChat, settledWorktrees };
       },
       partialize: (state) => ({
         approvalNoteSeen: state.approvalNoteSeen,

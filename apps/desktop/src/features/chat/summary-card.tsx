@@ -114,23 +114,27 @@ interface SubagentEntry {
   endedAt?: number;
 }
 
-/** One `agent` call as a summary row, from its streamed `details.child`. */
+/** One `agent` or `message_agent` call as a summary row, from its streamed `details.child`. */
 function subagentOf(part: ToolPart): SubagentEntry {
   const child = childRun(part);
   const args = (part.args ?? {}) as Record<string, unknown>;
   const phaseStatus = part.phase === "error" ? "error" : part.phase === "done" ? "done" : "running";
+  const background = Boolean(child?.background ?? args.background);
+  // A background agent's call ends at once; its own status says how it is
+  // doing. A foreground agent ends with its call, whatever its last snapshot said.
+  const status = child?.status && (background || child.status !== "running") ? child.status : phaseStatus;
   return {
     key: part.callId,
     agentId: child?.agentId,
     description: child?.description || (typeof args.description === "string" ? args.description : "") || "Subagent",
-    agentType: child?.agentType ?? (typeof args.subagent_type === "string" ? args.subagent_type : undefined),
-    background: Boolean(child?.background ?? args.background),
-    // A background agent's call ends at once; its own status says how it is doing.
-    status: child?.status ?? phaseStatus,
+    agentType: child?.agentType ?? (typeof args.agentType === "string" ? args.agentType : undefined),
+    background,
+    status,
     toolUses: child?.toolUses ?? child?.tools?.length ?? 0,
     tokens: child?.usage?.totalTokens ?? 0,
     startedAt: child?.startedAt ?? part.startedAt,
-    endedAt: child?.endedAt ?? (child?.status && child.status !== "running" ? part.endedAt : undefined) ?? undefined,
+    // Without a snapshot (a call refused or failed before any), the call's own end.
+    endedAt: child?.endedAt ?? (status !== "running" && (!background || !child) ? part.endedAt : undefined),
   };
 }
 
@@ -157,7 +161,9 @@ function settle(agent: SubagentEntry, reports: Record<string, AgentReport>): Sub
   const report =
     (agent.agentId ? reports[`id:${agent.agentId}`] : undefined) ??
     reports[`description:${agent.description.replace(/"/g, "'")}`];
-  return report ? { ...agent, status: report.status, endedAt: agent.endedAt ?? report.at } : agent;
+  // A report from before this run started is an earlier run's (a continued agent).
+  if (!report || report.at < (agent.startedAt ?? 0)) return agent;
+  return { ...agent, status: report.status, endedAt: agent.endedAt ?? report.at };
 }
 
 const turnTokens = (meta: Turn["meta"]) =>
@@ -199,6 +205,8 @@ function useChatSummary(): ChatSummary {
     let cost = 0;
     const edited = new Map<string, number>();
     const agents: SubagentEntry[] = [];
+    // An agent continued with `message_agent` has a call per run: one row, its latest run.
+    const listed = new Set<string>();
     const reports = agentReports(turns, received);
     for (let t = turns.length - 1; t >= 0; t--) {
       const turn = turns[t];
@@ -208,7 +216,15 @@ function useChatSummary(): ChatSummary {
       for (let p = turn.parts.length - 1; p >= 0; p--) {
         const part = turn.parts[p];
         if (part.kind !== "tool") continue;
-        if (part.name === "agent" && part.phase !== "preparing") agents.push(settle(subagentOf(part), reports));
+        if ((part.name === "agent" || part.name === "message_agent") && part.phase !== "preparing") {
+          const agent = subagentOf(part);
+          // A `message_agent` call that never reached the agent (refused) is not a run of it.
+          const counts = part.name === "agent" || Boolean(agent.agentId);
+          if (counts && !(agent.agentId && listed.has(agent.agentId))) {
+            if (agent.agentId) listed.add(agent.agentId);
+            agents.push(settle(agent, reports));
+          }
+        }
         if (!todos && part.name === "update_todos") {
           const list = (part.details?.todos ?? (part.args as any)?.todos) as Todo[] | undefined;
           if (Array.isArray(list)) {
@@ -501,7 +517,9 @@ function StatusMark({ status }: { status: SubagentEntry["status"] }) {
 function SubagentRow({ agent, chat }: { agent: SubagentEntry; chat: string | null }) {
   const cancel = useEngineStore((s) => s.cancelBackgroundAgent);
   const live = agent.status === "running";
-  const elapsed = agent.startedAt ? (agent.endedAt ?? Date.now()) - agent.startedAt : 0;
+  // Only a running agent's time goes on; one that ended without an end time shows none.
+  const end = agent.endedAt ?? (live ? Date.now() : undefined);
+  const elapsed = agent.startedAt && end ? end - agent.startedAt : 0;
   const facts = [
     agent.background ? "background" : null,
     agent.agentType && !["general", "general-purpose"].includes(agent.agentType) ? agent.agentType : null,
@@ -558,7 +576,8 @@ function SubagentRow({ agent, chat }: { agent: SubagentEntry; chat: string | nul
 /** Sessions this chat's agent started, one click away. */
 function ChildSessionRow({ id, title }: { id: string; title: string }) {
   const select = useEngineStore((s) => s.selectSession);
-  const running = useEngineStore((s) => Boolean(s.busyElsewhere[id]));
+  // Hosted by this window (its runtime is busy) or by another one.
+  const running = useEngineStore((s) => Boolean(s.runtimes[id]?.transcript.busy || s.busyElsewhere[id]));
   return (
     <li>
       <button

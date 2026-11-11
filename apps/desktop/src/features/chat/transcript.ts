@@ -96,6 +96,10 @@ export interface Turn {
   startedAt: number;
   endedAt?: number;
   meta: TurnMeta;
+  /**
+   * The request the chat shows now, mirrored onto the last turn for readers of
+   * a turn (the sidebar). The requests themselves are `TranscriptState.permissions`.
+   */
   permission?: PermissionRequest;
 }
 
@@ -116,9 +120,16 @@ export interface TranscriptState {
   /** Assistant message currently streaming, so deltas land on the right blocks. */
   streamingMessageId?: string;
   /**
-   * How background subagents ended, from their reports to the chat (which
-   * make no turn of their own), keyed `id:<agent id>` and `description:<…>`.
-   * The `agent` call keeps the snapshot from when it started.
+   * Requests waiting for the person's answer, oldest first. The engine sends
+   * every pending one at once (two subagents each asking to run a command) and
+   * they outlive a turn (a background agent's), so they are kept here, by
+   * `requestId`, not on a turn. The chat shows the oldest.
+   */
+  permissions?: PermissionRequest[];
+  /**
+   * How background subagents ended, from their reports to the chat, keyed
+   * `id:<agent id>` and `description:<…>` (the latest report of each). The
+   * report is also applied to the call that started the run (`applyAgentReport`).
    */
   agentReports?: Record<string, AgentReport>;
 }
@@ -126,22 +137,125 @@ export interface TranscriptState {
 export interface AgentReport {
   status: "done" | "error" | "cancelled";
   at: number;
+  /** The report itself: the body of the `<background-agent>` message. */
+  text?: string;
 }
 
-/** The `<background-agent id description status>` reports in a message (crates/evo-engine/src/agent_tool.rs). */
+/** True while any approval request or question of the chat is unanswered. */
+export const hasOpenPermission = (transcript: TranscriptState): boolean => (transcript.permissions?.length ?? 0) > 0;
+
+/**
+ * Keep the unanswered requests of `previous` on a transcript rebuilt from the
+ * saved messages: the engine does not send a pending request again.
+ */
+export function carryPermissions(next: TranscriptState, previous: TranscriptState): TranscriptState {
+  return previous.permissions?.length ? mirrorPermission({ ...next, permissions: previous.permissions }) : next;
+}
+
+/** The oldest pending request is mirrored on the last turn, and on no other. */
+function mirrorPermission(state: TranscriptState): TranscriptState {
+  const shown = state.permissions?.[0];
+  const last = state.turns.length - 1;
+  if (state.turns.every((turn, index) => turn.permission === (index === last ? shown : undefined))) return state;
+  return {
+    ...state,
+    turns: state.turns.map((turn, index) => {
+      const want = index === last ? shown : undefined;
+      return turn.permission === want ? turn : { ...turn, permission: want };
+    }),
+  };
+}
+
+interface FoundReport extends AgentReport {
+  id: string;
+  description: string;
+}
+
+/**
+ * The reports in a background agent message, oldest first: one or more
+ * `<background-agent id description status>` blocks, each with its report as
+ * the body (crates/evo-engine/src/tools/agent.rs `tell_parent`, `lost_agent_note`).
+ */
+function reportsIn(text: string, at: number): FoundReport[] {
+  const found: FoundReport[] = [];
+  const block =
+    /<background-agent id="([^"]*)" description="([^"]*)" status="([^"]*)">\n([\s\S]*?)\n<\/background-agent>(?=\s*$|\n\n<background-agent )/g;
+  for (const match of text.matchAll(block)) {
+    const status = match[3] === "error" || match[3] === "cancelled" ? match[3] : "done";
+    found.push({ id: match[1], description: match[2], status, at, text: match[4] });
+  }
+  return found;
+}
+
+/** The reports of a background agent message, keyed `id:<agent id>` and `description:<…>`. */
 export function agentReportsIn(text: string, at: number): Record<string, AgentReport> {
   const reports: Record<string, AgentReport> = {};
-  for (const match of text.matchAll(/<background-agent id="([^"]*)" description="([^"]*)" status="([^"]*)"/g)) {
-    const status = match[3] === "error" || match[3] === "cancelled" ? match[3] : "done";
-    reports[`id:${match[1]}`] = { status, at };
-    reports[`description:${match[2]}`] = { status, at };
+  for (const { id, description, ...report } of reportsIn(text, at)) {
+    reports[`id:${id}`] = report;
+    reports[`description:${description}`] = report;
   }
   return reports;
 }
 
+/** Why a background agent with no report shows as stopped after a restart. */
+export const LOST_AGENT =
+  "Stopped: the engine running it exited (the app closed or crashed) before it finished. Start it again if its work is still needed.";
+/** What a call or an agent still open says when its engine exits under it. */
+export const ENGINE_EXITED = "Stopped: the engine exited.";
+/** The error the store reports an engine exit with (`onExit` in stores/engine-store.ts). */
+const ENGINE_STOPPED = "The engine stopped";
+
+/** A child snapshot that is waiting for its report: running, or settled without one after a restart. */
+const awaitsReport = (child: Record<string, any>) =>
+  child.status === "running" || child.error === LOST_AGENT || child.reportPending === true;
+
+/**
+ * Apply a background agent's report to the call whose run it ends: the latest
+ * call of that agent that returned before the report (a continued agent has a
+ * call per run). The call keeps the snapshot from when it returned
+ * (`status: "running"`); the report says how the run ended and what it found.
+ */
+function applyAgentReport(turns: Turn[], report: FoundReport): Turn[] {
+  for (let t = turns.length - 1; t >= 0; t--) {
+    const turn = turns[t];
+    for (let p = turn.parts.length - 1; p >= 0; p--) {
+      const part = turn.parts[p];
+      const child = part.kind === "tool" ? (part.details?.child as Record<string, any> | undefined) : undefined;
+      if (part.kind !== "tool" || !child?.background || child.agentId !== report.id) continue;
+      if ((part.endedAt ?? part.startedAt ?? 0) > report.at) continue;
+      let settled: Record<string, any>;
+      if (awaitsReport(child)) {
+        settled = {
+          ...child,
+          status: report.status,
+          endedAt: report.at,
+          reportPending: false,
+          report: report.text,
+          error: report.status === "error" ? report.text || "The agent stopped." : null,
+        };
+      } else if (child.report == null && report.text) {
+        // Already settled (live, from the mesh): it only lacks the report.
+        settled = { ...child, report: report.text };
+      } else return turns;
+      const parts = turn.parts.slice();
+      parts[p] = { ...part, details: { ...part.details, child: settled } };
+      const next = turns.slice();
+      next[t] = { ...turn, parts };
+      return next;
+    }
+  }
+  return turns;
+}
+
+/** Record the reports of a background agent message and settle the calls they end. */
 const withReports = (state: TranscriptState, text: string, at: number): TranscriptState => {
-  const found = agentReportsIn(text, at);
-  return Object.keys(found).length ? { ...state, agentReports: { ...state.agentReports, ...found } } : state;
+  const found = reportsIn(text, at);
+  if (!found.length) return state;
+  return {
+    ...state,
+    turns: found.reduce(applyAgentReport, state.turns),
+    agentReports: { ...state.agentReports, ...agentReportsIn(text, at) },
+  };
 };
 
 export const initialTranscript: TranscriptState = { turns: [], busy: false };
@@ -194,6 +308,82 @@ function upsert(turn: Turn, key: string, create: () => Part, change: (part: Part
 
 function findTool(turn: Turn, callId: string): number {
   return turn.parts.findIndex((part) => part.kind === "tool" && part.callId === callId);
+}
+
+/**
+ * Change the tool part of `callId`, in whichever turn holds it (the last one
+ * first: a message steered into the run may have started a turn since).
+ */
+function updateTool(state: TranscriptState, callId: string, change: (turn: Turn, index: number) => Turn): TranscriptState {
+  for (let t = state.turns.length - 1; t >= 0; t--) {
+    const index = findTool(state.turns[t], callId);
+    if (index === -1) continue;
+    const turns = state.turns.slice();
+    turns[t] = change(state.turns[t], index);
+    return { ...state, turns };
+  }
+  return state;
+}
+
+/** A subagent snapshot whose run is over without the engine saying how: stopped, with its open steps. */
+function stopChild(child: Record<string, any>, now: number, reason: string): Record<string, any> {
+  return {
+    ...child,
+    status: "error",
+    endedAt: now,
+    error: reason,
+    tools: Array.isArray(child.tools)
+      ? child.tools.map((row: any) => (row?.phase === "running" || row?.phase === "preparing" ? { ...row, phase: "error" } : row))
+      : child.tools,
+  };
+}
+
+/**
+ * Close a tool call that can no longer finish, and its subagent's snapshot.
+ * `background`: also a background agent's (its engine is gone); otherwise only
+ * a foreground agent's, which ends with its call.
+ */
+function closeTool(part: ToolPart, now: number, reason: string, background: boolean): ToolPart {
+  const open = part.phase === "running" || part.phase === "preparing";
+  const child = part.details?.child as Record<string, any> | undefined;
+  const childOpen = Boolean(child) && child!.status === "running" && (background || !child!.background);
+  if (!open && !childOpen) return part;
+  return {
+    ...part,
+    ...(open ? { phase: "error" as const, endedAt: now, output: part.output || reason } : {}),
+    details: childOpen ? { ...part.details, child: stopChild(child!, now, reason) } : part.details,
+  };
+}
+
+/**
+ * A result's `details`, keeping the subagent snapshot the call already has
+ * when the result brings none (an error result of an older engine).
+ */
+function resultDetails(result: any, before: ToolPart["details"]): ToolPart["details"] {
+  const details = result && typeof result === "object" && result.details && typeof result.details === "object" ? result.details : undefined;
+  if (!details) return before;
+  return before?.child && details.child === undefined ? { ...details, child: before.child } : details;
+}
+
+/** The engine exited: nothing of this chat runs any more. */
+function engineExited(state: TranscriptState, now: number, error: string): TranscriptState {
+  const last = state.turns.length - 1;
+  const turns = state.turns.map((turn, index) => {
+    const running = index === last && turn.status === "running";
+    const base = running ? settleBlocks(turn, now) : turn;
+    let changed = running;
+    const parts = base.parts.map((part) => {
+      const closed = part.kind === "tool" ? closeTool(part, now, ENGINE_EXITED, true) : part;
+      if (closed !== part) changed = true;
+      return closed;
+    });
+    if (!changed) return turn;
+    return running
+      ? { ...base, parts, status: "error" as const, error, endedAt: now, meta: { ...base.meta, durationMs: now - base.startedAt } }
+      : { ...turn, parts };
+  });
+  // Its requests died with it.
+  return { ...state, turns, busy: false, streamingMessageId: undefined, permissions: undefined };
 }
 
 /** Close every still-streaming text or reasoning block (a new channel began, or the step ended). */
@@ -265,6 +455,13 @@ function permissionFrom(message: EngineMessage): PermissionRequest {
   };
 }
 
+/** Take one request off the pending list; without an id, the one shown (the oldest). */
+function dropPermission(state: TranscriptState, requestId?: string): TranscriptState {
+  const pending = state.permissions ?? [];
+  const rest = requestId === undefined ? pending.slice(1) : pending.filter((item) => item.requestId !== requestId);
+  return rest.length === pending.length ? state : { ...state, permissions: rest };
+}
+
 /** The engine's approval details of a prompt; anything unexpected reads as a plain prompt. */
 function approvalFrom(value: unknown): ApprovalPrompt | undefined {
   const approval = value as Record<string, unknown> | null | undefined;
@@ -331,8 +528,12 @@ export type TranscriptAction =
   | { type: "queued"; item: QueuedMessage }
   /** Drop a waiting message (`null`: all of them). */
   | { type: "unqueued"; entryId: string | null }
+  /** The run could not start or broke off; the engine is still there. */
   | { type: "fail"; error: string }
-  | { type: "permission-answered" }
+  /** The chat's engine exited: every open call, agent and request ends. */
+  | { type: "engine-exited"; error?: string }
+  /** A request was answered; without `requestId`, the one shown. */
+  | { type: "permission-answered"; requestId?: string }
   | { type: "engine"; message: EngineMessage }
   /** A background subagent's latest snapshot, for the call that started it (any turn). */
   | { type: "agent-progress"; callId: string; child: Record<string, unknown> }
@@ -382,12 +583,8 @@ function applyEngine(state: TranscriptState, message: EngineMessage, now: number
           error: failed ? (error ?? turn.error ?? "The run failed") : turn.error,
           endedAt: now,
           meta: { ...turn.meta, durationMs: now - turn.startedAt },
-          // A call still open when the run ends was interrupted.
-          parts: settled.parts.map((part) =>
-            part.kind === "tool" && (part.phase === "running" || part.phase === "preparing")
-              ? { ...part, phase: "error" as const, endedAt: now, output: part.output || "Stopped before it finished." }
-              : part,
-          ),
+          // A call still open when the run ends was interrupted (and its foreground agent with it).
+          parts: settled.parts.map((part) => (part.kind === "tool" ? closeTool(part, now, "Stopped before it finished.", false) : part)),
         };
       });
       return { ...next, busy: false, streamingMessageId: undefined };
@@ -482,9 +679,7 @@ function applyEngine(state: TranscriptState, message: EngineMessage, now: number
     case "tool_execution_end": {
       const done = message.type === "tool_execution_end";
       const result = done ? message.result : message.partialResult;
-      return updateCurrent(state, (turn) => {
-        const index = findTool(turn, message.toolCallId);
-        if (index === -1) return turn;
+      return updateTool(state, message.toolCallId, (turn, index) => {
         const parts = turn.parts.slice();
         const part = parts[index] as ToolPart;
         parts[index] = {
@@ -492,25 +687,36 @@ function applyEngine(state: TranscriptState, message: EngineMessage, now: number
           phase: done ? (message.isError ? "error" : "done") : part.phase,
           output: toolOutput(result) || part.output,
           images: toolImages(result) ?? part.images,
-          details: (result && typeof result === "object" && result.details) || part.details,
+          // A failed call's result carries its details (a subagent's last snapshot) like any other.
+          details: resultDetails(result, part.details),
           endedAt: done ? now : part.endedAt,
         };
-        // A subagent's tokens and cost count toward the turn.
+        // A subagent's tokens and cost count toward the turn, also when it failed.
         return done ? applyToolUsage({ ...turn, parts }, result?.usage) : { ...turn, parts };
       });
     }
-    case "ui_dialog_request":
-      return updateCurrent(state, (turn) => ({ ...turn, permission: permissionFrom(message) }));
+    case "ui_dialog_request": {
+      // Every pending request is kept: a second one waits behind the first.
+      const request = permissionFrom(message);
+      const pending = state.permissions ?? [];
+      const at = pending.findIndex((item) => item.requestId === request.requestId);
+      return {
+        ...state,
+        permissions: at === -1 ? [...pending, request] : pending.map((item, index) => (index === at ? request : item)),
+      };
+    }
     case "ui_dialog_closed":
-      return updateCurrent(state, (turn) =>
-        turn.permission?.requestId === message.requestId ? { ...turn, permission: undefined } : turn,
-      );
+      return dropPermission(state, message.requestId);
     default:
       return state;
   }
 }
 
 export function transcriptReducer(state: TranscriptState, action: TranscriptAction): TranscriptState {
+  return mirrorPermission(reduce(state, action));
+}
+
+function reduce(state: TranscriptState, action: TranscriptAction): TranscriptState {
   const now = Date.now();
   switch (action.type) {
     case "reset":
@@ -540,40 +746,101 @@ export function transcriptReducer(state: TranscriptState, action: TranscriptActi
         queued: action.entryId === null ? [] : (state.queued ?? []).filter((item) => item.entryId !== action.entryId),
       };
     case "fail":
+      // The store reports an engine exit this way too.
+      if (action.error === ENGINE_STOPPED) return engineExited(state, now, action.error);
       return {
-        ...updateCurrent(state, (turn) => ({ ...turn, status: "error", error: action.error, endedAt: now })),
+        ...updateCurrent(state, (turn) => {
+          const settled = settleBlocks(turn, now);
+          return {
+            ...settled,
+            status: "error",
+            error: action.error,
+            endedAt: now,
+            // The run is over: its open calls and their foreground agents with it.
+            parts: settled.parts.map((part) => (part.kind === "tool" ? closeTool(part, now, "Stopped before it finished.", false) : part)),
+          };
+        }),
         busy: false,
+        streamingMessageId: undefined,
       };
+    case "engine-exited":
+      return engineExited(state, now, action.error ?? ENGINE_STOPPED);
     case "permission-answered":
-      return updateCurrent(state, (turn) => ({ ...turn, permission: undefined }));
+      return dropPermission(state, action.requestId);
     case "engine":
       return applyEngine(state, action.message, now);
-    case "agent-progress": {
-      const index = state.turns.findIndex((turn) => findTool(turn, action.callId) !== -1);
-      if (index === -1) return state;
-      const turns = state.turns.slice();
-      const turn = turns[index];
-      const parts = turn.parts.slice();
-      const at = findTool(turn, action.callId);
-      const part = parts[at] as ToolPart;
-      parts[at] = { ...part, details: { ...(part.details ?? {}), child: action.child } };
-      turns[index] = { ...turn, parts };
-      return { ...state, turns };
-    }
+    case "agent-progress":
+      // The call that started the agent or last continued it (`agent`, `message_agent`), in any turn.
+      return updateTool(state, action.callId, (turn, at) => {
+        const parts = turn.parts.slice();
+        const part = parts[at] as ToolPart;
+        const before = part.details?.child as Record<string, any> | undefined;
+        // The mesh view has the report only while its engine remembers it;
+        // keep the one this call already shows.
+        const child =
+          action.child.report == null && before?.report != null && before.agentId === action.child.agentId && action.child.status !== "running"
+            ? { ...action.child, report: before.report }
+            : action.child;
+        parts[at] = { ...part, details: { ...(part.details ?? {}), child } };
+        return { ...turn, parts };
+      });
     case "extra-usage":
       return updateCurrent(state, (turn) => applyToolUsage(turn, action.usage));
   }
 }
 
-/** Messages about background subagents (crates/evo-engine/src/agent_tool.rs `NOTE_TAG`). */
+/** Messages about background subagents (crates/evo-engine/src/tools/agent.rs `NOTE_TAG`). */
 export const BACKGROUND_NOTE = "<background-agent";
 /** A note from a nested session to the chat that started it. */
 export const SESSION_NOTE = "<nested-session";
-/** A message or question from another agent (crates/evo-engine/src/mesh_tools.rs), or the wake that reads it. */
+/** A message or question from another agent (crates/evo-engine/src/tools/mesh.rs), or the wake that reads it. */
 export const MAIL_NOTE = "<mail";
-export const isBackgroundNote = (text: string) => {
-  const start = text.trimStart();
-  return start.startsWith(BACKGROUND_NOTE) || start.startsWith(SESSION_NOTE) || start.startsWith(MAIL_NOTE);
+
+/**
+ * The automated messages a chat receives: a background agent's report, a
+ * nested session's note, mail from another agent, and the three prompts this
+ * app wakes an idle chat with (`wake` in stores/engine-store.ts).
+ */
+export type NoteKind = "agent-report" | "session-note" | "mail" | "agents-done" | "sessions-done" | "mail-arrived";
+
+/** One or more blocks `<tag attrs>\n…\n</tag>`, blank lines between, and nothing else. */
+const blocks = (open: string, tag: string) => {
+  const one = `${open}\\n[\\s\\S]*?\\n</${tag}>`;
+  return new RegExp(`^${one}(?:\\n\\n${one})*$`);
+};
+const NOTES: [NoteKind, RegExp][] = [
+  // crates/evo-engine/src/tools/agent.rs (`tell_parent`, `lost_agent_note`)
+  ["agent-report", blocks('<background-agent id="[^"]*" description="[^"]*" status="[^"]*">', "background-agent")],
+  // crates/evo-mesh/src/hub.rs (`session_note`, and the notes that a
+  // proposed session was started or dismissed: the latter names its proposal).
+  [
+    "session-note",
+    blocks('<nested-session (?:id|proposal)="[^"]*"(?: title="[^"]*")? status="[^"]*">', "nested-session"),
+  ],
+  // crates/evo-engine/src/tools/mesh.rs (`render`)
+  ["mail", blocks('<mail id="[^"]*" from="[^"]*" title="[^"]*" kind="(?:ask|message)">', "mail")],
+  ["agents-done", blocks("<background-agents-done>", "background-agents-done")],
+  ["sessions-done", blocks("<nested-sessions-done>", "nested-sessions-done")],
+  ["mail-arrived", blocks("<mail-arrived>", "mail-arrived")],
+];
+
+/**
+ * Which automated message `text` is, if any. The whole message must have the
+ * structure the engine, the hub or this app writes, from its opening tag with
+ * every attribute to the closing tag at the end: text that merely starts like
+ * one (pasted XML) is the person's.
+ */
+export function noteKind(text: string): NoteKind | undefined {
+  const body = text.trim();
+  if (!body.startsWith("<")) return undefined;
+  return NOTES.find(([, pattern]) => pattern.test(body))?.[0];
+}
+
+export const isBackgroundNote = (text: string) => noteKind(text) !== undefined;
+/** A report, note or mail (not a wake prompt): it carries what another agent said. */
+const isDelivery = (text: string) => {
+  const kind = noteKind(text);
+  return kind === "agent-report" || kind === "session-note" || kind === "mail";
 };
 
 // ── Restoring a saved chat ─────────────────────────────────────────────────────
@@ -594,19 +861,33 @@ export function typedPrompt(text: string): string {
  * A user message reached the model during a run. The prompt that started the
  * run echoes back and changes nothing; a message sent meanwhile (steered or
  * queued) ends the turn so far and starts one of its own, as in a saved chat.
+ *
+ * A delivery (an agent's report, a session's note, mail) follows the same
+ * rule as `transcriptFromMessages`, so a chat reads the same live and
+ * reopened: next to a prompt (queued for the run it starts, or read before the
+ * run's first step) it makes no turn; in the middle of a run it starts a turn
+ * shown as an event line; and one that the next message follows at once gives
+ * way to it.
  */
 function userMessageStarted(state: TranscriptState, message: any, now: number): TranscriptState {
   const text = typedPrompt(userText(message));
-  if (isBackgroundNote(text)) return withReports(state, text, now);
   const queued = state.queued ?? [];
+  // A message the person sent is theirs, whatever it looks like.
   const at = queued.findIndex((item) => item.text === text);
+  const delivery = at === -1 && isDelivery(text);
+  if (delivery) state = withReports(state, text, now);
   const current = state.turns.at(-1);
-  const echo = at === -1 && current?.status === "running" && current.prompt === text && current.parts.length === 0;
-  if (echo || (at === -1 && !current)) return state;
+  // Nothing of the run shows under the last prompt yet.
+  const fresh = current?.status === "running" && current.parts.length === 0;
+  const echo = at === -1 && fresh && current.prompt === text;
+  if (echo || (at === -1 && !current && !delivery)) return state;
+  const superseded = fresh && isDelivery(current.prompt);
+  if (delivery && fresh && !superseded) return state;
   const item = at === -1 ? undefined : queued[at];
   const rest = at === -1 ? queued : queued.filter((_, index) => index !== at);
-  const turns = state.turns.map((turn, index) =>
-    index === state.turns.length - 1 && turn.status === "running"
+  const kept = superseded ? state.turns.slice(0, -1) : state.turns;
+  const turns = kept.map((turn, index) =>
+    index === kept.length - 1 && turn.status === "running"
       ? { ...settleBlocks(turn, now), status: "done" as const, endedAt: now, meta: { ...turn.meta, durationMs: now - turn.startedAt } }
       : turn,
   );
@@ -642,45 +923,44 @@ export function userText(message: any): string {
 }
 
 /**
- * Rebuild the turns of a saved chat from its messages (`get_messages`), in the
- * same shape the live stream produces, so a reopened chat looks the way it did.
- */
-/** Why a background agent with no report shows as stopped after a restart. */
-export const LOST_AGENT =
-  "Stopped: the engine running it exited (the app closed or crashed) before it finished. Start it again if its work is still needed.";
-
-/**
  * A saved background agent's call keeps the snapshot from when it returned
- * (`status: "running"`); how it ended is in its report, a later message.
- * Apply each report to its call. With `engineStarted`, a call with no report
- * after it belongs to an engine that is gone: it was lost (the engine also
- * queues that report for the chat's next run).
+ * (`status: "running"`); its reports were applied already (`applyAgentReport`).
+ * One still running belongs to an earlier engine when this chat's engine was
+ * just started:
+ * - lost (`lost(agentId)`: the engine exited under it; the engine also queues
+ *   such a report for the chat's next run): shown as stopped;
+ * - otherwise it finished and its report waits for the chat's next run:
+ *   shown as finished, the report to come.
+ * Without an engine start it may well be running: left as it is.
  */
-function settleBackgroundAgents(turns: Turn[], reports: Record<string, AgentReport>, engineStarted: boolean): Turn[] {
+function settleBackgroundAgents(turns: Turn[], lost: (agentId: string) => boolean, engineStarted: boolean): Turn[] {
   return turns.map((turn) => {
     let changed = false;
     const parts = turn.parts.map((part) => {
       const child = part.kind === "tool" ? (part.details?.child as Record<string, any> | undefined) : undefined;
       if (part.kind !== "tool" || !child?.background || child.status !== "running") return part;
-      const report = child.agentId ? reports[`id:${child.agentId}`] : undefined;
-      // A report written before this call (an earlier run of a continued agent) is not its report.
-      const own = report && report.at >= (part.endedAt ?? part.startedAt ?? 0) ? report : undefined;
-      if (!own && !engineStarted) return part;
+      const gone = lost(typeof child.agentId === "string" ? child.agentId : "");
+      if (!gone && !engineStarted) return part;
       changed = true;
-      const settled = own
-        ? { ...child, status: own.status, endedAt: own.at }
-        : { ...child, status: "error", endedAt: child.startedAt ?? part.endedAt, error: LOST_AGENT };
+      const settled = gone
+        ? { ...child, status: "error", endedAt: child.startedAt ?? part.endedAt, error: LOST_AGENT }
+        : { ...child, status: "done", endedAt: null, reportPending: true };
       return { ...part, details: { ...part.details, child: settled } };
     });
     return changed ? { ...turn, parts } : turn;
   });
 }
 
+/**
+ * Rebuild the turns of a saved chat from its messages (`get_messages`), in the
+ * same shape the live stream produces, so a reopened chat looks the way it did.
+ */
 export function transcriptFromMessages(
   messages: (AgentMessage & Record<string, any>)[],
   {
     running = false,
     engineStarted = false,
+    lostAgents,
   }: {
     running?: boolean;
     /**
@@ -688,10 +968,19 @@ export function transcriptFromMessages(
      * engine runs any more, so one that never reported was lost.
      */
     engineStarted?: boolean;
+    /**
+     * The agents the engine says it lost (`lostBackgroundAgents` of its
+     * `ready`): only these show as stopped. An agent that finished with its
+     * report still queued for the next run is not among them. Absent, every
+     * unreported agent of a started engine counts as lost.
+     */
+    lostAgents?: string[];
   } = {},
 ): TranscriptState {
-  const turns: Turn[] = [];
+  let turns: Turn[] = [];
   let agentReports: Record<string, AgentReport> = {};
+  // The last turn is a prompt nothing has answered yet.
+  let fresh = false;
   const replace = (turn: Turn) => {
     turns[turns.length - 1] = turn;
   };
@@ -699,11 +988,16 @@ export function transcriptFromMessages(
     const at = typeof message.timestamp === "number" ? message.timestamp : 0;
     if (message.role === "user") {
       const prompt = typedPrompt(userText(message));
-      agentReports = { ...agentReports, ...agentReportsIn(prompt, at) };
-      // A report queued for the chat's next run (a background agent's, a
-      // nested session's) is read by the automated wake that follows; live it
-      // makes no turn of its own (userMessageStarted), so neither does it here.
-      if (isBackgroundNote(prompt) && messages[index + 1]?.role === "user") return;
+      if (isDelivery(prompt)) {
+        // The calls these reports end are earlier messages: settle them now.
+        const found = reportsIn(prompt, at);
+        turns = found.reduce(applyAgentReport, turns);
+        agentReports = { ...agentReports, ...agentReportsIn(prompt, at) };
+        // The rule of `userMessageStarted`: a delivery the next message
+        // follows at once, or one next to a prompt, makes no turn.
+        if (messages[index + 1]?.role === "user" || fresh) return;
+      }
+      fresh = true;
       turns.push({
         id: `saved-${index}`,
         prompt,
@@ -724,24 +1018,30 @@ export function transcriptFromMessages(
     }
     const turn = turns[turns.length - 1];
     if (message.role === "assistant") {
+      fresh = false;
       let next = applyUsage(finishMessage(turn, `saved-${index}`, message, at), message);
       if (message.stopReason === "error") next = { ...next, status: "error", error: message.errorMessage ?? "The model returned an error" };
       if (message.stopReason === "aborted") next = { ...next, status: "aborted" };
       replace({ ...next, endedAt: at || next.endedAt });
     } else if (message.role === "toolResult") {
-      const found = findTool(turn, message.toolCallId);
-      if (found === -1) return;
-      const parts = turn.parts.slice();
+      // The call's turn: the last one, unless a message steered in since started another.
+      let t = turns.length - 1;
+      while (t >= 0 && findTool(turns[t], message.toolCallId) === -1) t--;
+      if (t < 0) return;
+      const owner = turns[t];
+      const found = findTool(owner, message.toolCallId);
+      const parts = owner.parts.slice();
       const part = parts[found] as ToolPart;
       parts[found] = {
         ...part,
         phase: message.isError ? "error" : "done",
         output: toolOutput(message),
         images: toolImages(message) ?? part.images,
-        details: message.details ?? part.details,
+        // A failed call's result carries its details (a subagent's last snapshot) and usage like any other.
+        details: resultDetails(message, part.details),
         endedAt: at || part.endedAt,
       };
-      replace(applyToolUsage({ ...turn, parts, endedAt: at || turn.endedAt }, (message as any).usage));
+      turns[t] = applyToolUsage({ ...owner, parts, endedAt: at || owner.endedAt }, (message as any).usage);
     }
   });
   for (let i = 0; i < turns.length; i++) {
@@ -764,15 +1064,21 @@ export function transcriptFromMessages(
         ...turn.meta,
         durationMs: turn.endedAt && turn.startedAt ? Math.max(0, turn.endedAt - turn.startedAt) : undefined,
       },
-      // A call with no saved result never finished.
+      // A call with no saved result never finished; it ended with its turn at the latest.
       parts: turn.parts.map((part) =>
         part.kind === "tool" && (part.phase === "preparing" || part.phase === "running")
-          ? { ...part, phase: "error" as const, output: part.output || "Stopped before it finished." }
+          ? {
+              ...part,
+              phase: "error" as const,
+              endedAt: part.endedAt ?? (turn.endedAt || part.startedAt),
+              output: part.output || "Stopped before it finished.",
+            }
           : part,
       ),
     };
   }
-  return { turns: settleBackgroundAgents(turns, agentReports, engineStarted), busy: running, agentReports };
+  const lost = (agentId: string) => (lostAgents ? lostAgents.includes(agentId) : engineStarted);
+  return { turns: settleBackgroundAgents(turns, lost, engineStarted), busy: running, agentReports };
 }
 
 // ── Partial tool arguments ────────────────────────────────────────────────────

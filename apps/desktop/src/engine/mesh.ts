@@ -9,8 +9,35 @@
 // `agent` tool body renders (`ChildRun`), so subagents show live from push
 // events instead of polling.
 
-import type { ChildRun } from "@/components/ai-elements/agent-run";
 import type { EngineMessage } from "./protocol";
+
+/**
+ * What the `agent` tool body shows of a subagent: the engine's `details.child`
+ * snapshot (crates/evo-engine/src/tools/agent.rs `Progress::snapshot`), or the
+ * same view folded from mesh events (`childRunOf`).
+ */
+export interface ChildRun {
+  agentId?: string;
+  background?: boolean;
+  agentType?: string;
+  description?: string;
+  model?: string;
+  status?: "running" | "done" | "error" | "cancelled";
+  turns?: number;
+  toolUses?: number;
+  usage?: { totalTokens?: number; cost?: number };
+  startedAt?: number;
+  endedAt?: number | null;
+  tools?: { callId: string; name: string; args?: Record<string, unknown>; phase: "preparing" | "running" | "done" | "error" }[];
+  /** The end of its latest text (at most 4 KB), for the live line. */
+  text?: string;
+  /** Its whole report: the mesh `node_report`, or the report message a background agent sent the chat. */
+  report?: string;
+  /** It finished under an earlier engine and its report waits for the chat's next run. */
+  reportPending?: boolean;
+  worktree?: { path?: string; branch?: string; kept?: boolean } | null;
+  error?: string | null;
+}
 
 export const MESH_VERSION = 1;
 
@@ -83,9 +110,16 @@ export interface MeshView {
   stateSeq: Map<string, number>;
   /** Live tool rows and text per node (summary level). */
   activity: Map<string, { rows: ToolRow[]; text: string; turns: number; toolUses: number }>;
+  /** The report of each node's latest finished run (`node_report`), in full. */
+  reports: Map<string, string>;
 }
 
-export const emptyView = (): MeshView => ({ nodes: new Map(), stateSeq: new Map(), activity: new Map() });
+export const emptyView = (): MeshView => ({
+  nodes: new Map(),
+  stateSeq: new Map(),
+  activity: new Map(),
+  reports: new Map(),
+});
 
 /** Tool rows kept per node (matches the engine's snapshot). */
 const MAX_ROWS = 50;
@@ -117,6 +151,7 @@ export function childRunOf(view: MeshView, address: string): ChildRun | undefine
     endedAt: node.endedAt ?? null,
     tools: activity?.rows ?? [],
     text: activity?.text ?? "",
+    report: view.reports.get(address),
     worktree: node.meta.worktree ?? null,
     error: node.state === "settled" && node.status !== "done" ? (node.reason ?? null) : null,
   };
@@ -142,9 +177,17 @@ export function applyMeshEvent(view: MeshView, envelope: MeshEnvelope): string |
         return node.id;
       }
       // Activity accumulates across runs of a continued agent, like the
-      // engine's own snapshot.
+      // engine's own snapshot. A report belongs to one run: a new run drops it.
+      if (node.state === "running") view.reports.delete(node.id);
       view.nodes.set(node.id, node);
       return node.id;
+    }
+    case "node_report": {
+      // The whole report of the run that just ended; the activity text is only its tail.
+      const id = body.node as string;
+      if (!view.nodes.has(id) || typeof body.text !== "string" || !body.text) return undefined;
+      view.reports.set(id, body.text);
+      return id;
     }
     case "node_activity": {
       const id = body.node as string;
@@ -172,8 +215,7 @@ export function applyMeshEvent(view: MeshView, envelope: MeshEnvelope): string |
       return id;
     }
     default:
-      // node_report and node_event do not change the agent view (the report
-      // arrives as the tool result or a queued message).
+      // node_event does not change the agent view.
       return undefined;
   }
 }

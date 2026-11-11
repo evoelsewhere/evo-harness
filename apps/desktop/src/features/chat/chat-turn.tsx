@@ -19,7 +19,8 @@ import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { UserPrompt } from "./user-message";
 import { SentFiles, type SentFile } from "@/components/ai-elements/sent-files";
-import { isBackgroundNote, turnReply, type Part, type ReasoningPart, type ToolPart, type Turn } from "./transcript";
+import { KeptWorktree, childRun } from "@/components/ai-elements/agent-run";
+import { noteKind, turnReply, type NoteKind, type Part, type ReasoningPart, type ToolPart, type Turn } from "./transcript";
 
 // One turn, mapped the way DeepSeek Harness maps it, on shadcn/ui AI Elements:
 // - the person's text is a Bubble (Message);
@@ -32,62 +33,75 @@ import { isBackgroundNote, turnReply, type Part, type ReasoningPart, type ToolPa
 // - a running turn starts with a live "Working for 12s" line, so it stays put
 //   while the process and reply grow below it.
 
-/** A background subagent's delivered report, or the automated wake that reads it. */
-function BackgroundNote({ text }: { text: string }) {
-  if (text.trimStart().startsWith("<mail")) {
-    // A message or question from an agent, or the wake that reads them.
-    const names = /^<mail-arrived>\s*(.*?) sent you/.exec(text.trimStart())?.[1];
-    const title = /<mail [^>]*title="([^"]*)"/.exec(text)?.[1];
-    const ask = /<mail [^>]*kind="ask"/.test(text);
-    const label = names
-      ? `Messages arrived · ${names.replace(/"/g, "")}`
-      : `${ask ? "Question" : "Message"} from ${title ?? "an agent"}`;
-    return (
-      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-        <span className="h-px flex-1 bg-border" />
-        <MessagesSquareIcon className="size-3.5" />
-        <span className="max-w-[70%] truncate">{label}</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-    );
+/** What an automated message says in one line, by its kind (`noteKind`). */
+function noteLabel(kind: NoteKind, text: string): string {
+  switch (kind) {
+    case "mail": {
+      // A message or question from an agent.
+      const title = /^<mail [^>]*title="([^"]*)"/.exec(text)?.[1];
+      const ask = /^<mail [^>]*kind="ask"/.test(text);
+      return `${ask ? "Question" : "Message"} from ${title || "an agent"}`;
+    }
+    case "mail-arrived": {
+      // The wake that reads them names the senders.
+      const names = /^<mail-arrived>\s*(.*?) sent you/.exec(text)?.[1];
+      return `Messages arrived${names ? ` · ${names.replace(/"/g, "")}` : ""}`;
+    }
+    case "session-note":
+    case "sessions-done": {
+      // A note carries its title; the wake that reads notes lists them.
+      const listed = /finished a turn: (.*?)\. (Its|Their) note/.exec(text)?.[1];
+      // The person's answer to a proposed session (crates/evo-mesh/src/hub.rs).
+      const answer = /^<nested-session (?:id|proposal)="[^"]*"(?: title="([^"]*)")? status="(started|dismissed)">/.exec(text);
+      if (kind === "session-note" && answer) {
+        const what = answer[2] === "started" ? "Session started" : "Proposed session dismissed";
+        return `${what}${answer[1] ? ` · ${answer[1]}` : ""}`;
+      }
+      const titles = (
+        kind === "sessions-done"
+          ? [...(listed ?? "").matchAll(/"([^"]*)"/g)]
+          : [...text.matchAll(/(?:^|\n\n)<nested-session id="[^"]*" title="([^"]*)"/g)]
+      )
+        .map((m) => m[1])
+        .filter(Boolean);
+      if (titles.length > 1) return `${titles.length} sessions finished a turn · ${titles.join(", ")}`;
+      return `Session finished a turn${titles[0] ? ` · ${titles[0]}` : ""}`;
+    }
+    case "agent-report": {
+      const reports = [...text.matchAll(/(?:^|\n\n)<background-agent id="[^"]*" description="([^"]*)" status="([^"]*)">/g)];
+      const [, description, status] = reports[0] ?? [];
+      if (reports.length > 1) return `${reports.length} background agents reported · ${reports.map((m) => m[1]).join(", ")}`;
+      const how = status === "cancelled" ? "was cancelled" : status === "error" ? "stopped" : "reported";
+      return `Background agent ${how}${description ? ` · ${description}` : ""}`;
+    }
+    case "agents-done": {
+      const finished = /finished: (.*?)\. (Its|Their) report/.exec(text)?.[1];
+      return `Background ${finished?.includes(",") ? "agents" : "agent"} finished${finished ? ` · ${finished.replace(/"/g, "")}` : ""}`;
+    }
   }
-  if (text.trimStart().startsWith("<nested-session")) {
-    // A note carries its title; the automated wake that reads notes lists them.
-    const listed = /finished a turn: (.*?)\. (Its|Their) note/.exec(text)?.[1];
-    const titles = listed
-      ? [...listed.matchAll(/"([^"]*)"/g)].map((m) => m[1])
-      : [...text.matchAll(/<nested-session [^>]*title="([^"]*)"/g)].map((m) => m[1]);
-    const label =
-      titles.length > 1
-        ? `${titles.length} sessions finished a turn · ${titles.join(", ")}`
-        : `Session finished a turn · ${titles[0] ?? ""}`;
-    return (
-      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-        <span className="h-px flex-1 bg-border" />
-        <MessagesSquareIcon className="size-3.5" />
-        <span className="max-w-[70%] truncate">{label}</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-    );
-  }
-  const description = /description="([^"]*)"/.exec(text)?.[1];
-  const status = /status="([^"]*)"/.exec(text)?.[1];
-  const finished = /finished: (.*?)\. (Its|Their) report/.exec(text)?.[1];
-  const label = description
-    ? `Background agent ${status === "done" || !status ? "reported" : status === "cancelled" ? "was cancelled" : "stopped"} · ${description}`
-    : `Background ${finished && finished.includes(",") ? "agents" : "agent"} finished${finished ? ` · ${finished.replace(/"/g, "")}` : ""}`;
+}
+
+/**
+ * An automated message as an event line: a background subagent's report, a
+ * nested session's note, mail from an agent, or the wake that reads them.
+ */
+function BackgroundNote({ kind, text }: { kind: NoteKind; text: string }) {
+  const agents = kind === "agent-report" || kind === "agents-done";
   return (
     <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
       <span className="h-px flex-1 bg-border" />
-      <AgentIcon background className="size-3.5" />
-      <span className="max-w-[70%] truncate">{label}</span>
+      {agents ? <AgentIcon background className="size-3.5" /> : <MessagesSquareIcon className="size-3.5" />}
+      <span className="max-w-[70%] truncate">{noteLabel(kind, text.trim())}</span>
       <span className="h-px flex-1 bg-border" />
     </div>
   );
 }
 
 export function UserMessage({ turn }: { turn: Turn }) {
-  if (isBackgroundNote(turn.prompt)) return <BackgroundNote text={turn.prompt} />;
+  // Only a message with the whole structure of an automated one is an event;
+  // text that merely starts like one is the person's own.
+  const kind = noteKind(turn.prompt);
+  if (kind) return <BackgroundNote kind={kind} text={turn.prompt} />;
   return <UserPrompt turn={turn} />;
 }
 
@@ -168,6 +182,16 @@ function ProcessRows({ parts, running }: { parts: Process; running: boolean }) {
   );
 }
 
+/**
+ * A subagent still working after its call returned (an `agent` call or a
+ * `message_agent` that continued one). A foreground agent ends with its call.
+ */
+function runningInBackground(part: Part): boolean {
+  if (part.kind !== "tool") return false;
+  const child = part.details?.child;
+  return Boolean(child?.background) && child.status === "running";
+}
+
 type ProcessGroupProps = { parts: Process; running: boolean; live: boolean };
 
 /**
@@ -187,8 +211,8 @@ function sameGroup(a: ProcessGroupProps, b: ProcessGroupProps): boolean {
 /** A process group: its rows, under a title once there is more than one. */
 const ProcessGroup = React.memo(function ProcessGroup({ parts, running, live: turnLive }: ProcessGroupProps) {
   const [open, setOpen] = React.useState<boolean>();
-  // A background agent keeps its group live after the turn ended.
-  const background = parts.some((part) => part.kind === "tool" && part.details?.child?.status === "running");
+  // A background agent keeps its group live after the turn ended (until it ends, or its engine exits).
+  const background = parts.some(runningInBackground);
   const live = turnLive || background;
   if (parts.length === 1) return <ProcessRows parts={parts} running={running} />;
   return (
@@ -237,9 +261,8 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
             segment.kind === "widget" ||
             segment.parts.some(
               (part) =>
-                part.kind === "tool" &&
                 // A running background agent, or a session card to act on.
-                (part.details?.child?.status === "running" || (part.name === "start_session" && part.phase === "done")),
+                runningInBackground(part) || (part.kind === "tool" && part.name === "start_session" && part.phase === "done"),
             ),
         )
       : all;
@@ -248,9 +271,16 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
   // turn's deliverables.
   const sentFiles = foldable && !expanded
     ? turn.parts.flatMap((part) => {
-        const sent = part.kind === "tool" && part.name === "send_file" ? part.details?.externalToolResult?.structuredContent : undefined;
+        const sent = part.kind === "tool" && part.name === "send_file" && !part.details?.externalToolResult?.isError ? part.details?.externalToolResult?.structuredContent : undefined;
         return sent && Array.isArray(sent.files) && sent.files.length ? [{ key: part.key, files: sent.files as SentFile[], caption: sent.caption as string | undefined }] : [];
       })
+    : [];
+  // So do subagents' kept worktrees: their changes wait for the person.
+  const keptWorktrees = foldable && !expanded
+    ? turn.parts.filter(
+        (part): part is ToolPart =>
+          part.kind === "tool" && (part.name === "agent" || part.name === "message_agent") && Boolean(childRun(part)?.worktree?.kept),
+      )
     : [];
 
   React.useEffect(() => {
@@ -299,6 +329,10 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
           <div key={sent.key} className="@container -ml-7">
             <SentFiles files={sent.files} caption={sent.caption} />
           </div>
+        ))}
+
+        {keptWorktrees.map((part) => (
+          <KeptWorktree key={part.key} part={part} />
         ))}
 
         {turn.error && (

@@ -5,9 +5,12 @@ import { StatusDot } from "@/components/status-dot";
 import { useEngineStore } from "@/stores/engine-store";
 import type { PermissionRequest } from "./transcript";
 
-/** The pending permission request of the running turn, if any. */
+/**
+ * The request the chat shows: the oldest one still unanswered. Others wait
+ * behind it (two subagents may ask at once) and show one after the other.
+ */
 export function usePendingPermission(): PermissionRequest | undefined {
-  return useEngineStore((s) => s.transcript.turns.at(-1)?.permission);
+  return useEngineStore((s) => s.transcript.permissions?.[0]);
 }
 
 /**
@@ -32,6 +35,8 @@ const rejects = (option: { title: string; permission?: string }) =>
  */
 export function ApprovalPanel({ permission }: { permission: PermissionRequest }) {
   const answerPermission = useEngineStore((s) => s.answerPermission);
+  // Requests waiting behind this one.
+  const waiting = useEngineStore((s) => Math.max(0, (s.transcript.permissions?.length ?? 0) - 1));
   const allowIndex = permission.options.findIndex((option) => !rejects(option));
   const rejectIndex = permission.options.findIndex(rejects);
   const answer = React.useCallback(
@@ -44,7 +49,8 @@ export function ApprovalPanel({ permission }: { permission: PermissionRequest })
 
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
+      // A held key answers one request, not the ones waiting behind it.
+      if (event.defaultPrevented || event.isComposing || event.repeat) return;
       if (event.key === "Enter" && allowIndex !== -1) {
         event.preventDefault();
         answer(allowIndex);
@@ -63,6 +69,7 @@ export function ApprovalPanel({ permission }: { permission: PermissionRequest })
       <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <StatusDot tone="warn" pulse />
         Waiting for your approval
+        {waiting > 0 && <span className="tabular-nums">· {waiting} more waiting</span>}
         <span className="ml-auto flex items-center gap-1.5">
           {allowIndex !== -1 && (
             <>

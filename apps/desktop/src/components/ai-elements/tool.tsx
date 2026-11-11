@@ -369,6 +369,20 @@ function subject(part: ToolPart): string | undefined {
   return undefined;
 }
 
+/**
+ * "Agent · Review the diff"; a `message_agent` call continues an agent and is
+ * named after it: "Agent · Review the diff (continued)".
+ */
+function agentLabel(part: ToolPart, phase: ToolPart["phase"], description: string | undefined): string {
+  const about = subject(part) ?? description;
+  if (part.name !== "message_agent") return `${verbs.agent[phase]}${about ? ` · ${about}` : ""}`;
+  const args = (part.args && typeof part.args === "object" ? part.args : {}) as Record<string, unknown>;
+  const id = typeof args.agentId === "string" ? args.agentId : partialField(part.argsText, "agentId");
+  const name = description || (id ? `agent ${id}` : "");
+  if (phase === "preparing") return `Continuing agent${name ? ` · ${name}` : ""}`;
+  return `${verbs.agent[phase]}${name ? ` · ${name}` : ""} (continued)`;
+}
+
 /** One terminal step in words: "Pressed Ctrl+C in Git Bash tab t3", "Read tab t2", "Stopped tab t3". */
 function terminalLabel(part: ToolPart, phase: ToolPart["phase"]): string {
   const args = (part.args && typeof part.args === "object" ? part.args : {}) as Record<string, any>;
@@ -565,10 +579,12 @@ export function Tool({
   const about = subject(part);
   // A call that never finished while the turn is over was interrupted.
   const phase: ToolPart["phase"] = !streaming && (part.phase === "running" || part.phase === "preparing") ? "error" : part.phase;
-  // A background subagent runs on after its call returned.
+  // A background subagent runs on after its call returned (`agent`, or `message_agent` continuing one).
   const child = kind === "agent" ? childRun(part) : undefined;
-  const live = phase === "preparing" || phase === "running" || (phase === "done" && child?.status === "running");
-  const failed = phase === "error";
+  const live =
+    phase === "preparing" || phase === "running" || (phase === "done" && Boolean(child?.background) && child?.status === "running");
+  // A background agent's call succeeded when it started; the agent may still have failed.
+  const failed = phase === "error" || (Boolean(child?.background) && child?.status === "error");
   const sessionLabel: Record<string, string> = {
     start_session: phase === "done" ? "Session" : "Starting a session",
     message_session: phase === "done" ? "Messaged a session" : "Messaging a session",
@@ -621,7 +637,9 @@ export function Tool({
         })()
       : part.name.startsWith("terminal_")
       ? terminalLabel(part, phase)
-      : kind === "agent" || kind === "skill"
+      : kind === "agent"
+      ? agentLabel(part, failed ? "error" : phase, child?.description)
+      : kind === "skill"
       ? `${verbs[kind][phase]}${about ? ` · ${about}` : ""}`
       : kind === "browser"
       ? browserLabel(part, phase)
@@ -683,7 +701,8 @@ export function Tool({
   // Not expandable while the model is still writing the call.
   if (phase === "preparing" || lineOnly) return line;
   // Files the agent sent stay open under the line: they are the result.
-  const sent = part.name === "send_file" ? part.details?.externalToolResult?.structuredContent : undefined;
+  // A failed call keeps its result too (`isError`): only a sent one shows files.
+  const sent = part.name === "send_file" && !part.details?.externalToolResult?.isError ? part.details?.externalToolResult?.structuredContent : undefined;
   if (sent && Array.isArray(sent.files) && sent.files.length) {
     return (
       <div className="@container flex flex-col">
@@ -701,7 +720,7 @@ export function Tool({
       </div>
     );
   }
-  // A subagent shows its steps from the start, open while it runs.
+  // A subagent shows its steps from the start, open while it runs; a continued one (`message_agent`) the same way.
   if (kind === "agent") {
     return (
       <TraceCollapsible defaultOpen={live || failed ? true : undefined}>

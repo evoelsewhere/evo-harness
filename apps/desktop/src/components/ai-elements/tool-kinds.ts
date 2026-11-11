@@ -38,6 +38,7 @@ export const kinds: Record<string, Kind> = {
   web_fetch: "web",
   web_search: "web",
   agent: "agent",
+  message_agent: "agent",
   skill: "skill",
   start_session: "session",
   message_session: "session",
