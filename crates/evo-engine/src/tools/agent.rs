@@ -10,7 +10,10 @@
 //!   cumulative snapshot of the child (status, turns, tool rows, the tail of
 //!   its text, usage) goes out through `tool_execution_update` as
 //!   `details.child`, and stays on the result so a reopened chat shows it.
-//!   The child's usage is the result's `usage`.
+//!   The child's usage is the result's `usage`. The result's text is the
+//!   report and a last line with the agent's id. A run that fails, is
+//!   cancelled or times out is an error result that still carries the final
+//!   snapshot and the usage ([`AgentError::StructuredTool`]).
 //! * **Background** (`background: true`): the tool returns at once with the
 //!   agent's id and the child keeps running past the end of the parent's run
 //!   (until it finishes, is cancelled, or the session closes). When it
@@ -20,17 +23,20 @@
 //!   that run (`meta.wake`, see [`crate::mesh::LocalRouter::request_wake`]).
 //!
 //! A finished agent keeps its context: `message_agent` sends it another
-//! message (foreground or background) and it continues where it left off.
+//! message (foreground or background) and it continues where it left off. It
+//! is named by its id, `a_<id>`, its node address or its description.
 //!
 //! Every agent is also a node of this engine's session mesh
 //! ([`crate::mesh`]) at `s_<session>/a_<agent>`: its state changes, tool rows,
 //! text, usage and report go out as mesh events, and `cancel` reaches it.
 //!
 //! Children cannot delegate further (the harness refuses nested children and
-//! hides these tools from them). At most [`MAX_RUNNING`] agents run at once
-//! and [`MAX_KEPT`] are kept per engine; the oldest finished ones are closed.
+//! hides these tools from them). At most [`MAX_RUNNING`] agents of a session
+//! run at once: a foreground call waits for a free slot, a background one is
+//! refused. [`MAX_KEPT`] are kept per session (64 per engine); the oldest
+//! finished ones are closed, and so are those of a session that is gone.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
@@ -56,8 +62,10 @@ use crate::mesh::{self, Address, MeshUsage, NodeKind, NodeState, Origin, RunStat
 
 /// Subagents running at once in one session.
 pub const MAX_RUNNING: usize = 4;
-/// Agents kept (running or able to continue) per engine.
+/// Agents kept (running or able to continue) per session.
 pub const MAX_KEPT: usize = 16;
+/// Agents kept per engine, over every session it has had.
+const MAX_KEPT_ENGINE: usize = 4 * MAX_KEPT;
 /// Bytes of a report the requester gets; the rest stays with the agent,
 /// which `message_agent` can ask for.
 const MAX_REPORT: usize = 16 * 1024;
@@ -88,9 +96,8 @@ const FINISHED: u8 = 2;
 
 /// Steering the person or another session sent, per session: a counter that
 /// waiting foreground agents watch ([`steered`]).
-static STEERED: LazyLock<
-    Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<u64>>>,
-> = LazyLock::new(Default::default);
+static STEERED: LazyLock<Mutex<HashMap<String, tokio::sync::watch::Sender<u64>>>> =
+    LazyLock::new(Default::default);
 
 /// A steering message for the session `session_id` was queued (RPC
 /// `queue_message`, `deliverAs: steer`): foreground agents its run waits for
@@ -150,16 +157,51 @@ pub fn unreported_background_agents(messages: &[Value], queued: &str) -> Vec<(St
                     _ => String::new(),
                 };
                 if text.contains(NOTE_TAG) {
-                    open.retain(|(id, _)| !text.contains(&format!("{NOTE_TAG} id=\"{id}\"")));
+                    open.retain(|(id, _)| !has_note(&text, id));
                 }
             }
             _ => {}
         }
     }
+    // The queue is JSON, so the note's quotes are escaped there.
     open.retain(|(id, _)| {
-        !queued.contains(&format!("id=\\\"{id}\\\"")) && !queued.contains(&format!("id=\"{id}\""))
+        !queued.contains(&format!("{NOTE_TAG} id=\\\"{id}\\\""))
+            && !queued.contains(&format!("{NOTE_TAG} id=\"{id}\""))
     });
     open
+}
+
+/// Whether `text` holds the note about agent `id`: its opening tag starts a
+/// line, as every note the engine writes does (a quoted one inside a line, or
+/// one inside a report — see [`inert`] — does not count).
+fn has_note(text: &str, id: &str) -> bool {
+    let tag = format!("{NOTE_TAG} id=\"{id}\"");
+    text.lines().any(|line| line.starts_with(&tag))
+}
+
+/// A description as a note's attribute value: no quotes, one line.
+fn attribute(description: &str) -> String {
+    description.replace('"', "'").replace(['\r', '\n'], " ")
+}
+
+/// `text` with the note's own tags made inert (`<background-agent…` and
+/// `</background-agent…` become `&lt;…`), so a report cannot end its note or
+/// pass for another agent's.
+fn inert(text: &str) -> String {
+    let name = &NOTE_TAG[1..];
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('<') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at + 1..];
+        let tag = rest.strip_prefix('/').unwrap_or(rest);
+        let ours = tag
+            .get(..name.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(name));
+        out.push_str(if ours { "&lt;" } else { "<" });
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The report a lost background agent never sent, written the way a real one
@@ -169,7 +211,7 @@ pub fn lost_agent_note(id: &str, description: &str) -> String {
         "{NOTE_TAG} id=\"{id}\" description=\"{}\" status=\"error\">\nThe subagent stopped: the engine running it exited \
          (the app closed or crashed) before it finished, so it has no report. Start it again if its work is still needed.\n\
          </background-agent>",
-        description.replace('"', "'")
+        attribute(description)
     )
 }
 
@@ -247,6 +289,9 @@ struct Progress {
     ended_at: Option<u64>,
     rows: VecDeque<Value>,
     text: String,
+    /// The text of this run's last message that had any, kept when a later
+    /// message (a tool call without text) clears `text`.
+    said: String,
     worktree: Option<Value>,
     error: Option<String>,
 }
@@ -311,7 +356,12 @@ impl Progress {
             AgentEvent::MessageStart {
                 message: AgentMessage::Assistant(_),
                 ..
-            } => self.text.clear(),
+            } => {
+                let text = std::mem::take(&mut self.text);
+                if !text.trim().is_empty() {
+                    self.said = text;
+                }
+            }
             AgentEvent::MessageUpdate {
                 assistant_message_event: AssistantMessageEvent::TextDelta { delta, .. },
                 ..
@@ -476,6 +526,8 @@ pub struct Job {
     worktree: Mutex<Option<crate::worktrees::Created>>,
     cwd: PathBuf,
     last_used: Mutex<Instant>,
+    /// Its run slot, held while `running` ([`slots`]).
+    slot: Mutex<Option<Slot>>,
 }
 
 #[derive(Clone)]
@@ -501,31 +553,84 @@ impl Registry {
         lock(&self.jobs).iter().find(|job| job.id == id).cloned()
     }
 
-    /// Agents of the session `session_id` that are running now.
-    fn running(&self, session_id: &str) -> usize {
-        lock(&self.jobs)
+    /// The agent of the session `session_id` that `wanted` names: its id,
+    /// `a_<id>`, its node address or — when only one agent has it — its
+    /// description (any case).
+    fn find(&self, session_id: &str, wanted: &str) -> Result<Arc<Job>, AgentError> {
+        let wanted = wanted.trim_matches(|c: char| c.is_whitespace() || "`'\"".contains(c));
+        let jobs: Vec<Arc<Job>> = lock(&self.jobs)
             .iter()
-            .filter(|job| job.running.load(Ordering::Acquire) && job.session_id == session_id)
-            .count()
+            .filter(|job| job.session_id == session_id)
+            .cloned()
+            .collect();
+        let by_id = jobs.iter().find(|job| {
+            let address = job.address.as_str();
+            job.id == wanted
+                || address == wanted
+                || address.rsplit('/').next() == Some(wanted)
+                || wanted.strip_prefix("a_") == Some(job.id.as_str())
+        });
+        if let Some(job) = by_id {
+            return Ok(job.clone());
+        }
+        let listed = |jobs: &[&Arc<Job>]| {
+            jobs.iter()
+                .map(|job| format!("{} ({})", job.id, lock(&job.progress).description))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let named: Vec<&Arc<Job>> = jobs
+            .iter()
+            .filter(|job| lock(&job.progress).description.eq_ignore_ascii_case(wanted))
+            .collect();
+        match named.as_slice() {
+            [job] => Ok((*job).clone()),
+            [] if jobs.is_empty() => Err(AgentError::Validation(format!(
+                "no subagent `{wanted}` in this session: it has none (start one with agent)"
+            ))),
+            [] => Err(AgentError::Validation(format!(
+                "no subagent `{wanted}` in this session; its subagents: {}",
+                listed(&jobs.iter().collect::<Vec<_>>())
+            ))),
+            several => Err(AgentError::Validation(format!(
+                "several subagents are called `{wanted}`: {}; use the id",
+                listed(several)
+            ))),
+        }
     }
 
-    /// Add a job, closing the oldest finished ones beyond [`MAX_KEPT`].
+    /// Add a job, closing its session's oldest finished ones beyond
+    /// [`MAX_KEPT`], the finished ones of sessions that are gone (nobody can
+    /// continue those), and the engine's oldest beyond [`MAX_KEPT_ENGINE`].
     fn insert(&self, job: Arc<Job>) {
         let evicted: Vec<Arc<Job>> = {
             let mut jobs = lock(&self.jobs);
+            let session_id = job.session_id.clone();
             jobs.push(job);
-            let mut evicted = Vec::new();
-            while jobs.len() > MAX_KEPT {
-                let Some(oldest) = jobs
-                    .iter()
+            let idle = |job: &Job| !job.running.load(Ordering::Acquire);
+            let (kept, mut evicted): (Vec<_>, Vec<_>) = std::mem::take(&mut *jobs)
+                .into_iter()
+                .partition(|job| !idle(job) || job.parent.upgrade().is_some());
+            *jobs = kept;
+            // The oldest finished job, of one session or of them all.
+            let oldest = |jobs: &[Arc<Job>], session: Option<&str>| {
+                jobs.iter()
                     .enumerate()
-                    .filter(|(_, job)| !job.running.load(Ordering::Acquire))
+                    .filter(|(_, job)| idle(job) && session.is_none_or(|id| job.session_id == id))
                     .min_by_key(|(_, job)| *lock(&job.last_used))
                     .map(|(index, _)| index)
-                else {
+            };
+            while jobs.iter().filter(|j| j.session_id == session_id).count() > MAX_KEPT {
+                let Some(index) = oldest(&jobs, Some(&session_id)) else {
                     break;
                 };
-                evicted.push(jobs.remove(oldest));
+                evicted.push(jobs.remove(index));
+            }
+            while jobs.len() > MAX_KEPT_ENGINE {
+                let Some(index) = oldest(&jobs, None) else {
+                    break;
+                };
+                evicted.push(jobs.remove(index));
             }
             evicted
         };
@@ -536,17 +641,38 @@ impl Registry {
 
     /// Stop a running agent; false when it is not running.
     pub fn cancel(&self, id: &str) -> bool {
-        match self.get(id) {
-            Some(job) if job.running.load(Ordering::Acquire) => {
-                lock(&job.cancel).cancel();
-                true
-            }
-            _ => false,
+        let Some(job) = self.get(id) else {
+            return false;
+        };
+        // Under the switch's lock: a run admitted meanwhile has its own
+        // switch already ([`Job::admit`]), so this reaches that run.
+        let cancel = lock(&job.cancel);
+        if job.running.load(Ordering::Acquire) {
+            cancel.cancel();
+            true
+        } else {
+            false
         }
     }
 }
 
 impl Job {
+    /// Take the right to run this agent once more: false when it runs. The
+    /// run gets a new cancel switch at the same moment, so a cancel that
+    /// arrives before the run starts stops it rather than a finished one.
+    fn admit(&self) -> bool {
+        let mut cancel = lock(&self.cancel);
+        if self
+            .running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
+        *cancel = CancellationToken::new();
+        true
+    }
+
     async fn close(&self) {
         mesh::router().transition(&self.address, NodeState::Closed, None, None);
         let child = lock(&self.child).take();
@@ -578,13 +704,17 @@ async fn run(
     let Some(child) = lock(&job.child).clone() else {
         return Outcome::Failed("the agent was closed".into());
     };
-    let cancel = CancellationToken::new();
-    *lock(&job.cancel) = cancel.clone();
+    // Set when the run was admitted ([`Job::admit`]), or with the job.
+    let cancel = lock(&job.cancel).clone();
     {
         let mut progress = lock(&job.progress);
         progress.status = "running";
+        // The clock is this run's; the counters and the usage go on.
+        progress.started_at = now_ms();
         progress.ended_at = None;
         progress.error = None;
+        progress.text.clear();
+        progress.said.clear();
     }
     let call_id = lock(&job.call_id).clone();
     let background = job.background.load(Ordering::Acquire);
@@ -632,23 +762,29 @@ async fn run(
                 .to_string();
             if outcome.get("status").and_then(Value::as_str) == Some("completed") {
                 Outcome::Report(if text.is_empty() {
-                    "(the subagent returned no text)".into()
+                    // It ended on a step without text (its turn limit, say).
+                    format!("(the subagent returned no text){}", last_words(&job))
                 } else {
-                    capped(text, &job.id)
+                    text
                 })
             } else {
-                Outcome::Failed(format!(
-                    "its run {}",
-                    outcome["status"].as_str().unwrap_or("failed")
-                ))
+                let status = outcome["status"].as_str().unwrap_or("failed");
+                Outcome::Failed(match outcome["error"].as_str() {
+                    Some(error) if !error.is_empty() => format!(
+                        "its run {status}: {}",
+                        error.chars().take(300).collect::<String>()
+                    ),
+                    _ => format!("its run {status}"),
+                })
             }
         }
         Err(reason) => Outcome::Failed(reason),
     }
 }
 
-/// A report cut to [`MAX_REPORT`] bytes, saying how to get the rest.
-fn capped(mut text: String, id: &str) -> String {
+/// A report cut to [`MAX_REPORT`] bytes, saying how to get the rest (an agent
+/// that cannot continue has no rest to give).
+fn capped(mut text: String, id: &str, resumable: bool) -> String {
     if text.len() <= MAX_REPORT {
         return text;
     }
@@ -658,10 +794,30 @@ fn capped(mut text: String, id: &str) -> String {
         cut -= 1;
     }
     text.truncate(cut);
-    text.push_str(&format!(
-        "\n\n[Report cut at {cut} of {total} bytes. Ask agent {id} with message_agent for the rest or a shorter summary.]"
-    ));
+    text.push_str(&if resumable {
+        format!(
+            "\n\n[Report cut at {cut} of {total} bytes. Ask agent {id} with message_agent for the rest or a shorter summary.]"
+        )
+    } else {
+        format!("\n\n[Report cut at {cut} of {total} bytes; the agent was closed, so the rest is lost.]")
+    });
     text
+}
+
+/// What the agent last said in this run, for a run that ended without a
+/// report: ` Its last words:\n…` (the kept tail, at most [`MAX_TEXT`] bytes),
+/// or nothing when it said nothing.
+fn last_words(job: &Job) -> String {
+    let progress = lock(&job.progress);
+    let said = match progress.text.trim() {
+        "" => progress.said.trim(),
+        text => text,
+    };
+    if said.is_empty() {
+        String::new()
+    } else {
+        format!(" Its last words:\n{said}")
+    }
 }
 
 /// Record how a run ended and settle the worktree. Returns the final snapshot.
@@ -697,7 +853,9 @@ async fn settle(job: &Job, outcome: &Outcome, cancelled: bool) -> Value {
         progress.worktree = Some(report);
     }
     *lock(&job.last_used) = Instant::now();
+    // Not running first, then the slot: whoever gets it may continue this agent.
     job.running.store(false, Ordering::Release);
+    lock(&job.slot).take();
     let snapshot = progress.snapshot();
     let usage = mesh::usage_of(&progress.usage);
     drop(progress);
@@ -720,33 +878,38 @@ fn announce(job: &Job, outcome: &Outcome, snapshot: &Value, usage: MeshUsage) {
         json!({ "worktree": worktree, "resumable": resumable }),
     );
     router.usage(&job.address, usage);
-    router.report(
-        &job.address,
-        status,
-        report_text(outcome, snapshot),
-        usage,
-        worktree,
-    );
+    let report = report_text(job, outcome, snapshot);
+    router.report(&job.address, status, report.clone(), usage, worktree);
     let reason = snapshot["error"].as_str().map(str::to_string);
     router.transition(&job.address, NodeState::Settled, Some(status), reason);
     // Questions it did not `reply` to get its report as their answer.
-    crate::tools::mesh::run_ended(&job.address, &report_text(outcome, snapshot));
+    crate::tools::mesh::run_ended(&job.address, &report);
 }
 
-/// The report for the parent, with a kept worktree's place.
-fn report_text(outcome: &Outcome, snapshot: &Value) -> String {
+/// The report for the requester (call it once the run is settled): cut to
+/// [`MAX_REPORT`]; for a failed run, why it stopped and what it last said;
+/// then a kept worktree's place.
+fn report_text(job: &Job, outcome: &Outcome, snapshot: &Value) -> String {
     let mut text = match outcome {
-        Outcome::Report(text) => text.clone(),
-        Outcome::Failed(reason) => format!("The subagent stopped: {reason}."),
+        Outcome::Report(text) => capped(text.clone(), &job.id, lock(&job.child).is_some()),
+        Outcome::Failed(reason) => {
+            format!("The subagent stopped: {reason}.{}", last_words(job))
+        }
     };
-    if snapshot["worktree"]["kept"] == json!(true) {
-        text.push_str(&format!(
-            "\n\n[Its changes are in the worktree {} on branch {}.]",
-            snapshot["worktree"]["path"].as_str().unwrap_or(""),
-            snapshot["worktree"]["branch"].as_str().unwrap_or("")
-        ));
-    }
+    text.push_str(&kept_worktree(snapshot));
     text
+}
+
+/// Where a kept worktree is, as the last paragraph of a report.
+fn kept_worktree(snapshot: &Value) -> String {
+    if snapshot["worktree"]["kept"] != json!(true) {
+        return String::new();
+    }
+    format!(
+        "\n\n[Its changes are in the worktree {} on branch {}.]",
+        snapshot["worktree"]["path"].as_str().unwrap_or(""),
+        snapshot["worktree"]["branch"].as_str().unwrap_or("")
+    )
 }
 
 /// A background run ended: queue its report for the parent — into the
@@ -762,11 +925,8 @@ async fn tell_parent(job: &Job, outcome: &Outcome, snapshot: &Value) {
     let note = format!(
         "{NOTE_TAG} id=\"{}\" description=\"{}\" status=\"{status}\">\n{}\n</background-agent>",
         job.id,
-        snapshot["description"]
-            .as_str()
-            .unwrap_or("")
-            .replace('"', "'"),
-        report_text(outcome, snapshot)
+        attribute(snapshot["description"].as_str().unwrap_or("")),
+        inert(&report_text(job, outcome, snapshot))
     );
     let message = AgentMessage::from(evo_ai::types::UserMessage::new(note, now_ms() as i64));
     let lane = parent.lane("main");
@@ -840,17 +1000,27 @@ async fn drive(
         ));
     }
 
+    let before = lock(&job.progress).usage.clone();
+    let Some(session) = job
+        .parent
+        .upgrade()
+        .map(|parent| parent.session_scope_token())
+    else {
+        // Settled, so the agent is not left "running" with a slot it never used.
+        let outcome = Outcome::Failed("the session is gone".into());
+        let snapshot = settle(&job, &outcome, false).await;
+        return Err(failure(
+            &job,
+            "the session is gone",
+            snapshot,
+            Usage::zero(),
+        ));
+    };
     *lock(&job.update) = Some(on_update.clone());
     // The session waits on this agent until it reports: the agent asking the
     // session would never end (tools/mesh.rs refuses it).
     let _waits = mesh::router().add_wait(&Address::session(&job.session_id), &job.address);
-    let before = lock(&job.progress).usage.clone();
     on_update(partial(lock(&job.progress).snapshot()));
-    let session = job
-        .parent
-        .upgrade()
-        .map(|parent| parent.session_scope_token())
-        .ok_or_else(|| AgentError::Tool("the session is gone".into()))?;
     let mut steered = steering(&job.session_id);
 
     // The run goes in its own task, so a steering message can release this
@@ -906,17 +1076,37 @@ async fn drive(
     on_update(partial(snapshot.clone()));
     // This run's usage only: earlier runs of a continued agent were counted then.
     let usage = usage_since(&lock(&job.progress).usage, &before);
-    match outcome {
-        Outcome::Report(_) => Ok(result(
-            report_text(&outcome, &snapshot),
-            snapshot,
-            Some(usage),
-        )),
-        Outcome::Failed(reason) => Err(AgentError::Tool(format!(
-            "subagent {} stopped: {reason}",
-            job.id
-        ))),
+    match &outcome {
+        Outcome::Report(_) => {
+            let mut text = report_text(&job, &outcome, &snapshot);
+            // After the report and outside its size cap: the model sees only
+            // this text, and `message_agent` needs the id.
+            if lock(&job.child).is_some() {
+                text.push_str(&format!(
+                    "\n\n[This agent's id is {}: pass it as agentId to message_agent to continue it with its context.]",
+                    job.id
+                ));
+            }
+            Ok(result(text, snapshot, Some(usage)))
+        }
+        Outcome::Failed(reason) => Err(failure(&job, reason, snapshot, usage)),
     }
+}
+
+/// A foreground run that did not end with a report, as the call's error. The
+/// model reads the text an [`AgentError::Tool`] would give it, plus what the
+/// agent last said; unlike that error, the result keeps the agent's final
+/// snapshot (`details.child`) and this run's usage, for the transcript and
+/// the cost of the turn.
+fn failure(job: &Job, reason: &str, snapshot: Value, usage: Usage) -> AgentError {
+    let words = last_words(job);
+    let text = format!(
+        "tool error: subagent {} stopped: {reason}{}{words}{}",
+        job.id,
+        if words.is_empty() { "" } else { "." },
+        kept_worktree(&snapshot)
+    );
+    AgentError::StructuredTool(Box::new(result(text, snapshot, Some(usage))))
 }
 
 /// How long a foreground run may go on. While its call waits (`ATTACHED`), the
@@ -996,19 +1186,26 @@ pub(crate) async fn deliver(
         .clone()
         .ok_or("that agent was closed and takes no messages")?;
     let lane = child.harness.lane("main");
+    let message =
+        |text: String| AgentMessage::from(evo_ai::types::UserMessage::new(text, now_ms() as i64));
     if job.running.load(Ordering::Acquire) {
-        let message = AgentMessage::from(evo_ai::types::UserMessage::new(text, now_ms() as i64));
-        lane.steer(message).await.map_err(|e| e.to_string())?;
+        lane.steer(message(text)).await.map_err(|e| e.to_string())?;
         return Ok("delivered into its current run");
     }
     if !ask {
-        let message = AgentMessage::from(evo_ai::types::UserMessage::new(text, now_ms() as i64));
-        lane.next_run(message).await.map_err(|e| e.to_string())?;
+        lane.next_run(message(text))
+            .await
+            .map_err(|e| e.to_string())?;
         return Ok("queued: it reads it when it is continued");
     }
     let parent = job.parent.upgrade().ok_or("the session is gone")?;
-    check_capacity(&job.session_id).map_err(|e| e.to_string())?;
-    job.running.store(true, Ordering::Release);
+    let slot = slot_now(&job.session_id).map_err(|e| e.to_string())?;
+    if !job.admit() {
+        // Another question continued it just now: this one joins that run.
+        lane.steer(message(text)).await.map_err(|e| e.to_string())?;
+        return Ok("delivered into its current run");
+    }
+    *lock(&job.slot) = Some(slot);
     job.quiet.store(true, Ordering::Release);
     let scope = parent.session_scope_token();
     drive(
@@ -1022,6 +1219,19 @@ pub(crate) async fn deliver(
     .await
     .map_err(|e| e.to_string())?;
     Ok("it was continued to answer")
+}
+
+/// A child whose setup failed after it was created: close it and remove its
+/// (still unchanged) worktree.
+async fn discard(
+    child: &AgentHarness,
+    worktree: Option<crate::worktrees::Created>,
+    cwd: &std::path::Path,
+) {
+    let _ = child.close().await;
+    if let Some(created) = worktree {
+        crate::child_agents::finish_worktree(created, cwd.to_path_buf()).await;
+    }
 }
 
 fn parent_of(cell: &HarnessCell) -> Result<AgentHarness, AgentError> {
@@ -1039,13 +1249,61 @@ fn refuse_nested() -> Result<(), AgentError> {
     Ok(())
 }
 
-fn check_capacity(session_id: &str) -> Result<(), AgentError> {
-    if registry().running(session_id) >= MAX_RUNNING {
-        return Err(AgentError::Tool(format!(
+/// The right to run one agent; a session has [`MAX_RUNNING`]. A running
+/// agent holds it ([`Job::slot`]) until its run is settled.
+type Slot = tokio::sync::OwnedSemaphorePermit;
+
+/// Free run slots, per session.
+static SLOTS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>> =
+    LazyLock::new(Default::default);
+
+fn slots(session_id: &str) -> Arc<tokio::sync::Semaphore> {
+    lock(&SLOTS)
+        .entry(session_id.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING)))
+        .clone()
+}
+
+/// A run slot if one is free: background calls do not wait for one.
+fn slot_now(session_id: &str) -> Result<Slot, AgentError> {
+    slots(session_id).try_acquire_owned().map_err(|_| {
+        AgentError::Tool(format!(
             "at most {MAX_RUNNING} subagents run at once; wait for one to finish"
-        )));
+        ))
+    })
+}
+
+/// A run slot for a foreground call, waiting for one while [`MAX_RUNNING`]
+/// agents run (in the order the calls came). The wait ends at once when the
+/// call is cancelled or the session closes, and on a steering message, which
+/// the parent's run must read now (a running agent moves to the background
+/// then; one still waiting here does not run).
+async fn wait_for_slot(
+    parent: &AgentHarness,
+    session_id: &str,
+    signal: &CancellationToken,
+) -> Result<Slot, AgentError> {
+    let slots = slots(session_id);
+    if let Ok(slot) = slots.clone().try_acquire_owned() {
+        return Ok(slot);
     }
-    Ok(())
+    let session = parent.session_scope_token();
+    let mut steered = steering(session_id);
+    let stopped = |why: &str| {
+        AgentError::Tool(format!(
+            "{why} while this call waited for a free subagent slot (at most {MAX_RUNNING} run at once), \
+             so the subagent did not run"
+        ))
+    };
+    tokio::select! {
+        biased;
+        _ = signal.cancelled() => Err(stopped("the call was cancelled")),
+        _ = session.cancelled() => Err(stopped("the session closed")),
+        Ok(()) = steered.changed() => Err(stopped(
+            "a new message arrived (read it now, then call again if this is still needed)",
+        )),
+        slot = slots.acquire_owned() => slot.map_err(|_| stopped("the session closed")),
+    }
 }
 
 /// A model by id (`id` or `provider/id`, any case) among the harness's models.
@@ -1108,12 +1366,14 @@ fn schema(types: &[AgentType]) -> Tool {
              should contain. Its intermediate steps stay out of this conversation, which keeps your context \
              small: use it for wide searches, investigations across many files, or independent pieces of \
              work. Call it several times in one message to run independent tasks in parallel (at most \
-             {MAX_RUNNING} at once). Do not delegate a quick lookup you can do with one or two tool calls. \
+             {MAX_RUNNING} run at once: further calls wait for a free slot, background ones are refused). \
+             Do not delegate a quick lookup you can do with one or two tool calls. \
              Subagents cannot start subagents. Set isolation to \"worktree\" to have it work in its own Git \
-             worktree; a worktree it changed is kept and its path and branch are reported. Set background \
+             worktree: it starts from the last commit and does not contain the workspace's uncommitted \
+             changes; a worktree it changed is kept and its path and branch are reported. Set background \
              to true to let it run while you continue: the call returns its id at once and its report \
              arrives as a message when it finishes (do not wait for it or poll it). A finished agent keeps \
-             its context: continue it with message_agent.\n\nAgent types:{listing}"
+             its context: continue it with message_agent and the id its result ends with.\n\nAgent types:{listing}"
         ),
         parameters: Schema::new(json!({
             "type": "object",
@@ -1197,7 +1457,12 @@ impl AgentTool for SubagentTool {
         };
         let parent = parent_of(&self.harness)?;
         let session_id = parent.session().storage().metadata().id.clone();
-        check_capacity(&session_id)?;
+        // Before anything is created; the job holds it until its run is settled.
+        let slot = if input.background {
+            slot_now(&session_id)?
+        } else {
+            wait_for_slot(&parent, &session_id, &signal).await?
+        };
 
         // An agent type's tool list narrows the parent's active tools.
         let requested = agent.tools.as_ref().map(|wanted| {
@@ -1253,6 +1518,7 @@ impl AgentTool for SubagentTool {
             ended_at: None,
             rows: VecDeque::new(),
             text: String::new(),
+            said: String::new(),
             worktree: worktree
                 .as_ref()
                 .map(|created| crate::child_agents::worktree_json(created, None)),
@@ -1312,7 +1578,7 @@ impl AgentTool for SubagentTool {
         let lane = child.harness.lane("main");
         if let Some(model) = model {
             if let Err(error) = lane.set_model(model).await {
-                let _ = child.harness.close().await;
+                discard(&child.harness, worktree, &self.cwd).await;
                 return Err(AgentError::Tool(format!(
                     "could not set the subagent's model: {error}"
                 )));
@@ -1327,7 +1593,7 @@ impl AgentTool for SubagentTool {
                     .set_thinking_level(model.clamp_thinking_level(level))
                     .await
                 {
-                    let _ = child.harness.close().await;
+                    discard(&child.harness, worktree, &self.cwd).await;
                     return Err(AgentError::Tool(format!(
                         "could not set the subagent's thinking level: {error}"
                     )));
@@ -1343,8 +1609,9 @@ impl AgentTool for SubagentTool {
 
         let place = match &worktree {
             Some(created) => format!(
-                "\n\nYour working folder is an isolated Git worktree at {} on branch `{}`, cut from the current \
-                 commit. Make your changes there and do not commit them: the requester reviews them.",
+                "\n\nYour working folder is an isolated Git worktree at {} on branch `{}`, cut from the last \
+                 commit: the workspace's uncommitted changes are not in it. Make your changes there and do \
+                 not commit them: the requester reviews them.",
                 created.cwd.display(),
                 created.worktree.branch
             ),
@@ -1394,6 +1661,7 @@ impl AgentTool for SubagentTool {
             worktree: Mutex::new(worktree),
             cwd: self.cwd.clone(),
             last_used: Mutex::new(Instant::now()),
+            slot: Mutex::new(Some(slot)),
         });
         registry().insert(job.clone());
         drive(job, brief, input.background, scope, signal, on_update).await
@@ -1423,13 +1691,14 @@ pub fn create_message_agent_tool(harness: HarnessCell) -> Arc<dyn AgentTool> {
             name: "message_agent".into(),
             description: "Send a finished subagent another message; it continues with its own context (what it \
                           read and did before), which is cheaper than starting a new agent with the whole \
-                          brief again. Use the id from the agent call's result. Set background to true to let \
-                          it run while you continue; its reply then arrives as a message."
+                          brief again. Name it by its id: the last line of its agent result, or the id in \
+                          the message that started or reported it. Set background to true to let it run \
+                          while you continue; its reply then arrives as a message."
                 .into(),
             parameters: Schema::new(json!({
                 "type": "object",
                 "properties": {
-                    "agentId": { "type": "string", "description": "The subagent's id." },
+                    "agentId": { "type": "string", "description": "The subagent's id. Its node address (from list_nodes) or its description also work." },
                     "message": { "type": "string", "description": "What to tell or ask it." },
                     "background": { "type": "boolean", "description": "Run in the background." }
                 },
@@ -1473,17 +1742,10 @@ impl AgentTool for MessageAgentTool {
         }
         let parent = parent_of(&self.harness)?;
         let session_id = parent.session().storage().metadata().id.clone();
-        let job = registry()
-            .get(&input.agent_id)
-            .filter(|job| job.session_id == session_id)
-            .ok_or_else(|| {
-                AgentError::Validation(format!("no subagent `{}` in this session", input.agent_id))
-            })?;
+        let job = registry().find(&session_id, &input.agent_id)?;
+        let busy = || AgentError::Tool(format!("subagent {} is still running", job.id));
         if job.running.load(Ordering::Acquire) {
-            return Err(AgentError::Tool(format!(
-                "subagent {} is still running",
-                job.id
-            )));
+            return Err(busy());
         }
         if lock(&job.child).is_none() {
             return Err(AgentError::Tool(format!(
@@ -1491,8 +1753,16 @@ impl AgentTool for MessageAgentTool {
                 job.id
             )));
         }
-        check_capacity(&session_id)?;
-        job.running.store(true, Ordering::Release);
+        let slot = if input.background {
+            slot_now(&session_id)?
+        } else {
+            wait_for_slot(&parent, &session_id, &signal).await?
+        };
+        // Only one call continues it (another may have, while this one waited).
+        if !job.admit() {
+            return Err(busy());
+        }
+        *lock(&job.slot) = Some(slot);
         *lock(&job.call_id) = tool_call_id.to_string();
         // Background: on the session's scope; foreground: ends with this call.
         let scope = if input.background {

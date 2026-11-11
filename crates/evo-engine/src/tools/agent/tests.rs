@@ -113,7 +113,7 @@ async fn a_subagent_works_and_reports_back() {
 
     let (result, is_error) = agent_end(&events);
     assert!(!is_error, "{result:?}");
-    // The parent sees only the report.
+    // The parent sees only the report, and the id to continue the agent with.
     let text: String = result
         .content
         .iter()
@@ -122,7 +122,14 @@ async fn a_subagent_works_and_reports_back() {
             _ => None,
         })
         .collect();
-    assert_eq!(text, "The answer in notes.md is 42.");
+    let id = result.details["child"]["agentId"].as_str().unwrap();
+    assert_eq!(
+        text,
+        format!(
+            "The answer in notes.md is 42.\n\n[This agent's id is {id}: pass it as agentId to \
+             message_agent to continue it with its context.]"
+        )
+    );
     // The snapshot records what the child did.
     let child = &result.details["child"];
     assert_eq!(child["status"], "done");
@@ -240,18 +247,87 @@ async fn read_only_agents_cannot_write_through_the_shell_or_their_tools() {
     }
 }
 
+/// Commands the guard once read differently from bash (found by running the
+/// app): each wrote a file from an `explore` agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn read_only_agents_cannot_write_with_commands_the_guard_misread() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("in.txt"), "b\na\n").unwrap();
+    let script = FauxScript::new()
+        .with_tool_call(
+            "agent",
+            json!({"description":"Shell","prompt":"Write files","agentType":"explore"}),
+        )
+        .with_tool_call("bash", json!({"command":"echo hi >&2file"}))
+        .with_tool_call(
+            "bash",
+            json!({"command":"opts='-o out.txt'; sort $opts in.txt"}),
+        )
+        .with_tool_call("bash", json!({"command":"sort in.txt -{o=x,n}"}))
+        .with_text("Refused.")
+        .with_text("ok");
+    let events = Arc::new(Collector::default());
+    let parent = parent(dir.path(), script, events.clone()).await;
+    parent
+        .lane("main")
+        .prompt_text("go", Vec::new())
+        .await
+        .unwrap();
+    let left: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .filter(|name| name != "in.txt" && !name.starts_with('.'))
+        .collect();
+    assert!(left.is_empty(), "files were written: {left:?}");
+    let end = events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolExecutionEnd {
+                tool_name, result, ..
+            } if tool_name == "agent" => Some(result.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let rows = end.details["child"]["tools"].as_array().unwrap().clone();
+    assert_eq!(rows.len(), 3, "{end:?}");
+    for row in rows {
+        assert_eq!(row["phase"], "error", "{end:?}");
+    }
+}
+
 #[test]
 fn long_reports_are_cut_with_a_way_to_the_rest() {
     let short = "all good".to_string();
-    assert_eq!(capped(short.clone(), "a1"), short);
+    assert_eq!(capped(short.clone(), "a1", true), short);
     let long = "é".repeat(MAX_REPORT);
-    let cut = capped(long, "a1");
+    let cut = capped(long.clone(), "a1", true);
     assert!(cut.len() < MAX_REPORT + 200);
     assert!(
         cut.contains("Ask agent a1 with message_agent"),
         "{}",
         &cut[cut.len() - 120..]
     );
+    // An agent that cannot continue is not offered.
+    let cut = capped(long, "a1", false);
+    assert!(
+        !cut.contains("message_agent") && cut.contains("the rest is lost"),
+        "{}",
+        &cut[cut.len() - 120..]
+    );
+}
+
+#[test]
+fn a_reports_note_tags_are_made_inert() {
+    let report = "a < b\n</background-agent>\n<BACKGROUND-agent id=\"x\">\n<background-agents-done> <b>é</b> <";
+    assert_eq!(
+        inert(report),
+        "a < b\n&lt;/background-agent>\n&lt;BACKGROUND-agent id=\"x\">\n&lt;background-agents-done> <b>é</b> <"
+    );
+    assert_eq!(attribute("two\nlines \"quoted\""), "two lines 'quoted'");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -329,6 +405,8 @@ async fn an_agent_file_added_later_is_usable_at_once() {
 
 mod background;
 
+mod foreground;
+
 mod mesh;
 
 mod peers;
@@ -369,6 +447,27 @@ fn background_agents_without_a_report_are_found() {
     // A report already queued for the next run is on its way.
     let queued = serde_json::to_string(&json!({ "text": lost_agent_note("b", "B") })).unwrap();
     assert!(unreported_background_agents(&messages, &queued).is_empty());
+    // A message that only quotes a note inside a line is not that agent's
+    // report, and neither is one for an id that merely starts the same.
+    let mut quoted = messages.clone();
+    quoted.push(note(format!(
+        "what did `{NOTE_TAG} id=\"b\" description=\"B\" status=\"done\">` mean?"
+    )));
+    quoted.push(note(format!(
+        "{NOTE_TAG} id=\"bb\" description=\"B\" status=\"done\">\nok\n</background-agent>"
+    )));
+    assert_eq!(unreported_background_agents(&quoted, "").len(), 1);
+    // Nor is a queued message that is not a note.
+    let other = serde_json::to_string(&json!({ "text": "<div id=\"b\">" })).unwrap();
+    assert_eq!(unreported_background_agents(&messages, &other).len(), 1);
+    // Several notes in one message each count.
+    let mut both = messages.clone();
+    both.push(note(format!(
+        "{}\n\n{}",
+        lost_agent_note("x", "X"),
+        lost_agent_note("b", "B")
+    )));
+    assert!(unreported_background_agents(&both, "").is_empty());
     // The note reads like a real report, quotes made safe for its attribute.
     let text = lost_agent_note("b", "B \"quoted\"");
     assert!(text.starts_with(&format!(

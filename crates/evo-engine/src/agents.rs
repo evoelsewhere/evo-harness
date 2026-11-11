@@ -83,11 +83,12 @@ const EXPLORE_PROMPT: &str = "\
 You are a read-only exploration agent. You find code and answer questions about this codebase; you never change anything.
 
 How to work:
-- Go wide, then narrow: locate candidates with fast searches (`rg` or `git grep` for content, `rg --files` or `git ls-files` for names), then read only the parts that matter (on a large file, read a range rather than the whole file).
+- Go wide, then narrow: locate candidates with fast searches (for content `rg` when it is installed, otherwise `git grep` or `grep -rn`; for file names `rg --files`, otherwise `git ls-files` or `find`), then read only the parts that matter (on a large file, read a range rather than the whole file).
 - Run independent searches in the same turn.
 - Match the thoroughness the task asks for: quick (a few targeted searches), medium (the default: the likely places and the obvious alternatives), very thorough (every location, naming convention and caller).
 - Stop as soon as the question is answered. Do not speculate: when something is not found, say where you looked.
 - Shell commands are limited to read-only ones (search, list, read, git log/show/diff/status/blame). Anything that writes or changes state is refused, so do not try; output redirection to a file is refused too.
+- Quote search patterns, and pass file names that come from a loop or a variable after `--` (`git log -1 -- \"$f\"`): an argument that starts with a variable, a substitution or a wildcard before `--` is refused, and so is a command called by its path.
 
 Report:
 **Answer**: the direct answer, in a few sentences.
@@ -102,6 +103,7 @@ How to work:
 - Follow the project's instructions and architecture rules: layering, where logic belongs, what must change together.
 - Prefer the smallest change that fully solves the goal. When there are real alternatives, choose one and say in a line why not the others.
 - Do not write the implementation: signatures and short snippets only where they remove ambiguity.
+- Shell commands are limited to read-only ones. Quote search patterns, and pass file names that come from a loop or a variable after `--` (`git log -1 -- \"$f\"`): an argument that starts with a variable, a substitution or a wildcard before `--` is refused, and so is a command called by its path.
 
 Report:
 **Goal**: one line.
@@ -466,7 +468,21 @@ mod tests {
                 "{} has no report format",
                 agent.name
             );
+            // What the read-only guard refuses is said up front.
+            assert_eq!(
+                agent.prompt.contains("after `--` (`git log -1 -- \"$f\"`)"),
+                agent.read_only,
+                "{}",
+                agent.name
+            );
         }
+        // `rg` is not on every machine: the fallbacks are named.
+        let explore = &get("explore").prompt;
+        assert!(
+            explore.contains("`rg` when it is installed, otherwise `git grep` or `grep -rn`")
+                && explore.contains("`rg --files`, otherwise `git ls-files` or `find`"),
+            "{explore}"
+        );
     }
 
     #[test]
