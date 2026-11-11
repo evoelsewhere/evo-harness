@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { db, log, type MemoryIndexStatus } from "@/lib/db";
+import { db, log, type MemoryIndexPassReport, type MemoryIndexStatus } from "@/lib/db";
 
 // The memory settings the app keeps (Settings → Memory) and what the shell's
 // index worker is doing. The settings the engine keeps — pause, sensitive
@@ -34,6 +34,10 @@ interface MemoryStore {
   indexIdleMinutes: number;
   /** What the index worker is doing; `null` until it was asked. */
   status: MemoryIndexStatus | null;
+  /** A pass asked for with Index now (or earlier chats) has not ended yet. */
+  indexing: boolean;
+  /** How the last asked-for pass ended; cleared when the worker reads a chat again. */
+  lastPass: MemoryIndexPassReport | null;
 
   load(): Promise<void>;
   setSearchPastChats(on: boolean): Promise<void>;
@@ -69,11 +73,16 @@ export const useMemoryStore = create<MemoryStore>((set, get) => {
     indexModel: null,
     indexIdleMinutes: DEFAULT_IDLE_MINUTES,
     status: null,
+    indexing: false,
+    lastPass: null,
 
     async load() {
       if (!listening) {
         listening = true;
-        void listen<MemoryIndexStatus>("memory://index-status", ({ payload }) => set({ status: payload }));
+        void listen<MemoryIndexStatus>("memory://index-status", ({ payload }) =>
+          set((state) => ({ status: payload, lastPass: payload.state === "running" ? null : state.lastPass })),
+        );
+        void listen<MemoryIndexPassReport>("memory://index-pass", ({ payload }) => set({ indexing: false, lastPass: payload }));
       }
       const [settings, status] = await Promise.all([
         db.settings().catch((): Record<string, unknown> => ({})),
@@ -115,7 +124,11 @@ export const useMemoryStore = create<MemoryStore>((set, get) => {
     },
 
     async indexNow() {
-      await db.memoryIndexNow().catch((error) => log("warn", "db", `index now failed: ${String(error)}`));
+      set({ indexing: true, lastPass: null });
+      await db.memoryIndexNow().catch((error) => {
+        log("warn", "db", `index now failed: ${String(error)}`);
+        set({ indexing: false, lastPass: { read: 0, failed: String(error).replace(/^Error:\s*/, "") } });
+      });
     },
 
     earlierCount: () => db.memoryIndexEarlierCount().catch(() => 0),

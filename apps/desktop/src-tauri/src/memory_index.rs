@@ -162,6 +162,18 @@ pub struct Status {
     pub waiting: usize,
 }
 
+/// How a pass someone asked for (**Index now**, **Index earlier chats**)
+/// ended, sent as `memory://index-pass` so the button can say so even when
+/// there was nothing to read and the status never changed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PassReport {
+    /// Chats an index run read.
+    pub read: usize,
+    /// Why a run failed; the worker waits [`BACK_OFF_MS`] before the next one.
+    pub failed: Option<String>,
+}
+
 #[derive(Default)]
 struct Inner {
     /// Why the worker cannot go on; cleared by a poke.
@@ -291,27 +303,28 @@ async fn index_one(app: &AppHandle, candidate: &IndexCandidate, model: &(String,
 }
 
 /// One pass: every chat the pass may read, one after the other.
-async fn pass(app: &AppHandle, wanted: Pass) {
+async fn pass(app: &AppHandle, wanted: Pass) -> PassReport {
     let db = app.state::<Db>();
     let worker = app.state::<IndexWorker>();
     let engines = app.state::<EngineState>();
     let now = chats::now_ms();
     let found = settings(&db);
+    let mut report = PassReport::default();
     let Some(filter) = filter_for(&found, wanted, now) else {
         worker.set_status(app, Status { state: "off", ..Default::default() });
-        return;
+        return report;
     };
-    let Some(model) = found.model.clone() else { return };
+    let Some(model) = found.model.clone() else { return report };
     {
         let inner = worker.lock();
         if let Some(message) = &inner.stopped {
             let status = Status { state: "stopped", message: Some(message.clone()), ..Default::default() };
             drop(inner);
             worker.set_status(app, status);
-            return;
+            return report;
         }
         if inner.back_off_until_ms > now {
-            return;
+            return report;
         }
     }
     let candidates = db.with(|conn| chats::index_candidates(conn, &filter)).unwrap_or_default();
@@ -328,13 +341,14 @@ async fn pass(app: &AppHandle, wanted: Pass) {
                 worker.lock().stopped = Some("Memory is paused.".into());
                 break;
             }
-            RunResult::Done { .. } => {}
+            RunResult::Done { .. } => report.read += 1,
             RunResult::ModelUnavailable(message) => {
                 worker.lock().stopped = Some(message);
                 break;
             }
-            RunResult::Failed(_) => {
+            RunResult::Failed(message) => {
                 worker.lock().back_off_until_ms = chats::now_ms() + BACK_OFF_MS;
+                report.failed = Some(message);
                 break;
             }
         }
@@ -347,6 +361,7 @@ async fn pass(app: &AppHandle, wanted: Pass) {
             None => Status { state: "idle", ..Default::default() },
         },
     );
+    report
 }
 
 /// Start the worker: a pass every [`TICK`], or at once when one is asked for.
@@ -355,7 +370,10 @@ pub fn setup(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             let asked = app.state::<IndexWorker>().lock().asked.take();
-            pass(&app, asked.unwrap_or(Pass::Idle)).await;
+            let report = pass(&app, asked.unwrap_or(Pass::Idle)).await;
+            if asked.is_some() {
+                let _ = app.emit("memory://index-pass", report);
+            }
             let worker = app.state::<IndexWorker>();
             if worker.lock().asked.is_some() {
                 continue;

@@ -61,6 +61,14 @@ export interface MemoryIndexStatus {
   waiting: number;
 }
 
+/** How a pass someone asked for ended (`memory://index-pass`). */
+export interface MemoryIndexPassReport {
+  /** Chats an index run read. */
+  read: number;
+  /** Why a run failed; the worker waits a while before the next one. */
+  failed: string | null;
+}
+
 export interface ChatPatch {
   title?: string;
   autoTitle?: string;

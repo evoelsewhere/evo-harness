@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, LoaderCircleIcon } from "lucide-react";
 import { modelKey } from "@/components/ai-elements/model-selector";
 import { ProviderIcon } from "@/components/provider-icon";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { db } from "@/lib/db";
+import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { useMemoryStore } from "@/stores/memory-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -203,15 +204,35 @@ function MinutesField({ value, disabled, onCommit }: { value: number; disabled?:
 /** What the index worker is doing, in one line. */
 function IndexStatusLine() {
   const status = useMemoryStore((s) => s.status);
+  const indexing = useMemoryStore((s) => s.indexing);
+  const lastPass = useMemoryStore((s) => s.lastPass);
   const title = useSessionStore((s) => (status?.chat ? s.sessions.find((chat) => chat.id === status.chat)?.title : undefined));
-  if (!status || status.state === "off") return null;
-  const text =
-    status.state === "running"
-      ? `Indexing${title ? ` “${title}”` : ""}${status.waiting > 0 ? ` · ${status.waiting} more waiting` : ""}`
-      : status.state === "stopped"
-        ? `Indexing stopped: ${status.message ?? "the index model cannot be used"}`
-        : "Up to date: waiting for a chat to go idle.";
-  return <p className={status.state === "stopped" ? "text-[13px] text-destructive" : "text-[13px] text-muted-foreground"}>{text}</p>;
+  const running = status?.state === "running";
+  if (!indexing && (!status || status.state === "off") && !lastPass) return null;
+
+  let text: string;
+  let failed = false;
+  if (running) {
+    text = `Indexing${title ? ` “${title}”` : ""}${status.waiting > 0 ? ` · ${status.waiting} more waiting` : ""}`;
+  } else if (indexing) {
+    text = "Looking for chats with new messages…";
+  } else if (status?.state === "stopped") {
+    text = `Indexing stopped: ${status.message ?? "the index model cannot be used"}`;
+    failed = true;
+  } else if (lastPass?.failed) {
+    text = `A chat could not be indexed: ${lastPass.failed}. Indexing tries again later.`;
+    failed = true;
+  } else if (lastPass) {
+    text = lastPass.read > 0 ? `Indexed ${lastPass.read} ${lastPass.read === 1 ? "chat" : "chats"}. Up to date.` : "Up to date: no chat has new messages to index.";
+  } else {
+    text = "Up to date: waiting for a chat to go idle.";
+  }
+  return (
+    <p role="status" className={cn("flex items-center gap-1.5 text-[13px]", failed ? "text-destructive" : "text-muted-foreground")}>
+      {(running || indexing) && <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />}
+      {text}
+    </p>
+  );
 }
 
 export function MemorySettings() {
@@ -227,6 +248,7 @@ export function MemorySettings() {
   }, [load]);
 
   const needsChat = !ready || !state;
+  const indexBusy = memory.indexing || memory.status?.state === "running";
   const manage = () => {
     useUiStore.getState().openPanel("memory");
     useUiStore.getState().toggleRightPanel(true);
@@ -330,8 +352,9 @@ export function MemorySettings() {
           label="Index now"
           description="Reads every chat with new messages without waiting for it to go idle."
           control={
-            <Button variant="outline" size="sm" disabled={!memory.autoIndex || memory.status?.state === "running"} onClick={() => void memory.indexNow()}>
-              Index now
+            <Button variant="outline" size="sm" disabled={!memory.autoIndex || indexBusy} onClick={() => void memory.indexNow()}>
+              {indexBusy && <LoaderCircleIcon className="animate-spin" />}
+              {indexBusy ? "Indexing…" : "Index now"}
             </Button>
           }
         >
