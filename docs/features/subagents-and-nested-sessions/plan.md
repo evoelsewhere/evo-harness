@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-11 |
 | ADD sections | [6.2 Sessions talking to sessions](../../architecture/README.md#62-sessions-talking-to-sessions) |
 | ADRs | [0003 Engine runs as a child process per chat](../../architecture/decisions/0003-engine-runs-as-a-child-process-per-chat.md) |
 
@@ -180,7 +180,7 @@ the parent as notes.
 | engine | `crates/evo-engine/src/agents.rs` | Agent type loader (project, user, built-in), built-in prompts and report formats | FR-1, FR-2, NFR-3 |
 | engine | `crates/evo-engine/src/read_only.rs` | Read-only guard: tool and shell-command allow-lists | FR-3 |
 | crate | `crates/evo-harness/src/agent_harness/child.rs`, `crates/evo-harness/src/frontmatter.rs` | Child harness construction, tool guard hook (`ChildToolGuard`), frontmatter parser | FR-1, FR-3, FR-7 |
-| engine | `crates/evo-engine/src/agent_tool.rs` | The `agent` and `message_agent` tools: runner, progress snapshots, usage, limits, background registry, steering release, lost-agent reports | FR-4–FR-13, NFR-1 |
+| engine | `crates/evo-engine/src/tools/agent.rs` | The `agent` and `message_agent` tools: runner, progress snapshots, usage, limits, background registry, steering release, lost-agent reports | FR-4–FR-13, NFR-1 |
 | engine | `crates/evo-engine/src/child_agents.rs` | Plugin child agents (`child_agent` host action), shared limits | FR-7, NFR-2 |
 | engine | `crates/evo-engine/src/session.rs` | Builds the tools with the late-bound harness handle (also on `/reload`) | FR-4 |
 | crate | `crates/evo-worktrees/src/lib.rs` | Managed worktrees: create, list, changes, apply, remove; shared by engine and shell | FR-13, FR-21, FR-22, NFR-4 |
@@ -285,7 +285,7 @@ in `engine-store.ts` `onMessage` with `external_tool_response`):
 
 | Tool | Does |
 | --- | --- |
-| `start_session {title, prompt, context: fresh\|fork, workspace?, worktree?, model?}` | Creates the child chat (parent link, workspace = parent's unless given), starts its engine in the background, sends the prompt, returns `{sessionId, title, status}` — or `{status: "proposed", proposalId}` when the person must click |
+| `start_session {title, prompt, context: fresh\|fork, worktree?}` | Creates the child chat (parent link; the parent's workspace, model and memory flags), starts its engine in the background, sends the prompt, returns `{sessionId, title, status}` — or `{status: "proposed", proposalId}` when the person must click. At most 8 children run or start at once per parent |
 | `message_session {sessionId, message}` | Sends a message to a child: a running child reads it at its next step (steering), an idle one starts a turn |
 | `list_sessions {}` | The parent's children: id, title, status, unread, last report excerpt |
 
@@ -297,7 +297,8 @@ startChildChat(parentId, { title, prompt, workspaceId, cwd, origin: "agent" })
 ```
 
 **Note to the parent**: `{sessionId, title, status, report}` (report = first
-400 characters). Multi-window delivery was first designed as a Tauri event
+400 characters). A longer report adds a line that it
+was cut and how to read the rest. Multi-window delivery was first designed as a Tauri event
 `nested://settled {parentId, note}` from the window holding the child
 runtime to the window holding the parent's runtime (or the main window,
 which attaches it); the mesh hub now delivers notes.
@@ -358,7 +359,7 @@ pointer to `message_agent`.
 **Steering releases a foreground wait.** The parent reads steering only
 between steps, so a message sent while it waits on foreground agents used to
 wait for all of them. A `queue_message` steer (the person, or another
-session's `message_session`) calls `agent_tool::steered(session)`; every
+session's `message_session`) calls `tools::agent::steered(session)`; every
 waiting foreground call returns at once ("moved to the background, its report
 comes as a message"), the child runs on with the session's lifetime instead
 of the parent run's, and reports like a background agent (steered into a
@@ -386,7 +387,7 @@ is cancelled on session close or switch. When it finishes:
 (they run in its process: the app closed or crashed). When an engine opens a
 session in RPC mode it finds the background calls in the branch with no
 `<background-agent id=…>` report after them
-(`agent_tool::unreported_background_agents`) and queues their report for the
+(`tools::agent::unreported_background_agents`) and queues their report for the
 next run, `status="error"`, saying the agent stopped with no report
 (`report_lost_background_agents`; a report already queued is not queued
 again; no wake: opening a chat does not start a run). `ready` lists them in
@@ -408,8 +409,9 @@ running forever.
 - Worktree kept → a badge with the branch and actions "Open in…" (the
   existing Open in apps), "Show changes" (the review dialog), "Discard"
   (remove the worktree).
-- A "Background agents" chip above the composer lists running ones; the
-  wake-up turn renders as an event chip, not a person's bubble.
+- The wake-up turn renders as an event chip, not a person's bubble. (The
+  designed "Background agents" chip above the composer was not built:
+  running agents show on their calls and in the turn's summary card.)
 
 **Running a chat in the background** (`startChildChat`):
 
@@ -429,7 +431,7 @@ starts and used as its working folder.
 (`recordFinishedTurn`), when the chat has a parent:
 
 - build the note (3.3);
-- parent busy → `queue_message {deliverAs: "followUp"}` to the parent;
+- parent busy → the note is steered into its run and read at its next step;
 - parent idle → after a 2 s coalescing window, one automated `prompt` to the
   parent containing all pending notes, tagged so the transcript shows it as a
   "Nested sessions update" event chip;
@@ -463,8 +465,9 @@ changes nothing. **Discard** removes the worktree.
 - Unknown agent type or model → the call is refused with the reason.
 - Read-only refusal → the model is told to retry with a plainer command.
 - Recursion (a child calling `agent`) → refused.
-- More than 4 foreground children in a run, or 16 kept per session → the
-  limit is enforced by the runner (shared with plugin children).
+- More than 4 children at once in a session → a foreground call waits for a
+  free place, a background call is refused; 16 are kept per session (plugin
+  children have a limit of 16 of their own).
 - Engine exit with background agents → reported once as lost (3.5).
 - Steer during a foreground wait → the call returns at once; the child
   reports later.
@@ -490,6 +493,32 @@ changes nothing. **Discard** removes the worktree.
   calls, static .NET calls, property assignment and `&` are refused. Unknown
   commands are refused; the refusal tells the model to retry with a plainer
   command.
+- **The guard reads a command no more generously than the shell does**
+  (hardened 2026-11-11). Text the two could read differently is refused
+  outright: `$'…'`, `${…}` beyond plain forms (an offset or index that is a
+  name is evaluated as arithmetic, `${x@P}` as a prompt), `$[…]`, brace
+  expansion, PowerShell here-strings, block comments and typographic quotes,
+  and line-break characters only one shell honours (a lone carriage return
+  ends a PowerShell statement). What could turn an allowed command into
+  another one is refused too: a program named by its path (`./test`,
+  `.\sort`, `sort.exe` is the program and not the `Sort-Object` alias); an
+  argument of an option-checked program (`git`, `rg`, `sort`, `find`, …) that
+  starts with a variable, a substitution, a file-name pattern, or in
+  PowerShell is the value of `(…)`, a script block or a `,` list — unless it
+  stands after `--` or behind a literal prefix; variables (bash may set
+  lowercase shell variables in a statement, and only `LC_ALL`, `LANG`, `TZ`,
+  `IFS` and the like for a command, as loop variable or with `read`, because
+  names in capitals — and, on Windows, any exported name — reach `git` and
+  bash itself; PowerShell may assign plain `$name` variables only, not
+  `$env:`, `$alias:` or `${function:…}`); builtins that evaluate an operand
+  (`test -v`, `[[ … -eq … ]]`, `printf -v`, `declare -i`, a `test` operator
+  taken from a variable); abbreviated or clustered spellings of writing
+  options (`sort -uo`, `--outp`, `git grep -O…`); and .NET conversions other
+  than a short list of value types (`[IO.StreamWriter]'f'` and
+  `'f' -as 'IO.StreamWriter'` run a constructor). A PowerShell expression is
+  checked to its end, so a command after its first word is seen
+  (`$x = $y = Remove-Item …`). The approval modes classify shell commands
+  with the same check, so each of these also asks in Ask mode.
 - Agents cannot silently fan out sessions: `start_session` is a proposal the
   person clicks unless they turn on **Start sessions without asking**; child
   sessions cannot start sessions; at most 8 run per parent. Proposals also
@@ -556,5 +585,67 @@ changes nothing. **Discard** removes the worktree.
   dialog. The design's "merge" action became **Apply**: the changes land
   uncommitted and the worktree is removed.
 - **Steering release** was added on 2026-11-06 (3.5).
-- **Tests**: the desktop logic is covered by typecheck and a preview with
-  sample data, not by automated tests (the desktop has no test runner).
+- **Tests**: the transcript reducer and the worktree helpers have `bun test`
+  suites (`apps/desktop/src/features/chat/transcript-agents.test.ts`,
+  `apps/desktop/src/lib/worktrees.test.ts`); the stores, the sidebar and the
+  dialogs are covered by typecheck only.
+- **Audit fixes (2026-11-11)**, tasks phase 6:
+  - *`agent` tool.* Four places per session as a semaphore: a foreground
+    call waits (the wait ends on cancel, session close or a steer), a
+    background call is refused; 16 agents are kept per session, 64 per
+    engine. A foreground result ends with `[This agent's id is …]`;
+    `message_agent` takes the id, `a_<id>`, the node address or a unique
+    description. A failed, cancelled or timed-out foreground call returns
+    `AgentError::StructuredTool` with the final snapshot and the run's usage,
+    and its text carries the agent's last words (4 KiB). Report bodies have
+    note tags made inert (`&lt;background-agent`); a lost-agent check counts
+    a note only when its tag starts a line. `startedAt` is per run.
+  - *Worktrees.* The fork commit is recorded at creation (`evo-base` in the
+    worktree's git dir; older worktrees fall back to the merge-base). Changes
+    and Apply use the toplevel of the folder passed, not the repository's
+    main checkout. The patch stays bytes. Apply snapshots every path the
+    patch touches and puts them back on any failure
+    (`crates/evo-worktrees/src/snapshot.rs`), and applies only the patch the
+    dialog showed (`hash` / `expected`). Removal is tolerant: branch and
+    registration go even when the folder is in use (`cleaned: false`), the
+    shell retries the folder in the background, and a leftover folder under a
+    managed location can be removed later. A plugin child reports its kept
+    worktree however it ended.
+  - *Hub.* A child counts against the limit of 8 from its start until its
+    first turn settles (or 10 minutes), under one gate for the tool and the
+    card. Proposals are kept in memory: `mesh_start_session {parent, spec,
+    proposalId?}` starts one once, `mesh_dismiss_proposal {parent,
+    proposalId}` closes it, and each posts the parent a queued note
+    (`status="started"` / `"dismissed"`) that neither wakes it nor starts
+    its engine. A cut note says so and names `session_read`. A prompt refused
+    for another reason than an active run leaves the chat idle. Structured
+    results no longer repeat the brief (the card reads the call's
+    arguments). A child's row copies its parent's provider and model; a
+    forked child has origin `agent`.
+  - *Desktop.* The transcript keeps a queue of approval requests by id
+    (`permissions`), recognises automated messages by their whole structure
+    (`noteKind`), settles running agents when the engine exits
+    (`engine-exited`) and shows as lost only the agents the engine lists
+    (`lostAgents`). The report shown is the mesh `node_report` text;
+    `message_agent` rows render as agents. The store holds a wake while the
+    chat's composer has a draft (`setComposing`) or an approval is open,
+    counts an agent's uncounted usage when it ends (`countAgent`), stops a
+    session's engine around Apply and Discard (`stopEngine`, `resumeEngine`,
+    `useWorktreeSession`), keys settled worktrees by `worktreeKey`, starts a
+    nested session on its row's model, and on deleting a chat removes its
+    unchanged worktree. A folded turn keeps a kept worktree's badge in sight
+    (`KeptWorktree` in `agent-run.tsx`); the review dialog's grid has one
+    column no wider than the dialog, so a long path or patch line no longer
+    pushes Apply out of view.
+  - *External tools* (`crates/evo-engine/src/rpc/external_tools.rs`). A
+    failed call (`isError`) returns `AgentError::StructuredTool`: the model
+    reads the backend's text (and a structured result not already in it),
+    as for a success, instead of a JSON dump of the reply; the details keep
+    `content`, `structuredContent` and `isError`. Desktop readers of a
+    structured result (`send_file`, the proposal card) skip failed calls.
+  - *Still open.* `start_session`'s `workspace` and `model` (T29); denying
+    writes to read-only children at the operating-system level (T30);
+    opening the parent from a separate chat window (T31). A background
+    agent's usage is not saved with the transcript, so a reopened chat shows
+    less cost for the turn it was counted in; a foreground call waiting for a
+    place shows no agent view until it starts.

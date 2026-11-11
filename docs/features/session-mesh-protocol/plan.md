@@ -99,8 +99,8 @@ Three planes share one envelope: **control** (`cmd` → `res`),
 | protocol | `crates/evo-protocol/src/mesh.rs` | Re-exports the `evo-mesh` wire types as `evo_protocol::mesh` | FR-3, FR-4 |
 | crate | `crates/evo-mesh/src/hub.rs` | `Hub`: pure logic over engine stdout lines → effects; `MailStore` trait; notes from nested sessions; prompt mail; hosting; session tools (`session_tools()`), proposals, the running-children cap (`MAX_RUNNING_CHILDREN` = 8) | FR-17 – FR-25, NFR-1, NFR-2 |
 | engine | `crates/evo-engine/src/mesh.rs` | `LocalRouter`: registry, per-subscriber levels, activity fold, cancel cascade, wake requests (`request_wake`, `session_run`), wait-for graph, `MAX_PAIR_MAIL` (20) | FR-1, FR-5 – FR-10, FR-12, FR-30, FR-31, NFR-2, NFR-3 |
-| engine | `crates/evo-engine/src/mesh_tools.rs` | `send_message`, `ask`, `reply`, `list_nodes`, `cancel_node`, one instance per node | FR-26 – FR-29 |
-| engine | `crates/evo-engine/src/agent_tool.rs`, `crates/evo-engine/src/child_agents.rs`, side questions | Register their nodes with the router and report state, activity, usage and reports | FR-1, FR-8 |
+| engine | `crates/evo-engine/src/tools/mesh.rs` | `send_message`, `ask`, `reply`, `list_nodes`, `cancel_node`, one instance per node | FR-26 – FR-29 |
+| engine | `crates/evo-engine/src/tools/agent.rs`, `crates/evo-engine/src/child_agents.rs`, side questions | Register their nodes with the router and report state, activity, usage and reports | FR-1, FR-8 |
 | engine | `crates/evo-engine/src/modes.rs`, `crates/evo-engine/src/rpc/protocol.rs` | RPC: `ready.mesh`, `{"type":"mesh",…}` lines, root-node state, a session's own `node_report`, mail addressed to the session | FR-4, FR-5, FR-9, FR-15, FR-16 |
 | crate | `crates/evo-store/src/mail.rs`, `crates/evo-store/src/migrations/0006_mail.sql` | The `mail` table; `chats_with_pending_mail` | FR-17, FR-24, NFR-1 |
 | desktop shell | `apps/desktop/src-tauri/src/mesh.rs` | Embeds the hub; `DbMailStore` (`create_session`); Tauri commands `mesh_session_tools`, `mesh_configure`, `mesh_start_session`, `mesh_hosted`, `mesh_pending_chats`; events `mesh://mail-waiting`, `mesh://host`, `mesh://prompted` | FR-17 – FR-24 |
@@ -108,7 +108,7 @@ Three planes share one envelope: **control** (`cmd` → `res`),
 | desktop UI | `apps/desktop/src/engine/mesh.ts` | Mesh types and the fold into the agent view | FR-11 |
 | desktop UI | `apps/desktop/src/engine/client.ts` | `EngineClient.mesh()` | FR-11 |
 | desktop UI | `apps/desktop/src/stores/engine-store.ts` | Subscribes at `summary`, renders subagents, wakes idle chats, cancels through the mesh, keeps chats with running subagents, hosts engines (`onReadyNested`), restarts died engines, hosts chats with mail at startup | FR-11, FR-13, FR-14, FR-21 – FR-24, FR-28 |
-| crate (planned) | `crates/evo-mesh`, `crates/evo-engine/src/mesh_tools.rs` | Mail between nodes of different engines | FR-32 |
+| crate (planned) | `crates/evo-mesh`, `crates/evo-engine/src/tools/mesh.rs` | Mail between nodes of different engines | FR-32 |
 | crate (planned) | `crates/evo-protocol/src/client.rs`, `crates/evo-mesh` | Hub over TCP for `--connect` and remote engines | FR-33 |
 
 ### 3.3 Interfaces
@@ -604,7 +604,7 @@ Phase 1:
 
 - The wire types first lived in `crates/evo-protocol/src/mesh.rs`.
 - The design had the `LocalRouter` replace the separate job tables of
-  `child_agents.rs`, `agent_tool.rs` and the background-agent list. As
+  `child_agents.rs`, `tools/agent.rs` and the background-agent list. As
   built, their own job tables stay (they hold the harness handles); the
   router is the shared registry and event source.
 - The desktop subscribes at `summary` on `ready` (and when it attaches to an

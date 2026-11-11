@@ -15,16 +15,16 @@ can start right after phase 1.
 
 Planned scope: a `mesh` module in `evo-protocol` (envelope, node, ops,
 events); an engine `LocalRouter` merging the job tables of
-`child_agents.rs`, `agent_tool.rs` and side questions; all engine events
+`child_agents.rs`, `tools/agent.rs` and side questions; all engine events
 carry `from`. Main files: `crates/evo-protocol/src/mesh.rs`,
-`crates/evo-engine/src/child_agents.rs`, `agent_tool.rs`, `modes.rs`. (As
+`crates/evo-engine/src/child_agents.rs`, `tools/agent.rs`, `modes.rs`. (As
 built, the job tables stay and legacy events are not tagged — plan 5.)
 
 Done when: the desktop renders a subagent from `summary` events; protocol
 round-trip tests pass.
 
 - [x] T1 [FR-1, FR-2, FR-3, FR-5, FR-7, FR-8] Wire types: envelope, `Address`, `Node`, `Level`, `MeshEvent` (`node_state`, `node_report`, `node_activity`, `node_usage`, `node_event`), `MeshCommand` (`subscribe`, `list`, `get`, `cancel`), typed errors — `crates/evo-protocol/src/mesh.rs` (moved to `crates/evo-mesh/src/wire.rs` in T9) — check: `cargo test -p evo-mesh -- addresses_route_by_session_and_keep_lineage_apart child_nodes_inherit_root_and_depth event_envelopes_round_trip_on_the_wire wire_names_are_stable levels_are_ordered_and_assigned commands_parse_and_answer_with_correlation malformed_and_foreign_messages_are_refused`
-- [x] T2 [FR-1, FR-6, FR-7, FR-8, NFR-3] `LocalRouter`, one per engine: registry, per-subscriber levels, cancel cascade; the `agent` tool, plugin children and side questions register their nodes with a cancel handle and report state, activity, usage and reports — `crates/evo-engine/src/mesh.rs`, `crates/evo-engine/src/agent_tool.rs`, `crates/evo-engine/src/child_agents.rs` — check: `cargo test -p evo-engine -- lifecycle_reaches_subscribers_in_order_and_closed_nodes_leave summary_events_exist_only_while_wanted cancel_cascades_children_first_and_reports_what_stopped commands_answer_through_envelopes a_new_session_replaces_the_root a_subagent_is_a_mesh_node_with_live_summary_events`
+- [x] T2 [FR-1, FR-6, FR-7, FR-8, NFR-3] `LocalRouter`, one per engine: registry, per-subscriber levels, cancel cascade; the `agent` tool, plugin children and side questions register their nodes with a cancel handle and report state, activity, usage and reports — `crates/evo-engine/src/mesh.rs`, `crates/evo-engine/src/tools/agent.rs`, `crates/evo-engine/src/child_agents.rs` — check: `cargo test -p evo-engine -- lifecycle_reaches_subscribers_in_order_and_closed_nodes_leave summary_events_exist_only_while_wanted cancel_cascades_children_first_and_reports_what_stopped commands_answer_through_envelopes a_new_session_replaces_the_root a_subagent_is_a_mesh_node_with_live_summary_events`
 - [x] T3 [FR-4, FR-5, FR-9] RPC: `ready.mesh` advertises version 1; a `{"type":"mesh",…}` command line is answered with `res` (`corr` = its `id`), then the replay; events go out as `{"type":"mesh",…}` lines; the root node is `running` from an accepted prompt until `agent_settled`, then `idle` — `crates/evo-engine/src/modes.rs`, `crates/evo-engine/src/rpc/protocol.rs` — check: `cargo test -p evo-engine -- rpc_mesh_subscribe_answers_with_correlation_and_streams_session_state customization_and_mesh_commands_pass_payload_validation`
 - [x] T4 [FR-11] Desktop: mesh types and the fold into the agent view, `EngineClient.mesh()`, subscribe at `summary` on `ready` and on attach, render subagents from `node_*` events — `apps/desktop/src/engine/mesh.ts`, `apps/desktop/src/engine/client.ts`, `apps/desktop/src/stores/engine-store.ts` — check: manual check in the running app
 
@@ -36,7 +36,7 @@ Planned scope: `node_state` / `node_report` / `node_usage` from the engine;
 
 Done when: a background agent finishing wakes the parent with no polling.
 
-- [x] T5 [FR-12] Remove the RPC commands `get_background_agents`, `ack_background_agents`, `cancel_background_agent` and the registry's wake flag — `crates/evo-engine/src/rpc/protocol.rs`, `crates/evo-engine/src/agent_tool.rs` — check: `cargo test -p evo-engine -- a_background_agent_reports_to_the_idle_parent_on_its_next_run a_background_agent_can_be_cancelled`
+- [x] T5 [FR-12] Remove the RPC commands `get_background_agents`, `ack_background_agents`, `cancel_background_agent` and the registry's wake flag — `crates/evo-engine/src/rpc/protocol.rs`, `crates/evo-engine/src/tools/agent.rs` — check: `cargo test -p evo-engine -- a_background_agent_reports_to_the_idle_parent_on_its_next_run a_background_agent_can_be_cancelled`
 - [x] T6 [FR-12] Wake requests on the session node (`LocalRouter::request_wake`, cleared by `mesh::session_run`) — `crates/evo-engine/src/mesh.rs` — check: `cargo test -p evo-engine wake_requests_live_on_the_session_until_its_next_run`
 - [x] T7 [FR-10] Activity fold for every node and one snapshot per node for a new `summary` subscriber — `crates/evo-engine/src/mesh.rs` — check: `cargo test -p evo-engine late_summary_subscribers_get_one_activity_snapshot_per_node`
 - [x] T8 [FR-13, FR-14] Desktop: wake an idle chat 1 s after a session `node_state` / `agent_settled` for unhandled `meta.wake` reports (`address@endedAt`), at most 5 automated wakes in a row; cancel via mesh `cancel`; keep idle chats with running subagents out of the idle trim — `apps/desktop/src/stores/engine-store.ts` — check: manual check in the running app
@@ -72,11 +72,11 @@ deadlock and loop guards, optional topics (not yet, spec 6.2). Main files:
 Done when: two agents coordinate via `ask` / `reply`; a cyclic ask is
 refused.
 
-- [x] T18 [FR-26, FR-27, FR-28] `send_message`, `ask`, `reply`, `list_nodes`, `cancel_node` bound to each node (passed as the child's tool replacements); reach (parent, children, siblings with `mail.siblings`); `<mail …>` delivery as steer, next run with a `mail` wake request, or on continue — `crates/evo-engine/src/mesh_tools.rs` — check: `cargo test -p evo-engine asking_the_session_that_waits_on_you_is_refused_and_a_message_reaches_it`
-- [x] T19 [FR-29] `ask` blocks until `reply`, the receiver's run ending, the timeout (600 s, max 1800 s) or cancellation; an `ask` to an idle agent continues it and its report goes to the asker — `crates/evo-engine/src/mesh_tools.rs` — check: `cargo test -p evo-engine -- a_subagent_asks_its_sibling_and_gets_the_answer the_refusal_says_why_and_reply_checks_the_asker`
+- [x] T18 [FR-26, FR-27, FR-28] `send_message`, `ask`, `reply`, `list_nodes`, `cancel_node` bound to each node (passed as the child's tool replacements); reach (parent, children, siblings with `mail.siblings`); `<mail …>` delivery as steer, next run with a `mail` wake request, or on continue — `crates/evo-engine/src/tools/mesh.rs` — check: `cargo test -p evo-engine asking_the_session_that_waits_on_you_is_refused_and_a_message_reaches_it`
+- [x] T19 [FR-29] `ask` blocks until `reply`, the receiver's run ending, the timeout (600 s, max 1800 s) or cancellation; an `ask` to an idle agent continues it and its report goes to the asker — `crates/evo-engine/src/tools/mesh.rs` — check: `cargo test -p evo-engine -- a_subagent_asks_its_sibling_and_gets_the_answer the_refusal_says_why_and_reply_checks_the_asker`
 - [x] T20 [FR-30, FR-31, NFR-2] Guards in the `LocalRouter`: wait-for graph over open `ask`s and foreground `agent` calls (`would_deadlock`); `MAX_PAIR_MAIL` (20) per directed pair between two runs — `crates/evo-engine/src/mesh.rs` — check: `cargo test -p evo-engine -- a_wait_that_closes_a_cycle_is_refused a_pair_talking_in_a_loop_is_stopped`
 - [x] T21 [FR-28] Desktop: wake for reason `mail` (`meta.wakeReasons`) with `<mail-arrived>`, chips "Message/Question from …" — `apps/desktop/src/stores/engine-store.ts` — check: manual check in the app with a real model
-- [ ] T22 [FR-32] Mail between nodes of different engines (today sessions talk through notes and `message_session`) — `crates/evo-mesh`, `crates/evo-engine/src/mesh_tools.rs` — check: an agent in one session messages a nested session and it receives the mail
+- [ ] T22 [FR-32] Mail between nodes of different engines (today sessions talk through notes and `message_session`) — `crates/evo-mesh`, `crates/evo-engine/src/tools/mesh.rs` — check: an agent in one session messages a nested session and it receives the mail
 
 ### Phase 5 — Remote (later)
 

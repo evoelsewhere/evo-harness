@@ -227,3 +227,10 @@ None.
   (remote engines) proposed. Documented in the legacy single-file format.
 - 2026-11-07 — Moved to the spec / plan / tasks format.
 - 2026-11-07 — Open clarifications answered by the owner (accepted as proposed).
+- 2026-11-11 — Hub fixes from the audit of nested sessions (see [subagents and
+  nested sessions](../subagents-and-nested-sessions/spec.md), FR-16 to FR-19): a
+  session counts against its parent's limit from the moment it starts, proposals
+  are recorded and started once, a queued note tells the parent that a proposal
+  was started or dismissed (it neither wakes the parent nor starts its engine), a
+  cut note says so, and a prompt refused for another reason than an active run
+  leaves the chat idle.

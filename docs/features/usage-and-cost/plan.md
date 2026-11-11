@@ -44,7 +44,7 @@
 
 ```text
 agent loop ──MessageEnd──► UsageTap ─┐               (source = chat)
-agent_tool ProgressEmitter ──────────┤ usage_log::record ─► channel ─► writer thread
+tools/agent ProgressEmitter ──────────┤ usage_log::record ─► channel ─► writer thread
 child_agents Job::observe ───────────┤               (subagent / plugin / side)
 side_questions Emitter ──────────────┘                                 │
                                                     evo.db usage_events ◄┘
@@ -58,7 +58,7 @@ desktop: Usage page ─► usage-store ─► invoke usage_summary / usage_event
 | --- | --- | --- | --- |
 | crate | `crates/evo-store/src/usage.rs`, `crates/evo-store/src/migrations/0008_usage_events.sql`, `crates/evo-store/src/migrations/0009_usage_durations.sql` | Table, `record`, `summary` (totals incl. failures and timing, series by bucket × model, by model/chat/source), `events`, `clear` | FR-1, FR-4, FR-6, FR-7, NFR-4 |
 | engine | `crates/evo-engine/src/usage_log.rs` | Recorder (writer thread, retries, flush), `UsageTap` emitter, `record(message, source)` | FR-1, FR-2, FR-3, NFR-1, NFR-2, NFR-3 |
-| engine | `crates/evo-engine/src/session.rs` (tap around the broadcast emitter), `crates/evo-engine/src/host.rs` (start in RPC mode with `--session-id`, flush at exit), `crates/evo-engine/src/agent_tool.rs`, `crates/evo-engine/src/child_agents.rs`, `crates/evo-engine/src/side_questions.rs` | Feed responses to the recorder | FR-1, FR-2, NFR-3 |
+| engine | `crates/evo-engine/src/session.rs` (tap around the broadcast emitter), `crates/evo-engine/src/host.rs` (start in RPC mode with `--session-id`, flush at exit), `crates/evo-engine/src/tools/agent.rs`, `crates/evo-engine/src/child_agents.rs`, `crates/evo-engine/src/side_questions.rs` | Feed responses to the recorder | FR-1, FR-2, NFR-3 |
 | engine | `crates/evo-engine/src/rpc/protocol.rs` `model_descriptor` | `cost`, `costConfigured` on every model | FR-5 |
 | desktop shell | `apps/desktop/src-tauri/src/db.rs` | `usage_summary`, `usage_events` (blocking thread), `usage_clear` | FR-4, FR-6 |
 | desktop UI | `apps/desktop/src/stores/usage-store.ts`, `apps/desktop/src/features/usage/{usage-page.tsx,usage-charts.tsx,analysis.ts}`, `apps/desktop/src/stores/ui-store.ts` (`usageOpen`), `apps/desktop/src/features/shell/app-sidebar.tsx`, `apps/desktop/src/app/app.tsx`, chart colours `--viz-*` in `apps/desktop/src/index.css` | The page, its charts, the efficiency figures, observations and price check | FR-4, FR-6, FR-7, FR-8, FR-9 |

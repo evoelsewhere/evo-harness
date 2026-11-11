@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | engine, protocol, desktop shell, desktop UI |
 | Created | 2026-11-07 |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-11 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Agent terminal](../agent-terminal/spec.md), [Subagents and nested sessions](../subagents-and-nested-sessions/spec.md), [Customize: hooks](../customize-skills-plugins-connectors/spec.md), [Memory and the Scheduler](../memory-and-scheduler/spec.md) |
@@ -215,3 +215,5 @@ n/a — none open.
 - 2026-11-07 — Accepted with the proposed answers to every open question; ADR 0010 accepted.
 - 2026-11-07 — Moved to the spec / plan / tasks format.
 - 2026-11-07 — In progress: engine gate, protocol, shell setting and composer built; scheduler setting (FR-11) and the subagent label (FR-9) open.
+- 2026-11-11 — The read-only checker FR-4 relies on was hardened (see [subagents and nested sessions](../subagents-and-nested-sessions/spec.md), FR-3): shell commands it used to misread as reading now count as commands and ask.
+- 2026-11-11 — The approval panel keeps every open request (several subagents can ask at once): it shows the oldest and how many more wait, and an answer or a stopped call removes only its own request. A chat is not woken by an automated turn while a request is open.
