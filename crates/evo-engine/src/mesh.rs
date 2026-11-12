@@ -12,6 +12,12 @@
 //! Events are only built for levels someone subscribed to, so an engine
 //! without mesh clients pays (almost) nothing. State-level events are always
 //! kept in a small ring so a client that subscribes late can replay them.
+//!
+//! Mail for nodes of other engines goes through the shell's hub
+//! (docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8): the RPC loop
+//! links its session ([`LocalRouter::link_hub`]) and writes what the tools
+//! send there; the hub's `res` comes back through [`LocalRouter::on_answer`],
+//! and its mail through [`receive_mail`].
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
@@ -19,11 +25,11 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use evo_agent::AgentEvent;
 use serde_json::{json, Value};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 pub use evo_protocol::mesh::{
-    Address, Deliver, Envelope, ErrorCode, Level, ListScope, MailBody, MeshCommand, MeshError,
-    MeshEvent, MeshUsage, Node, NodeKind, NodeState, Origin, RunStatus, ToolRow,
+    Address, Deliver, Envelope, ErrorCode, Kind, Level, ListScope, MailBody, MailKind, MeshCommand,
+    MeshError, MeshEvent, MeshUsage, Node, NodeKind, NodeState, Origin, RunStatus, ToolRow,
 };
 
 /// A model call's usage in mesh terms.
@@ -38,8 +44,10 @@ pub fn usage_of(usage: &evo_ai::types::Usage) -> MeshUsage {
     }
 }
 
-/// Mail one node may send another between two runs of the session.
-pub const MAX_PAIR_MAIL: u32 = 20;
+/// Mail one node may send another between two runs of the session; the hub
+/// holds the same limit across engines
+/// (docs/features/session-roles-and-mail/spec.md, FR-8).
+pub use evo_protocol::mesh::MAX_PAIR_MAIL;
 
 /// A recorded wait; dropping it ends the wait.
 pub struct WaitGuard<'a> {
@@ -164,9 +172,41 @@ pub struct LocalRouter {
     waits: Mutex<Vec<(u64, Address, Address)>>,
     /// Mail per directed pair since the session's last run started (loop breaker).
     pair_mail: Mutex<HashMap<(Address, Address), u32>>,
+    /// The way to the hub, per session this engine runs: mail and commands
+    /// for nodes of other engines go out on the RPC stream
+    /// (docs/features/session-roles-and-mail/spec.md, FR-6).
+    hub: Mutex<HashMap<Address, mpsc::UnboundedSender<Envelope>>>,
+    /// Envelopes sent to the hub that wait for its `res`, by envelope id.
+    answers: Mutex<HashMap<String, oneshot::Sender<Value>>>,
     /// Makes envelope ids unique across engine restarts in one hub.
     epoch: u64,
     ids: AtomicU64,
+    /// Per session: the usage of its agents (subagents and plugin children)
+    /// that ended since its last turn, for that turn's totals
+    /// (docs/features/shell-hosted-engines/spec.md, FR-6).
+    turn_children: Mutex<HashMap<Address, ChildLedger>>,
+}
+
+/// What a session's agents used that no turn counted yet.
+#[derive(Default)]
+struct ChildLedger {
+    /// Each agent's cumulative usage as last counted: a continued agent
+    /// (`message_agent`) adds only what it used since.
+    counted: HashMap<Address, MeshUsage>,
+    /// Not taken by a turn yet.
+    pending: MeshUsage,
+}
+
+/// `after` minus `before`, never below zero.
+fn usage_since(after: &MeshUsage, before: &MeshUsage) -> MeshUsage {
+    MeshUsage {
+        input: after.input.saturating_sub(before.input),
+        output: after.output.saturating_sub(before.output),
+        cache_read: after.cache_read.saturating_sub(before.cache_read),
+        cache_write: after.cache_write.saturating_sub(before.cache_write),
+        total_tokens: after.total_tokens.saturating_sub(before.total_tokens),
+        cost: (after.cost - before.cost).max(0.0),
+    }
 }
 
 impl Default for LocalRouter {
@@ -178,8 +218,11 @@ impl Default for LocalRouter {
             subscribers: Mutex::new(HashMap::new()),
             waits: Mutex::new(Vec::new()),
             pair_mail: Mutex::new(HashMap::new()),
+            hub: Mutex::new(HashMap::new()),
+            answers: Mutex::new(HashMap::new()),
             epoch: now_ms(),
             ids: AtomicU64::new(0),
+            turn_children: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -395,6 +438,11 @@ impl LocalRouter {
             id.host()
                 .map(|host| Node::new(host, None, "", Origin::User))
         });
+        // A node new at this address has used nothing yet.
+        if let Some(ledger) = lock(&self.turn_children).get_mut(&Address::session(id.session_id()))
+        {
+            ledger.counted.remove(&id);
+        }
         let mut node = Node::new(id, parent.as_ref(), title, origin);
         node.started_at = now_ms();
         node.meta = if meta.is_object() { meta } else { json!({}) };
@@ -462,6 +510,11 @@ impl LocalRouter {
         if state == NodeState::Closed {
             inner.nodes.remove(index);
         }
+        if matches!(state, NodeState::Settled | NodeState::Closed)
+            && snapshot.kind == NodeKind::Agent
+        {
+            self.count_child(&snapshot.id, &snapshot.usage, state == NodeState::Closed);
+        }
         self.publish(
             &mut inner,
             MeshEvent::NodeState {
@@ -469,6 +522,32 @@ impl LocalRouter {
                 prev: Some(prev),
             },
         );
+    }
+
+    /// An agent ended a run (or closed) with `usage` so far: what it used
+    /// since it was last counted goes to its session's next turn.
+    fn count_child(&self, id: &Address, usage: &MeshUsage, closed: bool) {
+        let mut ledgers = lock(&self.turn_children);
+        let ledger = ledgers
+            .entry(Address::session(id.session_id()))
+            .or_default();
+        let before = ledger.counted.get(id).copied().unwrap_or_default();
+        ledger.pending.add(&usage_since(usage, &before));
+        if closed {
+            ledger.counted.remove(id);
+        } else {
+            ledger.counted.insert(id.clone(), *usage);
+        }
+    }
+
+    /// What the agents of `session` (its address) used since this was last
+    /// taken: the children's part of the turn that just ended (subagents
+    /// FR-6; a background agent that ends after its turn counts in the next).
+    pub fn take_child_usage(&self, session: &Address) -> MeshUsage {
+        lock(&self.turn_children)
+            .get_mut(session)
+            .map(|ledger| std::mem::take(&mut ledger.pending))
+            .unwrap_or_default()
     }
 
     /// Change a node's record without announcing it (the next state change carries it).
@@ -592,6 +671,129 @@ impl LocalRouter {
         }
         *count += 1;
         Ok(())
+    }
+
+    /// The wait edges `[waiter, target]` that lead to `node`, directly or
+    /// not, among the nodes this engine hosts: what an `ask` to another
+    /// engine reports so the hub's wait-for graph spans engines
+    /// (docs/features/session-roles-and-mail/spec.md, FR-8).
+    pub fn waits_ending_at(&self, node: &Address) -> Vec<[Address; 2]> {
+        let session = Address::session(node.session_id());
+        let waits = lock(&self.waits);
+        let mut reached = vec![node.clone()];
+        let mut edges: Vec<[Address; 2]> = Vec::new();
+        let mut index = 0;
+        while index < reached.len() {
+            let current = reached[index].clone();
+            for (_, waiter, target) in waits.iter() {
+                let local = waiter.is_hosted_by(&session) && target.is_hosted_by(&session);
+                let edge = [waiter.clone(), target.clone()];
+                if *target == current && local && !edges.contains(&edge) {
+                    edges.push(edge);
+                    if !reached.contains(waiter) {
+                        reached.push(waiter.clone());
+                    }
+                }
+            }
+            index += 1;
+        }
+        edges
+    }
+
+    // ── The hub ────────────────────────────────────────────────────────────
+    // docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8.
+
+    /// Link `session` to the hub: what this engine sends the hub for it
+    /// (mail ops, `peers`) comes out of the receiver, which the RPC loop
+    /// writes to the client. A new link replaces the old one; while none is
+    /// open, mail to nodes of other engines is refused as before.
+    pub fn link_hub(&self, session: &Address) -> mpsc::UnboundedReceiver<Envelope> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        lock(&self.hub).insert(session.clone(), tx);
+        rx
+    }
+
+    /// Whether `session` has an open link to the hub.
+    pub fn has_hub(&self, session: &Address) -> bool {
+        lock(&self.hub)
+            .get(session)
+            .is_some_and(|tx| !tx.is_closed())
+    }
+
+    /// Send `envelope` to the hub for `session`; false without a link.
+    pub fn to_hub(&self, session: &Address, envelope: Envelope) -> bool {
+        lock(&self.hub)
+            .get(session)
+            .is_some_and(|tx| tx.send(envelope).is_ok())
+    }
+
+    /// Send `envelope` to the hub and wait up to `wait` for its answer: the
+    /// `res` body, or the hub's refusal as an error whose message names the
+    /// sessions that can be reached.
+    pub async fn ask_hub(
+        &self,
+        session: &Address,
+        envelope: Envelope,
+        wait: std::time::Duration,
+    ) -> Result<Value, MeshError> {
+        let id = envelope.id.clone();
+        let (tx, rx) = oneshot::channel();
+        lock(&self.answers).insert(id.clone(), tx);
+        if !self.to_hub(session, envelope) {
+            lock(&self.answers).remove(&id);
+            return Err(MeshError::new(
+                ErrorCode::Unsupported,
+                "this session is not connected to other sessions",
+            ));
+        }
+        let body = match tokio::time::timeout(wait, rx).await {
+            Ok(Ok(body)) => body,
+            _ => {
+                lock(&self.answers).remove(&id);
+                return Err(MeshError::new(
+                    ErrorCode::Timeout,
+                    "the app did not answer: mail to other sessions is not available",
+                ));
+            }
+        };
+        let Some(error) = body.get("error") else {
+            return Ok(body);
+        };
+        let code = serde_json::from_value(error["code"].clone()).unwrap_or(ErrorCode::BadRequest);
+        let mut message = error["message"].as_str().unwrap_or("refused").to_string();
+        if let Some(reachable) = error["reachable"].as_array() {
+            let names: Vec<String> = reachable
+                .iter()
+                .map(|node| {
+                    format!(
+                        "{} ({})",
+                        node["id"].as_str().unwrap_or_default(),
+                        node["title"].as_str().unwrap_or_default()
+                    )
+                })
+                .collect();
+            message.push_str(&format!(
+                "; sessions you can reach: {}",
+                if names.is_empty() {
+                    "none".to_string()
+                } else {
+                    names.join(", ")
+                }
+            ));
+        }
+        Err(MeshError::new(code, message))
+    }
+
+    /// The hub's `res` to something this engine sent it; true when someone
+    /// waited for it.
+    pub fn on_answer(&self, envelope: &Envelope) -> bool {
+        let Some(corr) = envelope.corr.as_deref() else {
+            return false;
+        };
+        match lock(&self.answers).remove(corr) {
+            Some(waiter) => waiter.send(envelope.body.clone()).is_ok(),
+            None => false,
+        }
     }
 
     // ── Wake requests ──────────────────────────────────────────────────────
@@ -861,11 +1063,6 @@ impl LocalRouter {
     ) -> (Envelope, Vec<Envelope>) {
         let mut replay = Vec::new();
         let result = envelope.as_command().and_then(|command| match command {
-            // Sessions of other engines are the hub's to list.
-            MeshCommand::Peers {} => Err(MeshError::new(
-                ErrorCode::Unsupported,
-                "`peers` is answered by the hub, not by an engine",
-            )),
             MeshCommand::Subscribe { level, since } => {
                 let (seq, retained) = self.subscribe(subscriber, level, since);
                 replay = retained;
@@ -883,6 +1080,11 @@ impl LocalRouter {
             MeshCommand::Cancel { node, cascade } => self
                 .cancel(&node, cascade)
                 .map(|cancelled| json!({ "cancelled": cancelled })),
+            // Sessions of other engines are the hub's to list.
+            MeshCommand::Peers {} => Err(MeshError::new(
+                ErrorCode::Unsupported,
+                "`peers` is answered by the hub, not by an engine",
+            )),
         });
         (Envelope::response(self.next_id(), envelope, result), replay)
     }
@@ -946,16 +1148,56 @@ async fn take_mail(
 ) -> Result<Value, MeshError> {
     let body = envelope.as_mail()?;
     let session = Address::session(&harness.session().storage().metadata().id);
-    if envelope.to != session.as_str() {
-        return Err(MeshError::new(
-            ErrorCode::NotFound,
-            format!("this engine runs {session}, not {}", envelope.to),
-        ));
-    }
+    // The session, or (mail from another engine) a node it hosts.
+    let to = Address::parse(&envelope.to)
+        .ok()
+        .filter(|to| to.is_hosted_by(&session))
+        .ok_or_else(|| {
+            MeshError::new(
+                ErrorCode::NotFound,
+                format!("this engine runs {session}, not {}", envelope.to),
+            )
+        })?;
     let from =
         Address::parse(&envelope.from).map_err(|e| MeshError::new(ErrorCode::BadRequest, e))?;
     if lock(&SEEN_MAIL).contains(&envelope.id) {
         return Ok(json!({ "duplicate": true }));
+    }
+    let remember = || {
+        let mut seen = lock(&SEEN_MAIL);
+        seen.push_back(envelope.id.clone());
+        while seen.len() > SEEN_MAIL_KEPT {
+            seen.pop_front();
+        }
+    };
+    // Mail across engines (docs/features/session-roles-and-mail/spec.md,
+    // FR-6, FR-8): the answer to one of this engine's asks resolves the
+    // waiting call and is not shown; one nobody waits for any more (the
+    // asker restarted or gave up) is shown as mail. An ask is recorded so
+    // that `reply` and the end of the run answer it.
+    match (body.kind, &body.reply_to, &body.ask) {
+        (Some(MailKind::Reply), Some(ask), _)
+            if crate::tools::mesh::answer_remote(ask, &body.text) =>
+        {
+            remember();
+            return Ok(json!({ "answered": true }));
+        }
+        (Some(MailKind::Ask), _, Some(ask)) => {
+            crate::tools::mesh::asked_remotely(&ask.id, &from, &to);
+        }
+        _ => {}
+    }
+    if to != session {
+        let ask = body.kind == Some(MailKind::Ask);
+        // A node that is gone leaves the mail to its session (the hub would
+        // otherwise send it again at every start).
+        if let Ok(how) = crate::tools::agent::deliver(&to, body.text.clone(), ask).await {
+            remember();
+            return Ok(json!({ "queued": how }));
+        }
+        if let (true, Some(info)) = (ask, &body.ask) {
+            crate::tools::mesh::asked_remotely(&info.id, &from, &session);
+        }
     }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -977,17 +1219,17 @@ async fn take_mail(
             format!("could not queue the mail: {error}"),
         )
     })?;
-    {
-        let mut seen = lock(&SEEN_MAIL);
-        seen.push_back(envelope.id.clone());
-        while seen.len() > SEEN_MAIL_KEPT {
-            seen.pop_front();
-        }
-    }
+    remember();
     // Idle now (or its run ended meanwhile): it needs a run to read the mail.
     let wake = body.deliver != Deliver::Queue && !harness.has_active_run();
     if wake {
-        router().request_wake(&session, &from, body.title.as_deref());
+        // A hub note (a report) has no kind; mail from a node has one.
+        let reason = if body.kind.is_some() {
+            "mail"
+        } else {
+            "report"
+        };
+        router().request_wake_for(&session, &from, body.title.as_deref(), reason);
     }
     Ok(json!({ "queued": queued, "wake": wake }))
 }
@@ -1000,12 +1242,20 @@ pub fn capabilities() -> Value {
         "levels": ["state", "summary", "full"],
         "commands": ["subscribe", "list", "get", "cancel"],
         // `mail` envelopes (op `message`) to this session; answered by `res`.
-        "mail": ["message"],
+        // The others it sends the hub for nodes of other engines.
+        "mail": ["message", "send", "ask", "reply", "cancel_ask"],
+        // It takes `message` mail with `kind`/`ask`/`replyTo` for itself and
+        // the nodes it hosts, and sends mail ops and `peers` to the hub
+        // (docs/features/session-roles-and-mail/spec.md, FR-6).
+        "crossEngineMail": true,
         "events": ["node_state", "node_report", "node_activity", "node_usage", "node_event"],
         "kinds": ["session", "agent", "side"],
         // A session node's `meta.wake` lists nodes whose messages wait for its
         // next run; it clears when that run starts.
         "wake": "sessionMeta",
+        // `start_session` calls carry a `role` this engine resolved
+        // (docs/features/session-roles-and-mail/spec.md, FR-1).
+        "sessionRoles": true,
     })
 }
 

@@ -482,8 +482,13 @@ where
 
     // Session mesh: this session is the root node; mesh events go out as
     // `{"type":"mesh",…}` lines at the level the client subscribed to.
-    crate::mesh::router().set_root(&harness.session().storage().metadata().id, "");
+    let hub_session =
+        crate::mesh::router().set_root(&harness.session().storage().metadata().id, "");
     let mesh_subscriber = crate::mesh::router().subscriber();
+    // Mail and commands for nodes of other engines go to the client (the
+    // shell's hub) whatever it subscribed to
+    // (docs/features/session-roles-and-mail/spec.md, FR-6).
+    let mut hub_outbox = crate::mesh::router().link_hub(&hub_session);
     let mesh_task = {
         let out = stdout.clone();
         let stop = pump_stop.clone();
@@ -493,6 +498,12 @@ where
             loop {
                 let item = tokio::select! {
                     _ = stop.cancelled() => break,
+                    Some(envelope) = hub_outbox.recv() => {
+                        if let Ok(value) = serde_json::to_value(&envelope) {
+                            write_line(&out, &value).await;
+                        }
+                        continue;
+                    }
                     item = feed.recv() => item,
                 };
                 match item {
@@ -822,6 +833,12 @@ where
                     Ok(envelope) if envelope.kind == evo_protocol::mesh::Kind::Mail => {
                         let response = crate::mesh::receive_mail(harness, &envelope).await;
                         serde_json::to_value(response).into_iter().collect()
+                    }
+                    // The hub's answer to mail or `peers` this engine sent it
+                    // (session-roles-and-mail FR-6): nothing to answer back.
+                    Ok(envelope) if envelope.kind == evo_protocol::mesh::Kind::Res => {
+                        crate::mesh::router().on_answer(&envelope);
+                        Vec::new()
                     }
                     Ok(envelope) => {
                         let (response, replay) =
