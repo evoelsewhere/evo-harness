@@ -46,6 +46,9 @@ use Location as WorktreeLocation;
 
 /// Branches of managed worktrees.
 pub const BRANCH_PREFIX: &str = "evo/worktree-";
+/// Prefix of a branch the caller named (`evo/<name>`;
+/// docs/features/session-roles-and-mail/spec.md, FR-9).
+pub const NAMED_BRANCH_PREFIX: &str = "evo/";
 /// Inside the repository, relative to its root.
 const REPO_DIR: &str = ".evo/worktrees";
 /// The line that keeps them out of `git status`.
@@ -196,6 +199,53 @@ fn path_of(bytes: &[u8]) -> PathBuf {
 
 /// In a worktree's own git folder: the commit it was cut from.
 const BASE_FILE: &str = "evo-base";
+/// In a worktree's own git folder: the branch evo made for it, when the
+/// caller named it (removal deletes that branch, and only an `evo/` one).
+const BRANCH_FILE: &str = "evo-branch";
+
+fn record_branch(worktree: &Path, branch: &str) -> Result<(), String> {
+    let file = git_dir(worktree)?.join(BRANCH_FILE);
+    std::fs::write(&file, format!("{branch}\n"))
+        .map_err(|e| format!("could not write {}: {e}", file.display()))
+}
+
+/// The branch [`record_branch`] wrote, if it is one evo names.
+fn recorded_branch(worktree: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(git_dir(worktree).ok()?.join(BRANCH_FILE)).ok()?;
+    let branch = text.trim();
+    branch
+        .strip_prefix(NAMED_BRANCH_PREFIX)
+        .is_some_and(|rest| !rest.is_empty())
+        .then(|| branch.to_string())
+}
+
+/// `evo/<name>` for a branch the caller named, if Git takes it and no branch
+/// of that name exists yet.
+fn named_branch(main: &Path, name: &str) -> Result<String, String> {
+    let name = name.trim().trim_start_matches(NAMED_BRANCH_PREFIX);
+    if name.is_empty() {
+        return Err("the branch name is empty".into());
+    }
+    let branch = format!("{NAMED_BRANCH_PREFIX}{name}");
+    if git(main, &["check-ref-format", "--branch", &branch]).is_err() {
+        return Err(format!("`{branch}` is not a valid branch name"));
+    }
+    let exists = git(
+        main,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    );
+    if exists.is_ok() {
+        return Err(format!(
+            "a branch `{branch}` already exists; choose another name"
+        ));
+    }
+    Ok(branch)
+}
 
 fn git_dir(worktree: &Path) -> Result<PathBuf, String> {
     git(
@@ -312,7 +362,20 @@ impl Worktrees {
 
     /// A new worktree of `cwd`'s repository, on a new branch at `HEAD`.
     pub fn create(&self, cwd: &Path, location: WorktreeLocation) -> Result<Created, String> {
+        self.create_named(cwd, location, None)
+    }
+
+    /// [`create`](Self::create), on the branch `evo/<branch>` when the caller
+    /// names one. A name Git refuses, or one a branch already has, is refused
+    /// before anything is made.
+    pub fn create_named(
+        &self,
+        cwd: &Path,
+        location: WorktreeLocation,
+        branch: Option<&str>,
+    ) -> Result<Created, String> {
         let main = Self::main_root(cwd)?;
+        let named = branch.map(|name| named_branch(&main, name)).transpose()?;
         // Where `cwd` sits in its working tree (`src/`), to start the child there too.
         let prefix = git(cwd, &["rev-parse", "--show-prefix"])?;
         let base = git(cwd, &["rev-parse", "HEAD"])
@@ -325,10 +388,16 @@ impl Worktrees {
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
         let path = dir.join(&name);
-        let branch = format!("{BRANCH_PREFIX}{name}");
+        let branch = named
+            .clone()
+            .unwrap_or_else(|| format!("{BRANCH_PREFIX}{name}"));
         let folder = path.to_string_lossy().to_string();
         let added = git(&main, &["worktree", "add", "-b", &branch, &folder, &base])
-            .and_then(|_| record_base(&path, &base));
+            .and_then(|_| record_base(&path, &base))
+            .and_then(|_| match &named {
+                Some(branch) => record_branch(&path, branch),
+                None => Ok(()),
+            });
         if let Err(error) = added {
             // Leave nothing behind: git may have made the branch and the folder.
             let _ = git(
@@ -598,6 +667,8 @@ impl Worktrees {
             Some(worktree) => (worktree.path, true),
             None => (self.leftover(&main, path)?, false),
         };
+        // A branch the caller named, read before the worktree's git folder goes.
+        let named = registered.then(|| recorded_branch(&folder)).flatten();
         let mut detail = None;
         if registered {
             let folder = folder.to_string_lossy();
@@ -617,8 +688,13 @@ impl Worktrees {
         }
         let _ = git(&main, &["worktree", "prune"]);
         // By name: the child may have switched to another branch.
-        if let Some(name) = folder.file_name().and_then(|name| name.to_str()) {
-            let branch = format!("{BRANCH_PREFIX}{name}");
+        let made = named.or_else(|| {
+            folder
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| format!("{BRANCH_PREFIX}{name}"))
+        });
+        if let Some(branch) = made {
             let exists = git(
                 &main,
                 &[
@@ -1140,6 +1216,39 @@ mod tests {
         );
         assert!(ignored.iter().any(|p| p.ends_with("/a.log")), "{ignored:?}");
         assert_eq!(ignored_paths(dir.path()).unwrap(), None);
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-9).
+    #[test]
+    fn named_branch_is_made_refused_when_taken_or_invalid_and_removed() {
+        let Some((dir, root)) = repo() else { return };
+        let worktrees = Worktrees::with_data_root(dir.path().join("data"));
+        let created = worktrees
+            .create_named(&root, WorktreeLocation::UserData, Some("api-auth"))
+            .unwrap();
+        assert_eq!(created.worktree.branch, "evo/api-auth");
+        let listed = worktrees.list(&root).unwrap();
+        assert!(
+            listed.iter().any(|w| w.branch == "evo/api-auth"),
+            "{listed:?}"
+        );
+        // Taken or invalid: refused, and nothing new is made.
+        let before = worktrees.list(&root).unwrap().len();
+        let error = worktrees
+            .create_named(&root, WorktreeLocation::UserData, Some("api-auth"))
+            .unwrap_err();
+        assert!(error.contains("already exists"), "{error}");
+        let error = worktrees
+            .create_named(&root, WorktreeLocation::UserData, Some("bad name..x"))
+            .unwrap_err();
+        assert!(error.contains("not a valid branch name"), "{error}");
+        assert_eq!(worktrees.list(&root).unwrap().len(), before);
+        // A person's own branch of another name is never touched by removal.
+        git(&root, &["branch", "evo/keep-me"]).unwrap();
+        worktrees.remove(&root, &created.worktree.path).unwrap();
+        let branches = git(&root, &["branch", "--list", "evo/*"]).unwrap();
+        assert!(!branches.contains("evo/api-auth"), "{branches}");
+        assert!(branches.contains("evo/keep-me"), "{branches}");
     }
 
     #[test]
