@@ -879,6 +879,8 @@ fn announce(job: &Job, outcome: &Outcome, snapshot: &Value, usage: MeshUsage) {
     );
     router.usage(&job.address, usage);
     let report = report_text(job, outcome, snapshot);
+    // `SubagentStop` hooks (session-roles-and-mail FR-10): once per ended run.
+    crate::hooks::subagent_stop(snapshot, &report);
     router.report(&job.address, status, report.clone(), usage, worktree);
     let reason = snapshot["error"].as_str().map(str::to_string);
     router.transition(&job.address, NodeState::Settled, Some(status), reason);

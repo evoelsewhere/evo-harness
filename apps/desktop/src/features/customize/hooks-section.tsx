@@ -73,6 +73,8 @@ const eventHelp: Record<string, string> = {
   PostToolUseFailure: "After a tool failed.",
   Stop: "When a run ends.",
   SessionEnd: "When the chat's engine closes.",
+  SubagentStop:
+    "When a subagent's run ends (finished, failed or cancelled). Gets its type, description, status, the start of its report and a kept worktree; the matcher is the agent type. It cannot block.",
 };
 
 const resultTone: Record<RunRecord["result"], string> = {

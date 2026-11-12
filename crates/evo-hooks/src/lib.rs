@@ -36,4 +36,6 @@ pub const EVENTS: &[&str] = &[
     "PostToolUseFailure",
     "Stop",
     "SessionEnd",
+    // A subagent's run ended (docs/features/session-roles-and-mail/spec.md, FR-10).
+    "SubagentStop",
 ];

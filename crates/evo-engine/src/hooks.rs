@@ -11,6 +11,8 @@
 //! * `PostToolUse` / `PostToolUseFailure` — after it ran (`after_tool_call`):
 //!   feedback and context are added to the tool's result.
 //! * `Stop` — when a run ends; `SessionEnd` — when the engine shuts down.
+//! * `SubagentStop` — when a subagent's run ends; it cannot block and its
+//!   output is dropped (docs/features/session-roles-and-mail/spec.md, FR-10).
 //!
 //! Hooks come from `hooks` in `~/.evo/agent/settings.json` and, when the
 //! project is trusted, `.evo/settings.json`. `disableAllHooks: true` (user
@@ -220,6 +222,44 @@ pub fn stop(outcome: &str) {
     });
 }
 
+/// Characters of a subagent's report a `SubagentStop` hook gets.
+pub const SUBAGENT_REPORT_CHARS: usize = 2_000;
+
+/// `SubagentStop`, after a subagent's run ended (in the background). The
+/// matcher is the agent type; the outcome is not used: it cannot block.
+pub fn subagent_stop(snapshot: &Value, report: &str) {
+    if !has("SubagentStop") {
+        return;
+    }
+    let input = subagent_stop_input(snapshot, report);
+    let agent_type = input["agent_type"].as_str().map(str::to_string);
+    tokio::spawn(async move {
+        run("SubagentStop", agent_type.as_deref(), input).await;
+    });
+}
+
+/// A `SubagentStop` hook's input from a subagent's settled snapshot.
+pub fn subagent_stop_input(snapshot: &Value, report: &str) -> Value {
+    let status = match snapshot["status"].as_str() {
+        Some("done") => "finished",
+        Some("cancelled") => "cancelled",
+        Some("stopped") => "stopped",
+        _ => "failed",
+    };
+    let worktree = snapshot
+        .get("worktree")
+        .filter(|w| w.get("kept").and_then(Value::as_bool).unwrap_or(true) && !w.is_null())
+        .map(|w| json!({ "path": w["path"], "branch": w["branch"] }));
+    json!({
+        "agent_id": snapshot["agentId"],
+        "agent_type": snapshot["agentType"],
+        "description": snapshot["description"],
+        "status": status,
+        "report": report.chars().take(SUBAGENT_REPORT_CHARS).collect::<String>(),
+        "worktree": worktree,
+    })
+}
+
 /// `SessionEnd`, with a short budget (the engine is closing).
 pub async fn session_end(reason: &str) {
     if !has("SessionEnd") {
@@ -405,4 +445,53 @@ pub fn after_tool_call() -> Option<evo_agent::AfterToolCall> {
             })
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // docs/features/session-roles-and-mail/spec.md (FR-10).
+    #[test]
+    fn subagent_stop_hook_input_names_the_agent_its_status_and_a_kept_worktree() {
+        let snapshot = json!({
+            "agentId": "a_7", "agentType": "explore", "description": "Find the parser",
+            "status": "done",
+            "worktree": { "path": "/wt/x", "branch": "evo/x", "kept": true, "changed": true },
+        });
+        let long = "r".repeat(SUBAGENT_REPORT_CHARS + 50);
+        let input = subagent_stop_input(&snapshot, &long);
+        assert_eq!(input["agent_id"], "a_7");
+        assert_eq!(input["agent_type"], "explore");
+        assert_eq!(input["description"], "Find the parser");
+        assert_eq!(input["status"], "finished");
+        assert_eq!(
+            input["report"].as_str().unwrap().chars().count(),
+            SUBAGENT_REPORT_CHARS
+        );
+        assert_eq!(
+            input["worktree"],
+            json!({ "path": "/wt/x", "branch": "evo/x" })
+        );
+        for (status, said) in [
+            ("error", "failed"),
+            ("cancelled", "cancelled"),
+            ("stopped", "stopped"),
+        ] {
+            let mut ended = snapshot.clone();
+            ended["status"] = json!(status);
+            ended["worktree"] = json!({ "path": "/wt/x", "branch": "evo/x", "kept": false });
+            let input = subagent_stop_input(&ended, "x");
+            assert_eq!(input["status"], said);
+            assert!(
+                input["worktree"].is_null(),
+                "a removed worktree is not reported"
+            );
+        }
+    }
+
+    #[test]
+    fn subagent_stop_hook_is_a_known_event() {
+        assert!(evo_hooks::EVENTS.contains(&"SubagentStop"));
+    }
 }
