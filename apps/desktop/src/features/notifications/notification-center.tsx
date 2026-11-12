@@ -130,7 +130,8 @@ export function NotificationCenter() {
         >
           {doNotDisturb ? <BellOffIcon /> : <BellIcon />}
           {unread > 0 && (
-            <span className="absolute top-0.5 right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-brand px-1 text-[9px] leading-none font-semibold text-brand-foreground tabular-nums">
+            // On the button's corner, clear of the bell; the ring parts it from what is behind.
+            <span className="pointer-events-none absolute -top-1.5 left-[calc(50%+2px)] flex h-3.5 ring-2 ring-background min-w-3.5 items-center justify-center rounded-full bg-brand px-1 text-[9px] leading-none font-semibold text-brand-foreground tabular-nums">
               {unread > 9 ? "9+" : unread}
             </span>
           )}
