@@ -87,6 +87,8 @@ pub struct ChatTool {
     pub server: String,
     /// The tool's own name on the server.
     pub tool: String,
+    /// The server marks it as only reading (`readOnlyHint`).
+    pub read_only: bool,
 }
 
 impl ChatTool {
@@ -99,6 +101,7 @@ impl ChatTool {
             permission: value.get("permission").and_then(|p| serde_json::from_value(p.clone()).ok()).unwrap_or(Permission::Ask),
             server: text("server").unwrap_or_default(),
             tool: text("tool").unwrap_or_default(),
+            read_only: value.get("readOnly").and_then(Value::as_bool).unwrap_or(false),
         })
     }
 
@@ -413,7 +416,13 @@ impl Provider for Connectors {
     fn definitions_for(&self, app: AppHandle, chat: String, folder: Option<PathBuf>) -> BoxFuture<Vec<Value>> {
         Box::pin(async move {
             let folder = folder.unwrap_or_else(|| chat_folder(&app, &chat));
-            definitions(&chat_tools(&app, &chat, &folder, true).await)
+            let mut tools = chat_tools(&app, &chat, &folder, true).await;
+            // A read-only session gets only the tools their server marks
+            // read-only (session-roles-and-mail FR-13).
+            if super::read_only_chat(&app, &chat) {
+                tools.retain(|tool| tool.read_only);
+            }
+            definitions(&tools)
         })
     }
 
@@ -454,6 +463,9 @@ async fn run_tool(ctx: ToolCtx, name: &str, args: Value) -> ToolOutput {
     let Some(tool) = tool else {
         return ToolOutput::error(format!("{name} is not available: its connector is off or disconnected."));
     };
+    if !tool.read_only && super::read_only_chat(&ctx.app, &ctx.chat) {
+        return ToolOutput::error(super::READ_ONLY_REFUSAL.replace("{tool}", name));
+    }
     if asks(tool.permission) {
         let (server, tool_name) = label(name);
         let answer = ctx.ask(&format!("Allow {server} to run {tool_name}?"), &ask_description(&args), &OPTIONS).await;
@@ -500,7 +512,17 @@ mod tests {
             permission: Permission::Allow,
             server: name.split("__").nth(1).unwrap_or("").into(),
             tool: label(name).1,
+            read_only: false,
         }
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-13).
+    #[test]
+    fn read_only_chat_keeps_the_servers_read_only_hint() {
+        let hinted = json!({"name": "mcp__docs__search", "server": "docs", "tool": "search", "readOnly": true});
+        let plain = json!({"name": "mcp__docs__write", "server": "docs", "tool": "write"});
+        assert!(ChatTool::from_value(&hinted).unwrap().read_only);
+        assert!(!ChatTool::from_value(&plain).unwrap().read_only, "no hint: it may change something");
     }
 
     fn many(count: usize) -> Vec<ChatTool> {

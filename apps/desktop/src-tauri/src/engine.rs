@@ -198,11 +198,46 @@ pub fn sandbox_defaults() -> Value {
         "maxOutputKib": 50,
         "deniedPatterns": ["**/.env", "**/.env.*"],
         "worktreeLocation": "userData",
+        // How many nested sessions and subagents of one chat run at once
+        // (docs/features/session-roles-and-mail/spec.md, FR-5).
+        "maxNestedSessions": evo_mesh::hub::MAX_RUNNING_CHILDREN,
+        "maxRunningSubagents": 4,
     })
 }
 
+/// The saved limit of nested sessions of one chat running at once, for the
+/// mesh hub (FR-5); the hub keeps it within its range.
+pub fn nested_session_limit(db: &Db) -> usize {
+    sandbox_config(db)
+        .get("maxNestedSessions")
+        .and_then(Value::as_u64)
+        .map_or(evo_mesh::hub::MAX_RUNNING_CHILDREN, |limit| limit as usize)
+}
+
+/// `--role-file <path>` for a chat that runs as a role, after writing the
+/// file from the chat's row; `--thinking` too before its first turn (the
+/// person may change it later). A chat without a role gets none, and an old
+/// file is removed. A file that cannot be written stops the start: a
+/// read-only role must never run without its restrictions
+/// (docs/features/session-roles-and-mail/spec.md, FR-1, FR-4).
+fn role_args(db: &Db, chat: &str, transcript: &std::path::Path) -> Result<Vec<String>, String> {
+    let row = db.with(|conn| evo_store::chats::get_chat(conn, chat)).ok().flatten();
+    let path = evo_store::transcripts::role_path(transcript);
+    let Some((role, turns)) = row.and_then(|row| row.role.map(|role| (role, row.turn_count))) else {
+        let _ = std::fs::remove_file(&path);
+        return Ok(Vec::new());
+    };
+    std::fs::write(&path, role.to_string())
+        .map_err(|error| format!("could not write the session's role to {}: {error}", path.display()))?;
+    let mut args = vec!["--role-file".to_string(), path.display().to_string()];
+    if let Some(level) = role.get("thinking").and_then(serde_json::Value::as_str).filter(|_| turns == 0) {
+        args.extend(["--thinking".to_string(), level.to_string()]);
+    }
+    Ok(args)
+}
+
 /// The saved sandbox settings over the defaults, for `--sandbox-config`.
-fn sandbox_config(db: &Db) -> Value {
+pub(crate) fn sandbox_config(db: &Db) -> Value {
     let mut config = sandbox_defaults();
     let saved = db
         .with(|conn| evo_store::settings::all(conn))
@@ -389,6 +424,11 @@ pub async fn engine_start(
         .with(|conn| Ok(crate::chat_flags::ChatFlags::for_engine(conn, &chat, options)))
         .unwrap_or_default();
     let quiet = flags.incognito;
+    // The role a nested session runs as: its row is the source of truth, the
+    // file beside the transcript is rewritten for the engine at every start.
+    let role = role_args(&db, &chat, &transcript).inspect_err(|error| {
+        db.log(NewLog::new("error", "shell", error.clone()).chat(Some(&chat)));
+    })?;
 
     let mut command = Command::new(&binary);
     command
@@ -401,6 +441,7 @@ pub async fn engine_start(
         // Which tool calls wait for the person (the composer's Approvals menu).
         .args(["--approval-mode", approval_mode(&db)])
         .args(flags.engine_args())
+        .args(role)
         .args(extra_args())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

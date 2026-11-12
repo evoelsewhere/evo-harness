@@ -213,6 +213,34 @@ fn find(name: &str) -> Option<&'static Tool> {
     registry().iter().find(|tool| tool.name == name)
 }
 
+/// What a read-only session is told when it calls a tool that changes
+/// something (`{tool}` is its name).
+pub(crate) const READ_ONLY_REFUSAL: &str =
+    "Refused: this session is read-only, and `{tool}` can change something outside it.";
+
+/// Whether a stored role is read-only (`chats.role`, session-roles-and-mail FR-13).
+fn role_is_read_only(role: Option<&Value>) -> bool {
+    role.and_then(|role| role.get("access")).and_then(Value::as_str) == Some("read-only")
+}
+
+/// Whether `chat` runs as a read-only role: it gets only the tools that read,
+/// and the rest are refused when called (session-roles-and-mail FR-13).
+pub(crate) fn read_only_chat(app: &AppHandle, chat: &str) -> bool {
+    let Some(db) = app.try_state::<crate::db::Db>() else {
+        return false;
+    };
+    db.with(|conn| evo_store::chats::get_chat(conn, chat))
+        .ok()
+        .flatten()
+        .is_some_and(|row| role_is_read_only(row.role.as_ref()))
+}
+
+/// Whether a registry tool is offered to, and may run for, a read-only chat:
+/// only one that reads.
+fn reads_only(name: &str) -> bool {
+    find(name).is_some_and(|tool| tool.class == Class::Read)
+}
+
 /// Tools that are not fixed: they depend on the chat (which connectors it has,
 /// which are switched off for it), so they are not in the static registry. A
 /// provider lists a chat's definitions and claims and runs the calls the
@@ -438,6 +466,8 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
     // The past-chat tools follow **Search past chats** and the chat's memory
     // flags (chat_flags.rs).
     let hidden = crate::chat_flags::hidden_tools(&app, chat.as_deref().filter(|c| !c.is_empty())).await;
+    // A read-only session gets only the registry tools that read (FR-13).
+    let read_only = chat.as_deref().is_some_and(|chat| !chat.is_empty() && read_only_chat(&app, chat));
     let mut extra = Vec::new();
     if let Some(chat) = chat.filter(|c| !c.is_empty()) {
         let folder = folder.filter(|f| !f.is_empty()).map(PathBuf::from);
@@ -448,6 +478,7 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
     let fixed = static_definitions()
         .into_iter()
         .filter(|definition| offered(&app, definition))
+        .filter(|definition| !read_only || definition.get("name").and_then(Value::as_str).is_some_and(reads_only))
         .filter(|definition| !definition.get("name").and_then(Value::as_str).is_some_and(|name| hidden.contains(&name)))
         .collect();
     merge_definitions(fixed, extra)
@@ -521,6 +552,19 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
                 Target::Static(tool) => (tool.name, tool.class),
                 Target::Dynamic(_) => ("dynamic", Class::Command),
             };
+            // A read-only session: a registry tool that changes something is
+            // refused before it runs or asks (FR-13). Connector tools are
+            // checked by their provider, which knows the server's hint.
+            if matches!(target, Target::Static(_)) && class != Class::Read && read_only_chat(app, chat) {
+                let answer = json!({
+                    "type": "external_tool_response",
+                    "id": format!("agent-tools-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1),
+                    "requestId": request_id,
+                    "result": ToolOutput::error(READ_ONLY_REFUSAL.replace("{tool}", name)).to_json(),
+                });
+                let _ = app.state::<crate::engine::EngineState>().write(chat, &answer).await;
+                return;
+            }
             let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id: request_id.to_string(), cancel: cancel.clone(), tool: tool_name, class };
             let (app, chat, request_id, name) = (app.clone(), chat.to_string(), request_id.to_string(), name.to_string());
             tauri::async_runtime::spawn(async move {
@@ -566,6 +610,26 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod read_only_chat_tests {
+    use super::*;
+
+    // docs/features/session-roles-and-mail/spec.md (FR-13).
+    #[test]
+    fn read_only_chat_role_and_tool_classes() {
+        assert!(role_is_read_only(Some(&json!({"name": "reviewer", "access": "read-only"}))));
+        assert!(!role_is_read_only(Some(&json!({"access": "full"}))));
+        assert!(!role_is_read_only(None));
+        // Every registry tool that reads is offered; none that changes something is.
+        for tool in registry() {
+            assert_eq!(reads_only(tool.name), tool.class == Class::Read, "{}", tool.name);
+        }
+        assert!(registry().iter().any(|tool| tool.class != Class::Read), "the registry has writing tools");
+        assert!(!reads_only("not_a_tool"));
+        assert!(READ_ONLY_REFUSAL.replace("{tool}", "terminal_write").contains("`terminal_write`"));
     }
 }
 

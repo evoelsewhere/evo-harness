@@ -65,8 +65,9 @@ pub struct Created {
 
 /// A new worktree of `cwd`'s repository (blocking): its folder, and the
 /// folder in it that matches `cwd` (for a nested session started by the hub).
-pub(crate) fn create_blocking(db: &Db, cwd: &std::path::Path) -> Result<(PathBuf, PathBuf), String> {
-    let created = manager(db).create(cwd, location(db))?;
+pub(crate) fn create_blocking(db: &Db, cwd: &std::path::Path, branch: Option<&str>) -> Result<(PathBuf, PathBuf), String> {
+    // A named branch is `evo/<branch>` (docs/features/session-roles-and-mail/spec.md, FR-9).
+    let created = manager(db).create_named(cwd, location(db), branch)?;
     Ok((created.worktree.path, created.cwd))
 }
 

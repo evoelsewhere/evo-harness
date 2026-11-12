@@ -137,14 +137,14 @@ impl MailStore for DbMailStore {
                     .unwrap_or_else(home),
                 None => home(),
             };
-            let (path, cwd) = crate::worktrees::create_blocking(&db, &base)?;
+            let (path, cwd) = crate::worktrees::create_blocking(&db, &base, spec.branch.as_deref())?;
             Some((base, path, cwd))
         } else {
             None
         };
         let worktree_path = worktree.as_ref().map(|(_, path, _)| path.display().to_string());
         let row = db
-            .with(|conn| session_row(conn, &db.transcripts, &parent_row, &id, &title, spec.fork, worktree_path.as_deref()))
+            .with(|conn| session_row(conn, &db.transcripts, &parent_row, &id, &title, spec.fork, worktree_path.as_deref(), spec.role.as_ref()))
             .and_then(|chat| chat.ok_or_else(|| "the fork was not created".to_string()));
         let chat = match row {
             Ok(chat) => chat,
@@ -169,8 +169,10 @@ impl MailStore for DbMailStore {
 
 /// The chat row of a nested session of `parent`: a copy of its conversation
 /// (`fork`) or a fresh chat. Either way it is linked to the parent, has origin
-/// `agent`, and follows the parent's folder, model and memory flags. `None`:
-/// the parent cannot be copied (it is gone, or incognito).
+/// `agent`, and follows the parent's folder, model and memory flags. A
+/// session started with a role runs on the role's model and keeps the role
+/// (docs/features/session-roles-and-mail/spec.md, FR-1, FR-2). `None`: the
+/// parent cannot be copied (it is gone, or incognito).
 fn session_row(
     conn: &mut Connection,
     transcripts_dir: &Path,
@@ -179,15 +181,20 @@ fn session_row(
     title: &str,
     fork: bool,
     worktree_path: Option<&str>,
+    role: Option<&evo_mesh::wire::SessionRole>,
 ) -> Result<Option<Chat>, DbError> {
+    let role_json = role.map(|role| serde_json::to_value(role).unwrap_or_default());
+    // The role's model, when it names one; otherwise the parent's.
+    let model = role.and_then(|role| Some((role.provider.clone()?, role.model.clone()?)));
     if !fork {
         let new = NewChat {
             id: id.to_string(),
             workspace_id: parent.workspace_id.clone(),
             title: title.to_string(),
-            // The model the parent runs on, when its row names one.
-            provider: parent.provider.clone(),
-            model: parent.model.clone(),
+            // The role's model, else the one the parent runs on.
+            provider: model.as_ref().map(|(p, _)| p.clone()).or_else(|| parent.provider.clone()),
+            model: model.as_ref().map(|(_, m)| m.clone()).or_else(|| parent.model.clone()),
+            role: role_json,
             parent_chat_id: Some(parent.id.clone()),
             origin: Some("agent".into()),
             worktree_path: worktree_path.map(str::to_string),
@@ -206,7 +213,19 @@ fn session_row(
     }
     let nested = chats::set_parent(conn, id, Some(&parent.id))
         .and_then(|_| chats::set_origin(conn, id, "agent"))
-        .and_then(|_| chats::set_worktree(conn, id, worktree_path));
+        .and_then(|_| chats::set_worktree(conn, id, worktree_path))
+        .and_then(|chat| match &role_json {
+            Some(role) => chats::set_role(conn, id, Some(role)),
+            None => Ok(chat),
+        })
+        .and_then(|chat| match &model {
+            Some((provider, model)) => chats::update_chat(
+                conn,
+                id,
+                &chats::ChatPatch { provider: Some(provider.clone()), model: Some(model.clone()), ..Default::default() },
+            ),
+            None => Ok(chat),
+        });
     if !matches!(nested, Ok(Some(_))) {
         // Half made: no copy stays that is not a nested session.
         let _ = chats::delete_chat(conn, id);
@@ -379,7 +398,12 @@ mod tests {
 
         fn child(&mut self, parent: &Chat, fork: bool, worktree: Option<&str>) -> Option<Chat> {
             let dir = self.dir.clone();
-            session_row(&mut self.conn, &dir, parent, "c", "Child", fork, worktree).unwrap()
+            session_row(&mut self.conn, &dir, parent, "c", "Child", fork, worktree, None).unwrap()
+        }
+
+        fn child_as(&mut self, parent: &Chat, fork: bool, role: &evo_mesh::wire::SessionRole) -> Chat {
+            let dir = self.dir.clone();
+            session_row(&mut self.conn, &dir, parent, "c", "Child", fork, None, Some(role)).unwrap().unwrap()
         }
     }
 
@@ -409,6 +433,33 @@ mod tests {
         assert_eq!((child.parent_chat_id.as_deref(), child.origin.as_str()), (Some("p"), "agent"));
         assert_eq!((child.title.as_str(), child.memory_off), ("Child", true));
         assert_eq!(child.worktree_path.as_deref(), Some("/wt/c"));
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, FR-2, NFR-4).
+    #[test]
+    fn a_session_with_a_role_runs_on_its_model_and_keeps_it() {
+        let role = evo_mesh::wire::SessionRole {
+            name: Some("reviewer".into()),
+            access: "read-only".into(),
+            provider: Some("acme".into()),
+            model: Some("acme-small".into()),
+            thinking: Some("low".into()),
+            ..Default::default()
+        };
+        for fork in [false, true] {
+            let mut fx = Fixture::new();
+            let parent = fx.parent(NewChat::default());
+            let child = fx.child_as(&parent, fork, &role);
+            assert_eq!((child.provider.as_deref(), child.model.as_deref()), (Some("acme"), Some("acme-small")), "fork: {fork}");
+            let stored: evo_mesh::wire::SessionRole = serde_json::from_value(child.role.clone().unwrap()).unwrap();
+            assert_eq!(stored, role, "fork: {fork}");
+            assert_eq!(child.parent_chat_id.as_deref(), Some("p"));
+        }
+        // A role that names no model keeps the parent's.
+        let mut fx = Fixture::new();
+        let parent = fx.parent(NewChat::default());
+        let typed = fx.child_as(&parent, false, &evo_mesh::wire::SessionRole { name: Some("r".into()), ..Default::default() });
+        assert_eq!(typed.model.as_deref(), Some("acme-large"));
     }
 
     #[test]
