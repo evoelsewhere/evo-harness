@@ -347,7 +347,7 @@ impl ChildAgents {
         }
         // Its own worktree, made after the capacity check so a refused start leaves none.
         let worktree = if isolated {
-            match create_worktree(cwd).await {
+            match create_worktree(cwd, None).await {
                 Ok(created) => Some(created),
                 Err(error) => {
                     self.jobs
@@ -468,12 +468,19 @@ impl ChildAgents {
 }
 
 /// A managed worktree of `cwd`'s repository, where Settings → Sandbox says.
-pub(crate) async fn create_worktree(cwd: &Path) -> Result<crate::worktrees::Created, String> {
+pub(crate) async fn create_worktree(
+    cwd: &Path,
+    branch: Option<&str>,
+) -> Result<crate::worktrees::Created, String> {
     let cwd = cwd.to_path_buf();
+    let branch = branch.map(str::to_string);
     let location = evo_tools::sandbox::policy().worktree_location();
-    tokio::task::spawn_blocking(move || crate::worktrees::manager()?.create(&cwd, location))
-        .await
-        .map_err(|e| e.to_string())?
+    // A named branch is `evo/<branch>` (docs/features/session-roles-and-mail/spec.md, FR-9).
+    tokio::task::spawn_blocking(move || {
+        crate::worktrees::manager()?.create_named(&cwd, location, branch.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub(crate) fn worktree_json(created: &crate::worktrees::Created, changed: Option<bool>) -> Value {

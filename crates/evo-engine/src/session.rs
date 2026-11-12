@@ -941,6 +941,8 @@ pub async fn build_prepared(
     }
     // Memory across chats: how to use it and its index (`memory.rs`). A chat
     // started without memory gets no section (`--no-memory`).
+    // The role a nested session runs as (session_roles.rs, FR-1).
+    append_texts.extend(crate::session_roles::prompt_block());
     if resource_selection.is_none() && !args.no_memory {
         append_texts.extend(crate::memory::prompt_block(cwd));
     }
@@ -1258,6 +1260,9 @@ pub async fn build_prepared(
         ui_dialog_mailbox.clone(),
         crate::approval::global().clone(),
     );
+    // A read-only session (session_roles.rs, FR-13): its checker comes first,
+    // and a refused call reaches no hook and no approval prompt.
+    let before_tool_call = crate::session_roles::before_tool_call(before_tool_call);
     // `ask_user` puts its questions through the same dialog channel.
     crate::tools::interaction::set_mailbox(ui_dialog_mailbox.clone());
 
@@ -2291,6 +2296,8 @@ where
             }
         }
     }
+    // The role a nested session runs as (session_roles.rs, FR-1).
+    append_texts.extend(crate::session_roles::prompt_block());
     if !effective_args.no_memory {
         append_texts.extend(crate::memory::prompt_block(&ctx.cwd));
     }

@@ -13,13 +13,25 @@ use evo_harness::agent_harness::AgentLane;
 use evo_tools::tools::external::ExternalToolBackend;
 use serde_json::{json, Value};
 use std::{
+    future::Future,
+    pin::Pin,
     sync::{Arc, Weak},
     time::Duration,
 };
 use tokio_util::sync::CancellationToken;
 
+/// What the parent session brings to a nested session's role, read when a
+/// `start_session` call is made (docs/features/session-roles-and-mail/spec.md, FR-1).
+pub(crate) type RoleSource = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<crate::session_roles::Parent, String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 pub(crate) struct ExternalTools {
     pub broker: ClientRequestBroker,
+    /// Resolves `start_session` roles; `None`: calls keep no `role`.
+    roles: std::sync::Mutex<Option<RoleSource>>,
     writer: std::sync::Mutex<Option<RpcWriter>>,
     stop: CancellationToken,
     // The RPC owner retains the strong lane; registry -> backend must not cycle.
@@ -36,6 +48,7 @@ impl ExternalTools {
     fn with_lane(writer: RpcWriter, lane: Option<Weak<dyn AgentLane>>) -> Arc<Self> {
         Arc::new(Self {
             broker: ClientRequestBroker::default(),
+            roles: std::sync::Mutex::new(None),
             writer: std::sync::Mutex::new(Some(writer)),
             stop: CancellationToken::new(),
             lane,
@@ -48,6 +61,25 @@ impl ExternalTools {
     }
     pub fn abort(&self) {
         self.broker.cancel_all();
+    }
+    /// Resolve `start_session` roles with what `source` says of the parent.
+    pub fn set_role_source(&self, source: RoleSource) {
+        *self.roles.lock().unwrap() = Some(source);
+    }
+    /// A `start_session` call's arguments with its role resolved here, so the
+    /// hub never takes a role the model wrote (FR-1, FR-4).
+    async fn resolve_role(&self, arguments: Value) -> Result<Value, AgentError> {
+        let source = self.roles.lock().unwrap().clone();
+        let Some(source) = source else {
+            let mut arguments = arguments;
+            if let Some(object) = arguments.as_object_mut() {
+                object.remove("role");
+            }
+            return Ok(arguments);
+        };
+        let parent = source().await.map_err(AgentError::Tool)?;
+        let types = crate::agents::load(&parent.cwd);
+        crate::session_roles::enrich(arguments, &parent, &types).map_err(AgentError::Validation)
     }
     pub fn shutdown(&self) {
         self.stop.cancel();
@@ -206,6 +238,11 @@ impl ExternalToolBackend for ExternalTools {
                 "external tools are unsupported in child agents: the external bridge does not support child-session routing".into(),
             ));
         }
+        let arguments = if name == "start_session" {
+            self.resolve_role(arguments).await?
+        } else {
+            arguments
+        };
         let writer = self
             .writer
             .lock()
@@ -298,6 +335,58 @@ mod tests {
         assert_eq!(result.content[2], TextContentOrImage::text(r#"{"x":2}"#));
         assert_eq!(result.details["externalToolResult"], raw);
         assert!(decode_result(json!({"content":[{"type":"resource"}]})).is_err());
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, FR-4, NFR-2).
+    #[tokio::test]
+    async fn start_session_calls_carry_only_a_role_this_engine_resolved() {
+        let (writer, _task, _) =
+            crate::rpc::writer::start_rpc_writer(std::io::sink(), Default::default());
+        let tools = ExternalTools::detached(writer);
+        let forged = json!({"title": "T", "prompt": "P", "role": {"access": "full"}});
+        // Without a source of roles a written role is dropped.
+        let out = tools.resolve_role(forged.clone()).await.unwrap();
+        assert!(out.get("role").is_none(), "{out}");
+        let dir = tempfile::tempdir().unwrap();
+        let agents = dir.path().join(".evo").join("agents");
+        std::fs::create_dir_all(&agents).unwrap();
+        std::fs::write(
+            agents.join("reviewer.md"),
+            "---
+name: reviewer
+description: Reviews
+access: read-only
+---
+Review only.
+",
+        )
+        .unwrap();
+        let cwd = dir.path().to_path_buf();
+        tools.set_role_source(Arc::new(move || {
+            let cwd = cwd.clone();
+            Box::pin(async move {
+                Ok(crate::session_roles::Parent {
+                    cwd,
+                    ..Default::default()
+                })
+            })
+        }));
+        let out = tools.resolve_role(forged).await.unwrap();
+        assert!(out.get("role").is_none(), "no role asked: none sent");
+        let out = tools
+            .resolve_role(json!({"title": "T", "prompt": "P", "agentType": "reviewer", "role": {"access": "full"}}))
+            .await
+            .unwrap();
+        assert_eq!(out["role"]["name"], "reviewer");
+        assert_eq!(
+            out["role"]["access"], "read-only",
+            "the model's role was replaced"
+        );
+        let error = tools
+            .resolve_role(json!({"agentType": "nobody"}))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("unknown agent type"), "{error}");
     }
 
     include!("external_tools_result_tests.rs");

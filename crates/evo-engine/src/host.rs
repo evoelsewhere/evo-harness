@@ -187,7 +187,13 @@ async fn run_inner() -> i32 {
     if let Some(json) = &parsed.sandbox_config {
         let applied = serde_json::from_str::<evo_tools::sandbox::SandboxConfig>(json)
             .map_err(|e| e.to_string())
-            .and_then(evo_tools::sandbox::configure);
+            .and_then(|config| {
+                // How many subagents run at once (session-roles-and-mail FR-5).
+                if let Some(limit) = config.max_running_subagents {
+                    crate::tools::agent::set_running_limit(limit);
+                }
+                evo_tools::sandbox::configure(config)
+            });
         match applied {
             Ok(invalid) => {
                 for error in invalid {
@@ -196,6 +202,19 @@ async fn run_inner() -> i32 {
             }
             Err(error) => {
                 eprintln!("error: --sandbox-config: {error}");
+                return EXIT_USAGE;
+            }
+        }
+    }
+
+    // The role a nested session runs as (session_roles.rs). A role that
+    // cannot be read stops the start: a read-only session must never run
+    // without its restrictions.
+    if let Some(path) = parsed.role_file.clone() {
+        match crate::session_roles::load_file(&path) {
+            Ok(role) => crate::session_roles::apply(role, &mut parsed),
+            Err(error) => {
+                eprintln!("error: --role-file: {error}");
                 return EXIT_USAGE;
             }
         }

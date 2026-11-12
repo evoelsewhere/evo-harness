@@ -446,6 +446,7 @@ where
     let pump_stop = tokio_util::sync::CancellationToken::new();
     let external_tools =
         crate::rpc::external_tools::ExternalTools::new(stdout.clone(), Arc::downgrade(&lane));
+    external_tools.set_role_source(role_source(harness, rpc_cwd(&rpc_providers)));
     let mut external_names = Vec::new();
     let file_io_router = crate::session::file_io_router(harness);
     let mut owner = RpcOwner {
@@ -1472,6 +1473,19 @@ where
             }
             // Approval modes (docs/features/approval-modes): the mode applies
             // from the next tool call, even in the middle of a run.
+            // Settings → Sandbox changed a limit (session-roles-and-mail FR-5).
+            "set_limits" => match msg
+                .get("maxRunningSubagents")
+                .and_then(serde_json::Value::as_u64)
+            {
+                Some(limit) => {
+                    crate::tools::agent::set_running_limit(limit as usize);
+                    Ok(serde_json::json!({
+                        "maxRunningSubagents": crate::tools::agent::running_limit()
+                    }))
+                }
+                None => Err("maxRunningSubagents must be a number".to_string()),
+            },
             "set_approval_mode" => {
                 match msg
                     .get("mode")
@@ -3032,6 +3046,33 @@ fn rpc_chat_memory(providers: &RpcProviders<'_>) -> bool {
     providers.reload.is_none_or(|ctx| !ctx.args.no_memory)
 }
 
+/// What this session brings to the roles of the sessions it starts: its
+/// folder, its models, model and thinking level, and whether it is itself
+/// read-only (docs/features/session-roles-and-mail/spec.md, FR-1 – FR-4).
+fn role_source(
+    harness: &AgentHarness,
+    cwd: std::path::PathBuf,
+) -> crate::rpc::external_tools::RoleSource {
+    let weak = harness.downgrade();
+    Arc::new(move || {
+        let weak = weak.clone();
+        let cwd = cwd.clone();
+        Box::pin(async move {
+            let harness = weak
+                .upgrade()
+                .ok_or_else(|| "the session is closing".to_string())?;
+            let lane = harness.lane("main");
+            Ok(crate::session_roles::Parent {
+                cwd,
+                models: harness.available_models(),
+                model: lane.get_model().await.ok(),
+                thinking: lane.get_thinking_level().await.ok(),
+                read_only: crate::session_roles::current_is_read_only(),
+            })
+        })
+    })
+}
+
 /// The session's folder for RPC handlers.
 fn rpc_cwd(providers: &RpcProviders<'_>) -> std::path::PathBuf {
     providers
@@ -3388,8 +3429,10 @@ async fn rpc_configure_external_tools(
     {
         return Err("cannot configure external tools while a run is active".into());
     }
-    let definitions: Vec<ExternalToolDefinition> =
+    let mut definitions: Vec<ExternalToolDefinition> =
         serde_json::from_value(msg["tools"].clone()).map_err(|e| e.to_string())?;
+    // A session's role narrows the app's tools too (session_roles.rs, FR-1).
+    definitions.retain(|def| crate::session_roles::allows_external(&def.name));
     let mut registry = harness.get_tools().await.map_err(|e| e.to_string())?;
     registry.retain(|tool| !old_names.contains(&tool.tool.schema().name));
     // Reserve security/native names even when unavailable or disabled at launch.

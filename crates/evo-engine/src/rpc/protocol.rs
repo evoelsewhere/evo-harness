@@ -441,6 +441,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "list_hooks",
     "set_hooks_disabled",
     "set_approval_mode",
+    "set_limits",
     "get_approval_state",
     "clear_approval_grants",
     "stop",

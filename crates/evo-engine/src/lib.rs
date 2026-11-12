@@ -66,6 +66,7 @@ pub mod saved_session_read;
 pub mod self_kill;
 pub mod session;
 pub mod session_cwd;
+pub mod session_roles;
 pub mod settings;
 pub mod side_questions;
 pub mod skill_runtime;

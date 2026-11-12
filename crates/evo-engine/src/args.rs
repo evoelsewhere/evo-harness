@@ -211,6 +211,10 @@ pub struct Args {
     /// `--index-summary-only` (index mode): write the chat's summary but
     /// change no topic (a chat the Scheduler started).
     pub index_summary_only: bool,
+    /// `--role-file <path>`: the role this session runs as, written by the
+    /// desktop from the chat's row at every start
+    /// (docs/features/session-roles-and-mail/spec.md, FR-1).
+    pub role_file: Option<PathBuf>,
     /// `--no-extensions`/`-ne`: skip Rust cdylib extension loading.
     /// Honored by `session.rs`: when set, no extension directory is scanned.
     pub no_extensions: bool,
@@ -479,6 +483,9 @@ pub fn parse_args(args: &[String]) -> Args {
                 result.sandbox_config = take_value(&mut result, "--sandbox-config")
             }
             "--approval-mode" => result.approval_mode = take_value(&mut result, "--approval-mode"),
+            "--role-file" => {
+                result.role_file = take_value(&mut result, "--role-file").map(PathBuf::from)
+            }
             "--models" => {
                 if let Some(v) = take_value(&mut result, &flag_key) {
                     result.models = Some(split_csv(&v));

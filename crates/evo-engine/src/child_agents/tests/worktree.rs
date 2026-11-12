@@ -264,3 +264,24 @@ async fn a_cancelled_child_still_reports_its_kept_worktree() {
         .remove(&root, &path)
         .unwrap();
 }
+
+// docs/features/session-roles-and-mail/spec.md (FR-9).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn named_worktree_is_on_its_evo_branch_and_a_taken_name_is_refused() {
+    let Some((_dir, root)) = repo() else { return };
+    let created = create_worktree(&root, Some("api-auth")).await.unwrap();
+    assert_eq!(created.worktree.branch, "evo/api-auth");
+    assert_eq!(worktree_json(&created, None)["branch"], "evo/api-auth");
+    let error = create_worktree(&root, Some("api-auth")).await.unwrap_err();
+    assert!(error.contains("already exists"), "{error}");
+    let plain = create_worktree(&root, None).await.unwrap();
+    assert!(plain.worktree.branch.starts_with("evo/worktree-"));
+    // Removed under the root they were made in (other tests may point the
+    // agent dir elsewhere meanwhile): `<data root>/<repo>-<hash>/<name>`.
+    for made in [created, plain] {
+        let root_dir = made.worktree.path.parent().and_then(Path::parent).unwrap();
+        crate::worktrees::Worktrees::with_data_root(root_dir.to_path_buf())
+            .remove(&root, &made.worktree.path)
+            .unwrap();
+    }
+}

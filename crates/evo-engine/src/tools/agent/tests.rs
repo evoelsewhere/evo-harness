@@ -510,3 +510,40 @@ async fn lost_background_agents_are_reported_once_to_the_next_run() {
     );
     assert!(history.contains("status=\\\"error\\\""));
 }
+
+// docs/features/session-roles-and-mail/spec.md (FR-5).
+#[tokio::test]
+async fn running_limit_admits_six_and_a_lower_one_cancels_nothing() {
+    let slots = Arc::new(Slots::default());
+    let held: Vec<_> = (0..6).filter_map(|_| slots.try_take(6)).collect();
+    assert_eq!(held.len(), 6, "six run at once with a limit of 6");
+    assert!(slots.try_take(6).is_none());
+    // A lower limit takes nothing back from the six that run.
+    assert!(slots.try_take(2).is_none());
+    assert_eq!(*lock(&slots.running), 6);
+    let mut held = held;
+    held.truncate(2);
+    assert_eq!(*lock(&slots.running), 2, "dropping a slot frees its place");
+    assert!(slots.try_take(2).is_none(), "still at the lower limit");
+    assert!(slots.try_take(3).is_some());
+    assert_eq!(clamp_running_limit(0), 1);
+    assert_eq!(clamp_running_limit(50), MAX_RUNNING_LIMIT);
+}
+
+#[tokio::test]
+async fn running_limit_wakes_a_waiting_call_when_a_slot_is_freed() {
+    let slots = Arc::new(Slots::default());
+    let held: Vec<_> = (0..running_limit())
+        .filter_map(|_| slots.try_take(running_limit()))
+        .collect();
+    let waiting = tokio::spawn(slots.clone().take());
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished(), "it waits while the limit runs");
+    drop(held);
+    let slot = tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+        .await
+        .expect("woken when a slot was freed")
+        .unwrap();
+    drop(slot);
+    assert_eq!(*lock(&slots.running), 0);
+}

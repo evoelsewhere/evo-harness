@@ -60,8 +60,12 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::{self, AgentType};
 use crate::mesh::{self, Address, MeshUsage, NodeKind, NodeState, Origin, RunStatus, ToolRow};
 
-/// Subagents running at once in one session.
+/// Subagents running at once in one session, by default; Settings → Sandbox
+/// changes it ([`set_running_limit`]).
 pub const MAX_RUNNING: usize = 4;
+/// The highest limit of running subagents the person may set
+/// (docs/features/session-roles-and-mail/spec.md, FR-5).
+pub const MAX_RUNNING_LIMIT: usize = 8;
 /// Agents kept (running or able to continue) per session.
 pub const MAX_KEPT: usize = 16;
 /// Agents kept per engine, over every session it has had.
@@ -1251,31 +1255,105 @@ fn refuse_nested() -> Result<(), AgentError> {
     Ok(())
 }
 
-/// The right to run one agent; a session has [`MAX_RUNNING`]. A running
-/// agent holds it ([`Job::slot`]) until its run is settled.
-type Slot = tokio::sync::OwnedSemaphorePermit;
+/// How many subagents of one session may run at once (FR-5).
+static RUNNING_LIMIT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(MAX_RUNNING);
 
-/// Free run slots, per session.
-static SLOTS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>> =
-    LazyLock::new(Default::default);
+/// `limit` kept within 1 – [`MAX_RUNNING_LIMIT`].
+pub fn clamp_running_limit(limit: usize) -> usize {
+    limit.clamp(1, MAX_RUNNING_LIMIT)
+}
 
-fn slots(session_id: &str) -> Arc<tokio::sync::Semaphore> {
+/// Set how many subagents of one session may run at once (`--sandbox-config`
+/// at start, the `set_limits` command later). A lower limit stops nothing
+/// that runs; a higher one lets waiting calls start at once.
+pub fn set_running_limit(limit: usize) {
+    RUNNING_LIMIT.store(
+        clamp_running_limit(limit),
+        std::sync::atomic::Ordering::Release,
+    );
+    for slots in lock(&SLOTS).values() {
+        slots.freed.notify_waiters();
+    }
+}
+
+/// The limit [`set_running_limit`] set.
+pub fn running_limit() -> usize {
+    RUNNING_LIMIT.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Run slots of one session: a count checked against a limit that can
+/// change while agents run (a semaphore cannot take permits back).
+#[derive(Default)]
+struct Slots {
+    running: Mutex<usize>,
+    freed: tokio::sync::Notify,
+}
+
+/// The right to run one agent. A running agent holds it ([`Job::slot`])
+/// until its run is settled; dropping it frees the place.
+struct Slot {
+    slots: Arc<Slots>,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        {
+            let mut running = lock(&self.slots.running);
+            *running = running.saturating_sub(1);
+        }
+        self.slots.freed.notify_one();
+    }
+}
+
+impl Slots {
+    /// A slot if fewer than `limit` run.
+    fn try_take(self: &Arc<Self>, limit: usize) -> Option<Slot> {
+        let mut running = lock(&self.running);
+        (*running < limit).then(|| {
+            *running += 1;
+            Slot {
+                slots: self.clone(),
+            }
+        })
+    }
+
+    /// A slot once fewer than the current limit run, in the order the calls
+    /// came.
+    async fn take(self: Arc<Self>) -> Slot {
+        loop {
+            let freed = self.freed.notified();
+            tokio::pin!(freed);
+            freed.as_mut().enable();
+            if let Some(slot) = self.try_take(running_limit()) {
+                return slot;
+            }
+            freed.await;
+        }
+    }
+}
+
+/// Run slots, per session.
+static SLOTS: LazyLock<Mutex<HashMap<String, Arc<Slots>>>> = LazyLock::new(Default::default);
+
+fn slots(session_id: &str) -> Arc<Slots> {
     lock(&SLOTS)
         .entry(session_id.to_string())
-        .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(MAX_RUNNING)))
+        .or_default()
         .clone()
 }
 
 /// A run slot if one is free: background calls do not wait for one.
 fn slot_now(session_id: &str) -> Result<Slot, AgentError> {
-    slots(session_id).try_acquire_owned().map_err(|_| {
+    let limit = running_limit();
+    slots(session_id).try_take(limit).ok_or_else(|| {
         AgentError::Tool(format!(
-            "at most {MAX_RUNNING} subagents run at once; wait for one to finish"
+            "at most {limit} subagents run at once; wait for one to finish"
         ))
     })
 }
 
-/// A run slot for a foreground call, waiting for one while [`MAX_RUNNING`]
+/// A run slot for a foreground call, waiting for one while the limit of
 /// agents run (in the order the calls came). The wait ends at once when the
 /// call is cancelled or the session closes, and on a steering message, which
 /// the parent's run must read now (a running agent moves to the background
@@ -1286,15 +1364,16 @@ async fn wait_for_slot(
     signal: &CancellationToken,
 ) -> Result<Slot, AgentError> {
     let slots = slots(session_id);
-    if let Ok(slot) = slots.clone().try_acquire_owned() {
+    if let Some(slot) = slots.try_take(running_limit()) {
         return Ok(slot);
     }
     let session = parent.session_scope_token();
     let mut steered = steering(session_id);
     let stopped = |why: &str| {
         AgentError::Tool(format!(
-            "{why} while this call waited for a free subagent slot (at most {MAX_RUNNING} run at once), \
-             so the subagent did not run"
+            "{why} while this call waited for a free subagent slot (at most {} run at once), \
+             so the subagent did not run",
+            running_limit()
         ))
     };
     tokio::select! {
@@ -1304,21 +1383,12 @@ async fn wait_for_slot(
         Ok(()) = steered.changed() => Err(stopped(
             "a new message arrived (read it now, then call again if this is still needed)",
         )),
-        slot = slots.acquire_owned() => slot.map_err(|_| stopped("the session closed")),
+        slot = slots.take() => Ok(slot),
     }
 }
 
 /// A model by id (`id` or `provider/id`, any case) among the harness's models.
-fn find_model(models: &[evo_ai::Model], wanted: &str) -> Option<evo_ai::Model> {
-    let wanted = wanted.trim();
-    models
-        .iter()
-        .find(|m| {
-            m.id.eq_ignore_ascii_case(wanted)
-                || format!("{}/{}", m.provider, m.id).eq_ignore_ascii_case(wanted)
-        })
-        .cloned()
-}
+use crate::session_roles::find_model;
 
 // ── The `agent` tool ────────────────────────────────────────────────────────
 
@@ -1334,6 +1404,9 @@ struct Input {
     model: Option<String>,
     #[serde(default)]
     isolation: Option<String>,
+    /// With a worktree: its branch is `evo/<branch>` (FR-9).
+    #[serde(default)]
+    branch: Option<String>,
     #[serde(default)]
     background: bool,
 }
@@ -1367,8 +1440,9 @@ fn schema(types: &[AgentType]) -> Tool {
              the goal, what you already know or ruled out, the files or areas involved, and what the report \
              should contain. Its intermediate steps stay out of this conversation, which keeps your context \
              small: use it for wide searches, investigations across many files, or independent pieces of \
-             work. Call it several times in one message to run independent tasks in parallel (at most \
-             {MAX_RUNNING} run at once: further calls wait for a free slot, background ones are refused). \
+             work. Call it several times in one message to run independent tasks in parallel (a limited \
+             number run at once, {MAX_RUNNING} unless the user changed it: further calls wait for a free \
+             slot, background ones are refused). \
              Do not delegate a quick lookup you can do with one or two tool calls. \
              Subagents cannot start subagents. Set isolation to \"worktree\" to have it work in its own Git \
              worktree: it starts from the last commit and does not contain the workspace's uncommitted \
@@ -1386,6 +1460,7 @@ fn schema(types: &[AgentType]) -> Tool {
                 "agentType": { "type": "string", "description": format!("Which kind of agent: {}. Default: general.", names.join(", ")) },
                 "model": { "type": "string", "description": "Optional model id for the subagent; default: its type's model, else yours." },
                 "isolation": { "type": "string", "enum": ["worktree"], "description": "Run in a separate Git worktree of this repository." },
+                "branch": { "type": "string", "description": "With isolation worktree: name the worktree's branch (evo/<branch>), so the user recognises it in Git." },
                 "background": { "type": "boolean", "description": "Run in the background and get its report later as a message." }
             },
             "required": ["description", "prompt"],
@@ -1491,9 +1566,19 @@ impl AgentTool for SubagentTool {
                 None => None,
             };
 
+        let branch = input
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty());
+        if branch.is_some() && !isolated {
+            return Err(AgentError::Validation(
+                "a branch name needs isolation: \"worktree\"".into(),
+            ));
+        }
         let worktree = if isolated {
             Some(
-                crate::child_agents::create_worktree(&self.cwd)
+                crate::child_agents::create_worktree(&self.cwd, branch)
                     .await
                     .map_err(|e| AgentError::Tool(format!("could not create a worktree: {e}")))?,
             )
