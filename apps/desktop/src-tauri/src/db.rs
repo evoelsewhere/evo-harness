@@ -308,7 +308,7 @@ pub fn workspace_ensure(db: State<'_, Db>, path: String) -> Result<Workspace, St
 /// A workspace is an existing folder named by an absolute path. This keeps out
 /// a mangled path (say `C:Users…` with its backslashes eaten by a string
 /// escape), which would otherwise be stored and shown whole as the name.
-fn check_workspace_folder(path: &str) -> Result<(), String> {
+pub(crate) fn check_workspace_folder(path: &str) -> Result<(), String> {
     let folder = std::path::Path::new(path);
     if path.chars().any(char::is_control) || !folder.is_absolute() {
         return Err(format!("not an absolute folder path: {path:?}"));
@@ -383,8 +383,11 @@ pub fn chat_set_worktree(db: State<'_, Db>, id: String, worktree_path: Option<St
 
 /// Link a chat under another (nested sessions), or detach it with `None`.
 #[tauri::command]
-pub fn chat_set_parent(db: State<'_, Db>, id: String, parent_chat_id: Option<String>) -> Result<Option<Chat>, String> {
-    db.with(|conn| chats::set_parent(conn, &id, parent_chat_id.as_deref()))
+pub fn chat_set_parent(app: AppHandle, db: State<'_, Db>, id: String, parent_chat_id: Option<String>) -> Result<Option<Chat>, String> {
+    let chat = db.with(|conn| chats::set_parent(conn, &id, parent_chat_id.as_deref()))?;
+    // A chat detached from its parent gets the session tools (shell-hosted-engines FR-1).
+    crate::supervisor::chat_rows_changed(&app);
+    Ok(chat)
 }
 
 /// Move a chat to another workspace (`None`: "This computer").
@@ -422,6 +425,8 @@ pub async fn chat_delete(app: AppHandle, db: State<'_, Db>, engines: State<'_, E
     }
     db.log(NewLog::new("info", "shell", "deleted chat").chat(Some(&id)));
     crate::chat_flags::finish(ending, &db, &engines, &id).await;
+    // Its nested sessions are top-level now: they get the session tools.
+    crate::supervisor::chat_rows_changed(&app);
     Ok(())
 }
 
@@ -446,10 +451,15 @@ pub fn settings_set(app: AppHandle, db: State<'_, Db>, key: String, value: Value
     if key == crate::chat_flags::SEARCH_PAST_CHATS_KEY {
         use tauri::Emitter;
         let _ = app.emit(crate::computer::TOOLS_CHANGED, json!({ "reason": key }));
+        crate::supervisor::tools_changed(&app);
     }
     if key == crate::updates::AUTO_CHECK_KEY {
         crate::updates::settings_changed(&app, &key, &value);
     }
+    // The approval mode, the sandbox and the settings the hub and the
+    // connector tools follow reach every engine, viewed or not
+    // (docs/features/shell-hosted-engines/spec.md, FR-8).
+    crate::supervisor::settings::on_setting(&app, &key, &value);
     Ok(())
 }
 

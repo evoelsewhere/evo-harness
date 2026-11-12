@@ -58,8 +58,8 @@ pub fn shutdown() {
     computer::release_all();
 }
 
-/// Tells the windows the shell's tool list changed, so each ready chat's engine
-/// gets it again (`stores/engine-store.ts`).
+/// Tells the windows the shell's tool list changed; the supervisor gives
+/// each set-up chat's engine the new list (`supervisor::tools_changed`).
 pub const TOOLS_CHANGED: &str = "agent-tools://changed";
 
 /// A computer app control setting changed (FR-1): the tool is offered or
@@ -71,6 +71,7 @@ pub fn settings_changed(app: &AppHandle, key: &str, value: &Value) {
             computer::release_all();
         }
         let _ = app.emit(TOOLS_CHANGED, json!({ "reason": key }));
+        crate::supervisor::tools_changed(app);
     }
 }
 

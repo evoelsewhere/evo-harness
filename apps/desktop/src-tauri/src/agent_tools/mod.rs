@@ -408,20 +408,11 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// The folder a chat works in.
+/// The folder a chat works in (the one its engine starts in, `supervisor::folder_of`).
 pub fn chat_folder(app: &AppHandle, chat: &str) -> PathBuf {
-    use evo_store::chats;
-    let db = app.state::<Db>();
-    let Ok(Some(row)) = db.with(|conn| chats::get_chat(conn, chat)) else {
-        return home();
-    };
-    if let Some(worktree) = row.worktree_path.filter(|p| !p.is_empty()) {
-        return PathBuf::from(worktree);
-    }
-    row.workspace_id
-        .and_then(|workspace| db.with(|conn| chats::get_workspace(conn, &workspace)).ok().flatten())
-        .map(|workspace| PathBuf::from(workspace.path))
-        .unwrap_or_else(home)
+    app.state::<Db>()
+        .with(|conn| Ok(crate::supervisor::folder_of(conn, chat, &home())))
+        .unwrap_or_else(|_| home())
 }
 
 // ── State: calls in flight, open questions, which window shows which chat ───
@@ -505,18 +496,21 @@ async fn ask_person(
     let id = format!("agent-ask:{}", state.next.fetch_add(1, Ordering::Relaxed) + 1);
     let (tx, rx) = oneshot::channel();
     state.asks.lock().expect("asks lock").insert(id.clone(), (tx, chat.to_string()));
-    let _ = app.emit(
-        "agent://ask",
-        json!({ "chat": chat, "requestId": id, "callId": call, "title": title, "description": description, "options": options }),
-    );
-    tokio::select! {
+    // The supervisor keeps it with the chat's other open questions, every
+    // window draws it (`engine://question`), and it is announced when no
+    // window shows the chat. Only the person answers it; it never times out
+    // (docs/features/shell-hosted-engines/spec.md, FR-9).
+    let question = crate::supervisor::questions::OpenQuestion::from_shell(&id, call, title, description, options, crate::supervisor::now_ms());
+    crate::supervisor::question_opened(app, chat, question);
+    let answer = tokio::select! {
         answer = rx => answer.unwrap_or(-1),
         _ = cancel.cancelled() => {
             state.asks.lock().expect("asks lock").remove(&id);
-            let _ = app.emit("agent://ask-closed", json!({ "chat": chat, "requestId": id }));
             -1
         }
-    }
+    };
+    crate::supervisor::question_closed(app, chat, &id);
+    answer
 }
 
 /// Run another registered tool inside this call (a batch step, a preview that

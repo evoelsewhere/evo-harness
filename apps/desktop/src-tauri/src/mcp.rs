@@ -36,6 +36,9 @@ pub fn setup(app: &AppHandle) {
         .map(PathBuf::from);
     let pool = Pool::new(agent_dir().join("mcp.json"), home, move || {
         let _ = handle.emit("mcp://changed", ());
+        // Running chats get their connector tools again
+        // (docs/features/shell-hosted-engines/spec.md, FR-1).
+        crate::supervisor::connectors_changed(&handle);
     });
     app.manage(McpState(pool.clone()));
     tauri::async_runtime::spawn(async move {

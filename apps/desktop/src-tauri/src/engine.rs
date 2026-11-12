@@ -1,4 +1,4 @@
-//! Child-process bridge to `evo-engine`, one process per open chat.
+//! Child-process bridge to `evo-engine`, one process per chat with work or a window.
 //!
 //! Every chat runs in its own engine (`evo-engine --mode rpc --session-db
 //! <transcripts>/<chat>.db --session-id <chat>`), so chats run in parallel and
@@ -14,7 +14,10 @@
 //! commands also go to the run log.
 //!
 //! Every stdout line also goes to the session mesh hub (`crate::mesh`), which
-//! routes mail between chats' engines whichever window shows them.
+//! routes mail between chats' engines whichever window shows them, and to
+//! the engine supervisor (`crate::supervisor`), the only caller of
+//! [`start_process`]: windows, the hub and the app's start ask it for an
+//! engine (docs/features/shell-hosted-engines/spec.md, FR-1).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -381,19 +384,34 @@ pub async fn engine_running(state: State<'_, EngineState>) -> Result<Vec<String>
     Ok(state.running().await)
 }
 
-/// Start (or restart) the engine of `chat` with `cwd` as the project
-/// directory. Returns the generation number; events from older generations
-/// are stale and the UI ignores them.
-#[tauri::command]
-pub async fn engine_start(
-    app: AppHandle,
-    state: State<'_, EngineState>,
-    db: State<'_, Db>,
-    chat: String,
-    cwd: Option<String>,
+/// Start the engine of `chat` in `folder` (the project directory), or with
+/// `restart` replace the one that runs. An engine that runs is kept without
+/// `restart`: one engine per chat. Only the supervisor calls this
+/// (docs/features/shell-hosted-engines/spec.md, FR-1). The generation
+/// numbers processes; events from older generations are stale and the UI
+/// ignores them.
+pub(crate) async fn start_process(
+    app: &AppHandle,
+    chat: &str,
+    folder: &Path,
     options: Option<crate::chat_flags::ChatFlags>,
-) -> Result<u64, String> {
+    restart: bool,
+) -> Result<crate::supervisor::Start, String> {
+    let app = app.clone();
+    let chat = chat.to_string();
+    let state = app.state::<EngineState>();
+    let db = app.state::<Db>();
+    let cwd = Some(folder.display().to_string()).filter(|dir| !dir.is_empty());
     let mut processes = state.processes.lock().await;
+    // A restart keeps what a draft was set to (memory off, incognito) unless
+    // the caller says otherwise; a saved chat's row decides anyway.
+    let options = options.or_else(|| processes.get(&chat).filter(|_| restart).map(|running| running.flags));
+    // One that has just exited (its exit not seen yet) is replaced.
+    if let Some(running) = processes.get_mut(&chat).filter(|_| !restart) {
+        if matches!(running.child.try_wait(), Ok(None)) {
+            return Ok(crate::supervisor::Start::Running(running.generation));
+        }
+    }
     if let Some(mut old) = processes.remove(&chat) {
         let _ = old.child.kill().await;
         db.log(NewLog::new("info", "shell", "engine restarted").chat(Some(&chat)));
@@ -508,6 +526,8 @@ pub async fn engine_start(
                     );
                     crate::mesh::on_line(&out_app, &out_chat, &message).await;
                     crate::agent_tools::on_line(&out_app, &out_chat, &message).await;
+                    // Answers to the shell's own requests, set-up on `ready`.
+                    crate::supervisor::on_line(&out_app, &out_chat, generation, &message).await;
                 }
                 Err(_) => {
                     // An incognito chat's output is not kept: it can quote the chat.
@@ -566,7 +586,8 @@ pub async fn engine_start(
             let Some(process) = processes.get_mut(&chat) else {
                 // Stopped on purpose: its mail waits for the next start.
                 drop(processes);
-                crate::mesh::on_exit(&exit_app, &chat).await;
+                crate::supervisor::on_exit(&exit_app, &chat, generation, false);
+                crate::mesh::on_exit(&exit_app, &chat, false).await;
                 break;
             };
             if process.generation != generation {
@@ -576,7 +597,9 @@ pub async fn engine_start(
                 processes.remove(&chat);
                 drop(processes);
                 state.working.forget(&chat);
-                crate::mesh::on_exit(&exit_app, &chat).await;
+                crate::supervisor::on_exit(&exit_app, &chat, generation, true);
+                // It ended by itself: mail waiting for it restarts it, within limits.
+                crate::mesh::on_exit(&exit_app, &chat, true).await;
                 let code = status.code();
                 exit_app.state::<Db>().log(
                     NewLog::new(if code == Some(0) { "info" } else { "error" }, "shell", "engine exited")
@@ -592,13 +615,17 @@ pub async fn engine_start(
         }
     });
 
-    Ok(generation)
+    Ok(crate::supervisor::Start::Started(generation))
 }
 
-/// Write one protocol command to `chat`'s engine as a JSON line.
+/// Write one protocol command to `chat`'s engine as a JSON line. An answer
+/// to a question closes it for every window
+/// (docs/features/shell-hosted-engines/spec.md, FR-9).
 #[tauri::command]
-pub async fn engine_send(state: State<'_, EngineState>, chat: String, message: Value) -> Result<(), String> {
-    state.write(&chat, &message).await
+pub async fn engine_send(app: AppHandle, state: State<'_, EngineState>, chat: String, message: Value) -> Result<(), String> {
+    state.write(&chat, &message).await?;
+    crate::supervisor::sent(&app, &chat, &message);
+    Ok(())
 }
 
 impl EngineState {

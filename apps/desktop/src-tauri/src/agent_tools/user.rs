@@ -304,12 +304,21 @@ fn now_ms() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
+/// Whether the person muted the shell's OS notifications (Do not disturb, or
+/// the agent muted); the shell's run notices follow it too
+/// (docs/features/shell-hosted-engines/spec.md, plan 3.7).
+pub(crate) fn muted() -> bool {
+    MUTED.load(Ordering::Relaxed)
+}
+
 /// Whether a window is visible and in front of the person.
-fn any_window_focused(app: &AppHandle) -> bool {
+pub(crate) fn any_window_focused(app: &AppHandle) -> bool {
     app.webview_windows().values().any(|window| window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false))
 }
 
-fn send_system(app: &AppHandle, notice: &Notice) {
+/// Send an OS notification. With `chat`, clicking it opens that chat
+/// (docs/features/shell-hosted-engines/spec.md, FR-9; `supervisor::notices::setup`).
+pub(crate) fn send_os(app: &AppHandle, title: &str, body: Option<&str>, chat: Option<&str>) {
     let notification = app.notification();
     let allowed = match notification.permission_state() {
         Ok(tauri::plugin::PermissionState::Granted) => true,
@@ -318,11 +327,18 @@ fn send_system(app: &AppHandle, notice: &Notice) {
     if !allowed {
         return;
     }
-    let mut builder = notification.builder().title(&notice.title);
-    if let Some(body) = notice.body.as_deref().filter(|body| !body.is_empty()) {
+    let mut builder = notification.builder().title(title);
+    if let Some(body) = body.filter(|body| !body.is_empty()) {
         builder = builder.body(body);
     }
+    if let Some(chat) = chat {
+        builder = builder.extra("chat", chat);
+    }
     let _ = builder.show();
+}
+
+fn send_system(app: &AppHandle, notice: &Notice) {
+    send_os(app, &notice.title, notice.body.as_deref(), None);
 }
 
 async fn run_notify(ctx: ToolCtx, args: Value) -> ToolOutput {

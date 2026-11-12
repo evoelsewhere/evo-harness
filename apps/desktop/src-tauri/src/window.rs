@@ -99,10 +99,12 @@ pub fn window_devtools(webview: Webview, open: Option<bool>) {
 
 // ── Chat windows ────────────────────────────────────────────────────────────
 //
-// "Open in › New window" shows one chat in a window of its own. A chat lives
-// in one window at a time: its window owns the chat's engine, the main window
-// lets go of it and focuses that window instead of showing the chat itself.
-// Closing the window stops the chat's engine (see `lib.rs`).
+// "Open in › New window" shows one chat in a window of its own. A chat is
+// shown in one window at a time: that window views the chat's engine, the
+// main window lets go of it and focuses that window instead of showing the
+// chat itself. The shell owns the engine: closing the window only detaches it
+// and the chat's work goes on (`supervisor::window_gone`;
+// docs/features/shell-hosted-engines/spec.md, FR-2).
 
 /// Window labels allow `a-zA-Z0-9-/:_`; chat ids are UUIDs or `chat-…`.
 pub fn chat_window_label(chat: &str) -> String {

@@ -10,8 +10,9 @@
 //! * which connectors exist for the chat: the person's own plus the approved
 //!   servers of the project of the chat's folder (the pool decides);
 //! * the per-chat switches (Customize → composer `+` → Connectors): the webview
-//!   reports the switched-off connectors with [`agent_mcp_chat_config`] before it
-//!   asks for a chat's definitions, and whenever a switch changes;
+//!   reports a change with [`agent_mcp_chat_config`]; the shell keeps them in
+//!   the app setting `connectors.chatOff`, so chats no window shows get theirs
+//!   too (docs/features/shell-hosted-engines/spec.md, FR-8, NFR-4);
 //! * permissions Allow / Ask / Block per tool: Block tools are not offered and
 //!   are refused, Ask tools raise the composer's Allow once / Always allow / Deny
 //!   prompt through [`ToolCtx::ask`], Always allow saves Allow in the pool.
@@ -61,17 +62,96 @@ fn off_of(chat: &str) -> HashSet<String> {
     chat_off().lock().expect("connector switches lock").get(chat).cloned().unwrap_or_default()
 }
 
-/// The connectors (pool keys) switched off for `chat`: the webview reports them
-/// when a chat's tools are set up and whenever a switch changes. An empty list
-/// switches every connector on.
+/// The connectors (pool keys) switched off for `chat`: the webview reports a
+/// switch it changed. An empty list switches every connector on. A change is
+/// saved (`connectors.chatOff`) and gives the chat's running engine its tools
+/// again (docs/features/shell-hosted-engines/spec.md, FR-1, FR-8).
 #[tauri::command]
-pub fn agent_mcp_chat_config(chat: String, off: Vec<String>) {
+pub fn agent_mcp_chat_config(app: AppHandle, chat: String, off: Vec<String>) {
+    // Changed and saved under one lock: two switches never save out of order.
     let mut all = chat_off().lock().expect("connector switches lock");
-    if off.is_empty() {
-        all.remove(&chat);
-    } else {
-        all.insert(chat, off.into_iter().collect());
+    if !switch(&mut all, &chat, off) {
+        return;
     }
+    let saved = switches_value(&all);
+    if let Some(db) = app.try_state::<crate::db::Db>() {
+        if let Err(error) = db.with(|conn| evo_store::settings::set(conn, crate::supervisor::settings::CHAT_OFF_KEY, &saved)) {
+            db.log(evo_store::logs::NewLog::new("warn", "mcp", format!("connector switches not saved: {error}")).chat(Some(&chat)));
+        }
+    }
+    drop(all);
+    crate::supervisor::chat_tools_changed(&app, chat);
+}
+
+/// Read the saved switches (`connectors.chatOff`) at app start, before any
+/// engine is set up.
+pub fn load_switches(app: &AppHandle) {
+    let Some(db) = app.try_state::<crate::db::Db>() else {
+        return;
+    };
+    let saved = db.with(|conn| evo_store::settings::get(conn, crate::supervisor::settings::CHAT_OFF_KEY)).ok().flatten();
+    *chat_off().lock().expect("connector switches lock") = switches_from(saved.as_ref().unwrap_or(&Value::Null));
+}
+
+/// The saved switches were replaced (a window's import): every chat whose
+/// switches changed gets its tools again.
+pub fn chat_off_changed(app: &AppHandle, value: &Value) {
+    let next = switches_from(value);
+    let changed: Vec<String> = {
+        let mut all = chat_off().lock().expect("connector switches lock");
+        let chats: HashSet<String> = all.keys().chain(next.keys()).cloned().collect();
+        let changed = chats.into_iter().filter(|chat| all.get(chat) != next.get(chat)).collect();
+        *all = next;
+        changed
+    };
+    for chat in changed {
+        crate::supervisor::chat_tools_changed(app, chat);
+    }
+}
+
+/// `{ chat: [server] }` as saved; anything else is no switch.
+fn switches_from(value: &Value) -> HashMap<String, HashSet<String>> {
+    let Some(saved) = value.as_object() else {
+        return HashMap::new();
+    };
+    saved
+        .iter()
+        .filter_map(|(chat, off)| {
+            let off: HashSet<String> = off.as_array()?.iter().filter_map(Value::as_str).map(str::to_string).collect();
+            (!off.is_empty()).then(|| (chat.clone(), off))
+        })
+        .collect()
+}
+
+/// The switches as saved: chats and servers in order.
+fn switches_value(all: &HashMap<String, HashSet<String>>) -> Value {
+    let mut chats: Vec<&String> = all.keys().collect();
+    chats.sort();
+    let mut out = Map::new();
+    for chat in chats {
+        let mut off: Vec<&String> = all[chat].iter().collect();
+        off.sort();
+        out.insert(chat.clone(), json!(off));
+    }
+    Value::Object(out)
+}
+
+/// Keep `chat`'s switched-off connectors; true when they changed.
+#[cfg(test)]
+fn set_chat_off(chat: &str, off: Vec<String>) -> bool {
+    switch(&mut chat_off().lock().expect("connector switches lock"), chat, off)
+}
+
+/// Set `chat`'s switched-off connectors in `all`; true when they changed.
+fn switch(all: &mut HashMap<String, HashSet<String>>, chat: &str, off: Vec<String>) -> bool {
+    let off: HashSet<String> = off.into_iter().collect();
+    let before = all.get(chat).cloned().unwrap_or_default();
+    if off.is_empty() {
+        all.remove(chat);
+    } else {
+        all.insert(chat.to_string(), off.clone());
+    }
+    before != off
 }
 
 // ── A chat's connector tools ────────────────────────────────────────────────
@@ -572,11 +652,27 @@ mod tests {
 
     #[test]
     fn switches_are_kept_per_chat_and_cleared_by_an_empty_list() {
-        agent_mcp_chat_config("chat-switch-1".into(), vec!["a".into(), "b#p".into()]);
+        assert!(set_chat_off("chat-switch-1", vec!["a".into(), "b#p".into()]));
         assert_eq!(off_of("chat-switch-1"), HashSet::from(["a".to_string(), "b#p".to_string()]));
         assert!(off_of("chat-switch-2").is_empty());
-        agent_mcp_chat_config("chat-switch-1".into(), vec![]);
+        // The same list again changes nothing (the chat's tools stay as they are).
+        assert!(!set_chat_off("chat-switch-1", vec!["b#p".into(), "a".into()]));
+        assert!(set_chat_off("chat-switch-1", vec![]));
         assert!(off_of("chat-switch-1").is_empty());
+    }
+
+    // docs/features/shell-hosted-engines/spec.md, FR-8, NFR-4 (T25).
+    #[test]
+    fn switches_are_saved_in_order_and_read_back_dropping_what_is_not_a_switch() {
+        let mut all = HashMap::new();
+        assert!(switch(&mut all, "c2", vec!["z".into(), "a#p".into()]));
+        assert!(switch(&mut all, "c1", vec!["gh".into()]));
+        let saved = switches_value(&all);
+        assert_eq!(saved, json!({ "c1": ["gh"], "c2": ["a#p", "z"] }));
+        assert_eq!(switches_from(&saved), all);
+        let odd = json!({ "c1": [], "c2": "gh", "c3": ["ok", 4] });
+        assert_eq!(switches_from(&odd), HashMap::from([("c3".to_string(), HashSet::from(["ok".to_string()]))]));
+        assert!(switches_from(&Value::Null).is_empty());
     }
 
     #[test]

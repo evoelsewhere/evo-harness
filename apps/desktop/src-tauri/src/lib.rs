@@ -5,6 +5,9 @@
 //! UI: commands go in through the `engine_send` command, and every line the
 //! engine prints comes back as an `engine://message` event. Running the engine
 //! out of process means a crashing native extension cannot take the window down.
+//! Which engines run, and their set-up, is the [`supervisor`]'s: windows ask
+//! it with `engine_ensure` and attach to the engines they show
+//! (docs/features/shell-hosted-engines/spec.md, FR-1, FR-2).
 
 mod agent_tools;
 mod apps;
@@ -19,6 +22,7 @@ mod memory_index;
 mod mesh;
 mod plugins;
 mod shell_integration;
+mod supervisor;
 mod system;
 mod updates;
 mod worktrees;
@@ -32,7 +36,11 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         // First: a second launch (Start menu, dock, sign-in) shows this one instead.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| system::show_main(app)))
+        // The main window comes back, built again if it was destroyed
+        // (docs/features/shell-hosted-engines/spec.md, FR-11).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            system::show_main(app);
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![system::HIDDEN_ARG]),
@@ -44,6 +52,7 @@ pub fn run() {
         // updater permission.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(engine::EngineState::default())
+        .manage(supervisor::EngineSupervisor::default())
         .manage(apps::AppsState::default())
         .manage(match db::Db::open() {
             Ok(db) => db,
@@ -68,14 +77,7 @@ pub fn run() {
                 Ok(dir) => app.state::<terminal::TerminalState>().set_integration_dir(dir),
                 Err(error) => eprintln!("could not install shell integration: {error}"),
             }
-            if let Some(main) = app.get_window("main") {
-                let _ = main.set_title(window::app_name());
-                let material = window::apply(&main, None);
-                *app.state::<window::MaterialState>()
-                    .0
-                    .lock()
-                    .expect("material lock") = material;
-            }
+            system::dress_main(app.handle());
             app.state::<db::Db>().log(evo_store::logs::NewLog::new(
                 "info",
                 "shell",
@@ -94,32 +96,37 @@ pub fn run() {
             updates::setup(app.handle());
             // Memory: index idle chats with the model the person chose.
             memory_index::setup(app.handle());
+            // Chats with mail left undelivered when the app last closed get
+            // their engines now, with or without a window (FR-4).
+            supervisor::setup(app.handle());
+            // A click on the shell's notice of a chat opens it (FR-9).
+            supervisor::notices::setup(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 system::on_close_requested(window, api);
             }
-            // A chat window owns its chat's engine: closing it stops the engine.
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
                 // A window's terminals end with it.
                 window.app_handle().state::<terminal::TerminalState>().kill_window(&label);
                 window.app_handle().state::<browser::BrowserState>().close_window(window.app_handle(), &label);
-                if label.starts_with(window::CHAT_WINDOW_PREFIX) {
-                    let app = window.app_handle().clone();
-                    tauri::async_runtime::spawn(async move {
-                        let engines = app.state::<engine::EngineState>();
-                        let chats: Vec<String> = engines.running().await;
-                        for chat in chats.into_iter().filter(|chat| window::chat_window_label(chat) == label) {
-                            engines.stop(&chat).await;
-                        }
-                    });
-                }
+                // A window is a viewer: its chat's engine goes on while it has
+                // work (docs/features/shell-hosted-engines/spec.md, FR-2).
+                supervisor::window_gone(window.app_handle(), &label);
             }
         })
         .invoke_handler(tauri::generate_handler![
-            engine::engine_start,
+            supervisor::engine_ensure,
+            supervisor::engine_attach,
+            supervisor::engine_detach,
+            supervisor::engine_hold,
+            supervisor::engine_questions,
+            supervisor::engine_set_composing,
+            supervisor::settings::settings_import_window,
+            supervisor::settings::engine_reload_resources,
+            supervisor::notices::notifications_take,
             engine::engine_send,
             engine::engine_stop,
             engine::engine_info,
@@ -128,9 +135,6 @@ pub fn run() {
             updates::updates_check,
             updates::updates_install,
             mesh::mesh_pending,
-            mesh::mesh_pending_chats,
-            mesh::mesh_hosted,
-            mesh::mesh_configure,
             mesh::mesh_session_tools,
             agent_tools::agent_tools_definitions,
             agent_tools::agent_ask_answer,
@@ -177,6 +181,11 @@ pub fn run() {
             window::chat_window_focus,
             window::chat_window_close,
             system::system_settings,
+            system::engine_working,
+            system::quit_confirmed,
+            system::quit_dismissed,
+            system::quit_pending,
+            system::app_open_pending,
             mcp::mcp_state,
             mcp::mcp_upsert,
             mcp::mcp_remove,
@@ -267,6 +276,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the evo desktop app")
         .run(|_app, _event| {
+            // With the tray on, evo stays when the last window goes; with it
+            // off it asks first while chats work (FR-11).
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = &_event {
+                system::on_exit_requested(_app, *code, api);
+            }
             // Connectors, controlled apps and engines end with the app.
             if let tauri::RunEvent::Exit = _event {
                 system::shutdown(_app);

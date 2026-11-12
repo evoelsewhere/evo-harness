@@ -2,8 +2,9 @@
 //!
 //! Installs live in `<agent dir>/plugins`. After every change the shell
 //! gives the connector pool the enabled plugins' MCP servers and emits
-//! `plugins://changed`; the UI then has every chat's engine re-read its
-//! skills, commands, agent types and hooks.
+//! `plugins://changed`; the supervisor has every chat's engine re-read its
+//! skills, commands, agent types and hooks, viewed or not
+//! (docs/features/shell-hosted-engines/spec.md, FR-8).
 
 use std::path::{Path, PathBuf};
 
@@ -45,6 +46,7 @@ async fn changed(app: &AppHandle) {
         state.0.set_plugin_servers(servers).await;
     }
     let _ = app.emit("plugins://changed", ());
+    crate::supervisor::settings::resources_changed(app);
 }
 
 /// Connect the enabled plugins' servers at launch.

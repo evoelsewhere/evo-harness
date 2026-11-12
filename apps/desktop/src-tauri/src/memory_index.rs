@@ -290,8 +290,10 @@ async fn index_one(app: &AppHandle, candidate: &IndexCandidate, model: &(String,
         RunResult::Done { changes, skipped, .. } => {
             db.log(NewLog::new("info", "memory", "chat indexed").chat(Some(chat)).data(json!({ "changes": changes, "skipped": skipped })));
             if *changes > 0 {
-                // Idle chats read the changed topics from their next message.
+                // Every engine reads the changed topics from its next message
+                // (idle ones at once, others after their run; shell-hosted-engines FR-8).
                 let _ = app.emit("memory://changed", json!({ "chat": chat }));
+                crate::supervisor::settings::resources_changed(app);
             }
         }
         // The message is the engine's or the provider's, never the chat's text.

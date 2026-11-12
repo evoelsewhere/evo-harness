@@ -7,11 +7,18 @@
 //! whichever window shows that chat. A proposed session's card starts it with
 //! [`mesh_start_session`] or dismisses it with [`mesh_dismiss_proposal`].
 //!
-//! The windows still start and hold engines (they set up each engine's other
-//! tools). When the hub needs an engine that runs nowhere — a session it just
-//! created, a chat with mail waiting — the windows hear `mesh://host`; the main
-//! window starts that engine and, once its tools are set up, calls
-//! [`mesh_hosted`], and the hub sends what waits for it.
+//! When the hub needs an engine that runs nowhere — a session it just
+//! created, a chat with mail waiting — the engine supervisor starts it, with
+//! or without a window (`crate::supervisor`), and once it is set up tells the
+//! hub, which sends what waits for it. An engine that crashes with mail
+//! waiting is restarted within limits; at app start every chat with
+//! undelivered mail is hosted (docs/features/shell-hosted-engines/spec.md,
+//! FR-4).
+//!
+//! Mail between nodes of different engines (`send_message`, `ask`, `reply`
+//! across engines, docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8)
+//! reaches the hub the same way, as mail ops on an engine's stdout; the hub
+//! routes it and stores it here as session mail.
 
 use std::path::{Path, PathBuf};
 
@@ -38,7 +45,7 @@ impl DbMailStore {
 }
 
 /// A new chat id, in the UUID v4 shape the UI uses.
-fn new_chat_id() -> String {
+pub(crate) fn new_chat_id() -> String {
     use std::hash::{BuildHasher, Hasher};
     let mut bytes = [0u8; 16];
     let nanos = std::time::SystemTime::now()
@@ -249,15 +256,39 @@ pub struct MeshHub(pub Hub<DbMailStore>);
 
 impl MeshHub {
     pub fn new(app: AppHandle) -> Self {
-        MeshHub(Hub::new(DbMailStore { app }))
+        let hub = Hub::new(DbMailStore { app: app.clone() });
+        // Settings → Sandbox, before any window is open (session-roles-and-mail
+        // FR-5; shell-hosted-engines FR-8): later changes come through
+        // `supervisor::settings::on_setting`.
+        if let Some(db) = app.try_state::<crate::db::Db>() {
+            hub.set_max_children(crate::engine::nested_session_limit(&db));
+            hub.set_auto_start(crate::supervisor::settings::auto_start_sessions(&db));
+        }
+        MeshHub(hub)
+    }
+}
+
+/// Whether the hub's answer to `line` reads or writes the database at length:
+/// a session tool (it may create a chat and a worktree), or mail for a node
+/// of another engine and the `peers` command, which read the chats and store
+/// mail (docs/features/session-roles-and-mail/spec.md, FR-6, FR-7).
+fn needs_the_database(line: &Value) -> bool {
+    match line.get("type").and_then(Value::as_str) {
+        Some("external_tool_request") => true,
+        Some("mesh") => match (line.get("kind").and_then(Value::as_str), line.get("op").and_then(Value::as_str)) {
+            (Some("mail"), Some(op)) => op != "message",
+            (Some("cmd"), Some(op)) => op == "peers",
+            _ => false,
+        },
+        _ => false,
     }
 }
 
 /// One stdout line of `chat`'s engine: let the hub react, then carry out
 /// what it asks (writes to engines, events to the windows).
 pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
-    let effects = if line.get("type").and_then(Value::as_str) == Some("external_tool_request") {
-        // A session tool may create a chat and a worktree: off the reader.
+    let effects = if needs_the_database(line) {
+        // Off the reader.
         let (app2, chat2, line2) = (app.clone(), chat.to_string(), line.clone());
         tauri::async_runtime::spawn_blocking(move || app2.state::<MeshHub>().0.on_line(&chat2, &line2))
             .await
@@ -268,13 +299,26 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
     apply(app, effects).await;
 }
 
-/// `chat`'s engine exited or was stopped.
-pub async fn on_exit(app: &AppHandle, chat: &str) {
-    let effects = app.state::<MeshHub>().0.on_exit(chat);
+/// `chat`'s engine exited (`crashed`) or was stopped on purpose. Mail that
+/// waits for it restarts a crashed engine, within the supervisor's limits;
+/// a stopped one keeps its mail until new mail comes or a window opens the
+/// chat (docs/features/shell-hosted-engines/spec.md, FR-4).
+pub async fn on_exit(app: &AppHandle, chat: &str, crashed: bool) {
+    let (wants_host, effects) = exit_effects(app.state::<MeshHub>().0.on_exit(chat));
     apply(app, effects).await;
+    if wants_host && crashed {
+        crate::supervisor::restart_for_mail(app, chat.to_string());
+    }
 }
 
-async fn apply(app: &AppHandle, effects: Vec<Effect>) {
+/// The hub's answer to an engine's exit: whether it asks for a host (mail
+/// waits for the chat), and the other effects.
+fn exit_effects(effects: Vec<Effect>) -> (bool, Vec<Effect>) {
+    let (hosts, rest): (Vec<Effect>, Vec<Effect>) = effects.into_iter().partition(|effect| matches!(effect, Effect::Host { .. }));
+    (!hosts.is_empty(), rest)
+}
+
+pub(crate) async fn apply(app: &AppHandle, effects: Vec<Effect>) {
     for effect in effects {
         match effect {
             Effect::Send { chat, line } => {
@@ -288,9 +332,9 @@ async fn apply(app: &AppHandle, effects: Vec<Effect>) {
                     app.state::<MeshHub>().0.on_start(&chat);
                 }
             }
-            Effect::Host { chat, cwd, restore } => {
-                let _ = app.emit("mesh://host", json!({ "chat": chat, "cwd": cwd, "restore": restore }));
-            }
+            // The supervisor starts and sets it up, in the effect's folder
+            // when it names one (a new session's worktree), FR-4.
+            Effect::Host { chat, cwd, restore } => crate::supervisor::host_for_mail(app, chat, cwd, restore),
             Effect::Prompted { chat, text } => {
                 let _ = app.emit("mesh://prompted", json!({ "chat": chat, "text": text }));
             }
@@ -302,27 +346,6 @@ async fn apply(app: &AppHandle, effects: Vec<Effect>) {
 #[tauri::command]
 pub fn mesh_pending(db: State<'_, Db>, chat: String) -> Result<usize, String> {
     db.with(|conn| mail::pending_mail(conn, &chat)).map(|mail| mail.len())
-}
-
-/// The chats with undelivered mail. At startup no engine runs, so nothing
-/// asks for them to be hosted; the main window starts their engines.
-#[tauri::command]
-pub fn mesh_pending_chats(db: State<'_, Db>) -> Result<Vec<String>, String> {
-    db.with(|conn| mail::chats_with_pending_mail(conn))
-}
-
-/// A window set up `chat`'s engine (its tools): send what waits for it.
-#[tauri::command]
-pub async fn mesh_hosted(app: AppHandle, chat: String) -> Result<(), String> {
-    let effects = app.state::<MeshHub>().0.on_hosted(&chat);
-    apply(&app, effects).await;
-    Ok(())
-}
-
-/// Settings the hub follows (Settings → Sandbox: start sessions without asking).
-#[tauri::command]
-pub fn mesh_configure(hub: State<'_, MeshHub>, auto_start_sessions: bool) {
-    hub.0.set_auto_start(auto_start_sessions);
 }
 
 /// The session tools' definitions, for a top-level chat's external tools.
@@ -424,17 +447,6 @@ mod tests {
         assert_eq!(child.worktree_path.as_deref(), Some("/wt/c"));
     }
 
-    #[test]
-    fn a_forked_session_is_a_nested_session_on_its_parents_model() {
-        let mut fx = Fixture::new();
-        let parent = fx.parent(NewChat { memory_off: true, ..Default::default() });
-        let child = fx.child(&parent, true, Some("/wt/c")).unwrap();
-        assert_eq!((child.provider.as_deref(), child.model.as_deref()), (Some("acme"), Some("acme-large")));
-        assert_eq!((child.parent_chat_id.as_deref(), child.origin.as_str()), (Some("p"), "agent"));
-        assert_eq!((child.title.as_str(), child.memory_off), ("Child", true));
-        assert_eq!(child.worktree_path.as_deref(), Some("/wt/c"));
-    }
-
     // docs/features/session-roles-and-mail/spec.md (FR-1, FR-2, NFR-4).
     #[test]
     fn a_session_with_a_role_runs_on_its_model_and_keeps_it() {
@@ -460,6 +472,66 @@ mod tests {
         let parent = fx.parent(NewChat::default());
         let typed = fx.child_as(&parent, false, &evo_mesh::wire::SessionRole { name: Some("r".into()), ..Default::default() });
         assert_eq!(typed.model.as_deref(), Some("acme-large"));
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-6, FR-7).
+    #[test]
+    fn mail_across_engines_is_routed_off_the_reader_and_kept_with_its_nodes() {
+        let line = |kind: &str, op: &str| json!({ "type": "mesh", "kind": kind, "op": op });
+        assert!(needs_the_database(&json!({ "type": "external_tool_request" })));
+        for op in ["send", "ask", "reply", "cancel_ask"] {
+            assert!(needs_the_database(&line("mail", op)), "{op}");
+        }
+        assert!(needs_the_database(&line("cmd", "peers")));
+        for (kind, op) in [("mail", "message"), ("evt", "node_report"), ("res", "ask"), ("cmd", "list")] {
+            assert!(!needs_the_database(&line(kind, op)), "{kind} {op}");
+        }
+        assert!(!needs_the_database(&json!({ "type": "agent_start" })));
+
+        // The stored body keeps what the hub routes by: kind, ask and the nodes.
+        let fx = Fixture::new();
+        chats::create_chat(&fx.conn, &NewChat { id: "b".into(), title: "B".into(), ..Default::default() }).unwrap();
+        let body = MailBody {
+            kind: Some(evo_mesh::wire::MailKind::Ask),
+            ask: Some(evo_mesh::wire::AskInfo { id: "ask_1".into(), timeout_ms: Some(600_000) }),
+            from_node: Some(evo_mesh::wire::Address::parse("s_a/a_3").unwrap()),
+            ..MailBody::new("Which port?", evo_mesh::wire::Deliver::Interrupt)
+        };
+        let stored = StoredMail {
+            id: "mail_1".into(),
+            from_chat: "a".into(),
+            to_chat: "b".into(),
+            body: serde_json::to_string(&body).unwrap(),
+            created_at: 1,
+            delivered_at: None,
+        };
+        mail::insert_mail(&fx.conn, &stored).unwrap();
+        let pending = mail::pending_mail(&fx.conn, "b").unwrap();
+        let back: MailBody = serde_json::from_str(&pending[0].body).unwrap();
+        assert_eq!(back, body);
+        let mail = Mail { id: "mail_1".into(), from_chat: "a".into(), to_chat: "b".into(), body: back, created_at: 1 };
+        assert_eq!((mail.envelope().from.as_str(), mail.envelope().to.as_str()), ("s_a/a_3", "s_b"));
+    }
+
+    // docs/features/shell-hosted-engines/spec.md, FR-4 (T5).
+    #[test]
+    fn an_exit_with_mail_waiting_asks_for_a_host_and_keeps_the_other_effects() {
+        let host = Effect::Host { chat: "c".into(), cwd: None, restore: true };
+        let send = Effect::Send { chat: "p".into(), line: json!({ "type": "prompt" }) };
+        assert_eq!(exit_effects(vec![host.clone(), send.clone()]), (true, vec![send.clone()]));
+        assert_eq!(exit_effects(vec![send.clone()]), (false, vec![send]));
+        assert_eq!(exit_effects(Vec::new()), (false, Vec::new()));
+    }
+
+    #[test]
+    fn a_forked_session_is_a_nested_session_on_its_parents_model() {
+        let mut fx = Fixture::new();
+        let parent = fx.parent(NewChat { memory_off: true, ..Default::default() });
+        let child = fx.child(&parent, true, Some("/wt/c")).unwrap();
+        assert_eq!((child.provider.as_deref(), child.model.as_deref()), (Some("acme"), Some("acme-large")));
+        assert_eq!((child.parent_chat_id.as_deref(), child.origin.as_str()), (Some("p"), "agent"));
+        assert_eq!((child.title.as_str(), child.memory_off), ("Child", true));
+        assert_eq!(child.worktree_path.as_deref(), Some("/wt/c"));
     }
 
     #[test]
