@@ -126,6 +126,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "usage_memory_source",
         sql: include_str!("migrations/0012_usage_memory_source.sql"),
     },
+    Migration {
+        version: 13,
+        name: "chat_roles",
+        sql: include_str!("migrations/0013_chat_roles.sql"),
+    },
 ];
 
 /// `application_id` stamped on the file ("evo1"), so tools and evo itself can
@@ -702,6 +707,29 @@ mod tests {
             [],
         );
         assert!(refused.is_err(), "unknown sources are refused");
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, NFR-1).
+    #[test]
+    fn chat_role_upgrade_keeps_existing_chats_without_a_role() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evo.db");
+        let mut connection = Connection::open(&path).unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        migrate(&mut connection, &path, &MIGRATIONS[..12]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO chats (id, title, created_at, updated_at) VALUES ('c', 'C', 0, 0)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let connection = open_at(&path).unwrap();
+        assert_eq!(version(&connection), MIGRATIONS.len() as i64);
+        let chat = crate::chats::get_chat(&connection, "c").unwrap().unwrap();
+        assert_eq!(chat.role, None, "an existing chat has no role");
     }
 
     // docs/features/memory-topics-and-chat-recall/spec.md (FR-6, FR-19, FR-27, FR-29, FR-30).

@@ -68,6 +68,10 @@ pub struct Chat {
     pub incognito: bool,
     /// The Scheduler started it: indexing writes a summary but no topic (FR-30).
     pub scheduled: bool,
+    /// The role a nested session runs as: the agent type, model and thinking
+    /// level resolved when it started, as JSON; `None` for a chat without one
+    /// (docs/features/session-roles-and-mail/spec.md, FR-1, NFR-4).
+    pub role: Option<serde_json::Value>,
 }
 
 /// A chat to create.
@@ -92,6 +96,9 @@ pub struct NewChat {
     pub incognito: bool,
     #[serde(default)]
     pub scheduled: bool,
+    /// The resolved role of a nested session started with one (FR-1).
+    #[serde(default)]
+    pub role: Option<serde_json::Value>,
 }
 
 /// Fields to change on a chat; `None` leaves a field as it is.
@@ -126,11 +133,11 @@ pub struct TurnRecord {
 const WORKSPACE_COLUMNS: &str = "id, path, name, collapsed, position, created_at, opened_at";
 const CHAT_COLUMNS: &str = "id, workspace_id, title, title_source, preview, provider, model, pinned, unread, \
      archived_at, turn_count, cost_usd, tokens, created_at, updated_at, parent_chat_id, origin, worktree_path, \
-     memory_off, incognito, scheduled";
+     memory_off, incognito, scheduled, role";
 
 /// How many columns [`CHAT_COLUMNS`] names; a query that selects more reads
 /// its own from this index on.
-const CHAT_COLUMN_COUNT: usize = 21;
+const CHAT_COLUMN_COUNT: usize = 22;
 
 /// [`CHAT_COLUMNS`] for a query where `chats` is aliased `c`.
 fn chat_columns_of_c() -> String {
@@ -176,7 +183,14 @@ fn chat_row(row: &Row<'_>) -> rusqlite::Result<Chat> {
         memory_off: row.get(18)?,
         incognito: row.get(19)?,
         scheduled: row.get(20)?,
+        role: role_column(row.get::<_, Option<String>>(21)?),
     })
+}
+
+/// A stored role, or `None` when there is none or it cannot be read (a
+/// damaged value leaves the chat usable, without a role).
+fn role_column(text: Option<String>) -> Option<serde_json::Value> {
+    text.and_then(|text| serde_json::from_str(&text).ok())
 }
 
 fn trim_path(path: &str) -> &str {
@@ -311,8 +325,8 @@ pub fn create_chat(conn: &Connection, chat: &NewChat) -> Result<Chat, DbError> {
     };
     conn.execute(
         "INSERT INTO chats (id, workspace_id, title, title_source, provider, model, created_at, updated_at, parent_chat_id, origin, worktree_path,
-                            memory_off, incognito, scheduled)
-         VALUES (?1, ?2, ?3, 'auto', ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                            memory_off, incognito, scheduled, role)
+         VALUES (?1, ?2, ?3, 'auto', ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT (id) DO NOTHING",
         params![
             chat.id,
@@ -327,7 +341,8 @@ pub fn create_chat(conn: &Connection, chat: &NewChat) -> Result<Chat, DbError> {
             // An incognito chat never uses memory either.
             chat.memory_off || chat.incognito,
             chat.incognito,
-            chat.scheduled
+            chat.scheduled,
+            chat.role.as_ref().map(|role| role.to_string())
         ],
     )?;
     get_chat(conn, &chat.id)?.ok_or_else(|| DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
@@ -466,6 +481,20 @@ pub fn set_worktree(
     conn.execute(
         "UPDATE chats SET worktree_path = ?2 WHERE id = ?1",
         params![id, worktree_path],
+    )?;
+    get_chat(conn, id)
+}
+
+/// The role a chat runs as, or (`None`) none (a forked nested session gets
+/// its role after the copy is made).
+pub fn set_role(
+    conn: &Connection,
+    id: &str,
+    role: Option<&serde_json::Value>,
+) -> Result<Option<Chat>, DbError> {
+    conn.execute(
+        "UPDATE chats SET role = ?2 WHERE id = ?1",
+        params![id, role.map(|role| role.to_string())],
     )?;
     get_chat(conn, id)
 }
@@ -912,6 +941,43 @@ mod tests {
         assert!(set_origin(&conn, "c", "robot").is_err());
         assert_eq!(get_chat(&conn, "c").unwrap().unwrap().origin, "agent");
         assert_eq!(set_origin(&conn, "nobody", "agent").unwrap(), None);
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, NFR-4).
+    #[test]
+    fn chat_role_round_trips_and_can_be_set_later() {
+        let (_dir, conn) = db();
+        let role = serde_json::json!({
+            "name": "reviewer", "source": "project", "access": "read-only",
+            "provider": "acme", "model": "acme-small", "thinking": "low"
+        });
+        let typed = create_chat(
+            &conn,
+            &NewChat {
+                id: "t".into(),
+                title: "Typed".into(),
+                role: Some(role.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(typed.role.as_ref(), Some(&role));
+        let plain = create_chat(
+            &conn,
+            &NewChat {
+                id: "p".into(),
+                title: "Plain".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(plain.role, None);
+        let set = set_role(&conn, "p", Some(&role)).unwrap().unwrap();
+        assert_eq!(set.role.as_ref(), Some(&role));
+        assert_eq!(set_role(&conn, "p", None).unwrap().unwrap().role, None);
+        conn.execute("UPDATE chats SET role = 'not json' WHERE id = 't'", [])
+            .unwrap();
+        assert_eq!(get_chat(&conn, "t").unwrap().unwrap().role, None);
     }
 
     #[test]

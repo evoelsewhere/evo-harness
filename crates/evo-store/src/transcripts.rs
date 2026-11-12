@@ -321,12 +321,20 @@ pub fn fork(dir: &Path, source: &str, id: &str, now_ms: i64) -> Result<bool, DbE
 /// Delete a transcript file with its WAL and shared-memory files. A missing
 /// file is not an error. Fails while another process has the file open on
 /// Windows: stop the chat's engine first; [`sweep`] retries at next startup.
+/// The role file beside a chat's transcript (`<chat>.role.json`): a copy of
+/// the chat's role the desktop writes for its engine at every start
+/// (docs/features/session-roles-and-mail/plan.md, "Role at engine start").
+pub fn role_path(transcript: &Path) -> PathBuf {
+    transcript.with_extension("role.json")
+}
+
 pub fn remove(path: &Path) -> Result<(), DbError> {
     for file in [
         path.to_path_buf(),
         with_suffix(path, "-wal"),
         with_suffix(path, "-shm"),
         with_suffix(path, "-journal"),
+        role_path(path),
     ] {
         match std::fs::remove_file(&file) {
             Ok(()) => {}
