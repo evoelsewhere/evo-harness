@@ -3,9 +3,9 @@
 //! cron expression underneath (minute hour day-of-month month day-of-week; `*`,
 //! lists, ranges and `/step`; Sunday is 0 or 7).
 //!
-//! A port of the webview's `src/lib/schedule.ts`, which the Scheduler page and the
-//! runner keep using; the two must agree because the shell writes the
-//! `nextRunAt` the runner waits for. Tasks store a schedule as the TypeScript
+//! A port of the webview's `src/lib/schedule.ts`, which the Scheduler page keeps
+//! using to show a draft's next run; the two must agree because the shell's
+//! runner (`run.rs`) starts tasks at the `nextRunAt` written here. Tasks store a schedule as the TypeScript
 //! `Schedule` object (`{ kind, ... }`), which [`Schedule`] reads and writes as is.
 //!
 //! Spec: docs/features/agent-tools-layers (FR-5); docs/features/memory-and-scheduler (FR-11).

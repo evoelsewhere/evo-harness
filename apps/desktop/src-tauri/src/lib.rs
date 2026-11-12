@@ -101,6 +101,9 @@ pub fn run() {
             supervisor::setup(app.handle());
             // A click on the shell's notice of a chat opens it (FR-9).
             supervisor::notices::setup(app.handle());
+            // The Scheduler: missed runs now, then due tasks every 20 s, with
+            // or without a window (shell-hosted-engines FR-7).
+            agent_tools::scheduler::run::setup(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -126,6 +129,9 @@ pub fn run() {
             supervisor::engine_set_composing,
             supervisor::settings::settings_import_window,
             supervisor::settings::engine_reload_resources,
+            agent_tools::scheduler::run::scheduler_save,
+            agent_tools::scheduler::run::scheduler_delete,
+            agent_tools::scheduler::run::scheduler_run_now,
             supervisor::notices::notifications_take,
             engine::engine_send,
             engine::engine_stop,

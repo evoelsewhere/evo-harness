@@ -1,19 +1,21 @@
 //! The agent's scheduled-task tools, answered by the shell (ADR 0013, ADR 0014):
 //! create, list, update and delete a task. Tasks live in the app database as the
-//! setting `scheduler.tasks` (a JSON array the Scheduler page and its runner
-//! read and write, `stores/scheduler-store.ts`); these tools read and write the
-//! same array through `evo_store::settings`, so a task made here shows on the
-//! page and runs on its schedule without a restart: the shell emits
-//! `scheduler://changed { chat }` after every change and the page reloads.
+//! setting `scheduler.tasks` (a JSON array). The shell is its only writer: these
+//! tools, the Scheduler page (`scheduler_save`, `scheduler_delete`) and the
+//! runner ([`run`], which starts due tasks with or without a window) all change
+//! it through [`edit`], one read-modify-write at a time, so none overwrites
+//! another. The shell emits `scheduler://changed` after every change and the
+//! page reloads.
 //!
-//! The timers and the runner that starts a task's chat stay in the webview
-//! (ADR 0014). Creating, changing and deleting a task keep running prompts on
-//! their own, so each asks the person first, in every approval mode, exactly as
-//! the webview tools did (the former `features/scheduler/agent-tools.ts`): their
-//! schemas, descriptions and result texts are unchanged.
+//! Creating, changing and deleting a task keep running prompts on their own, so
+//! each asks the person first, in every approval mode, exactly as the webview
+//! tools did (the former `features/scheduler/agent-tools.ts`): their schemas,
+//! descriptions and result texts are unchanged.
 //!
-//! Spec: docs/features/agent-tools-layers (FR-5, T11); docs/features/memory-and-scheduler (FR-10, FR-11, FR-17).
+//! Spec: docs/features/agent-tools-layers (FR-5, T11); docs/features/memory-and-scheduler (FR-10, FR-11, FR-17);
+//! docs/features/shell-hosted-engines (FR-7, NFR-1).
 
+pub mod run;
 pub mod schedule;
 
 use std::collections::hash_map::RandomState;
@@ -254,9 +256,14 @@ fn base36(mut n: u64) -> String {
 
 /// `task-<time in base 36>-<5 random characters>`, as the page names its tasks.
 fn new_id(now: i64) -> String {
+    new_id_with("task", now)
+}
+
+/// `<prefix>-<time in base 36>-<5 random characters>` (tasks, their runs).
+fn new_id_with(prefix: &str, now: i64) -> String {
     let random = base36(RandomState::new().build_hasher().finish());
     let random = &random[random.len().saturating_sub(5)..];
-    format!("task-{}-{random:0>5}", base36(now.max(0) as u64))
+    format!("{prefix}-{}-{random:0>5}", base36(now.max(0) as u64))
 }
 
 fn schedule_of(task: &Value) -> Option<Schedule> {
@@ -321,6 +328,60 @@ fn update_task(tasks: &mut [Value], id: &str, patch: &Patch, now: i64) -> Option
     task["updatedAt"] = now.into();
     with_next(task, now);
     Some(task.clone())
+}
+
+/// The page saves a task: with the `id` of one, the fields given replace its
+/// own (a blank name keeps the old one); without, a new task of the person's.
+fn save_task(tasks: &mut Vec<Value>, input: &Value, now: i64) -> Result<Value, String> {
+    let text = |key: &str| input.get(key).and_then(Value::as_str).map(str::trim);
+    if let Some(id) = text("id").filter(|id| !id.is_empty()) {
+        let task = tasks.iter_mut().find(|task| text_of(task, "id") == id).ok_or_else(|| not_found(id))?;
+        if let Some(name) = text("name").filter(|name| !name.is_empty()) {
+            task["name"] = name.into();
+        }
+        if let Some(prompt) = text("prompt") {
+            task["prompt"] = prompt.into();
+        }
+        if let Some(folder) = input.get("folder") {
+            task["folder"] = folder.as_str().filter(|folder| !folder.is_empty()).map_or(Value::Null, Value::from);
+        }
+        if let Some(schedule) = input.get("schedule").filter(|schedule| schedule.is_object()) {
+            task["schedule"] = page_schedule(schedule)?;
+        }
+        if let Some(enabled) = input.get("enabled").and_then(Value::as_bool) {
+            task["enabled"] = enabled.into();
+        }
+        task["updatedAt"] = now.into();
+        with_next(task, now);
+        return Ok(task.clone());
+    }
+    let mut task = json!({
+        "id": new_id(now),
+        "name": text("name").filter(|name| !name.is_empty()).unwrap_or("Untitled task"),
+        "prompt": text("prompt").unwrap_or(""),
+        "folder": text("folder").filter(|folder| !folder.is_empty()),
+        "schedule": match input.get("schedule").filter(|schedule| schedule.is_object()) {
+            Some(schedule) => page_schedule(schedule)?,
+            None => json!({ "kind": "manual" }),
+        },
+        "enabled": input.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+        "createdAt": now,
+        "updatedAt": now,
+        "createdBy": "you",
+        "nextRunAt": null,
+        "runs": [],
+    });
+    with_next(&mut task, now);
+    tasks.push(task.clone());
+    Ok(task)
+}
+
+/// A schedule from the page, in the stored form (a `once` time as
+/// milliseconds even when given as a date and time), like the agent's tools
+/// store it.
+fn page_schedule(input: &Value) -> Result<Value, String> {
+    let schedule = schedule_from(input).map_err(|problem| format!("Schedule: {problem}"))?;
+    serde_json::to_value(schedule).map_err(|error| error.to_string())
 }
 
 fn remove_task(tasks: &mut Vec<Value>, id: &str) -> Option<Value> {
@@ -391,13 +452,50 @@ fn not_found(id: &str) -> String {
 
 fn load(conn: &Connection) -> Result<Vec<Value>, DbError> {
     Ok(match settings::get(conn, KEY)? {
-        Some(Value::Array(tasks)) => tasks,
+        Some(Value::Array(mut tasks)) => {
+            tasks.iter_mut().for_each(in_milliseconds);
+            tasks
+        }
         _ => Vec::new(),
     })
 }
 
-/// Read the tasks, let `f` change them, and save when it says it did. The page's
-/// store keeps its own copy and writes the whole array, so it reloads on `scheduler://changed`.
+/// Earlier builds of the agent's tools wrote task times in seconds. Read them
+/// as milliseconds, so such a task is not taken as missed since 1970
+/// (shell-hosted-engines FR-7).
+fn in_milliseconds(task: &mut Value) {
+    fn fix(value: &mut Value) {
+        if let Some(at) = value.as_i64().filter(|at| *at > 0 && *at < 100_000_000_000) {
+            *value = Value::from(at * 1000);
+        }
+    }
+    for key in ["createdAt", "updatedAt", "nextRunAt"] {
+        if let Some(value) = task.get_mut(key) {
+            fix(value);
+        }
+    }
+    if let Some(Value::Array(runs)) = task.get_mut("runs") {
+        for run in runs {
+            if let Some(at) = run.get_mut("at") {
+                fix(at);
+            }
+        }
+    }
+}
+
+/// One writer of `scheduler.tasks` at a time (shell-hosted-engines FR-7): every
+/// read-modify-write holds it, whichever connection it uses.
+static WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Read the tasks, let `f` change them, and save when it says it did, as the
+/// only writer: the page, the agent's tools and the runner all edit through
+/// this, so none overwrites another's change.
+pub(crate) fn edit<T>(conn: &Connection, f: impl FnOnce(&mut Vec<Value>) -> (T, bool)) -> Result<T, DbError> {
+    let _one = WRITER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    mutate(conn, f)
+}
+
+/// Read the tasks, let `f` change them, and save when it says it did ([`edit`] holds the writer lock).
 fn mutate<T>(conn: &Connection, f: impl FnOnce(&mut Vec<Value>) -> (T, bool)) -> Result<T, DbError> {
     let mut tasks = load(conn)?;
     let (out, changed) = f(&mut tasks);
@@ -407,8 +505,15 @@ fn mutate<T>(conn: &Connection, f: impl FnOnce(&mut Vec<Value>) -> (T, bool)) ->
     Ok(out)
 }
 
-fn now_ms() -> i64 {
-    evo_store::now()
+/// Milliseconds since the epoch: the unit of every task time (`createdAt`,
+/// `updatedAt`, `nextRunAt`, a run's `at`), as the page has always written
+/// them. `evo_store::now()` counts seconds and must not be used here
+/// (docs/features/shell-hosted-engines/spec.md, FR-7).
+pub(crate) fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 // ── The tools ───────────────────────────────────────────────────────────────
@@ -473,7 +578,7 @@ async fn create_tool(ctx: ToolCtx, args: Value) -> ToolOutput {
         _ => return ToolOutput::error("The person declined to schedule this task."),
     }
     let now = now_ms();
-    let created = with_db(&ctx, move |db| db.with(|conn| mutate(conn, |tasks| (create_task(tasks, &new, now), true)))).await;
+    let created = with_db(&ctx, move |db| db.with(|conn| edit(conn, |tasks| (create_task(tasks, &new, now), true)))).await;
     match created {
         Ok(task) => {
             changed(&ctx);
@@ -508,7 +613,7 @@ async fn update_tool(ctx: ToolCtx, args: Value) -> ToolOutput {
         return ToolOutput::error("The person kept the task as it was.");
     }
     let (now, target) = (now_ms(), id.clone());
-    let updated = with_db(&ctx, move |db| db.with(|conn| mutate(conn, |tasks| {
+    let updated = with_db(&ctx, move |db| db.with(|conn| edit(conn, |tasks| {
         let task = update_task(tasks, &target, &patch, now);
         let changed = task.is_some();
         (task, changed)
@@ -542,7 +647,7 @@ async fn delete_tool(ctx: ToolCtx, args: Value) -> ToolOutput {
         return ToolOutput::error("The person kept the task.");
     }
     let target = id.clone();
-    let removed = with_db(&ctx, move |db| db.with(|conn| mutate(conn, |tasks| {
+    let removed = with_db(&ctx, move |db| db.with(|conn| edit(conn, |tasks| {
         let task = remove_task(tasks, &target);
         let changed = task.is_some();
         (task, changed)
@@ -554,6 +659,47 @@ async fn delete_tool(ctx: ToolCtx, args: Value) -> ToolOutput {
             ToolOutput::text(format!("Deleted “{name}”."))
         }
         Err(output) => output,
+    }
+}
+
+#[cfg(test)]
+mod clock_tests {
+    // docs/features/shell-hosted-engines/spec.md, FR-7: task times are milliseconds.
+    #[test]
+    fn task_times_are_milliseconds() {
+        let now = super::now_ms();
+        assert!(now > 1_600_000_000_000, "{now} is not a time in milliseconds");
+        assert!((now / 1000 - evo_store::now()).abs() <= 2);
+    }
+
+    #[test]
+    fn a_page_schedule_is_stored_in_its_normal_form() {
+        let mut tasks = Vec::new();
+        let now = 1_794_465_600_000_i64;
+        let task = super::save_task(
+            &mut tasks,
+            &serde_json::json!({"name": "T", "prompt": "P", "schedule": {"kind": "once", "at": "2099-01-01T09:00:00"}}),
+            now,
+        )
+        .unwrap();
+        assert!(task["schedule"]["at"].is_i64(), "{task}");
+        assert_eq!(task["nextRunAt"], task["schedule"]["at"]);
+        let bad = super::save_task(&mut tasks, &serde_json::json!({"name": "T", "prompt": "P", "schedule": {"kind": "once"}}), now);
+        assert!(bad.is_err());
+    }
+
+    #[test]
+    fn task_times_written_in_seconds_are_read_as_milliseconds() {
+        let mut task = serde_json::json!({
+            "createdAt": 1_794_465_313_i64, "updatedAt": 1_794_465_313_000_i64,
+            "nextRunAt": 1_794_465_400_i64, "runs": [{"at": 1_794_465_313_i64}, {"at": 1_794_465_313_500_i64}]
+        });
+        super::in_milliseconds(&mut task);
+        assert_eq!(task["createdAt"], 1_794_465_313_000_i64);
+        assert_eq!(task["updatedAt"], 1_794_465_313_000_i64, "milliseconds stay");
+        assert_eq!(task["nextRunAt"], 1_794_465_400_000_i64);
+        assert_eq!(task["runs"][0]["at"], 1_794_465_313_000_i64);
+        assert_eq!(task["runs"][1]["at"], 1_794_465_313_500_i64);
     }
 }
 
