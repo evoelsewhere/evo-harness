@@ -647,6 +647,9 @@ impl Pool {
                     "permission": permission,
                     "server": key,
                     "tool": tool_name(tool),
+                    // The server marks it as only reading (a read-only chat
+                    // gets no other: docs/features/session-roles-and-mail/spec.md, FR-13).
+                    "readOnly": tool.pointer("/annotations/readOnlyHint").and_then(Value::as_bool).unwrap_or(false),
                 }));
             }
         }

@@ -37,6 +37,9 @@ pub struct SandboxConfig {
     pub max_output_kib: Option<u32>,
     pub denied_patterns: Vec<String>,
     pub worktree_location: WorktreeLocation,
+    /// Subagents of one session that may run at once; `None`: the default
+    /// (docs/features/session-roles-and-mail/spec.md, FR-5).
+    pub max_running_subagents: Option<usize>,
 }
 
 /// Where new managed worktrees go (re-exported from `evo-worktrees`).
@@ -51,6 +54,7 @@ impl Default for SandboxConfig {
             max_output_kib: None,
             denied_patterns: Vec::new(),
             worktree_location: WorktreeLocation::UserData,
+            max_running_subagents: None,
         }
     }
 }
