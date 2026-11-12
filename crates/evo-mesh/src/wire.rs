@@ -11,7 +11,10 @@
 //! ```
 //!
 //! - [`Kind`] splits the planes: `cmd`/`res` (control), `evt` (observation),
-//!   `mail` (conversation between nodes; later phases).
+//!   `mail` (conversation between nodes). A `mail` envelope's [`MailOp`] says
+//!   what it asks: `message` for a receiving engine; `send`, `ask`, `reply`
+//!   and `cancel_ask` from an engine to the hub for a node of another engine
+//!   (docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8).
 //! - [`Address`] is where a node runs (`s_<session>` / `s_<session>/a_<agent>`);
 //!   [`Node::parent`] is who started it. The two are deliberately separate.
 //! - [`MeshEvent`] is the typed view of `evt` envelopes, [`MeshCommand`] of
@@ -450,6 +453,10 @@ pub enum MeshCommand {
         #[serde(default = "yes")]
         cascade: bool,
     },
+    /// An engine asks the hub which sessions of other engines its session
+    /// can mail: `res {nodes: [{id, title, state, relation}]}`
+    /// (docs/features/session-roles-and-mail/spec.md, FR-6).
+    Peers {},
 }
 
 fn yes() -> bool {
@@ -509,8 +516,81 @@ pub enum Deliver {
     Prompt,
 }
 
-/// The body of a `mail` envelope with op `message`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Mail one node may send another between two runs of the sender's session
+/// (mesh FR-31). The engine's router counts mail inside an engine, the hub
+/// counts it across engines (docs/features/session-roles-and-mail/spec.md, FR-8).
+pub const MAX_PAIR_MAIL: u32 = 20;
+
+/// What a `mail` envelope asks of whoever routes it
+/// (docs/features/session-roles-and-mail/spec.md, FR-6, FR-8).
+///
+/// An engine sends `send`, `ask`, `reply` and `cancel_ask` to the hub for a
+/// node it does not host; the hub answers each with `res` (`corr` = the
+/// envelope's id) and delivers the mail to the receiver as `message`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MailOp {
+    /// Mail for the receiving engine (what the hub delivers; the only op
+    /// before mail crossed engines).
+    Message,
+    /// A message to a node of another engine; nobody waits for an answer.
+    Send,
+    /// A question to a node of another engine; its asker waits for `reply`.
+    Ask,
+    /// The answer to an `ask` (`body.replyTo` = the ask's id).
+    Reply,
+    /// The asker stopped waiting (timeout, cancelled): the hub drops the wait.
+    CancelAsk,
+}
+
+impl MailOp {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            MailOp::Message => "message",
+            MailOp::Send => "send",
+            MailOp::Ask => "ask",
+            MailOp::Reply => "reply",
+            MailOp::CancelAsk => "cancel_ask",
+        }
+    }
+
+    pub fn parse(op: &str) -> Option<Self> {
+        [
+            MailOp::Message,
+            MailOp::Send,
+            MailOp::Ask,
+            MailOp::Reply,
+            MailOp::CancelAsk,
+        ]
+        .into_iter()
+        .find(|known| known.as_str() == op)
+    }
+}
+
+/// What a mail is to the receiver's model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MailKind {
+    #[default]
+    Message,
+    Ask,
+    Reply,
+}
+
+/// An `ask`'s id and how long its asker waits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskInfo {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+/// The body of a `mail` envelope. The fields after `title` are new with mail
+/// across engines (docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8);
+/// each is optional, so older bodies read as before and a body without them
+/// is written as before.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MailBody {
     /// What the receiver's model reads, as a user-role message.
     pub text: String,
@@ -519,6 +599,92 @@ pub struct MailBody {
     /// The sender's title, for the receiver's host (wake labels).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Message, question or answer; `None`: a message (or a hub note).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<MailKind>,
+    /// With an `ask`: its id and timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask: Option<AskInfo>,
+    /// With a `reply`: the id of the ask it answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// With an `ask`: the sender engine's wait edges `[waiter, target]` that
+    /// end at the asker, so the hub's wait-for graph spans engines (FR-8).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waits: Vec<[Address; 2]>,
+    /// The node that sent it, when it is not the sending chat's session
+    /// (a subagent); set by the hub, kept with the stored mail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_node: Option<Address>,
+    /// The node it is for, when it is not the receiving chat's session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_node: Option<Address>,
+}
+
+impl MailBody {
+    /// A body that only carries `text`, delivered as `deliver`.
+    pub fn new(text: impl Into<String>, deliver: Deliver) -> Self {
+        MailBody {
+            text: text.into(),
+            deliver,
+            ..Default::default()
+        }
+    }
+}
+
+// ── Session roles ───────────────────────────────────────────────────────────
+
+/// The role a nested session runs as: an agent type, a model and a thinking
+/// level, resolved by the parent's engine when `start_session` is called
+/// (docs/features/session-roles-and-mail/plan.md, "start_session").
+/// Stored with the chat and applied by the session's engine at every start.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRole {
+    /// The agent type's name; `None` when only a model or thinking was given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Where the type came from: `project`, `projectDir`, `user`, `userDir`,
+    /// `plugin` or `builtin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// The type's file, for display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    /// The type's instructions (its body).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// The tools it may use; `None`: the parent's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+    /// `read-only` or `full` (default), already capped by the parent's.
+    #[serde(default = "full_access")]
+    pub access: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+}
+
+fn full_access() -> String {
+    "full".into()
+}
+
+impl SessionRole {
+    /// Whether the session may not change files.
+    pub fn is_read_only(&self) -> bool {
+        self.access == "read-only"
+    }
+
+    /// What a card or a start note shows: the role without its instructions.
+    pub fn summary(&self) -> Value {
+        serde_json::json!({
+            "name": self.name, "source": self.source, "access": self.access,
+            "provider": self.provider, "model": self.model, "thinking": self.thinking,
+        })
+    }
 }
 
 // ── Envelope ────────────────────────────────────────────────────────────────
@@ -696,23 +862,52 @@ impl Envelope {
         )
     }
 
+    /// A `mail` envelope with `op` (docs/features/session-roles-and-mail/spec.md, FR-6).
+    pub fn mail_op(
+        id: String,
+        from: impl Into<String>,
+        to: impl Into<String>,
+        op: MailOp,
+        body: &MailBody,
+    ) -> Self {
+        let mut envelope = Envelope::mail(id, from, to, body);
+        envelope.op = op.as_str().into();
+        envelope
+    }
+
     /// The typed body of a `mail` message.
     pub fn as_mail(&self) -> Result<MailBody, MeshError> {
-        if self.kind != Kind::Mail || self.op != "message" {
-            return Err(MeshError::new(
+        match self.as_mail_op()? {
+            (MailOp::Message, body) => Ok(body),
+            _ => Err(MeshError::new(
                 ErrorCode::BadRequest,
                 format!("not a mail message (`{}`)", self.op),
-            ));
+            )),
         }
+    }
+
+    /// The op and typed body of any `mail` envelope; an unknown op or a
+    /// malformed body (`waits` included: the deadlock check fails closed) is
+    /// an error.
+    pub fn as_mail_op(&self) -> Result<(MailOp, MailBody), MeshError> {
+        let op = MailOp::parse(&self.op)
+            .filter(|_| self.kind == Kind::Mail)
+            .ok_or_else(|| {
+                MeshError::new(
+                    ErrorCode::BadRequest,
+                    format!("not a mail message (`{}`)", self.op),
+                )
+            })?;
         if self.v != VERSION {
             return Err(MeshError::new(
                 ErrorCode::Unsupported,
                 format!("mesh version {} is not supported", self.v),
             ));
         }
-        serde_json::from_value(self.body.clone()).map_err(|error| {
+        let body = serde_json::from_value(self.body.clone()).map_err(|error| {
             MeshError::new(ErrorCode::BadRequest, format!("invalid mail: {error}"))
-        })
+        })?;
+        Ok((op, body))
     }
 
     /// Whether a wire object is a mesh envelope (by its `type` tag).
@@ -980,6 +1175,7 @@ mod tests {
             text: "note 🐈".into(),
             deliver: Deliver::Wake,
             title: Some("Child".into()),
+            ..Default::default()
         };
         let mail = Envelope::mail("mail-1".into(), "s_child", "s_parent", &body);
         let wire = serde_json::to_value(&mail).unwrap();
@@ -1008,6 +1204,109 @@ mod tests {
         )
         .as_mail()
         .is_err());
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-6, FR-8, NFR-1).
+    #[test]
+    fn mail_ops_round_trip_and_old_bodies_read_as_before() {
+        let asker = Address::session("A").child(NodeKind::Agent, "3");
+        let body = MailBody {
+            text: "<mail …>Which port?</mail>".into(),
+            deliver: Deliver::Interrupt,
+            title: Some("API builder".into()),
+            kind: Some(MailKind::Ask),
+            ask: Some(AskInfo {
+                id: "ask_1".into(),
+                timeout_ms: Some(600_000),
+            }),
+            waits: vec![[Address::session("A"), asker.clone()]],
+            ..Default::default()
+        };
+        let ask = Envelope::mail_op("m_1".into(), asker.as_str(), "parent", MailOp::Ask, &body);
+        let wire = serde_json::to_value(&ask).unwrap();
+        assert_eq!(
+            (wire["kind"].as_str(), wire["op"].as_str()),
+            (Some("mail"), Some("ask"))
+        );
+        assert_eq!(wire["body"]["kind"], "ask");
+        assert_eq!(
+            wire["body"]["ask"],
+            json!({ "id": "ask_1", "timeoutMs": 600000 })
+        );
+        assert_eq!(wire["body"]["waits"], json!([["s_A", "s_A/a_3"]]));
+        let back: Envelope = serde_json::from_value(wire).unwrap();
+        assert_eq!(back.as_mail_op().unwrap(), (MailOp::Ask, body.clone()));
+        // Only `message` is mail for an engine's model; the other ops are the hub's.
+        assert_eq!(back.as_mail().unwrap_err().code, ErrorCode::BadRequest);
+
+        let reply = MailBody {
+            kind: Some(MailKind::Reply),
+            reply_to: Some("ask_1".into()),
+            ..MailBody::new("42", Deliver::Interrupt)
+        };
+        let wire = serde_json::to_value(Envelope::mail_op(
+            "m_2".into(),
+            "s_B",
+            asker.as_str(),
+            MailOp::Reply,
+            &reply,
+        ))
+        .unwrap();
+        assert_eq!(wire["body"]["replyTo"], "ask_1");
+        for op in ["send", "ask", "reply", "cancel_ask", "message"] {
+            assert_eq!(MailOp::parse(op).unwrap().as_str(), op);
+        }
+        assert_eq!(MailOp::parse("teleport"), None);
+
+        // An old body reads with none of the new fields, and is written as before.
+        let old: MailBody =
+            serde_json::from_value(json!({ "text": "x", "deliver": "wake", "title": "T" }))
+                .unwrap();
+        assert_eq!(
+            (old.kind, &old.ask, &old.reply_to, old.waits.len()),
+            (None, &None, &None, 0)
+        );
+        assert_eq!(
+            serde_json::to_value(&old).unwrap(),
+            json!({ "text": "x", "deliver": "wake", "title": "T" })
+        );
+        assert_eq!(MAX_PAIR_MAIL, 20);
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-8): the deadlock check fails closed.
+    #[test]
+    fn mail_ops_with_malformed_waits_or_unknown_ops_are_refused() {
+        let mut ask = Envelope::mail_op(
+            "m".into(),
+            "s_A",
+            "s_B",
+            MailOp::Ask,
+            &MailBody::new("q", Deliver::Interrupt),
+        );
+        ask.body["waits"] = json!([["s_A"]]);
+        assert_eq!(ask.as_mail_op().unwrap_err().code, ErrorCode::BadRequest);
+        ask.body["waits"] = json!([["s_A", "not-an-address"]]);
+        assert_eq!(ask.as_mail_op().unwrap_err().code, ErrorCode::BadRequest);
+        ask.body["waits"] = json!([]);
+        assert!(ask.as_mail_op().is_ok());
+        ask.op = "teleport".into();
+        assert_eq!(ask.as_mail_op().unwrap_err().code, ErrorCode::BadRequest);
+        ask.op = "ask".into();
+        ask.kind = Kind::Cmd;
+        assert!(ask.as_mail_op().is_err());
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-6).
+    #[test]
+    fn mail_ops_peers_command_parses() {
+        let peers = Envelope::command("p".into(), "s_A", &MeshCommand::Peers {});
+        let wire = serde_json::to_value(&peers).unwrap();
+        assert_eq!(
+            (wire["op"].as_str(), wire["to"].as_str()),
+            (Some("peers"), Some("hub"))
+        );
+        let back: Envelope = serde_json::from_value(wire).unwrap();
+        assert_eq!(back.as_command().unwrap(), MeshCommand::Peers {});
     }
 
     #[test]

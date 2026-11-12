@@ -32,22 +32,35 @@
 //!   another reason than a running turn leaves the chat idle and goes out
 //!   again at its next `ready`, set-up or settled run. Delivery is at least
 //!   once; engines drop duplicate notes by id.
+//! - **Mail across engines** (docs/features/session-roles-and-mail/spec.md,
+//!   FR-6 – FR-8). An engine sends `send`, `ask`, `reply` and `cancel_ask`
+//!   mail ops for nodes it does not host, and asks for its `peers`.
+//!   [`Hub::route_mail`] holds reach (parent, children, siblings; never
+//!   another root tree), the pair limit and the wait-for graph across
+//!   engines, and delivers the mail as durable session mail.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::wire::{Address, Deliver, Envelope, MailBody, MeshEvent, RunStatus};
+use crate::wire::{
+    Address, Deliver, Envelope, ErrorCode, MailBody, MailKind, MailOp, MeshError, MeshEvent,
+    RunStatus, SessionRole, MAX_PAIR_MAIL, ROUTER,
+};
 
 /// Characters of a session's reply quoted in its note to the parent.
 pub const REPORT_CHARS: usize = 400;
 /// Report envelope ids remembered per chat (replays repeat recent ones).
 const SEEN_REPORTS: usize = 256;
-/// Nested sessions of one chat that may run (or be starting) at once.
+/// Nested sessions of one chat that may run (or be starting) at once, by
+/// default; Settings → Sandbox changes it ([`Hub::set_max_children`]).
 pub const MAX_RUNNING_CHILDREN: usize = 8;
+/// The highest limit of running nested sessions the person may set
+/// (docs/features/session-roles-and-mail/spec.md, FR-5).
+pub const MAX_CHILDREN_LIMIT: usize = 24;
 /// Characters of a session's title that are kept.
 pub const TITLE_CHARS: usize = 80;
 /// A cut report ends at a word when one ends this close to the limit.
@@ -71,19 +84,25 @@ pub struct Mail {
 }
 
 impl Mail {
-    /// The envelope that carries a note to the receiver's engine.
+    /// The envelope that carries a note to the receiver's engine: from and to
+    /// the chats' sessions, or the nodes mail across engines names
+    /// (docs/features/session-roles-and-mail/spec.md, FR-6).
     pub fn envelope(&self) -> Envelope {
+        let from = self.body.from_node.clone();
+        let to = self.body.to_node.clone();
         Envelope::mail(
             self.id.clone(),
-            Address::session(&self.from_chat).to_string(),
-            Address::session(&self.to_chat).to_string(),
+            from.unwrap_or_else(|| Address::session(&self.from_chat))
+                .to_string(),
+            to.unwrap_or_else(|| Address::session(&self.to_chat))
+                .to_string(),
             &self.body,
         )
     }
 }
 
 /// A session to start (the `start_session` arguments).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SessionSpec {
     pub title: String,
     /// Its brief: the first prompt it gets.
@@ -94,7 +113,18 @@ pub struct SessionSpec {
     /// Work in its own Git worktree.
     #[serde(default)]
     pub worktree: bool,
+    /// The role it runs as, resolved by the parent's engine
+    /// (docs/features/session-roles-and-mail/spec.md, FR-1 – FR-4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<SessionRole>,
+    /// The name of its worktree's branch, with `worktree` (FR-9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
 }
+
+/// The `start_session` arguments that ask for a role; the parent's engine
+/// resolves them into `role` before the call reaches the hub.
+const ROLE_ARGUMENTS: [&str; 3] = ["agentType", "model", "thinking"];
 
 /// A chat the store created for a [`SessionSpec`].
 #[derive(Debug, Clone, PartialEq)]
@@ -218,6 +248,28 @@ fn attr(text: &str) -> String {
     text.replace('"', "'")
 }
 
+/// A `<mail …>` message with the sender's `title` attribute set to `title`.
+/// Only the opening tag (the first line) changes; text that is not a mail
+/// message is returned as it is.
+fn with_sender_title(text: &str, title: &str) -> String {
+    let (tag, rest) = text.split_at(text.find('\n').unwrap_or(text.len()));
+    if !tag.starts_with("<mail ") {
+        return text.to_string();
+    }
+    let Some(start) = tag.find(" title=\"").map(|at| at + " title=\"".len()) else {
+        return text.to_string();
+    };
+    let Some(len) = tag[start..].find('"') else {
+        return text.to_string();
+    };
+    format!(
+        "{}{}{}{rest}",
+        &tag[..start],
+        attr(title),
+        &tag[start + len..]
+    )
+}
+
 /// `text` with the note's own tags made harmless: a reply cannot close its
 /// note or open a fake one.
 fn neutralise(text: &str) -> String {
@@ -256,14 +308,18 @@ pub fn session_tools() -> Value {
     json!([
         {
             "name": "start_session",
-            "description": "Start a separate, full chat session for a task of its own that should run on its own and that the user may want to open, follow or steer apart from this conversation (not for a quick lookup or a piece of this task: use the agent tool for that). It runs in the background in this workspace; you get a note each time it finishes a turn. By default this only proposes the session and the user decides whether to start it; a note tells you when they start or dismiss it. The prompt is its whole brief: with context \"fresh\" (default) it knows nothing else; \"fork\" gives it a copy of this conversation. At most 8 sessions of this chat run at once.",
+            "description": "Start a separate, full chat session for a task of its own that should run on its own and that the user may want to open, follow or steer apart from this conversation (not for a quick lookup or a piece of this task: use the agent tool for that). It runs in the background in this workspace; you get a note each time it finishes a turn. By default this only proposes the session and the user decides whether to start it; a note tells you when they start or dismiss it. The prompt is its whole brief: with context \"fresh\" (default) it knows nothing else; \"fork\" gives it a copy of this conversation. Only a limited number of sessions of this chat run at once (8 unless the user changed it); a start past it is refused.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "title": { "type": "string", "description": "A short title (under 60 characters) naming the task; it is cut to 80 characters." },
                     "prompt": { "type": "string", "description": "The brief: the task, the files or area, what done looks like." },
                     "context": { "type": "string", "enum": ["fresh", "fork"], "description": "fresh (default) or fork (a copy of this conversation)." },
-                    "worktree": { "type": "boolean", "description": "Work in its own Git worktree of this repository, so its edits stay apart until the user applies them. The worktree starts from the last commit: it does not contain the workspace's uncommitted changes." }
+                    "worktree": { "type": "boolean", "description": "Work in its own Git worktree of this repository, so its edits stay apart until the user applies them. The worktree starts from the last commit: it does not contain the workspace's uncommitted changes." },
+                    "agentType": { "type": "string", "description": "Run the session as this agent type (a name the agent tool takes): its instructions, tools, access, model and thinking apply for the session's whole life. A read-only type cannot change files." },
+                    "model": { "type": "string", "description": "The model the session runs on (a model id, optionally as provider/model). Default: the agent type's, else this chat's." },
+                    "thinking": { "type": "string", "description": "The session's thinking level; clamped to what the model supports. Default: the agent type's, else this chat's." },
+                    "branch": { "type": "string", "description": "With worktree: name the worktree's branch (evo/<branch>), so the user recognises it in Git." }
                 },
                 "required": ["title", "prompt"],
                 "additionalProperties": false
@@ -308,6 +364,67 @@ struct Engine {
     busy: bool,
     /// Open approval requests.
     waiting: HashSet<String>,
+    /// Its `ready` said it resolves `start_session` roles (`mesh.sessionRoles`).
+    roles: bool,
+    /// Its `ready` said it takes mail from other engines
+    /// (`mesh.crossEngineMail`; docs/features/session-roles-and-mail/spec.md, FR-6).
+    mail: bool,
+}
+
+/// An open `ask` between engines: one edge of the wait-for graph that spans
+/// engines (docs/features/session-roles-and-mail/spec.md, FR-8).
+struct RemoteAsk {
+    /// The asking chat and node.
+    from_chat: String,
+    from: Address,
+    /// The asked chat and node.
+    to_chat: String,
+    to: Address,
+    /// The asker engine's own wait edges `[waiter, target]` that end at
+    /// `from`, as it reported them with the ask.
+    waits: Vec<[Address; 2]>,
+}
+
+/// A session a chat may mail, and how the two are related.
+#[derive(Clone)]
+struct Peer {
+    chat: String,
+    title: String,
+    relation: &'static str,
+}
+
+/// Why a mail op was refused: the error and, when the target was not
+/// found, the sessions that can be reached.
+struct Refusal {
+    error: MeshError,
+    reachable: Option<Vec<Value>>,
+}
+
+impl Refusal {
+    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Refusal {
+            error: MeshError::new(code, message),
+            reachable: None,
+        }
+    }
+
+    /// The `res` body: `{"error": {code, message, reachable?}}`.
+    fn body(self) -> Value {
+        let mut error = json!({ "code": self.error.code, "message": self.error.message });
+        if let Some(reachable) = self.reachable {
+            error["reachable"] = json!(reachable);
+        }
+        json!({ "error": error })
+    }
+}
+
+impl From<MeshError> for Refusal {
+    fn from(error: MeshError) -> Self {
+        Refusal {
+            error,
+            reachable: None,
+        }
+    }
 }
 
 /// Mail sent and not answered yet.
@@ -322,7 +439,7 @@ struct Flight {
 #[derive(Clone)]
 enum Outcome {
     /// Not decided yet: what to start.
-    Open(SessionSpec),
+    Open(Box<SessionSpec>),
     /// Started, as this session.
     Started(String),
     Dismissed,
@@ -355,6 +472,14 @@ pub struct Hub<S: MailStore> {
     seen_reports: Mutex<HashMap<String, VecDeque<String>>>,
     /// `start_session` starts at once instead of proposing (Settings → Sandbox).
     auto_start: AtomicBool,
+    /// Nested sessions of one chat that may run or start at once (FR-5).
+    max_children: AtomicUsize,
+    /// Mail across engines per directed pair of chats since the sender's
+    /// chat last started a run (docs/features/session-roles-and-mail/spec.md, FR-8).
+    pair_mail: Mutex<HashMap<(String, String), u32>>,
+    /// Open asks between engines by ask id (FR-8; in memory: an app restart
+    /// forgets them and a waiting asker times out).
+    remote_asks: Mutex<HashMap<String, RemoteAsk>>,
     epoch: i64,
     ids: AtomicU64,
 }
@@ -364,6 +489,24 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// An external tool's answer as the engine expects it.
+/// " as reviewer on acme-small" for a call's answer; empty without a role.
+fn role_words(role: Option<&SessionRole>) -> String {
+    let Some(role) = role else {
+        return String::new();
+    };
+    let mut words = String::new();
+    if let Some(name) = &role.name {
+        words.push_str(&format!(" as {name}"));
+    }
+    if let Some(model) = &role.model {
+        words.push_str(&format!(" on {model}"));
+    }
+    if role.is_read_only() {
+        words.push_str(" (read-only)");
+    }
+    words
+}
+
 fn tool_result(text: impl Into<String>, structured: Option<Value>, is_error: bool) -> Value {
     let mut result = json!({ "content": [{ "type": "text", "text": text.into() }] });
     if let Some(structured) = structured {
@@ -386,6 +529,9 @@ impl<S: MailStore> Hub<S> {
             start_gate: Mutex::new(()),
             seen_reports: Mutex::new(HashMap::new()),
             auto_start: AtomicBool::new(false),
+            max_children: AtomicUsize::new(MAX_RUNNING_CHILDREN),
+            pair_mail: Mutex::new(HashMap::new()),
+            remote_asks: Mutex::new(HashMap::new()),
             epoch: now_ms(),
             ids: AtomicU64::new(0),
         }
@@ -396,6 +542,19 @@ impl<S: MailStore> Hub<S> {
     }
 
     /// Whether `start_session` starts sessions at once (true) or proposes them.
+    /// How many nested sessions of one chat may run or start at once, kept
+    /// within 1 – [`MAX_CHILDREN_LIMIT`]. A lower limit stops nothing that
+    /// runs: new starts wait until fewer run.
+    pub fn set_max_children(&self, limit: usize) {
+        self.max_children
+            .store(limit.clamp(1, MAX_CHILDREN_LIMIT), Ordering::Release);
+    }
+
+    /// The limit [`set_max_children`](Self::set_max_children) set.
+    pub fn max_children(&self) -> usize {
+        self.max_children.load(Ordering::Acquire)
+    }
+
     pub fn set_auto_start(&self, on: bool) {
         self.auto_start.store(on, Ordering::Release);
     }
@@ -422,10 +581,12 @@ impl<S: MailStore> Hub<S> {
         self.with_engine(chat, |e| e.busy)
     }
 
-    /// `chat`'s engine is starting (again): nothing is ready or in flight there.
+    /// `chat`'s engine is starting (again): nothing is ready or in flight
+    /// there, and none of its asks to other engines waits any more.
     pub fn on_start(&self, chat: &str) {
         lock(&self.engines).remove(chat);
         lock(&self.in_flight).retain(|_, flight| flight.to != chat);
+        lock(&self.remote_asks).retain(|_, ask| ask.from_chat != chat);
     }
 
     /// `chat`'s engine is gone: its unanswered mail stays pending. If any
@@ -462,16 +623,31 @@ impl<S: MailStore> Hub<S> {
     pub fn on_line(&self, chat: &str, line: &Value) -> Vec<Effect> {
         match line.get("type").and_then(Value::as_str) {
             Some("ready") => {
-                self.with_engine(chat, |e| e.ready = true);
+                let says = |pointer: &str| {
+                    line.pointer(pointer)
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                };
+                let (roles, mail) = (says("/mesh/sessionRoles"), says("/mesh/crossEngineMail"));
+                self.with_engine(chat, |e| {
+                    e.ready = true;
+                    e.roles = roles;
+                    e.mail = mail;
+                });
                 self.flush(chat)
             }
             Some("agent_start") => {
                 self.with_engine(chat, |e| e.busy = true);
+                // A new run of the sender: its pairs may talk again (FR-8).
+                lock(&self.pair_mail).retain(|(from, _), _| from != chat);
                 Vec::new()
             }
             Some("agent_settled") => {
                 self.with_engine(chat, |e| e.busy = false);
                 lock(&self.starting).remove(chat);
+                // Its run answered (or will not answer) what was asked of it.
+                let session = Address::session(chat);
+                lock(&self.remote_asks).retain(|_, ask| ask.to != session);
                 // Prompts that waited for the run to end.
                 self.flush(chat)
             }
@@ -505,6 +681,12 @@ impl<S: MailStore> Hub<S> {
         let op = line.get("op").and_then(Value::as_str);
         match (kind, op) {
             (Some("evt"), Some("node_report")) => {}
+            // Mail for a node of another engine (FR-6); `message` is mail an
+            // engine takes, not one it sends.
+            (Some("mail"), Some(op)) if op != MailOp::Message.as_str() => {
+                return self.on_mail_op(chat, line)
+            }
+            (Some("cmd"), Some("peers")) => return self.on_peers(chat, line),
             (Some("res"), _) => {
                 // A note's answer: `res` with `corr` = the mail id.
                 if let Some(corr) = line.get("corr").and_then(Value::as_str) {
@@ -547,6 +729,7 @@ impl<S: MailStore> Hub<S> {
                 text: session_note(chat, &title, status, &text),
                 deliver: Deliver::Wake,
                 title: Some(title),
+                ..Default::default()
             },
         )
     }
@@ -692,6 +875,367 @@ impl<S: MailStore> Hub<S> {
             .collect()
     }
 
+    // ── Mail across engines ──────────────────────────────────────────────
+    // docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8, NFR-2.
+
+    /// A `send`/`ask`/`reply`/`cancel_ask` envelope from `chat`'s engine:
+    /// route it and answer the engine with `res` (`corr` = its id).
+    fn on_mail_op(&self, chat: &str, line: &Value) -> Vec<Effect> {
+        // Without an id there is nothing to answer.
+        let Ok(envelope) = serde_json::from_value::<Envelope>(line.clone()) else {
+            return Vec::new();
+        };
+        let (body, mut effects) = self.route_mail(chat, &envelope);
+        effects.insert(0, self.answer(chat, &envelope, body));
+        effects
+    }
+
+    /// The `res` envelope that answers `envelope` with `body`, for `chat`'s engine.
+    fn answer(&self, chat: &str, envelope: &Envelope, body: Value) -> Effect {
+        let mut res = Envelope::response(self.next_id("hub"), envelope, Ok(body));
+        res.from = ROUTER.into();
+        Effect::Send {
+            chat: chat.into(),
+            line: serde_json::to_value(res).unwrap_or(Value::Null),
+        }
+    }
+
+    /// Route one mail op of `chat`'s engine (FR-6 – FR-8). Returns the body
+    /// of the answer for the engine — `{deliveredTo, title, kind}`, or
+    /// `{error: {code, message, reachable?}}` — and what delivering it takes.
+    ///
+    /// - **Reach:** the chat's parent, its children and its siblings, never
+    ///   another root tree; `to` is `parent`, a node address of one of those
+    ///   sessions' engines, or a title that matches exactly one of them.
+    /// - **Pair limit:** [`MAX_PAIR_MAIL`] sends and asks per directed pair of
+    ///   chats until the sender's chat starts another run.
+    /// - **Wait-for graph:** an ask whose target already waits, through open
+    ///   asks and the waits the engines reported, on the asker is refused with
+    ///   `would_deadlock`. A reply, a cancel and the receiver's finished run
+    ///   end an ask.
+    /// - **Delivery:** stored session mail with `deliver: interrupt` through
+    ///   [`post`](Self::post): at least once, and a stopped receiver is hosted.
+    ///   A receiver whose engine runs without `mesh.crossEngineMail` is refused
+    ///   with `unsupported`, and nothing is stored.
+    pub fn route_mail(&self, chat: &str, envelope: &Envelope) -> (Value, Vec<Effect>) {
+        match self.try_route_mail(chat, envelope) {
+            Ok(routed) => routed,
+            Err(refusal) => (refusal.body(), Vec::new()),
+        }
+    }
+
+    fn try_route_mail(
+        &self,
+        chat: &str,
+        envelope: &Envelope,
+    ) -> Result<(Value, Vec<Effect>), Refusal> {
+        let (op, body) = envelope.as_mail_op()?;
+        let session = Address::session(chat);
+        let from = Address::parse(&envelope.from)
+            .map_err(|error| Refusal::new(ErrorCode::BadRequest, error))?;
+        if !from.is_hosted_by(&session) {
+            return Err(Refusal::new(
+                ErrorCode::Forbidden,
+                format!("{session}'s engine cannot send mail for {from}"),
+            ));
+        }
+        let kind = match op {
+            MailOp::Message => {
+                return Err(Refusal::new(
+                    ErrorCode::BadRequest,
+                    "the hub routes send, ask, reply and cancel_ask",
+                ))
+            }
+            MailOp::CancelAsk => {
+                let id = body.ask.map(|ask| ask.id).or(body.reply_to);
+                let id = id.ok_or_else(|| {
+                    Refusal::new(ErrorCode::BadRequest, "cancel_ask needs the ask's id")
+                })?;
+                let mut asks = lock(&self.remote_asks);
+                let mine = asks.get(&id).is_some_and(|ask| ask.from_chat == chat);
+                if mine {
+                    asks.remove(&id);
+                }
+                return Ok((json!({ "cancelled": mine }), Vec::new()));
+            }
+            MailOp::Send => MailKind::Message,
+            MailOp::Ask => MailKind::Ask,
+            MailOp::Reply => MailKind::Reply,
+        };
+        let filled = |text: &Option<String>| text.as_ref().is_some_and(|t| !t.trim().is_empty());
+        let ask = match op {
+            MailOp::Ask => Some(
+                body.ask
+                    .clone()
+                    .filter(|ask| !ask.id.trim().is_empty())
+                    .ok_or_else(|| {
+                        Refusal::new(ErrorCode::BadRequest, "an ask needs its id (`ask.id`)")
+                    })?,
+            ),
+            _ => None,
+        };
+        if op == MailOp::Reply && !filled(&body.reply_to) {
+            return Err(Refusal::new(
+                ErrorCode::BadRequest,
+                "a reply needs the id of the ask it answers (`replyTo`)",
+            ));
+        }
+        // The deadlock check fails closed: an engine reports only its own waits.
+        if body
+            .waits
+            .iter()
+            .flatten()
+            .any(|node| !node.is_hosted_by(&session))
+        {
+            return Err(Refusal::new(
+                ErrorCode::BadRequest,
+                format!("`waits` may only name nodes of {session}'s engine"),
+            ));
+        }
+        if body.text.trim().is_empty() {
+            return Err(Refusal::new(ErrorCode::BadRequest, "mail needs a text"));
+        }
+        let (peer, target) = self.resolve_peer(chat, &envelope.to)?;
+        if self.with_engine(&peer.chat, |e| e.ready && !e.mail) {
+            return Err(Refusal::new(
+                ErrorCode::Unsupported,
+                format!(
+                    "\"{}\" runs in an engine that cannot take mail from other sessions; update evo",
+                    peer.title
+                ),
+            ));
+        }
+        // The graph is checked and changed as one step.
+        let mut asks = lock(&self.remote_asks);
+        if let Some(id) = body.reply_to.as_ref().filter(|_| op == MailOp::Reply) {
+            if asks
+                .get(id)
+                .is_some_and(|open| open.to_chat != chat || open.from_chat != peer.chat)
+            {
+                return Err(Refusal::new(
+                    ErrorCode::Forbidden,
+                    format!("ask `{id}` was not asked of {session} by {}", peer.title),
+                ));
+            }
+        }
+        if op == MailOp::Ask && closes_cycle(&asks, &from, &target, &body.waits) {
+            return Err(Refusal::new(
+                ErrorCode::WouldDeadlock,
+                format!(
+                    "{target} is (indirectly) waiting on {from}: waiting on it would never end"
+                ),
+            ));
+        }
+        if op != MailOp::Reply {
+            self.count_mail(chat, &peer.chat)?;
+        }
+        match (&ask, &body.reply_to) {
+            (Some(ask), _) => {
+                asks.insert(
+                    ask.id.clone(),
+                    RemoteAsk {
+                        from_chat: chat.into(),
+                        from: from.clone(),
+                        to_chat: peer.chat.clone(),
+                        to: target.clone(),
+                        waits: body.waits.clone(),
+                    },
+                );
+            }
+            (None, Some(id)) if op == MailOp::Reply => {
+                asks.remove(id);
+            }
+            _ => {}
+        }
+        drop(asks);
+        let title = body
+            .title
+            .filter(|title| !title.trim().is_empty())
+            .or_else(|| self.store.title_of(chat));
+        let receiver = Address::session(&peer.chat);
+        // A session's engine may not know its own title: the hub does
+        // (session-roles-and-mail plan, T34 run).
+        let text = match self.store.title_of(chat) {
+            Some(own) if from == session && !own.trim().is_empty() => {
+                with_sender_title(&body.text, &own)
+            }
+            _ => body.text,
+        };
+        let mail = MailBody {
+            text,
+            deliver: Deliver::Interrupt,
+            title,
+            kind: Some(kind),
+            ask,
+            reply_to: body.reply_to.filter(|_| op == MailOp::Reply),
+            waits: Vec::new(),
+            from_node: (from != session).then(|| from.clone()),
+            to_node: (target != receiver).then(|| target.clone()),
+        };
+        let effects = self.post(chat, &peer.chat, mail);
+        Ok((
+            json!({ "deliveredTo": target, "title": peer.title, "kind": kind }),
+            effects,
+        ))
+    }
+
+    /// Count one mail from `from` to `to` (chats); refused past [`MAX_PAIR_MAIL`].
+    fn count_mail(&self, from: &str, to: &str) -> Result<(), Refusal> {
+        let mut counts = lock(&self.pair_mail);
+        let count = counts.entry((from.into(), to.into())).or_insert(0);
+        if *count >= MAX_PAIR_MAIL {
+            return Err(Refusal::new(
+                ErrorCode::Forbidden,
+                format!(
+                    "{} already sent {MAX_PAIR_MAIL} messages to {}; stop and report what you have",
+                    Address::session(from),
+                    Address::session(to)
+                ),
+            ));
+        }
+        *count += 1;
+        Ok(())
+    }
+
+    /// The sessions `chat` may mail: its parent, its children, its siblings.
+    fn peers_of(&self, chat: &str) -> Vec<Peer> {
+        let mut peers = Vec::new();
+        let parent = self.store.parent_of(chat);
+        if let Some(parent) = &parent {
+            peers.push(Peer {
+                chat: parent.clone(),
+                title: self.store.title_of(parent).unwrap_or_default(),
+                relation: "parent",
+            });
+        }
+        let children = self
+            .store
+            .children_of(chat)
+            .into_iter()
+            .map(|child| (child, "child"));
+        let siblings = parent
+            .iter()
+            .flat_map(|parent| self.store.children_of(parent))
+            .map(|sibling| (sibling, "sibling"));
+        for (info, relation) in children.chain(siblings) {
+            if info.id != chat && !peers.iter().any(|peer| peer.chat == info.id) {
+                peers.push(Peer {
+                    chat: info.id,
+                    title: info.title,
+                    relation,
+                });
+            }
+        }
+        peers
+    }
+
+    fn peer_json(&self, peer: &Peer) -> Value {
+        json!({
+            "id": Address::session(&peer.chat), "title": peer.title, "kind": "session",
+            "relation": peer.relation, "state": self.status_of(&peer.chat),
+        })
+    }
+
+    /// The session `to` names among `chat`'s peers, and the node it names
+    /// there (the session itself, or a node its engine hosts).
+    fn resolve_peer(&self, chat: &str, to: &str) -> Result<(Peer, Address), Refusal> {
+        let peers = self.peers_of(chat);
+        let to = to.trim();
+        let refuse = |code: ErrorCode, message: String| Refusal {
+            error: MeshError::new(code, message),
+            reachable: Some(peers.iter().map(|peer| self.peer_json(peer)).collect()),
+        };
+        if to.eq_ignore_ascii_case("parent") {
+            return peers
+                .iter()
+                .find(|peer| peer.relation == "parent")
+                .map(|peer| (peer.clone(), Address::session(&peer.chat)))
+                .ok_or_else(|| {
+                    refuse(
+                        ErrorCode::NotFound,
+                        "this session was not started by another session".into(),
+                    )
+                });
+        }
+        if let Ok(address) = Address::parse(to) {
+            return peers
+                .iter()
+                .find(|peer| peer.chat == address.session_id())
+                .map(|peer| (peer.clone(), address.clone()))
+                .ok_or_else(|| {
+                    refuse(
+                        ErrorCode::NotFound,
+                        format!("`{to}` is not in a session you can reach"),
+                    )
+                });
+        }
+        let named: Vec<&Peer> = peers
+            .iter()
+            .filter(|peer| !peer.title.is_empty() && peer.title.eq_ignore_ascii_case(to))
+            .collect();
+        match named.as_slice() {
+            [peer] => Ok(((*peer).clone(), Address::session(&peer.chat))),
+            [] => Err(refuse(
+                ErrorCode::NotFound,
+                format!("`{to}` is not a session you can reach"),
+            )),
+            many => {
+                let ids: Vec<String> = many
+                    .iter()
+                    .map(|peer| Address::session(&peer.chat).to_string())
+                    .collect();
+                Err(refuse(
+                    ErrorCode::BadRequest,
+                    format!(
+                        "`{to}` names {} sessions ({}); use its id",
+                        many.len(),
+                        ids.join(", ")
+                    ),
+                ))
+            }
+        }
+    }
+
+    /// A `peers` command of `chat`'s engine: the sessions it may mail.
+    fn on_peers(&self, chat: &str, line: &Value) -> Vec<Effect> {
+        let Ok(envelope) = serde_json::from_value::<Envelope>(line.clone()) else {
+            return Vec::new();
+        };
+        let from_chat = Address::parse(&envelope.from)
+            .is_ok_and(|from| from.is_hosted_by(&Address::session(chat)));
+        let body = if from_chat {
+            let nodes: Vec<Value> = self
+                .peers_of(chat)
+                .iter()
+                .map(|peer| self.peer_json(peer))
+                .collect();
+            json!({ "nodes": nodes })
+        } else {
+            Refusal::new(
+                ErrorCode::Forbidden,
+                "an engine asks only for its own peers",
+            )
+            .body()
+        };
+        vec![self.answer(chat, &envelope, body)]
+    }
+
+    /// A chat's live state, as `list_sessions` and `peers` show it.
+    fn status_of(&self, chat: &str) -> &'static str {
+        let starting = self.is_starting(chat);
+        self.with_engine(chat, |e| {
+            if !e.waiting.is_empty() {
+                "waiting"
+            } else if e.busy {
+                "running"
+            } else if starting {
+                "starting"
+            } else {
+                "idle"
+            }
+        })
+    }
+
     // ── Session tools ────────────────────────────────────────────────────
 
     /// Start a nested session of `parent` now: create it, send its brief,
@@ -727,7 +1271,7 @@ impl<S: MailStore> Hub<S> {
             Some(known) => match known.outcome {
                 Outcome::Started(session) => return Ok((session, Vec::new())),
                 Outcome::Dismissed => return Err("This proposed session was dismissed.".into()),
-                Outcome::Open(spec) => spec,
+                Outcome::Open(spec) => *spec,
             },
             None => spec.clone(),
         };
@@ -747,6 +1291,7 @@ impl<S: MailStore> Hub<S> {
                 text: started_note(&created.id, &created.title, proposal),
                 deliver: Deliver::Queue,
                 title: Some(created.title.clone()),
+                ..Default::default()
             },
         ));
         Ok((created.id, effects))
@@ -788,6 +1333,7 @@ impl<S: MailStore> Hub<S> {
                 text: dismissed_note(proposal, &title),
                 deliver: Deliver::Queue,
                 title: Some(title).filter(|title| !title.is_empty()),
+                ..Default::default()
             },
         ))
     }
@@ -798,9 +1344,10 @@ impl<S: MailStore> Hub<S> {
             return Some("Nested sessions cannot start sessions of their own.".into());
         }
         let running = self.children_running(parent);
-        (running >= MAX_RUNNING_CHILDREN).then(|| {
+        let limit = self.max_children();
+        (running >= limit).then(|| {
             format!(
-                "{running} sessions from this chat are already running or starting (the limit is {MAX_RUNNING_CHILDREN}); wait for one to finish."
+                "{running} sessions from this chat are already running or starting (the limit is {limit}); wait for one to finish."
             )
         })
     }
@@ -828,11 +1375,7 @@ impl<S: MailStore> Hub<S> {
         let mut effects = self.post(
             parent,
             &created.id,
-            MailBody {
-                text: spec.prompt.clone(),
-                deliver: Deliver::Prompt,
-                title: None,
-            },
+            MailBody::new(spec.prompt.clone(), Deliver::Prompt),
         );
         // A new chat has no engine yet: host it where its worktree says.
         for effect in effects.iter_mut() {
@@ -889,6 +1432,48 @@ impl<S: MailStore> Hub<S> {
         effects
     }
 
+    /// The resolved role and the branch name of a `start_session` call.
+    /// Refused: role arguments the engine did not resolve (an engine too old
+    /// to start sessions with a role), a role from such an engine, a role
+    /// that cannot be read, and a branch without a worktree.
+    fn role_and_branch(
+        &self,
+        chat: &str,
+        args: &Value,
+        worktree: bool,
+    ) -> Result<(Option<SessionRole>, Option<String>), String> {
+        let roles = lock(&self.engines).get(chat).is_some_and(|e| e.roles);
+        let asked = ROLE_ARGUMENTS.iter().any(|key| args.get(*key).is_some());
+        let role = match args.get("role") {
+            None | Some(Value::Null) => None,
+            // Only an engine that resolves roles may send one: anything else
+            // was written by the model.
+            Some(_) if !roles => {
+                return Err("This engine cannot start sessions with a role; update evo.".into())
+            }
+            Some(value) => Some(
+                serde_json::from_value::<SessionRole>(value.clone())
+                    .map_err(|e| format!("The session's role could not be read: {e}"))?,
+            ),
+        };
+        if asked && role.is_none() {
+            return Err(
+                "This engine cannot start sessions with an agent type, model or thinking level; update evo."
+                    .into(),
+            );
+        }
+        let branch = args
+            .get("branch")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+            .map(str::to_string);
+        if branch.is_some() && !worktree {
+            return Err("A branch name needs worktree: true.".into());
+        }
+        Ok((role, branch))
+    }
+
     fn call_start(&self, chat: &str, args: &Value) -> (Value, Vec<Effect>) {
         let text = |key: &str| {
             args.get(key)
@@ -910,12 +1495,21 @@ impl<S: MailStore> Hub<S> {
             );
         }
         let context = if fork { "fork" } else { "fresh" };
+        let (role, branch) = match self.role_and_branch(chat, args, worktree) {
+            Ok(found) => found,
+            Err(refusal) => return (tool_result(refusal, None, true), Vec::new()),
+        };
         let spec = SessionSpec {
             title: title.clone(),
             prompt,
             fork,
             worktree,
+            role: role.clone(),
+            branch: branch.clone(),
         };
+        // The role travels with the call's result, so a card can still start
+        // it after the hub forgot the proposal (an app restart).
+        let role_json = role.as_ref().map(|role| json!(role));
         // Checked again, with the start gate held, when it is started.
         if let Some(refusal) = self.start_refusal(chat) {
             return (tool_result(refusal, None, true), Vec::new());
@@ -928,15 +1522,17 @@ impl<S: MailStore> Hub<S> {
                 Proposal {
                     parent: chat.into(),
                     title: title.clone(),
-                    outcome: Outcome::Open(spec),
+                    outcome: Outcome::Open(Box::new(spec)),
                 },
             );
             let proposal = json!({
                 "status": "proposed", "proposalId": id,
                 "title": title, "context": context, "worktree": worktree,
+                "role": role_json, "branch": branch,
             });
             let text = format!(
-                "Proposed a session \"{title}\". The user decides whether to start it; a note will tell you if they start or dismiss it, and then each time it finishes a turn. Do not wait for it."
+                "Proposed a session \"{title}\"{}. The user decides whether to start it; a note will tell you if they start or dismiss it, and then each time it finishes a turn. Do not wait for it.",
+                role_words(role.as_ref())
             );
             return (tool_result(text, Some(proposal), false), Vec::new());
         }
@@ -945,10 +1541,13 @@ impl<S: MailStore> Hub<S> {
                 let started = json!({
                     "status": "started", "sessionId": created.id, "title": created.title,
                     "context": context, "worktree": worktree,
+                    "role": role_json, "branch": branch,
                 });
                 let text = format!(
-                    "Started session {} (\"{}\"). It runs on its own; you will get a note each time it finishes a turn. Use message_session to follow up.",
-                    created.id, created.title
+                    "Started session {} (\"{}\"){}. It runs on its own; you will get a note each time it finishes a turn. Use message_session to follow up.",
+                    created.id,
+                    created.title,
+                    role_words(role.as_ref())
                 );
                 (tool_result(text, Some(started), false), effects)
             }
@@ -990,15 +1589,7 @@ impl<S: MailStore> Hub<S> {
             );
         }
         let title = self.store.title_of(target).unwrap_or_default();
-        let effects = self.post(
-            chat,
-            target,
-            MailBody {
-                text: message.into(),
-                deliver: Deliver::Prompt,
-                title: None,
-            },
-        );
+        let effects = self.post(chat, target, MailBody::new(message, Deliver::Prompt));
         (
             tool_result(
                 format!("Sent to \"{title}\". You will get a note when it finishes its turn."),
@@ -1015,18 +1606,7 @@ impl<S: MailStore> Hub<S> {
             .children_of(chat)
             .into_iter()
             .map(|child| {
-                let starting = self.is_starting(&child.id);
-                let status = self.with_engine(&child.id, |e| {
-                    if !e.waiting.is_empty() {
-                        "waiting"
-                    } else if e.busy {
-                        "running"
-                    } else if starting {
-                        "starting"
-                    } else {
-                        "idle"
-                    }
-                });
+                let status = self.status_of(&child.id);
                 json!({
                     "sessionId": child.id, "title": child.title, "status": status,
                     "unread": child.unread, "lastReply": child.preview,
@@ -1036,6 +1616,40 @@ impl<S: MailStore> Hub<S> {
         let structured = json!({ "sessions": sessions });
         tool_result(structured.to_string(), Some(structured), false)
     }
+}
+
+/// Whether `from` waiting on `target` closes a cycle of the wait-for graph
+/// across engines: the open asks, the waits their engines reported, and the
+/// new ask's own `waits` (docs/features/session-roles-and-mail/spec.md, FR-8).
+fn closes_cycle(
+    asks: &HashMap<String, RemoteAsk>,
+    from: &Address,
+    target: &Address,
+    waits: &[[Address; 2]],
+) -> bool {
+    let edges: Vec<(&Address, &Address)> = asks
+        .values()
+        .flat_map(|ask| {
+            std::iter::once((&ask.from, &ask.to))
+                .chain(ask.waits.iter().map(|[waiter, on]| (waiter, on)))
+        })
+        .chain(waits.iter().map(|[waiter, on]| (waiter, on)))
+        .collect();
+    let mut seen = vec![target];
+    let mut index = 0;
+    while index < seen.len() {
+        let current = seen[index];
+        if current == from {
+            return true;
+        }
+        for (waiter, on) in &edges {
+            if *waiter == current && !seen.contains(on) {
+                seen.push(on);
+            }
+        }
+        index += 1;
+    }
+    false
 }
 
 /// Whether a refused prompt was refused because a run is active.
@@ -1052,6 +1666,8 @@ pub struct MemoryStore {
     pub titles: Mutex<HashMap<String, String>>,
     mail: Mutex<Vec<(Mail, bool)>>,
     created: AtomicU64,
+    /// Every session it was asked to create, in order.
+    pub specs: Mutex<Vec<SessionSpec>>,
 }
 
 impl MemoryStore {
@@ -1110,6 +1726,7 @@ impl MailStore for MemoryStore {
     }
     fn create_session(&self, parent: &str, spec: &SessionSpec) -> Result<CreatedSession, String> {
         let id = format!("new-{}", self.created.fetch_add(1, Ordering::Relaxed) + 1);
+        lock(&self.specs).push(spec.clone());
         lock(&self.parents).insert(id.clone(), parent.into());
         lock(&self.titles).insert(id.clone(), spec.title.clone());
         let cwd = spec.worktree.then(|| format!("/worktrees/{id}"));
@@ -1394,6 +2011,7 @@ mod tests {
                     prompt: "Do it".into(),
                     fork: false,
                     worktree: true,
+                    ..Default::default()
                 },
             )
             .unwrap();
@@ -1628,6 +2246,7 @@ mod tests {
             prompt: "Do it".into(),
             fork: false,
             worktree: false,
+            ..Default::default()
         };
         for _ in 0..MAX_RUNNING_CHILDREN {
             hub.start_session("p", &spec).unwrap();
@@ -1648,6 +2267,7 @@ mod tests {
             prompt: "Do it".into(),
             fork: false,
             worktree: false,
+            ..Default::default()
         };
         // The shell answers each tool call on its own thread.
         let started = std::thread::scope(|scope| {
@@ -1671,6 +2291,7 @@ mod tests {
             prompt: "Do it".into(),
             fork: false,
             worktree: false,
+            ..Default::default()
         };
         let (created, _) = hub.start_session("p", &spec).unwrap();
         assert_eq!(created.title.chars().count(), TITLE_CHARS);
@@ -1685,6 +2306,160 @@ mod tests {
             ..spec
         };
         assert!(hub.start_session("p", &blank).is_err());
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, NFR-1).
+    #[test]
+    fn session_spec_reads_the_old_shape_and_keeps_the_new_one() {
+        let old: SessionSpec =
+            serde_json::from_value(json!({"title": "T", "prompt": "P", "worktree": true})).unwrap();
+        assert_eq!((&old.role, &old.branch, old.worktree), (&None, &None, true));
+        assert_eq!(
+            serde_json::to_value(&old).unwrap(),
+            json!({"title": "T", "prompt": "P", "fork": false, "worktree": true}),
+            "a spec without a role is written as before"
+        );
+        let new = SessionSpec {
+            title: "T".into(),
+            prompt: "P".into(),
+            worktree: true,
+            role: Some(reviewer()),
+            branch: Some("api-auth".into()),
+            ..Default::default()
+        };
+        let back: SessionSpec =
+            serde_json::from_value(serde_json::to_value(&new).unwrap()).unwrap();
+        assert_eq!(back, new);
+        let role: SessionRole = serde_json::from_value(json!({"name": "r"})).unwrap();
+        assert_eq!(role.access, "full", "access defaults to full");
+    }
+
+    fn reviewer() -> SessionRole {
+        SessionRole {
+            name: Some("reviewer".into()),
+            source: Some("project".into()),
+            instructions: Some("Review only.".into()),
+            tools: Some(vec!["read".into(), "bash".into()]),
+            access: "read-only".into(),
+            provider: Some("acme".into()),
+            model: Some("acme-small".into()),
+            thinking: Some("low".into()),
+            ..Default::default()
+        }
+    }
+
+    /// A hub whose chat `p` runs an engine that resolves roles.
+    fn hub_with_roles() -> Hub<MemoryStore> {
+        let hub = Hub::new(MemoryStore::default());
+        hub.on_line(
+            "p",
+            &json!({"type":"ready", "mesh": {"sessionRoles": true}}),
+        );
+        hub
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, FR-3, FR-9).
+    #[test]
+    fn a_role_and_a_branch_travel_with_the_proposal_and_the_start() {
+        let hub = hub_with_roles();
+        let args = json!({
+            "title": "Review", "prompt": "Review the API", "worktree": true,
+            "agentType": "reviewer", "model": "acme-small", "branch": " api-auth ",
+            "role": reviewer(),
+        });
+        let answer = &sent(&hub.on_line("p", &call("start_session", args.clone())))[0].1;
+        let proposal = &answer["result"]["structuredContent"];
+        assert_eq!(proposal["status"], "proposed");
+        assert_eq!(proposal["role"]["name"], "reviewer");
+        assert_eq!(proposal["role"]["access"], "read-only");
+        assert_eq!(proposal["branch"], "api-auth");
+        let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("as reviewer on acme-small (read-only)"),
+            "{text}"
+        );
+        // The card's Start creates it with the hub's own record of the role.
+        let id = proposal["proposalId"].as_str().unwrap();
+        hub.start_proposed("p", &card(), id).unwrap();
+        let created = lock(&hub.store().specs).last().cloned().unwrap();
+        assert_eq!(created.role, Some(reviewer()));
+        assert_eq!(created.branch.as_deref(), Some("api-auth"));
+        // Started at once, the answer carries the same.
+        hub.set_auto_start(true);
+        let answer = &sent(&hub.on_line("p", &call("start_session", args)))[0].1;
+        let started = &answer["result"]["structuredContent"];
+        assert_eq!(started["status"], "started");
+        assert_eq!(started["role"]["model"], "acme-small");
+        assert_eq!(
+            lock(&hub.store().specs).last().unwrap().role,
+            Some(reviewer())
+        );
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-1, FR-9, NFR-1, NFR-2).
+    #[test]
+    fn role_arguments_without_a_resolved_role_and_forged_roles_are_refused() {
+        let refusal = |hub: &Hub<MemoryStore>, args: Value| {
+            let answer = sent(&hub.on_line("p", &call("start_session", args)));
+            let result = answer[0].1["result"].clone();
+            assert_eq!(result["isError"], true, "{result}");
+            result["content"][0]["text"].as_str().unwrap().to_string()
+        };
+        let hub = hub_with_roles();
+        // The engine did not resolve the type: refused, nothing proposed.
+        let text = refusal(
+            &hub,
+            json!({"title": "T", "prompt": "P", "agentType": "reviewer"}),
+        );
+        assert!(text.contains("cannot start sessions"), "{text}");
+        let text = refusal(&hub, json!({"title": "T", "prompt": "P", "branch": "b"}));
+        assert!(text.contains("worktree"), "{text}");
+        let text = refusal(
+            &hub,
+            json!({"title": "T", "prompt": "P", "role": {"access": 3}}),
+        );
+        assert!(text.contains("could not be read"), "{text}");
+        // An engine that does not resolve roles cannot pass one on: the model wrote it.
+        let old = Hub::new(MemoryStore::default());
+        old.on_line("p", &json!({"type":"ready"}));
+        let text = refusal(
+            &old,
+            json!({"title": "T", "prompt": "P", "role": reviewer()}),
+        );
+        assert!(text.contains("update evo"), "{text}");
+        assert!(lock(&hub.store().specs).is_empty() && lock(&old.store().specs).is_empty());
+        // Without the new arguments a call is what it was.
+        let answer = sent(&old.on_line(
+            "p",
+            &call("start_session", json!({"title": "T", "prompt": "P"})),
+        ));
+        let proposal = &answer[0].1["result"]["structuredContent"];
+        assert_eq!(proposal["status"], "proposed");
+        assert!(proposal["role"].is_null() && proposal["branch"].is_null());
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-5).
+    #[test]
+    fn changed_limit_admits_more_and_a_lower_one_stops_nothing() {
+        let hub = Hub::new(MemoryStore::default());
+        let spec = SessionSpec {
+            title: "T".into(),
+            prompt: "Do it".into(),
+            ..Default::default()
+        };
+        hub.set_max_children(12);
+        let started = (0..14)
+            .filter(|_| hub.start_session("p", &spec).is_ok())
+            .count();
+        assert_eq!(started, 12, "a raised limit admits 12");
+        hub.set_max_children(4);
+        assert_eq!(hub.children_running("p"), 12, "lowering it stops nothing");
+        let error = hub.start_session("p", &spec).unwrap_err();
+        assert!(error.contains("the limit is 4"), "{error}");
+        hub.set_max_children(0);
+        assert_eq!(hub.max_children(), 1);
+        hub.set_max_children(100);
+        assert_eq!(hub.max_children(), MAX_CHILDREN_LIMIT);
     }
 
     /// Have `parent` propose a session; the proposal's id.
@@ -1704,6 +2479,7 @@ mod tests {
             prompt: "The card's brief".into(),
             fork: false,
             worktree: false,
+            ..Default::default()
         }
     }
 
@@ -1872,6 +2648,471 @@ mod tests {
         assert!(
             session_note("c", "T", RunStatus::Done, "a < b, <b>x</b>").contains("a < b, <b>x</b>")
         );
+    }
+
+    // ── Mail across engines (docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8) ──
+
+    use crate::wire::{AskInfo, MailKind, MailOp, MAX_PAIR_MAIL};
+
+    /// What an engine that takes mail from other engines says when it starts.
+    fn ready_for_mail() -> Value {
+        json!({"type": "ready", "mesh": {"crossEngineMail": true}})
+    }
+
+    /// Two root trees: `p` ("Parent") with the nested sessions `b1` ("API
+    /// builder") and `b2` ("Client"), and `q` with `c` ("Other"). Every engine
+    /// runs and takes mail from other engines.
+    fn family() -> Hub<MemoryStore> {
+        let store = MemoryStore::default()
+            .with_parent("b1", "p", "API builder")
+            .with_parent("b2", "p", "Client")
+            .with_parent("c", "q", "Other");
+        lock(&store.titles).insert("p".into(), "Parent".into());
+        lock(&store.titles).insert("q".into(), "Elsewhere".into());
+        let hub = Hub::new(store);
+        for chat in ["p", "b1", "b2", "q", "c"] {
+            hub.on_line(chat, &ready_for_mail());
+        }
+        hub
+    }
+
+    static OPS: AtomicU64 = AtomicU64::new(0);
+
+    /// A mail op as an engine writes it on stdout.
+    fn mail_op(from: &str, to: &str, op: MailOp, body: MailBody) -> Value {
+        let id = format!("op_{}", OPS.fetch_add(1, Ordering::Relaxed));
+        serde_json::to_value(Envelope::mail_op(id, from, to, op, &body)).unwrap()
+    }
+
+    fn send_op(from: &str, to: &str, text: &str) -> Value {
+        let body = MailBody {
+            kind: Some(MailKind::Message),
+            title: Some("sender".into()),
+            ..MailBody::new(text, Deliver::Interrupt)
+        };
+        mail_op(from, to, MailOp::Send, body)
+    }
+
+    fn ask_op(from: &str, to: &str, ask: &str, waits: Vec<[Address; 2]>) -> Value {
+        let body = MailBody {
+            kind: Some(MailKind::Ask),
+            ask: Some(AskInfo {
+                id: ask.into(),
+                timeout_ms: Some(600_000),
+            }),
+            waits,
+            ..MailBody::new(
+                format!("<mail kind=\"ask\">{ask}?</mail>"),
+                Deliver::Interrupt,
+            )
+        };
+        mail_op(from, to, MailOp::Ask, body)
+    }
+
+    fn reply_op(from: &str, to: &str, ask: &str) -> Value {
+        let body = MailBody {
+            kind: Some(MailKind::Reply),
+            reply_to: Some(ask.into()),
+            ..MailBody::new("the answer", Deliver::Interrupt)
+        };
+        mail_op(from, to, MailOp::Reply, body)
+    }
+
+    fn cancel_op(from: &str, ask: &str) -> Value {
+        let body = MailBody {
+            ask: Some(AskInfo {
+                id: ask.into(),
+                timeout_ms: None,
+            }),
+            ..MailBody::default()
+        };
+        mail_op(from, crate::wire::ROUTER, MailOp::CancelAsk, body)
+    }
+
+    fn addr(text: &str) -> Address {
+        Address::parse(text).unwrap()
+    }
+
+    /// The `res` body the hub sent `chat` for `line`.
+    fn answer_to(effects: &[Effect], chat: &str, line: &Value) -> Value {
+        sent(effects)
+            .into_iter()
+            .find(|(to, l)| to == chat && l["kind"] == "res" && l["corr"] == line["id"])
+            .map(|(_, l)| l["body"].clone())
+            .unwrap_or_else(|| panic!("no answer to {line} in {effects:?}"))
+    }
+
+    /// Route `line` from `chat`; the answer's body and the mail delivered.
+    fn route(hub: &Hub<MemoryStore>, chat: &str, line: &Value) -> (Value, Vec<(String, Envelope)>) {
+        let effects = hub.on_line(chat, line);
+        let answer = answer_to(&effects, chat, line);
+        let mail = sent(&effects)
+            .into_iter()
+            .filter(|(_, l)| l["kind"] == "mail")
+            .map(|(to, l)| (to, serde_json::from_value(l).unwrap()))
+            .collect();
+        (answer, mail)
+    }
+
+    fn code(answer: &Value) -> &str {
+        answer["error"]["code"].as_str().unwrap_or("ok")
+    }
+
+    #[test]
+    fn route_mail_puts_the_sending_sessions_title_in_its_mail() {
+        let hub = family();
+        // The sending engine knew only its address; the hub knows the title.
+        let text = "<mail id=\"m_1\" from=\"s_b1\" title=\"s_b1\" kind=\"message\">\nthe title=\"s_b1\" stays\n</mail>";
+        let (_, mail) = route(&hub, "b1", &send_op("s_b1", "Client", text));
+        let body = mail[0].1.as_mail().unwrap();
+        assert_eq!(
+            body.text,
+            "<mail id=\"m_1\" from=\"s_b1\" title=\"API builder\" kind=\"message\">\nthe title=\"s_b1\" stays\n</mail>",
+            "only the opening tag changes"
+        );
+        // A subagent's own title (its description) is kept as it was written.
+        let text = "<mail id=\"m_2\" from=\"s_p/a_3\" title=\"Find the bug\" kind=\"message\">\nhi\n</mail>";
+        let (_, mail) = route(&hub, "p", &send_op("s_p/a_3", "s_b2", text));
+        assert_eq!(mail[0].1.as_mail().unwrap().text, text);
+        // A quote in a title cannot break out of the attribute.
+        assert_eq!(
+            with_sender_title("<mail id=\"m\" title=\"x\">\nt\n</mail>", "say \"hi\""),
+            "<mail id=\"m\" title=\"say 'hi'\">\nt\n</mail>"
+        );
+        assert_eq!(with_sender_title("plain text", "T"), "plain text");
+    }
+
+    #[test]
+    fn route_mail_reaches_the_parent_children_and_siblings_but_never_another_tree() {
+        let hub = family();
+        // A nested session to its parent.
+        let (answer, mail) = route(&hub, "b1", &send_op("s_b1", "parent", "API is up"));
+        assert_eq!(answer["deliveredTo"], "s_p", "{answer}");
+        assert_eq!(answer["title"], "Parent");
+        assert_eq!(mail.len(), 1);
+        let (to, envelope) = &mail[0];
+        assert_eq!(to, "p");
+        assert_eq!(
+            (envelope.from.as_str(), envelope.to.as_str()),
+            ("s_b1", "s_p")
+        );
+        let body = envelope.as_mail().unwrap();
+        assert_eq!(
+            (body.text.as_str(), body.deliver, body.kind),
+            ("API is up", Deliver::Interrupt, Some(MailKind::Message))
+        );
+        // The parent to a child by title, and a child to its sibling by title and by id.
+        let (answer, _) = route(&hub, "p", &send_op("s_p", "api BUILDER", "hi"));
+        assert_eq!(answer["deliveredTo"], "s_b1");
+        let (answer, _) = route(&hub, "b1", &send_op("s_b1", "Client", "the port is 8080"));
+        assert_eq!(answer["deliveredTo"], "s_b2");
+        let (answer, _) = route(&hub, "b2", &send_op("s_b2", "s_b1", "thanks"));
+        assert_eq!(answer["deliveredTo"], "s_b1");
+        // A subagent of the parent to a nested session keeps its own address,
+        // and a node of another engine can be addressed by its id.
+        let (_, mail) = route(&hub, "p", &send_op("s_p/a_3", "s_b2", "from the agent"));
+        assert_eq!(mail[0].1.from, "s_p/a_3");
+        let (answer, mail) = route(&hub, "b2", &send_op("s_b2", "s_p/a_3", "back to you"));
+        assert_eq!(answer["deliveredTo"], "s_p/a_3");
+        assert_eq!(
+            (mail[0].0.as_str(), mail[0].1.to.as_str()),
+            ("p", "s_p/a_3")
+        );
+        // Never another root tree, by id or by title; nothing is stored.
+        let stored = hub.store().all().len();
+        for to in ["s_c", "Other", "s_q", "s_c/a_1"] {
+            let (answer, mail) = route(&hub, "b1", &send_op("s_b1", to, "x"));
+            assert_eq!(code(&answer), "not_found", "{to}: {answer}");
+            assert!(mail.is_empty());
+        }
+        assert_eq!(hub.store().all().len(), stored);
+        // A top-level chat has no parent to write to.
+        let (answer, _) = route(&hub, "p", &send_op("s_p", "parent", "x"));
+        assert_eq!(code(&answer), "not_found");
+        // An engine speaks only for its own nodes.
+        let (answer, mail) = route(&hub, "b1", &send_op("s_b2", "parent", "spoofed"));
+        assert_eq!(code(&answer), "forbidden", "{answer}");
+        assert!(mail.is_empty());
+    }
+
+    #[test]
+    fn route_mail_refuses_an_unknown_or_ambiguous_title_with_who_is_reachable() {
+        let hub = family();
+        let (answer, _) = route(&hub, "b1", &send_op("s_b1", "Nobody", "x"));
+        assert_eq!(code(&answer), "not_found");
+        let reachable = answer["error"]["reachable"].as_array().unwrap().clone();
+        let ids: Vec<&str> = reachable
+            .iter()
+            .map(|n| n["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["s_p", "s_b2"]);
+        assert_eq!(reachable[1]["title"], "Client");
+        assert_eq!(reachable[1]["relation"], "sibling");
+        // Two reachable sessions with one title: say which ids.
+        lock(&hub.store().parents).insert("b3".into(), "p".into());
+        lock(&hub.store().titles).insert("b3".into(), "Client".into());
+        let (answer, mail) = route(&hub, "b1", &send_op("s_b1", "client", "x"));
+        assert_eq!(code(&answer), "bad_request", "{answer}");
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("s_b2") && message.contains("s_b3"),
+            "{message}"
+        );
+        assert_eq!(answer["error"]["reachable"].as_array().unwrap().len(), 3);
+        assert!(mail.is_empty());
+    }
+
+    #[test]
+    fn route_mail_holds_the_pair_limit_until_the_sender_runs_again() {
+        let hub = family();
+        for i in 0..MAX_PAIR_MAIL {
+            let (answer, _) = route(&hub, "b1", &send_op("s_b1", "Client", &format!("{i}")));
+            assert_eq!(code(&answer), "ok", "{i}: {answer}");
+        }
+        let (answer, mail) = route(&hub, "b1", &send_op("s_b1", "Client", "one more"));
+        assert_eq!(code(&answer), "forbidden", "{answer}");
+        assert!(mail.is_empty());
+        // Per direction, and per pair of chats whichever node of b1 sends.
+        assert_eq!(
+            code(&route(&hub, "b2", &send_op("s_b2", "s_b1", "x")).0),
+            "ok"
+        );
+        assert_eq!(
+            code(&route(&hub, "b1", &send_op("s_b1", "parent", "x")).0),
+            "ok"
+        );
+        let (answer, _) = route(&hub, "b1", &send_op("s_b1/a_1", "s_b2", "x"));
+        assert_eq!(code(&answer), "forbidden");
+        // The receiver's run does not reset it; the sender's next run does.
+        hub.on_line("b2", &json!({"type": "agent_start"}));
+        assert_eq!(
+            code(&route(&hub, "b1", &send_op("s_b1", "Client", "x")).0),
+            "forbidden"
+        );
+        hub.on_line("b1", &json!({"type": "agent_start"}));
+        assert_eq!(
+            code(&route(&hub, "b1", &send_op("s_b1", "Client", "x")).0),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn route_mail_refuses_a_remote_cycle() {
+        let hub = family();
+        // The parent asks b1; b1 asking the parent back would never end.
+        let (answer, mail) = route(&hub, "p", &ask_op("s_p", "API builder", "k1", vec![]));
+        assert_eq!(code(&answer), "ok", "{answer}");
+        let body = mail[0].1.as_mail().unwrap();
+        assert_eq!(body.kind, Some(MailKind::Ask));
+        assert_eq!(body.ask.as_ref().map(|a| a.id.as_str()), Some("k1"));
+        assert!(body.waits.is_empty(), "the graph stays in the hub");
+        let (answer, mail) = route(&hub, "b1", &ask_op("s_b1", "parent", "k2", vec![]));
+        assert_eq!(code(&answer), "would_deadlock", "{answer}");
+        assert!(mail.is_empty());
+        // Through a third session too: b1 asks b2, then b2 asks the parent.
+        assert_eq!(
+            code(&route(&hub, "b1", &ask_op("s_b1", "Client", "k3", vec![])).0),
+            "ok"
+        );
+        let (answer, _) = route(&hub, "b2", &ask_op("s_b2", "parent", "k4", vec![]));
+        assert_eq!(code(&answer), "would_deadlock");
+        // A message is not a wait.
+        assert_eq!(
+            code(&route(&hub, "b2", &send_op("s_b2", "parent", "fyi")).0),
+            "ok"
+        );
+        // b1's reply ends the parent's wait; b1's own ask still runs.
+        assert_eq!(
+            code(&route(&hub, "b1", &reply_op("s_b1", "s_p", "k1")).0),
+            "ok"
+        );
+        let (answer, _) = route(&hub, "b2", &ask_op("s_b2", "parent", "k5", vec![]));
+        assert_eq!(code(&answer), "ok", "{answer}");
+        // The asker's cancel ends a wait too.
+        assert_eq!(code(&route(&hub, "b1", &cancel_op("s_b1", "k3")).0), "ok");
+        assert_eq!(
+            code(&route(&hub, "b2", &ask_op("s_b2", "s_b1", "k6", vec![])).0),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn route_mail_refuses_a_cycle_through_an_engines_own_waits() {
+        let hub = family();
+        // The parent's session waits on its foreground agent a_3; a_3 asks b2.
+        let waits = vec![[addr("s_p"), addr("s_p/a_3")]];
+        let (answer, _) = route(&hub, "p", &ask_op("s_p/a_3", "Client", "k1", waits));
+        assert_eq!(code(&answer), "ok", "{answer}");
+        // b2 asking the parent closes s_p → s_p/a_3 → s_b2 → s_p.
+        let (answer, _) = route(&hub, "b2", &ask_op("s_b2", "parent", "k2", vec![]));
+        assert_eq!(code(&answer), "would_deadlock", "{answer}");
+        // Another agent of the parent waits on nobody: b2 may ask it.
+        let (answer, _) = route(&hub, "b2", &ask_op("s_b2", "s_p/a_9", "k3", vec![]));
+        assert_eq!(code(&answer), "ok", "{answer}");
+        // The waits an ask reports count while it is open: b1's ask, whose
+        // session waits on it, closes s_b1 → s_b1/a_1 → s_p → … no: the parent
+        // does not wait on b1. It passes; asking back through it does not.
+        let waits = vec![[addr("s_b1"), addr("s_b1/a_1")]];
+        assert_eq!(
+            code(&route(&hub, "b1", &ask_op("s_b1/a_1", "parent", "k4", waits)).0),
+            "ok"
+        );
+        let (answer, _) = route(&hub, "p", &ask_op("s_p", "s_b1", "k5", vec![]));
+        assert_eq!(code(&answer), "would_deadlock", "{answer}");
+        // A receiver's finished run answers what was asked of it.
+        hub.on_line("b2", &json!({"type": "agent_settled"}));
+        let (answer, _) = route(&hub, "b2", &ask_op("s_b2", "parent", "k6", vec![]));
+        assert_eq!(code(&answer), "ok", "{answer}");
+        // Waits the engine cannot report (another engine's nodes) or that
+        // cannot be read are refused: the check fails closed.
+        let forged = vec![[addr("s_b2"), addr("s_p")]];
+        let (answer, _) = route(&hub, "p", &ask_op("s_p", "s_b1", "k7", forged));
+        assert_eq!(code(&answer), "bad_request", "{answer}");
+        let mut malformed = ask_op("s_p", "s_b1", "k8", vec![]);
+        malformed["body"]["waits"] = json!([["s_p"]]);
+        let (answer, mail) = route(&hub, "p", &malformed);
+        assert_eq!(code(&answer), "bad_request", "{answer}");
+        assert!(mail.is_empty());
+        // An ask needs its id, a reply the ask it answers.
+        let mut no_id = ask_op("s_p", "s_b1", "k9", vec![]);
+        no_id["body"]["ask"] = Value::Null;
+        assert_eq!(code(&route(&hub, "p", &no_id).0), "bad_request");
+        let mut no_ask = reply_op("s_b1", "s_p", "k9");
+        no_ask["body"]["replyTo"] = Value::Null;
+        assert_eq!(code(&route(&hub, "b1", &no_ask).0), "bad_request");
+    }
+
+    #[test]
+    fn route_mail_delivers_durably_and_hosts_a_stopped_receiver() {
+        let hub = family();
+        hub.on_exit("b2");
+        let line = ask_op("s_b1/a_1", "Client", "k1", vec![]);
+        let effects = hub.on_line("b1", &line);
+        let answer = answer_to(&effects, "b1", &line);
+        assert_eq!(answer["deliveredTo"], "s_b2", "{answer}");
+        // Stored before anything is sent, and the stopped receiver is hosted.
+        assert_eq!(hosts(&effects), vec![("b2".to_string(), None, true)]);
+        let (mail, delivered) = hub.store().all().last().cloned().unwrap();
+        assert!(!delivered);
+        assert_eq!(
+            (mail.from_chat.as_str(), mail.to_chat.as_str()),
+            ("b1", "b2")
+        );
+        assert_eq!(mail.body.deliver, Deliver::Interrupt);
+        assert_eq!(
+            mail.body.from_node.as_ref().map(Address::as_str),
+            Some("s_b1/a_1")
+        );
+        assert_eq!(
+            mail.body.title.as_deref(),
+            Some("API builder"),
+            "the sending chat's title"
+        );
+        // Its engine comes up: the mail goes out, with the asker's address.
+        let out = sent(&hub.on_line("b2", &ready_for_mail()));
+        assert_eq!(out.len(), 1);
+        let envelope: Envelope = serde_json::from_value(out[0].1.clone()).unwrap();
+        assert_eq!(
+            (envelope.from.as_str(), envelope.to.as_str()),
+            ("s_b1/a_1", "s_b2")
+        );
+        assert_eq!(envelope.id, mail.id);
+        // At least once: an engine that dies before answering gets it again.
+        hub.on_exit("b2");
+        let again = sent(&hub.on_line("b2", &ready_for_mail()));
+        assert_eq!(again[0].1["id"], out[0].1["id"]);
+        hub.on_line("b2", &ack(&again[0].1, false));
+        assert!(
+            hub.store().all().last().unwrap().1,
+            "delivered once answered"
+        );
+        // The answer goes back to the asker's node, whichever engine runs it.
+        let (answer, mail) = route(&hub, "b2", &reply_op("s_b2", "s_b1/a_1", "k1"));
+        assert_eq!(answer["deliveredTo"], "s_b1/a_1", "{answer}");
+        let body = mail[0].1.as_mail().unwrap();
+        assert_eq!(
+            (body.kind, body.reply_to.as_deref()),
+            (Some(MailKind::Reply), Some("k1"))
+        );
+        assert_eq!(mail[0].1.to, "s_b1/a_1");
+    }
+
+    #[test]
+    fn route_mail_to_an_engine_without_the_capability_is_unsupported() {
+        let hub = family();
+        // b2's engine runs a build that cannot take mail from other engines.
+        hub.on_start("b2");
+        hub.on_line(
+            "b2",
+            &json!({"type": "ready", "mesh": {"sessionRoles": true}}),
+        );
+        let stored = hub.store().all().len();
+        let (answer, mail) = route(&hub, "b1", &send_op("s_b1", "Client", "x"));
+        assert_eq!(code(&answer), "unsupported", "{answer}");
+        assert!(answer["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("update evo"));
+        assert!(mail.is_empty());
+        assert_eq!(hub.store().all().len(), stored, "nothing is stored");
+        // A stopped engine is started by this app's own build: it is not refused.
+        hub.on_exit("b2");
+        assert_eq!(
+            code(&route(&hub, "b1", &send_op("s_b1", "Client", "x")).0),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn route_mail_lists_peers_and_leaves_old_traffic_alone() {
+        let hub = family();
+        hub.on_line("b2", &json!({"type": "agent_start"}));
+        let line = serde_json::to_value(Envelope::command(
+            "peers-1".into(),
+            "s_b1",
+            &crate::wire::MeshCommand::Peers {},
+        ))
+        .unwrap();
+        let effects = hub.on_line("b1", &line);
+        let nodes = answer_to(&effects, "b1", &line)["nodes"].clone();
+        assert_eq!(
+            nodes,
+            json!([
+                {"id": "s_p", "title": "Parent", "kind": "session", "relation": "parent", "state": "idle"},
+                {"id": "s_b2", "title": "Client", "kind": "session", "relation": "sibling", "state": "running"},
+            ])
+        );
+        let effects = hub.on_line(
+            "p",
+            &serde_json::to_value(Envelope::command(
+                "peers-2".into(),
+                "s_p",
+                &crate::wire::MeshCommand::Peers {},
+            ))
+            .unwrap(),
+        );
+        let children = sent(&effects)[0].1["body"]["nodes"].clone();
+        assert_eq!(children.as_array().unwrap().len(), 2);
+        assert_eq!(children[0]["relation"], "child");
+        // A `message` from an engine and other commands are not the hub's.
+        let note = serde_json::to_value(Envelope::mail(
+            "m".into(),
+            "s_b1",
+            "s_p",
+            &MailBody::new("x", Deliver::Wake),
+        ))
+        .unwrap();
+        assert!(hub.on_line("b1", &note).is_empty());
+        let list = serde_json::to_value(Envelope::command(
+            "l".into(),
+            "s_b1",
+            &crate::wire::MeshCommand::List {
+                scope: crate::wire::ListScope::All,
+                of: None,
+            },
+        ))
+        .unwrap();
+        assert!(hub.on_line("b1", &list).is_empty());
     }
 
     #[test]

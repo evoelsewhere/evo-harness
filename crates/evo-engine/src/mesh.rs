@@ -861,6 +861,11 @@ impl LocalRouter {
     ) -> (Envelope, Vec<Envelope>) {
         let mut replay = Vec::new();
         let result = envelope.as_command().and_then(|command| match command {
+            // Sessions of other engines are the hub's to list.
+            MeshCommand::Peers {} => Err(MeshError::new(
+                ErrorCode::Unsupported,
+                "`peers` is answered by the hub, not by an engine",
+            )),
             MeshCommand::Subscribe { level, since } => {
                 let (seq, retained) = self.subscribe(subscriber, level, since);
                 replay = retained;

@@ -11,3 +11,6 @@ pub mod hub;
 pub mod wire;
 
 pub use hub::{ChildInfo, CreatedSession, Effect, Hub, Mail, MailStore, MemoryStore, SessionSpec};
+/// The per-pair mail limit, shared by the hub and every engine's router
+/// (docs/features/session-roles-and-mail/spec.md, FR-8).
+pub use wire::MAX_PAIR_MAIL;
