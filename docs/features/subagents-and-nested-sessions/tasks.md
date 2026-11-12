@@ -62,10 +62,10 @@ UI.
 
 Done when: the designed settings that are not built yet exist.
 
-- [ ] T21 [FR-1] Add the `agentDirs` settings key (extra agent folders, like `skills`) — `crates/evo-engine/src/settings.rs`, `crates/evo-engine/src/agents.rs` — check: a test that a type in an extra folder loads
-- [ ] T22 [FR-18] Make the nested-session depth and the running-children limit configurable — `apps/desktop/src-tauri/src/mesh.rs` — check: a hub test with a changed limit
-- [ ] T29 [FR-15] `start_session` arguments `workspace` and `model` (a nested session follows its parent today) — `crates/evo-mesh/src/hub.rs`, `apps/desktop/src-tauri/src/mesh.rs`, `apps/desktop/src/stores/engine-store.ts` — check: a hub test and a run in the app
-- [ ] T30 [FR-3] Deny writes to a read-only child at the operating-system level, behind the guard — `crates/evo-tools/src/sandbox.rs`, `crates/evo-engine/src/tools/agent.rs` — check: a read-only child's shell cannot create a file whatever the command (needs an ADR: a per-child sandbox policy)
+- ~~T21~~ built by [session roles](../session-roles-and-mail/tasks.md) T16 – T17 (`agentDirs`, FR-11).
+- ~~T22~~ built by [session roles](../session-roles-and-mail/tasks.md) T13 – T15 (settable limits, FR-5; nesting stays one level).
+- [ ] T29 [FR-15] `start_session` argument `workspace` (its `model` part was built by [session roles](../session-roles-and-mail/tasks.md) T5 – T12) — `crates/evo-mesh/src/hub.rs`, `apps/desktop/src-tauri/src/mesh.rs`, `apps/desktop/src/stores/engine-store.ts` — check: a hub test and a run in the app
+- ~~T30~~ dropped 2026-11-11: no operating-system write restriction (ADR 0020).
 - [ ] T31 [FR-20] Open the parent (or a started session) in the main window from a separate chat window — `apps/desktop/src-tauri/src/windows.rs`, `apps/desktop/src/stores/engine-store.ts` — check: a run in the app
 
 ### Phase 6 — Audit fixes (2026-11-11)

@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-11 |
+| Updated | 2026-11-12 |
 | ADD sections | [6.2 Sessions talking to sessions](../../architecture/README.md#62-sessions-talking-to-sessions) |
 | ADRs | [0003 Engine runs as a child process per chat](../../architecture/decisions/0003-engine-runs-as-a-child-process-per-chat.md) |
 
@@ -192,7 +192,7 @@ the parent as notes.
 | desktop UI | `apps/desktop/src/features/chat/chat-turn.tsx`, `transcript.ts` | Event lines and chips, settling background calls after an engine start | FR-9, FR-12, FR-19 |
 | desktop UI | `apps/desktop/src/components/ai-elements/session-proposal.tsx` | Proposal card **Start session** with Start / Dismiss | FR-16 |
 | desktop UI | `apps/desktop/src/components/ai-elements/worktree-review.tsx` | Review dialog: changes, Apply, Discard | FR-22 |
-| desktop UI | `apps/desktop/src/stores/engine-store.ts`, `session-store.ts` | Starting child chats in the background, mesh settings, child chat state | FR-15, FR-16, FR-19 |
+| desktop UI | `apps/desktop/src/stores/engine-store.ts`, `session-store.ts` | Starting child chats in the background, mesh settings, child chat state. Starting engines, wakes (FR-19) and the start-without-asking setting moved to the shell: see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) | FR-15, FR-16, FR-19 |
 | desktop UI | `apps/desktop/src/features/shell/sidebar-chats.tsx`, `app-sidebar.tsx` | Nested sidebar rows, footer, roll-up | FR-20 |
 | desktop UI | `apps/desktop/src/features/settings/sections/sandbox-settings.tsx` | **Start sessions without asking**, worktree list | FR-16, FR-22 |
 

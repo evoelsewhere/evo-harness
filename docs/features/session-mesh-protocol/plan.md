@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-12 |
 | ADD sections | [6.2 Sessions talking to sessions](../../architecture/README.md#62-sessions-talking-to-sessions) |
 | ADRs | [0003 The engine runs as a child process, one per open chat](../../architecture/decisions/0003-engine-runs-as-a-child-process-per-chat.md) |
 
@@ -103,12 +103,12 @@ Three planes share one envelope: **control** (`cmd` → `res`),
 | engine | `crates/evo-engine/src/tools/agent.rs`, `crates/evo-engine/src/child_agents.rs`, side questions | Register their nodes with the router and report state, activity, usage and reports | FR-1, FR-8 |
 | engine | `crates/evo-engine/src/modes.rs`, `crates/evo-engine/src/rpc/protocol.rs` | RPC: `ready.mesh`, `{"type":"mesh",…}` lines, root-node state, a session's own `node_report`, mail addressed to the session | FR-4, FR-5, FR-9, FR-15, FR-16 |
 | crate | `crates/evo-store/src/mail.rs`, `crates/evo-store/src/migrations/0006_mail.sql` | The `mail` table; `chats_with_pending_mail` | FR-17, FR-24, NFR-1 |
-| desktop shell | `apps/desktop/src-tauri/src/mesh.rs` | Embeds the hub; `DbMailStore` (`create_session`); Tauri commands `mesh_session_tools`, `mesh_configure`, `mesh_start_session`, `mesh_hosted`, `mesh_pending_chats`; events `mesh://mail-waiting`, `mesh://host`, `mesh://prompted` | FR-17 – FR-24 |
+| desktop shell | `apps/desktop/src-tauri/src/mesh.rs` | Embeds the hub; `DbMailStore` (`create_session`); Tauri commands `mesh_session_tools`, `mesh_configure`, `mesh_start_session`, `mesh_hosted`, `mesh_pending_chats`; events `mesh://mail-waiting`, `mesh://host`, `mesh://prompted`. Since [shell-hosted engines plan](../shell-hosted-engines/plan.md): `Effect::Host` calls the shell's engine supervisor, `mesh://host` and `mesh_configure` are gone | FR-17 – FR-24 |
 | desktop shell | `apps/desktop/src-tauri/src/engine.rs` | Spawns engines, relays stdio, feeds every stdout line to the hub | FR-17 |
 | desktop UI | `apps/desktop/src/engine/mesh.ts` | Mesh types and the fold into the agent view | FR-11 |
 | desktop UI | `apps/desktop/src/engine/client.ts` | `EngineClient.mesh()` | FR-11 |
-| desktop UI | `apps/desktop/src/stores/engine-store.ts` | Subscribes at `summary`, renders subagents, wakes idle chats, cancels through the mesh, keeps chats with running subagents, hosts engines (`onReadyNested`), restarts died engines, hosts chats with mail at startup | FR-11, FR-13, FR-14, FR-21 – FR-24, FR-28 |
-| crate (planned) | `crates/evo-mesh`, `crates/evo-engine/src/tools/mesh.rs` | Mail between nodes of different engines | FR-32 |
+| desktop UI | `apps/desktop/src/stores/engine-store.ts` | Subscribes at `summary`, renders subagents, wakes idle chats, cancels through the mesh, keeps chats with running subagents, hosts engines (`onReadyNested`), restarts died engines, hosts chats with mail at startup. Hosting, restarts, start-up hosting, keeping engines and wakes moved to the shell (`apps/desktop/src-tauri/src/supervisor.rs`, `supervisor/wakes.rs`): see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) | FR-11, FR-13, FR-14, FR-21 – FR-24, FR-28 |
+| crate | `crates/evo-mesh/src/hub.rs` (`route_mail`), `crates/evo-engine/src/tools/mesh.rs`, `crates/evo-engine/src/mesh.rs` | Mail between nodes of different engines, built by [session roles](../session-roles-and-mail/plan.md) (section 3.3 and its as-built notes) | FR-32 |
 | crate (planned) | `crates/evo-protocol/src/client.rs`, `crates/evo-mesh` | Hub over TCP for `--connect` and remote engines | FR-33 |
 
 ### 3.3 Interfaces
@@ -571,7 +571,7 @@ event chip (3.3); the session's tools refuse calls from other children.
 
 | Setting | Type | Default | Stored | Applies |
 | --- | --- | --- | --- | --- |
-| Settings → Sandbox → start without asking (`autoStartSessions`) | boolean | off (sessions are proposed) | UI store (`apps/desktop/src/stores/ui-store.ts`) | live: `engine-store.ts` passes each change to the hub with `mesh_configure` |
+| Settings → Sandbox → start without asking (`autoStartSessions`) | boolean | off (sessions are proposed) | UI store (`apps/desktop/src/stores/ui-store.ts`) | live: `engine-store.ts` passes each change to the hub with `mesh_configure`. Now `mesh.autoStartSessions` in the app settings, read by the shell: see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) (3.3, 3.8) |
 
 Limits and budgets (design):
 

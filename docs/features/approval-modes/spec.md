@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | engine, protocol, desktop shell, desktop UI |
 | Created | 2026-11-07 |
-| Updated | 2026-11-11 |
+| Updated | 2026-11-12 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Agent terminal](../agent-terminal/spec.md), [Subagents and nested sessions](../subagents-and-nested-sessions/spec.md), [Customize: hooks](../customize-skills-plugins-connectors/spec.md), [Memory and the Scheduler](../memory-and-scheduler/spec.md) |
@@ -152,14 +152,14 @@ Acceptance scenarios:
 | --- | --- | --- |
 | FR-1 | The approval mode is one app setting (`ask` · `auto-edits` · `auto`, default `ask`), edited from the composer's menu and kept in the app database. | Change it in the composer, restart the app: the menu shows the same mode. |
 | FR-2 | Every engine the app starts — chats, nested sessions, scheduled runs — starts with the current mode. | A nested session started by the mesh hub asks before a command in `ask`. |
-| FR-3 | A mode change reaches every running engine at once and applies from its next tool call, including in a run already in progress. | Start a long run in `auto`, switch to `ask`: the next command waits for approval. |
+| FR-3 | A mode change reaches every running engine at once, whether or not a window shows its chat, and applies from its next tool call, including in a run already in progress. | Start a long run in `auto`, switch to `ask`: the next command waits for approval. |
 | FR-4 | Tool calls are classified as **read** (tools that only read, plus `bash` / `powershell` commands the read-only checker accepts), **edit** (tools that change files) or **command** (other shell commands and every other engine tool that has effects). | Unit tests: `read` → read, `edit` → edit, `bash "git status"` → read, `bash "npm install"` → command. |
 | FR-5 | `ask` asks for edits and commands; `auto-edits` asks for commands only; `auto` asks for none. Reads never ask. | One edit and one command in each mode give the prompts in this table. |
 | FR-6 | The prompt shows the tool, a one-line summary (the command, or the file and change size) and the options Allow, Allow <kind> for this chat, Deny. Enter allows once, Esc denies (as today). | An edit prompt reads "Edit src/app.ts (+12 −3)" with the three options. |
 | FR-7 | "Allow edits for this chat" / "Allow commands for this chat" stop prompts of that kind in that chat until the chat's engine stops; it shows as a chip next to the mode that can be cleared. | After "Allow commands for this chat", the next command runs without a prompt; clearing the chip brings prompts back. |
 | FR-8 | A denied call returns "The user declined this <edit/command>." to the model, which goes on with its turn. | Deny an edit: the agent says it was declined and does not retry it unchanged. |
 | FR-9 | A subagent's calls ask in its parent chat's panel, labelled with the subagent's name. | A subagent's `bash` call shows "<agent name> wants to run …". |
-| FR-10 | A chat waiting for approval shows the existing "Waiting for approval" dot in the sidebar and sends a notification when its window is not focused. | Background chat in `ask` runs a command: the sidebar dot shows and a notification arrives. |
+| FR-10 | A chat waiting for approval shows the existing "Waiting for approval" dot in the sidebar and sends a notification when no focused window shows it. A request no window shows is kept by the app: the notification opens the chat, the bell keeps an entry, the tray lists the chat as waiting, and a window that opens the chat shows the request. Nothing answers it for the person and it never times out; it ends when answered or when its turn or engine stops. | Background chat in `ask` runs a command: the sidebar dot shows and a notification arrives; with every window closed, opening the chat shows the request and answering it continues the run. |
 | FR-11 | A scheduled task has its own setting "When it needs approval": wait for me (default) or run without asking; the run uses `auto` for the second. | A task set to run without asking edits a file with nobody at the computer. |
 | FR-12 | Without a UI (the engine's `text` and `json` modes) the default mode is `auto`, and `--approval-mode ask` makes calls that need approval fail with a clear reason. | `evo-engine --mode json --approval-mode ask` with a command → the tool result explains no one could approve it. |
 | FR-13 | Order of checks for one call: read-only agent guard → self-kill guard → `PreToolUse` hooks → plugin handlers → approval mode. A hook's or handler's block always wins; a hook's explicit `allow` skips the mode's prompt. | A hook that allows `npm test` runs it in `ask` without a prompt; a hook that blocks it blocks it in `auto`. |
@@ -217,3 +217,7 @@ n/a — none open.
 - 2026-11-07 — In progress: engine gate, protocol, shell setting and composer built; scheduler setting (FR-11) and the subagent label (FR-9) open.
 - 2026-11-11 — The read-only checker FR-4 relies on was hardened (see [subagents and nested sessions](../subagents-and-nested-sessions/spec.md), FR-3): shell commands it used to misread as reading now count as commands and ask.
 - 2026-11-11 — The approval panel keeps every open request (several subagents can ask at once): it shows the oldest and how many more wait, and an answer or a stopped call removes only its own request. A chat is not woken by an automated turn while a request is open.
+- 2026-11-12 — FR-3 and FR-10 amended by [shell-hosted engines](../shell-hosted-engines/spec.md):
+  the mode reaches engines no window shows, and a request no window shows is
+  kept, notified and shown when the chat is opened; it is never answered for
+  the person and never times out.

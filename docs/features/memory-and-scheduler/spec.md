@@ -5,7 +5,7 @@
 | Status | Implemented |
 | Area | engine, desktop UI |
 | Created | 2026-11-06 |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-12 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Notifications](../notifications/spec.md), [Approval modes](../approval-modes/spec.md) |
@@ -131,11 +131,11 @@ Scheduler:
 | --- | --- | --- |
 | FR-10 | A task has a name, a prompt, a folder (none: this computer), a schedule, on/off, who made it (the person, or an agent with approval), the next run, and the last 30 runs (time, chat, trigger — schedule, run now or caught up — or the error). | Given a task with 31 runs, then 30 are kept. |
 | FR-11 | Schedules: manual (only Run now), once (date and time), hourly (at minute), daily, weekdays, weekly (days and time), or a five-field cron expression (`*`, lists, ranges, `/step`; day of month and day of week combine as in cron), in local time. | Given each kind, then the next run shown is correct. |
-| FR-12 | A due task starts a new top-level chat in the task's folder (the folder becomes a workspace if it is not one), titled with the task's name, its prompt sent once the engine is ready; it shows in the sidebar like any chat, unread when done. | Manual: a task due now starts its chat. |
-| FR-13 | A run whose previous chat is still working is skipped. | Given a running chat from the last run, when the next run is due, then no new chat starts. |
-| FR-14 | At launch, a task missed while evo was closed runs once ("caught up"), then continues from now. A one-time task switches itself off after it ran. | Manual: close evo past a run time, start it, and see one caught-up run. |
-| FR-15 | With the tray icon on, closing the window keeps runs going; Keep awake stops the computer from sleeping. | Manual check in the running app. |
-| FR-16 | A notification says when a task starts (or could not); it opens the chat. | Manual check in the running app. |
+| FR-12 | A due task starts a new top-level chat in the task's folder (the folder becomes a workspace if it is not one), titled with the task's name, its prompt sent once the engine is ready; it shows in the sidebar like any chat, unread when done. The shell runs tasks, with or without a window open, and keeps the prompt until it is sent, so a window reload loses nothing. | Manual: a task due now starts its chat. |
+| FR-13 | A run whose previous chat is still working (a run, its agents, mail waiting for it or an open question) is skipped. | Given a running chat from the last run, when the next run is due, then no new chat starts. |
+| FR-14 | At launch, a task missed while evo was closed runs once ("caught up"), then continues from now, also when evo starts hidden into the tray. A one-time task switches itself off after it ran. | Manual: close evo past a run time, start it, and see one caught-up run. |
+| FR-15 | With the tray icon on, closing every window keeps tasks running and starting; Keep awake stops the computer from sleeping. | Manual check in the running app. |
+| FR-16 | A notification says when a task starts (or could not); it opens the chat. The shell sends it, also with no window open. | Manual check in the running app. |
 | FR-17 | Top-level chats get tools to create, list, update and delete scheduled tasks; creating, changing and deleting show an approval in the composer first; the default folder is the chat's. | Given an agent's create call, then the approval shows before the task exists. |
 | FR-18 | **Sidebar → Scheduler** opens a full page: tasks on the left (switch, schedule, next run); the chosen task on the right (name, prompt, folder, schedule editor with the next run, Run now, on/off, delete, past runs that open their chats); and examples to start from. | Manual check in the running app. |
 
@@ -144,7 +144,7 @@ Scheduler:
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | NFR-1 | Project memories live outside the repository, so they stay private and never end up in a commit. | Given a project memory, then no file is written inside the project folder. |
-| NFR-2 | A due task starts within 20 seconds of its time while evo runs. | Manual: a task due in a minute starts within 20 s of its time. |
+| NFR-2 | A due task starts within 20 seconds of its time while evo runs, with or without a window. | Manual: a task due in a minute starts within 20 s of its time. |
 
 ## 5. Success criteria
 
@@ -174,3 +174,7 @@ n/a — the old design notes record no questions.
   update a covering topic (FR-4), the switch is shown as **Pause memory** and
   the panel stays usable while paused (FR-7, FR-8), and a chat can be started
   without memory. FR-3's four types are unchanged.
+- 2026-11-12 — FR-12 – FR-16 and NFR-2 amended by [shell-hosted engines](../shell-hosted-engines/spec.md):
+  the Scheduler's runner is the shell's, not the main window's; tasks start
+  and are recorded with no window open, and the page and the agent's tools
+  edit tasks through the shell.

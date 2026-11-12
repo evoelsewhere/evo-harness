@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | Living document — describes the system as built |
-| Updated | 2026-11-10 |
+| Updated | 2026-11-12 |
 | Decisions | [ADR index](decisions/README.md) |
 | Features | [Feature catalogue](../features/README.md) |
 
@@ -82,11 +82,11 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 ┌──────────────────────── evo-desktop (Tauri, Rust) ────────────────────────┐
 │  windows (WebView2 / WKWebView / WebKitGTK) — React UI, zustand stores    │
 │     ▲ Tauri events            │ invoke(commands)                          │
-│  shell: engine bridge · mesh hub (evo-mesh) · MCP pool (evo-mcp) ·        │
+│  shell: engine supervisor · mesh hub (evo-mesh) · MCP pool (evo-mcp) ·    │
 │         plugins (evo-plugins) · app DB (evo-store) · pty · files ·        │
 │         browser child webviews · worktrees (evo-worktrees) · tray         │
 └──────┬───────────────────────────┬───────────────────────────────────────┘
-       │ stdin/stdout JSONL         │ (one child process per open chat)
+       │ stdin/stdout JSONL         │ (one child process per chat with work or a viewer)
    evo-engine --mode rpc       evo-engine --mode rpc
    --session-id <chat>         --session-id <chat>
    --session-db                --session-db
@@ -101,11 +101,36 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   stopping its engine. `evo.db` is shared: the shell writes the app's data,
   engines read it and write provider settings and the models.dev cache.
 
-- **One engine process per open chat** ([ADR 0003](decisions/0003-engine-runs-as-a-child-process-per-chat.md)).
-  The shell starts it, relays the protocol and stops it when the chat closes.
-  Idle engines are restarted to pick up settings, credentials or
-  customization changes; the app itself never restarts for that
-  ([ADR 0005](decisions/0005-real-engine-and-live-reload.md)).
+- **One engine process per chat with work or a viewer**
+  ([ADR 0003](decisions/0003-engine-runs-as-a-child-process-per-chat.md),
+  [ADR 0018](decisions/0018-the-shell-hosts-engines-windows-attach.md)).
+  The shell's engine supervisor (`src-tauri/src/supervisor.rs`) owns every
+  engine's life ([shell-hosted engines](../features/shell-hosted-engines/spec.md)):
+  - it starts one when a window shows the chat, the mesh hub needs a host for
+    mail or a new session, the Scheduler runs a task, or the app starts with
+    mail waiting; it is the only code that spawns an engine;
+  - it sets the engine up on `ready` (model, tools, mesh subscription, the
+    hub's waiting mail; see [6.3](#63-hosting-an-engine));
+  - it restarts an engine that exits with pending work, at most 3 times in
+    2 minutes, then notifies and leaves the mail waiting;
+  - it stops engines with no work and no viewer beyond 4 idle ones over the
+    whole app, least recently used first, and stops every engine on quit.
+
+  "Work" is a running turn, running agents, mail or a prompt waiting for the
+  chat, or an open question. Windows are viewers: they attach to the engine
+  of the chat they show (`engine_attach`) and detach when they show another
+  chat, close or reload, which never stops an engine that has work. The
+  person's **Stop** (`engine_stop`) still stops a chat and its work.
+  Settings, credential and customization changes reach every engine, viewed
+  or not; idle engines reload or restart, and the app itself never restarts
+  for that ([ADR 0005](decisions/0005-real-engine-and-live-reload.md)).
+- **evo keeps working with no window** while it runs. With the tray icon on,
+  closing every window keeps the engines going; the tray's menu counts the
+  chats working and waiting for the person and opens a waiting one, and the
+  main window is built again when it was destroyed. Quitting, or closing the
+  last window with the tray off, asks once while chats work ("2 chats are
+  working. Quit anyway?"), then stops every engine. Work never outlives the
+  evo process.
 - **Memory indexing is a short-lived engine process**
   (`evo-engine --mode index`,
   [ADR 0016](decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md)).
@@ -116,7 +141,10 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   and has two tools (docs/features/memory-topics-and-chat-recall).
 - **The shell owns native capabilities and cross-chat coordination**: windows,
   pseudo-terminals, file access for the Files tool, browser webviews, the MCP
-  connection pool, plugin installs, the session mesh hub, the app database.
+  connection pool, plugin installs, the session mesh hub, the app database,
+  engine lifecycles, wakes, turn records and the Scheduler's runner
+  ([ADR 0018](decisions/0018-the-shell-hosts-engines-windows-attach.md)).
+  These are lifecycle decisions: what the agent does stays in the engine.
 - **The shell owns app updates** ([app updates](../features/app-updates/spec.md),
   [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)):
   it checks the latest release, downloads and verifies the new version, and
@@ -125,7 +153,9 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 - **The engine owns agent behaviour**: the agent loop, tools, sessions,
   compaction, skills, hooks, memory, model selection and credentials.
 - **The webview owns presentation only**: it renders state and sends user
-  intent. Only `stores/engine-store.ts` talks to the engine client.
+  intent (prompts, steering, answers, cancels). It tells the shell which chat
+  it shows and when a draft sits in a composer; it decides no wake, record or
+  start. Only `stores/engine-store.ts` talks to the engine client.
 - **A page an agent uses lives on a stage in the shell, not in the panel**: a
   visible desktop-size webview parked outside the window whose frames the shell
   streams (`browser://frame`) to whatever shows it, a floating card over the chat
@@ -248,8 +278,57 @@ result in the session.
 Subagents run inside their parent's engine; nested sessions are separate
 engines. All of them are nodes on the **session mesh**: the hub in the shell
 routes control, observation and mail between engines and windows; each engine
-has a local router for its in-process nodes. Design:
+has a local router for its in-process nodes. When the hub needs an engine
+that does not run (a new session, mail for a stopped chat), it asks the
+engine supervisor, not a window ([6.3](#63-hosting-an-engine)). Design:
 [session mesh spec](../features/session-mesh-protocol/spec.md).
+
+### 6.3 Hosting an engine
+
+Whoever needs a chat's engine (a window that shows the chat, the hub's
+`Effect::Host`, the Scheduler's runner, the app's start for chats with
+undelivered mail) calls the supervisor's `ensure`. Windows do so through
+`engine_ensure` and `engine_attach`. The set-up is the same whoever asked
+([shell-hosted engines plan, 3.5](../features/shell-hosted-engines/plan.md#35-behaviour)).
+
+```mermaid
+sequenceDiagram
+  participant R as Window / hub / Scheduler / app start
+  participant S as Shell (supervisor.rs)
+  participant H as Mesh hub (mesh.rs)
+  participant Eng as evo-engine
+  participant W as Windows
+  R->>S: ensure(chat, reason)
+  S->>Eng: spawn evo-engine --mode rpc (folder, flags, sandbox, approval mode)
+  S-->>W: engine://state starting
+  Eng-->>S: ready (capabilities)
+  S->>Eng: set_model (a new chat: its row's model or the default)
+  S->>Eng: configure_external_tools (session, app and connector tools)
+  S->>Eng: mesh subscribe at summary, from the shell
+  S->>Eng: settings changed while it started
+  S->>H: on_hosted(chat)
+  H->>Eng: waiting mail: a brief, a scheduled prompt, notes
+  S-->>W: engine://state ready
+```
+
+- **Wakes.** The shell follows each engine's session node through its
+  subscription. When notes, background reports or mail wait for an idle
+  chat, it gathers them for 2 s and wakes the chat with one automated turn,
+  sent as hub mail to the chat itself. It does not wake a chat with a draft
+  in a composer (windows report drafts), an open question or an archived
+  row, and stops after 5 wakes in a row until the person's next prompt.
+- **Turn records.** Each `agent_settled` carries the run's totals (`turn`:
+  model, tokens, cost, the cost of subagents settled since the last turn,
+  a preview). The shell records the turn once, whatever number of windows
+  are open; it is unread unless a focused window shows the chat. Windows
+  record turns only for an engine whose `ready` lacks `turnTotals` (a stale
+  sidecar).
+- **Scheduled runs.** The runner (`agent_tools/scheduler/run.rs`) runs missed
+  tasks once at start, also when evo starts hidden, and checks for due tasks
+  every 20 s. It creates the task's chat, ensures its engine and posts the
+  prompt as hub mail, so a window reload loses nothing. It is the only writer
+  of `scheduler.tasks`: the Scheduler page and the agent's tools edit through
+  it.
 
 ## 7. Data view
 
@@ -309,17 +388,33 @@ Details: [app database spec](../features/app-database/spec.md).
   approval panel, reading the same mode. The computer app tool has
   a gate class of its own: with its setting on "Ask every time" it asks in
   every mode ([ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)).
+- **Questions that wait for the person.** An engine's approvals and
+  `ask_user` questions, and the questions of the shell's own tools, are kept
+  by the shell per chat (`supervisor/questions.rs`), whether or not a window
+  shows the chat. When no focused window shows it, the shell sends an OS
+  notification (clicking it opens the chat) and a bell entry, and the tray
+  lists the chat as waiting. A window that attaches shows every open
+  question. Nothing answers a question for the person and none times out; a
+  question ends when it is answered or its call or engine ends. A chat with
+  an open question counts as working, so its engine is never trimmed.
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
 - **Project trust.** Project hooks, `.mcp.json` servers and settings apply only
   after the user trusts or approves them.
-- **Configuration.** Settings changes apply without restarting the app; idle
-  engines reload, running ones pick changes up on their next start.
+- **Configuration.** Settings changes apply without restarting the app. The
+  shell passes each change to every engine, viewed or not: the approval mode
+  at once, provider and resource reloads to idle engines and to busy ones
+  when their run settles, a sandbox change by restarting engines with no work
+  (the others when they settle). Settings the shell needs live in the app
+  database, not in a window.
 - **Errors.** Errors reach the user in plain words in the chat or a
   notification. An engine that exits is reported in its chat; the transcript
   is durable in `evo.db`, so the chat continues in a new engine.
 - **Notifications.** One pipeline for toasts, the bell and OS notifications
-  ([notifications spec](../features/notifications/spec.md)).
+  ([notifications spec](../features/notifications/spec.md)). The shell
+  announces questions and the ends of runs in chats no focused window shows,
+  once for the whole app, with titles only (`supervisor/notices.rs`); bell
+  entries made with no window open are kept until a window opens.
 - **Telemetry.** `evo-telemetry` contracts with a no-op default; nothing leaves
   the device unless a real context is configured.
 - **Testing.** Library crates test against `faux` providers and in-memory
@@ -357,6 +452,7 @@ The index of decisions, their status and links is in
 | Browser screenshots and trusted input are Windows-only | platform gap | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
 | Background-only control of other apps cannot do hover-only UI, drag and drop between apps, key tips or raw-input apps | some app tasks need the person | [computer app control spec](../features/computer-app-control/spec.md) FR-19, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md) |
 | The release key is one key pair: lost, installed apps cannot update in the app; leaked, it could sign a malicious update | every installed copy | [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md) |
+| Engines work with no window: nested sessions, background agents, wakes and scheduled runs go on while every window is closed | work, cost and tool calls the person does not watch as they happen. Mitigations: the sidebar marks chats working or waiting with no window, the tray counts them and opens a waiting one, questions are notified and never answered for the person, quitting asks once while chats work. The macOS app menu's own Quit still quits without asking | [shell-hosted engines](../features/shell-hosted-engines/spec.md) NFR-5, FR-11, FR-12, [ADR 0018](decisions/0018-the-shell-hosts-engines-windows-attach.md) |
 | The desktop has no automated UI test runner | regressions found late | — |
 | Main JS bundle ~1.2 MB | startup time | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
 | A transcript's `state_json` is the whole reducer snapshot, rewritten on every write | slow writes in very long chats | [app database plan, "Planned tables"](../features/app-database/plan.md#planned-tables) |
@@ -366,6 +462,8 @@ The index of decisions, their status and links is in
 | Term | Meaning |
 | --- | --- |
 | Chat / session | One conversation, backed by one engine process and one transcript |
+| Engine supervisor | The part of the shell that starts, sets up, wakes, records, restarts and stops chats' engines |
+| Viewer | A window that shows a chat; it attaches to the chat's engine and detaches without stopping it |
 | Subagent | A child agent inside its parent's engine, run as a tool call |
 | Nested session | A full chat started by another chat, with its own engine |
 | Node | Anything on the session mesh: a session, an agent, a side question |

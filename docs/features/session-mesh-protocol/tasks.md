@@ -76,7 +76,7 @@ refused.
 - [x] T19 [FR-29] `ask` blocks until `reply`, the receiver's run ending, the timeout (600 s, max 1800 s) or cancellation; an `ask` to an idle agent continues it and its report goes to the asker — `crates/evo-engine/src/tools/mesh.rs` — check: `cargo test -p evo-engine -- a_subagent_asks_its_sibling_and_gets_the_answer the_refusal_says_why_and_reply_checks_the_asker`
 - [x] T20 [FR-30, FR-31, NFR-2] Guards in the `LocalRouter`: wait-for graph over open `ask`s and foreground `agent` calls (`would_deadlock`); `MAX_PAIR_MAIL` (20) per directed pair between two runs — `crates/evo-engine/src/mesh.rs` — check: `cargo test -p evo-engine -- a_wait_that_closes_a_cycle_is_refused a_pair_talking_in_a_loop_is_stopped`
 - [x] T21 [FR-28] Desktop: wake for reason `mail` (`meta.wakeReasons`) with `<mail-arrived>`, chips "Message/Question from …" — `apps/desktop/src/stores/engine-store.ts` — check: manual check in the app with a real model
-- [ ] T22 [FR-32] Mail between nodes of different engines (today sessions talk through notes and `message_session`) — `crates/evo-mesh`, `crates/evo-engine/src/tools/mesh.rs` — check: an agent in one session messages a nested session and it receives the mail
+- ~~T22~~ [FR-32] built by [session roles](../session-roles-and-mail/tasks.md) T29 – T34 (mail across engines).
 
 ### Phase 5 — Remote (later)
 

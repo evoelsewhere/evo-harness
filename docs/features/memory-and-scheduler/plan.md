@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-12 |
 | ADD sections | [7. Data view](../../architecture/README.md#7-data-view) |
 | ADRs | none |
 
@@ -63,11 +63,11 @@ starts the due ones as new chats.
 | engine | `crates/evo-engine/src/modes.rs` | RPC `list_memories`, `save_memory`, `delete_memory`, `set_memory_enabled`; each change re-reads the chat's resources. | FR-7, FR-9 |
 | desktop UI | `apps/desktop/src/features/memory/` (`memory-panel.tsx`) | The Memory tool in the side panel. | FR-8, FR-9 |
 | desktop UI | `apps/desktop/src/components/ai-elements/tool.tsx` | Memory transcript rows. | FR-6 |
-| desktop UI | `apps/desktop/src/stores/scheduler-store.ts` | Tasks saved under `scheduler.tasks`; the 20-second check, run start, skip, catch-up, run history, notifications. | FR-10, FR-12, FR-13, FR-14, FR-16, NFR-2 |
+| desktop UI | `apps/desktop/src/stores/scheduler-store.ts` | Tasks saved under `scheduler.tasks`; the 20-second check, run start, skip, catch-up, run history, notifications. The runner and the only writer of `scheduler.tasks` are now the shell's (`apps/desktop/src-tauri/src/agent_tools/scheduler/run.rs`); the store edits through `scheduler_save`, `scheduler_delete` and `scheduler_run_now`: see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) | FR-10, FR-12, FR-13, FR-14, FR-16, NFR-2 |
 | desktop UI | `apps/desktop/src/lib/schedule.ts` | Schedule kinds, cron parsing, next run in local time. | FR-11 |
 | desktop UI | `apps/desktop/src/features/scheduler/agent-tools.ts` | The four scheduler tools for top-level chats, with approval. | FR-17 |
 | desktop UI | `apps/desktop/src/features/scheduler/scheduler-page.tsx`, `time-fields.tsx` | **Sidebar → Scheduler** page. | FR-18 |
-| desktop UI | tray and Keep awake (`apps/desktop/src/features/settings/sections/general-settings.tsx`) | Keep evo running with the window closed; stop sleep. | FR-15 |
+| desktop UI | tray and Keep awake (`apps/desktop/src/features/settings/sections/general-settings.tsx`) | Keep evo running with the window closed; stop sleep. The tray and closing the last window are the shell's (`apps/desktop/src-tauri/src/system.rs`): see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) | FR-15 |
 
 ### 3.3 Interfaces
 

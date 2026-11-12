@@ -5,7 +5,7 @@
 | Status | Implemented |
 | Area | protocol, engine, desktop shell, crates `evo-mesh` `evo-protocol` |
 | Created | 2026-11-06 |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-12 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Subagents and nested sessions](../subagents-and-nested-sessions/spec.md) |
@@ -164,18 +164,18 @@ Acceptance scenarios:
 | FR-18 | `start_session`, `message_session` and `list_sessions` are owned by the hub and offered on top-level chats only; nested sessions get no session tools. | Given a nested session, when its tools are listed, then the session tools are absent. |
 | FR-19 | `start_session` returns a proposal (id `proposal_…`) that a card's **Start** turns into a session, or starts at once when "start without asking" is on. Starting creates the chat (row, fork, worktree), announces it, and sends the child its brief as a prompt. | Given auto-start off, when the agent calls `start_session`, then the result holds a proposal id and no chat exists until **Start**. |
 | FR-20 | At most 8 children of a chat run at once. | Given 8 running children, when a 9th is started, then it is refused. |
-| FR-21 | Prompt mail waits until a window has hosted the receiving engine, then goes out as a prompt (idle) or a steer read at the session's next step (busy). A refused prompt goes out when the run ends. Accepted means delivered. The window showing the chat adds the prompted turn. | Given a busy child, when `message_session` sends to it, then the child reads it at its next step. |
-| FR-22 | When the hub needs an engine that is not set up (a new session, a chat with waiting mail, an engine that exited with mail pending) it asks for a host: a window holding the chat answers, otherwise the main window starts the engine in the background. | Given mail for a closed child, when it is sent, then the child's engine is started and the mail delivered. |
-| FR-23 | A window holding a chat whose engine exited or failed to start starts it again when the hub asks for a host, at most 3 times in 2 minutes per chat; after that the mail waits until the chat is opened. | Given an engine that dies on start, when the hub keeps asking, then it is restarted at most 3 times in 2 minutes. |
-| FR-24 | At app start the main window hosts every chat with undelivered mail (archived chats excluded). | Given undelivered mail for a chat at quit, when the app starts, then the mail is delivered. |
+| FR-21 | Prompt mail waits until the shell has set up the receiving engine, then goes out as a prompt (idle) or a steer read at the session's next step (busy). A refused prompt goes out when the run ends. Accepted means delivered. A window showing the chat shows the prompted turn; with no window the turn still runs. | Given a busy child, when `message_session` sends to it, then the child reads it at its next step. |
+| FR-22 | When the hub needs an engine that is not set up (a new session, a chat with waiting mail, an engine that exited with mail pending) it asks for a host: the shell starts and sets up the engine, whether or not a window shows the chat. | Given mail for a closed child and no window open, when it is sent, then the child's engine is started and the mail delivered. |
+| FR-23 | The shell starts again a chat's engine that exited or failed to start with mail pending, at most 3 times in 2 minutes per chat; after that it notifies the person and the mail waits until the chat is opened. | Given an engine that dies on start, when the hub keeps asking, then it is restarted at most 3 times in 2 minutes. |
+| FR-24 | At app start the shell hosts every chat with undelivered mail (archived chats excluded), before any window has loaded. | Given undelivered mail for a chat at quit, when the app starts, then the mail is delivered. |
 | FR-25 | `list_sessions` lists the chat's children with their live state: `running`, `waiting` (for an approval) or `idle`. | Given one running and one idle child, when the agent lists sessions, then both show with their state. |
 | FR-26 | The session and every subagent get `send_message`, `ask`, `reply`, `list_nodes` and `cancel_node`, bound to their own node so a call knows who calls; agent types that narrow tools keep them; the session's tools refuse calls from other children (plugin children). | Given a subagent, when it calls `send_message`, then the mail's `from` is the subagent. |
-| FR-27 | A node can write to its parent, its children and — with the siblings capability, which agents get — its siblings; never to another tree. `to` takes `parent`, a node id, an agent id or a title. | Given two sibling agents, when one sends to the other by title, then the mail arrives; a node in another tree is refused. |
+| FR-27 | A node can write to its parent, its children and — with the siblings capability, which agents get — its siblings; never to another tree. Since [session roles](../session-roles-and-mail/spec.md) FR-6, nested sessions reach their siblings too, across engines. `to` takes `parent`, a node id, an agent id or a title. | Given two sibling agents, when one sends to the other by title, then the mail arrives; a node in another tree is refused. |
 | FR-28 | Mail reaches the model as a `<mail id from title kind>` message, shown in the transcript as an event chip ("Message/Question from …"), not as a user bubble. A running receiver gets it before its next model call; an idle session gets it with its next run plus a wake request with reason `mail`; an idle agent gets it when continued. | Given an idle parent, when an agent sends it a message, then the parent wakes and the transcript shows a "Message from …" chip. |
 | FR-29 | `ask` blocks until `reply {askId}`, the receiver's run ending (its final text answers), the timeout (default 600 s, max 1800 s) or cancellation. An `ask` to an idle agent continues it in the background to answer; that run's report goes to the asker, not to the parent. | Given a sibling ask, when the receiver replies, then the asker resumes with the answer; `reply` checks the asker. |
 | FR-30 | Open `ask`s and foreground `agent` calls form a wait-for graph; an `ask` that would close a cycle is refused with `would_deadlock` and says why. | Given a foreground agent, when it asks the session waiting on it, then the ask is refused with `would_deadlock`. |
 | FR-31 | At most 20 messages per directed pair of nodes between two runs of the session. | Given a pair at 20 messages, when one sends a 21st, then it is refused. |
-| FR-32 | Mail (`send_message`, `ask`, `reply`) also works between nodes of different engines. | Given an agent in session A and nested session B, when the agent sends B a message, then B receives it. |
+| FR-32 | Mail (`send_message`, `ask`, `reply`) also works between nodes of different engines: the hub routes it with the same reach, pair limit and wait-for graph, as durable session mail (built by [session roles](../session-roles-and-mail/spec.md) FR-6 – FR-8). | Given an agent in session A and nested session B, when the agent sends B a message, then B receives it. |
 | FR-33 | A remote engine joins the mesh over TCP. | Given a remote engine, when it connects, then its nodes are listed and routable. |
 
 ### 4.2 Non-functional
@@ -234,3 +234,9 @@ None.
   was started or dismissed (it neither wakes the parent nor starts its engine), a
   cut note says so, and a prompt refused for another reason than an active run
   leaves the chat idle.
+- 2026-11-11 — FR-32 built by [session roles, limits and mail](../session-roles-and-mail/spec.md)
+  (hub `route_mail`, mail ops `send`/`ask`/`reply`/`cancel_ask`, `peers`);
+  FR-27 extended to sibling sessions.
+- 2026-11-12 — FR-21 – FR-24 amended by [shell-hosted engines](../shell-hosted-engines/spec.md):
+  the shell, not a window, answers the hub's requests for a host, restarts
+  engines with pending mail and hosts chats with mail at app start.
