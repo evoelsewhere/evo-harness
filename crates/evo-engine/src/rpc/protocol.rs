@@ -481,6 +481,9 @@ pub fn ready(mode: crate::args::RpcMessageUpdates) -> Value {
         "promptContent": super::prompt_content::prompt_capabilities(),
         "fileIO": super::file_io::capabilities(),
         "mesh": crate::mesh::capabilities(),
+        // `agent_settled` carries `turn`: what the run used, for the host's
+        // turn record (docs/features/shell-hosted-engines/spec.md, FR-6).
+        "turnTotals": true,
         "toolProgramChildren": {
             "version": 1,
             "summaryCommand": "get_tool_program_children",
@@ -735,6 +738,13 @@ mod tests {
             .unwrap()
             .iter()
             .any(|command| command == "compact"));
+    }
+
+    // docs/features/shell-hosted-engines/spec.md, FR-6 (T19).
+    #[test]
+    fn turn_totals_are_advertised_by_ready() {
+        let value = ready(crate::args::RpcMessageUpdates::default());
+        assert_eq!(value["turnTotals"], true);
     }
 
     #[test]

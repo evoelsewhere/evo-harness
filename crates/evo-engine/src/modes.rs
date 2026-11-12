@@ -436,6 +436,8 @@ where
     let rpc_providers: RpcProviders<'p> = model_catalog.into();
     let mut command_tasks: Vec<RetainedRpcTask<()>> = Vec::new();
     let lane: Arc<dyn AgentLane> = harness.lane("main");
+    // An incognito chat's turns carry no preview (shell-hosted-engines FR-6).
+    let incognito = rpc_providers.reload.is_some_and(|ctx| ctx.args.incognito);
     // The host UI's side chat (`side_question`): one tool-free thread that
     // reads this conversation and never writes it, run beside the main lane.
     let side_questions = crate::side_questions::SideQuestions::default();
@@ -1067,6 +1069,13 @@ where
                         )
                         .await;
                         crate::mesh::session_run(&mesh_session, true, None);
+                        // A turn's totals count what the run adds after here
+                        // (a compaction is not a turn).
+                        let turn_start = if compact {
+                            None
+                        } else {
+                            Some(rpc_turn_start(&lane_task).await)
+                        };
                         let outcome_cancel = cancel_task.clone();
                         let execute_timing = RpcPhaseTiming::start(phase_diagnostics, "execute");
                         let result = if compact {
@@ -1132,7 +1141,27 @@ where
                             (status, text)
                         });
                         crate::mesh::session_run(&mesh_session, false, report);
-                        let settled = serde_json::json!({
+                        let turn = match turn_start {
+                            Some(start) => {
+                                let final_text = result
+                                    .as_ref()
+                                    .ok()
+                                    .and_then(|value| value.get("finalText"))
+                                    .and_then(|text| text.as_str());
+                                Some(
+                                    rpc_turn_totals(
+                                        &lane_task,
+                                        start,
+                                        &mesh_session,
+                                        final_text,
+                                        incognito,
+                                    )
+                                    .await,
+                                )
+                            }
+                            None => None,
+                        };
+                        let mut settled = serde_json::json!({
                             "type": "agent_settled",
                             "runId": result.as_ref().ok().and_then(|value| value.get("runId")),
                             "outcome": outcome,
@@ -1152,6 +1181,11 @@ where
                                 .and_then(|value| value.get("reclaimed"))
                                 .cloned(),
                         });
+                        // What the run used, for the shell's turn record
+                        // (docs/features/shell-hosted-engines/spec.md, FR-6).
+                        if let Some(turn) = turn {
+                            settled["turn"] = turn;
+                        }
                         let enqueue_timing =
                             RpcPhaseTiming::start(phase_diagnostics, "settled_enqueue");
                         write_line(&out_task, &settled).await;
@@ -2089,6 +2123,114 @@ fn rpc_outcome_str(outcome: &HarnessRunOutcome) -> (&'static str, Option<String>
         ),
         HarnessRunOutcome::Suspended { .. } => ("suspended", None, None),
     }
+}
+
+/// Characters of a run's final text kept as its turn's preview.
+const TURN_PREVIEW_CHARS: usize = 400;
+
+/// Where a run starts on the lane: its leaf and that entry's seq. The run's
+/// own entries come after it.
+async fn rpc_turn_start(lane: &Arc<dyn AgentLane>) -> (Option<String>, u64) {
+    let leaf = lane.get_leaf_id().await.ok().flatten();
+    let seq = match &leaf {
+        Some(id) => lane
+            .get_entry(id)
+            .await
+            .ok()
+            .flatten()
+            .map_or(0, |entry| entry.base().seq),
+        None => 0,
+    };
+    (leaf, seq)
+}
+
+/// What a finished run used, for its `agent_settled` line's `turn`
+/// (docs/features/shell-hosted-engines/spec.md, FR-6; plan 3.3): the tokens
+/// and cost of its own responses (the assistant messages it added to the
+/// lane after `start`), the model of its last response, and the usage of the
+/// session's subagents and plugin children that ended since the last turn
+/// (subagents-and-nested-sessions FR-6: a background agent that ends after
+/// its turn counts in the next one, a continued agent only with what it used
+/// since). `preview` is the start of the final text, left out for an
+/// incognito chat.
+async fn rpc_turn_totals(
+    lane: &Arc<dyn AgentLane>,
+    start: (Option<String>, u64),
+    session_id: &str,
+    final_text: Option<&str>,
+    incognito: bool,
+) -> serde_json::Value {
+    use evo_harness::session::types::{BranchBounds, Entry, EntryOrder, EntryQuery};
+    let (start_leaf, start_seq) = start;
+    let entries = lane
+        .session_view()
+        .find_entries_on_branch(
+            &EntryQuery {
+                entry_type: Some("message"),
+                order: Some(EntryOrder::NewestFirst),
+                ..Default::default()
+            },
+            &BranchBounds {
+                stop_at_id: start_leaf.clone(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_or_default();
+    let (mut input, mut output, mut cache_read, mut cache_write) = (0i64, 0i64, 0i64, 0i64);
+    let mut cost = 0.0f64;
+    let mut model: Option<(String, String)> = None;
+    for entry in entries {
+        let Entry::Message(entry) = entry else {
+            continue;
+        };
+        // The run's own entries only: the start leaf and older ones are not.
+        if start_leaf.as_deref() == Some(entry.base.id.as_str()) || entry.base.seq <= start_seq {
+            continue;
+        }
+        let evo_agent::AgentMessage::Assistant(message) = &entry.message else {
+            continue;
+        };
+        input += message.usage.input;
+        output += message.usage.output;
+        cache_read += message.usage.cache_read;
+        cache_write += message.usage.cache_write;
+        cost += message.usage.cost.total;
+        // Newest first: the last response names the model.
+        model.get_or_insert_with(|| (message.provider.clone(), message.model.clone()));
+    }
+    if model.is_none() {
+        model = lane
+            .get_model()
+            .await
+            .ok()
+            .map(|model| (model.provider.clone(), model.id.clone()));
+    }
+    let children =
+        crate::mesh::router().take_child_usage(&crate::mesh::Address::session(session_id));
+    let mut turn = serde_json::json!({
+        "provider": model.as_ref().map(|(provider, _)| provider),
+        "model": model.as_ref().map(|(_, model)| model),
+        "input": input,
+        "output": output,
+        "cacheRead": cache_read,
+        "cacheWrite": cache_write,
+        "costUsd": cost,
+        "childCostUsd": children.cost,
+        "childTokens": children.input + children.output + children.cache_read + children.cache_write,
+    });
+    let preview = final_text
+        .map(|text| {
+            text.trim()
+                .chars()
+                .take(TURN_PREVIEW_CHARS)
+                .collect::<String>()
+        })
+        .filter(|text| !text.is_empty() && !incognito);
+    if let Some(preview) = preview {
+        turn["preview"] = serde_json::json!(preview);
+    }
+    turn
 }
 
 async fn rpc_prompt_content(
@@ -3786,6 +3928,9 @@ mod native_persistence_tests;
 #[cfg(test)]
 #[path = "modes/transcript_page_tests.rs"]
 mod transcript_page_tests;
+#[cfg(test)]
+#[path = "modes/turn_totals_tests.rs"]
+mod turn_totals_tests;
 
 #[cfg(test)]
 mod tests {

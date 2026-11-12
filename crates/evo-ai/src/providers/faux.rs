@@ -537,7 +537,7 @@ impl Provider for FauxProvider {
                     }
                 }
             };
-            message = with_usage_estimate(message, &ctx, &opts);
+            message = with_usage_estimate(message, &ctx, &opts, &model.cost);
 
             // Cancellation: honor the caller's signal, and (optionally) an
             // internal abort-after timer. A detached timer task cancels the
@@ -593,10 +593,14 @@ fn estimate_tokens(text: &str) -> i64 {
     ((text.len() as f64) / 4.0).ceil() as i64
 }
 
+/// The estimate is priced at the model's base rates (per million tokens):
+/// zero for the default faux model, so a test can give its model a price
+/// and see a cost.
 fn with_usage_estimate(
     mut message: AssistantMessage,
     ctx: &Context,
     _opts: &SimpleStreamOptions,
+    price: &crate::types::ModelCost,
 ) -> AssistantMessage {
     let prompt_text = serialize_context(ctx);
     let prompt_tokens = estimate_tokens(&prompt_text);
@@ -611,11 +615,12 @@ fn with_usage_estimate(
         reasoning: None,
         total_tokens: input + output_tokens,
         cost: crate::types::UsageCost {
-            input: 0.0,
-            output: 0.0,
+            input: price.rates.input * input as f64 / 1_000_000.0,
+            output: price.rates.output * output_tokens as f64 / 1_000_000.0,
             cache_read: 0.0,
             cache_write: 0.0,
-            total: 0.0,
+            total: (price.rates.input * input as f64 + price.rates.output * output_tokens as f64)
+                / 1_000_000.0,
         },
     };
     message
