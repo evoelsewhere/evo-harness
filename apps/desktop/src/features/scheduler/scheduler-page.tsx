@@ -292,7 +292,7 @@ function TaskEditor({ task, initial, onDone }: { task: ScheduledTask | null; ini
               size="sm"
               variant="outline"
               className="gap-1.5"
-              onClick={() => void store.run(task.id, "manual").then((chat) => chat && void useEngineStore.getState().selectSession(chat))}
+              onClick={() => void store.run(task.id).then((chat) => chat && void useEngineStore.getState().selectSession(chat))}
             >
               <PlayIcon className="size-3.5" /> Run now
             </Button>

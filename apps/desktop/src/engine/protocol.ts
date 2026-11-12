@@ -9,6 +9,28 @@ export interface EngineMessage {
   [key: string]: any;
 }
 
+/**
+ * What a run used, on its `agent_settled` line (absent on a compaction run,
+ * and from an engine whose `ready` lacks `turnTotals`). The shell records it
+ * in the chat's row (docs/features/shell-hosted-engines/spec.md, FR-6;
+ * plan 3.3; crates/evo-engine/src/modes.rs).
+ */
+export interface TurnTotals {
+  provider?: string;
+  model?: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** The run's own responses. */
+  costUsd: number;
+  /** Subagents and plugin children settled since the last turn. */
+  childCostUsd: number;
+  childTokens: number;
+  /** The start of the final text; absent for an incognito chat. */
+  preview?: string;
+}
+
 export interface ResponseMessage extends EngineMessage {
   type: "response";
   id?: string;

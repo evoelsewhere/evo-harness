@@ -3,14 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { panels } from "@/features/panels/panel-registry";
 import { applyZoom, reloadWindow, resetZoom, toggleDevtools, toggleFullscreen, zoomBy } from "@/features/shell/app-commands";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { startShellNotices } from "@/features/notifications/notify";
 import { installErrorLogging } from "@/lib/db";
-import { hasMod, isMac } from "@/lib/platform";
+import { hasMod, inTauri, isMac } from "@/lib/platform";
 import { useHistoryStore } from "@/stores/history-store";
 import { startChatScope } from "@/stores/chat-scope";
 import { useEngineStore } from "@/stores/engine-store";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
-import { startScheduler } from "@/stores/scheduler-store";
 import { startUpdates } from "@/stores/updates-store";
 import { chatWindowId } from "@/lib/windows";
 
@@ -24,15 +25,13 @@ export function useAppBootstrap() {
     applyZoom(useUiStore.getState().zoom);
     // Side panel tabs, pages and terminals follow the chat showing.
     startChatScope();
+    // The shell's notices about chats no window shows reach this window's bell.
+    if (inTauri) startShellNotices(getCurrentWindow().label);
     // The main window follows app updates and raises their notifications.
     if (chatWindowId === null) void startUpdates();
-    // The main window runs scheduled tasks once the engine is connected.
-    void useEngineStore
-      .getState()
-      .connect()
-      .then(() => {
-        if (chatWindowId === null) void startScheduler();
-      });
+    // Scheduled tasks run in the shell, with or without a window
+    // (docs/features/shell-hosted-engines/spec.md, FR-7).
+    void useEngineStore.getState().connect();
   }, []);
 }
 

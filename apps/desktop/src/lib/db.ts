@@ -44,6 +44,34 @@ export interface DbChat {
   incognito: boolean;
   /** The Scheduler started it. */
   scheduled: boolean;
+  /** The role a nested session runs as (docs/features/session-roles-and-mail/spec.md, FR-1). */
+  role?: SessionRole | null;
+}
+
+/** An agent type, model and thinking level a nested session runs as, resolved when it started. */
+export interface SessionRole {
+  name?: string | null;
+  /** `project`, `projectDir`, `user`, `userDir`, `plugin` or `builtin`. */
+  source?: string | null;
+  sourcePath?: string | null;
+  instructions?: string | null;
+  tools?: string[] | null;
+  access: "read-only" | "full";
+  provider?: string | null;
+  model?: string | null;
+  thinking?: string | null;
+}
+
+/** "reviewer · acme-small · thinking low · read-only" for a card or a header. */
+export function roleLabel(role: SessionRole): string {
+  return [
+    role.name,
+    role.model,
+    role.thinking ? `thinking ${role.thinking}` : null,
+    role.access === "read-only" ? "read-only" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** What a chat is started with, chosen before its first message. */
@@ -231,6 +259,9 @@ export const db = {
 
   settings: () => invoke<Record<string, unknown>>("settings_all"),
   setSetting: (key: string, value: unknown) => invoke<void>("settings_set", { key, value: value ?? null }),
+  /** Hand settings an older build kept in a window's storage to the shell; it never writes over a stored value. */
+  importWindowSettings: (values: { autoStartSessions?: boolean; chatConnectorsOff?: Record<string, string[]> }) =>
+    invoke<void>("settings_import_window", { values }),
 
   queryLogs: (query: LogQuery) => invoke<LogEntry[]>("logs_query", { query }),
   clearLogs: () => invoke<number>("logs_clear"),

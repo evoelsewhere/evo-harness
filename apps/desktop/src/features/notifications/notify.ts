@@ -9,6 +9,8 @@
 // Do not disturb, or muting the source, silences both channels; the bell still
 // collects everything. See /docs/features/notifications/spec.md at the repo root.
 
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { inTauri } from "@/lib/platform";
 import {
@@ -65,6 +67,60 @@ export function notify(options: NotifyOptions): string {
   store.add(notification, !muted && focused && options.toast !== false);
   if (!muted && !focused && options.system !== false) void sendSystem(notification);
   return notification.id;
+}
+
+// ── Notices from the shell ───────────────────────────────────────────────────
+//
+// The shell announces questions and the ends of runs in chats no focused
+// window shows, once for the whole app (docs/features/shell-hosted-engines/spec.md,
+// FR-9, FR-10; src-tauri/src/supervisor/notices.rs). It sends the OS
+// notification itself and gives one window the bell entry (`notify://entry`);
+// entries it recorded while no window was open wait for the next window
+// (`notifications_take`).
+
+/** A bell entry the shell recorded: titles only, clicking it opens `chat`. */
+export interface ShellBellEntry {
+  id: string;
+  title: string;
+  body: string;
+  level: NotificationLevel;
+  source: string;
+  chat: string;
+  key: string;
+  at: number;
+}
+
+const shellEntry = (entry: ShellBellEntry): AppNotification => ({
+  id: entry.id,
+  level: entry.level,
+  title: entry.title,
+  body: entry.body,
+  source: entry.source,
+  createdAt: entry.at,
+  read: false,
+  // A scheduled run that made no chat opens nothing.
+  target: entry.chat ? { type: "session", id: entry.chat } : undefined,
+  key: entry.key,
+});
+
+let shellNotices = false;
+
+/** Take the shell's bell entries in this window (`label`), from now on. */
+export function startShellNotices(label: string) {
+  if (shellNotices || !inTauri) return;
+  shellNotices = true;
+  void listen<{ entry: ShellBellEntry; window?: string }>("notify://entry", ({ payload }) => {
+    if (payload.window && payload.window !== label) return;
+    const { entry } = payload;
+    // The shell sent the OS notification; a toast when this window is in front.
+    notify({ title: entry.title, body: entry.body, level: entry.level, source: entry.source, key: entry.key, target: entry.chat ? { type: "session", id: entry.chat } : undefined, system: false });
+  }).catch(() => undefined);
+  void invoke<ShellBellEntry[]>("notifications_take")
+    .then((entries) => {
+      const store = useNotificationStore.getState();
+      for (const entry of entries) store.add(shellEntry(entry), false);
+    })
+    .catch(() => undefined);
 }
 
 // ── OS notifications ─────────────────────────────────────────────────────────

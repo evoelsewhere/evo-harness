@@ -1,12 +1,11 @@
 import * as React from "react";
-import { emit } from "@tauri-apps/api/event";
 import { PlusIcon, ShieldCheckIcon, Trash2Icon, TriangleAlertIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { db, log } from "@/lib/db";
 import { inTauri } from "@/lib/platform";
-import { SANDBOX_CHANGED, useWorktreeSession } from "@/stores/engine-store";
+import { useWorktreeSession } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore, worktreeKey } from "@/stores/ui-store";
 import { useEngineStore } from "@/stores/engine-store";
@@ -26,6 +25,10 @@ interface SandboxConfig {
   deniedPatterns: string[];
   /** Where delegated agents' worktrees go (crates/evo-engine/src/worktrees.rs). */
   worktreeLocation: "repository" | "userData";
+  /** Nested sessions of one chat running at once (docs/features/session-roles-and-mail/spec.md, FR-5). */
+  maxNestedSessions: number;
+  /** Subagents of one chat running at once (FR-5). */
+  maxRunningSubagents: number;
 }
 
 const KEY = "sandbox";
@@ -38,6 +41,8 @@ const DEFAULTS: SandboxConfig = {
   maxOutputKib: 50,
   deniedPatterns: ["**/.env", "**/.env.*"],
   worktreeLocation: "userData",
+  maxNestedSessions: 8,
+  maxRunningSubagents: 4,
 };
 
 /** A whole number in `[min, max]`, committed on Enter or when the field loses focus. */
@@ -303,8 +308,19 @@ function ExistingWorktrees() {
   );
 }
 
-/** Whether an agent's start_session starts the session or only proposes it. */
-function NestedSessionsGroup() {
+/**
+ * Whether an agent's start_session starts the session or only proposes it,
+ * and how many sessions and subagents of one chat run at once (FR-5).
+ */
+function NestedSessionsGroup({
+  value,
+  disabled,
+  save,
+}: {
+  value: SandboxConfig;
+  disabled: boolean;
+  save(patch: Partial<SandboxConfig>): void;
+}) {
   const autoStart = useUiStore((s) => s.autoStartSessions);
   const setAutoStart = useUiStore((s) => s.setAutoStartSessions);
   return (
@@ -320,13 +336,42 @@ function NestedSessionsGroup() {
           <Switch aria-labelledby="sandbox-auto-sessions" checked={autoStart} onCheckedChange={setAutoStart} />
         }
       />
+      <SettingsRow
+        label="Sessions running at once"
+        description="How many nested sessions of one chat may run or start at the same time. A start past it is refused until one finishes; lowering it stops nothing that runs."
+        control={
+          <NumberField
+            label="Nested sessions running at once"
+            value={value.maxNestedSessions}
+            min={1}
+            max={24}
+            unit="sessions"
+            disabled={disabled}
+            onCommit={(maxNestedSessions) => save({ maxNestedSessions })}
+          />
+        }
+      />
+      <SettingsRow
+        label="Subagents running at once"
+        description="How many subagents of one chat may run at the same time. Further calls wait for a free place; lowering it stops nothing that runs."
+        control={
+          <NumberField
+            label="Subagents running at once"
+            value={value.maxRunningSubagents}
+            min={1}
+            max={8}
+            unit="agents"
+            disabled={disabled}
+            onCommit={(maxRunningSubagents) => save({ maxRunningSubagents })}
+          />
+        }
+      />
     </SettingsGroup>
   );
 }
 
 export function SandboxSettings() {
   const [config, setConfig] = React.useState<SandboxConfig | null>(inTauri ? null : DEFAULTS);
-  const announce = React.useRef<number | undefined>(undefined);
 
   React.useEffect(() => {
     if (!inTauri) return;
@@ -340,13 +385,10 @@ export function SandboxSettings() {
     const next = { ...config, ...patch };
     setConfig(next);
     if (!inTauri) return;
-    db.setSetting(KEY, next)
-      .then(() => {
-        // Restart idle engines once the person stops changing things.
-        window.clearTimeout(announce.current);
-        announce.current = window.setTimeout(() => void emit(SANDBOX_CHANGED).catch(() => undefined), 600);
-      })
-      .catch((error) => log("error", "settings", `saving the sandbox settings failed: ${String(error)}`));
+    // The shell restarts engines with no work once the person stops changing
+    // things, the others when their work is over, and passes the limits on
+    // (src-tauri/src/supervisor/settings.rs; shell-hosted-engines FR-8).
+    db.setSetting(KEY, next).catch((error) => log("error", "settings", `saving the sandbox settings failed: ${String(error)}`));
   }
 
   const disabled = !config;
@@ -465,7 +507,7 @@ export function SandboxSettings() {
         />
         <ExistingWorktrees />
       </SettingsGroup>
-      <NestedSessionsGroup />
+      <NestedSessionsGroup value={value} disabled={disabled} save={save} />
       <DeniedPatterns
         patterns={value.deniedPatterns}
         disabled={disabled}

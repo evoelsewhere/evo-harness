@@ -144,14 +144,6 @@ export interface AgentReport {
 /** True while any approval request or question of the chat is unanswered. */
 export const hasOpenPermission = (transcript: TranscriptState): boolean => (transcript.permissions?.length ?? 0) > 0;
 
-/**
- * Keep the unanswered requests of `previous` on a transcript rebuilt from the
- * saved messages: the engine does not send a pending request again.
- */
-export function carryPermissions(next: TranscriptState, previous: TranscriptState): TranscriptState {
-  return previous.permissions?.length ? mirrorPermission({ ...next, permissions: previous.permissions }) : next;
-}
-
 /** The oldest pending request is mirrored on the last turn, and on no other. */
 function mirrorPermission(state: TranscriptState): TranscriptState {
   const shown = state.permissions?.[0];

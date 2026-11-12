@@ -29,6 +29,22 @@ const legacy = (() => {
     return { existing: false, approval: undefined };
   }
 })();
+/** App settings the shell follows (docs/features/shell-hosted-engines/spec.md, FR-8). */
+export const AUTO_START_SESSIONS_KEY = "mesh.autoStartSessions";
+export const CHAT_CONNECTORS_OFF_KEY = "connectors.chatOff";
+/** Earlier builds kept these two in this store's local storage; read once, before the store hydrates (NFR-4). */
+const legacyShell = (() => {
+  try {
+    const state = (JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as { state?: Record<string, unknown> } | null)?.state;
+    const off = state?.chatConnectorsOff;
+    return {
+      autoStartSessions: typeof state?.autoStartSessions === "boolean" ? state.autoStartSessions : undefined,
+      chatConnectorsOff: off && typeof off === "object" && !Array.isArray(off) ? (off as Record<string, string[]>) : undefined,
+    };
+  } catch {
+    return { autoStartSessions: undefined, chatConnectorsOff: undefined };
+  }
+})();
 export type SettingsSection = "general" | "appearance" | "providers" | "memory" | "computer-apps" | "engine" | "sandbox" | "logs" | "about";
 export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "plugins" | "hooks" | "languages";
 
@@ -125,6 +141,8 @@ interface UiStore {
   /** Agents may start nested sessions without asking (otherwise they propose). */
   autoStartSessions: boolean;
   setAutoStartSessions(on: boolean): void;
+  /** Read `autoStartSessions` and `chatConnectorsOff` from the app settings, handing an older build's local values over once. */
+  loadShellSettings(): Promise<void>;
   /** What became of each proposed session: started (with its id) or dismissed. */
   proposals: Record<string, { status: "started" | "dismissed"; sessionId?: string }>;
   settleProposal(id: string, outcome: { status: "started" | "dismissed"; sessionId?: string }): void;
@@ -232,7 +250,28 @@ export const useUiStore = create<UiStore>()(
       agentCards: true,
       setAgentCards: (agentCards) => set({ agentCards }),
       autoStartSessions: false,
-      setAutoStartSessions: (autoStartSessions) => set({ autoStartSessions }),
+      setAutoStartSessions: (autoStartSessions) => {
+        set({ autoStartSessions });
+        // The shell's hub follows it (FR-8).
+        void db
+          .setSetting(AUTO_START_SESSIONS_KEY, autoStartSessions)
+          .catch((error) => log("error", "ui", `could not save start sessions without asking: ${String(error)}`));
+      },
+      loadShellSettings: async () => {
+        try {
+          const { autoStartSessions, chatConnectorsOff } = legacyShell;
+          // The shell never writes over a value it already has.
+          if (autoStartSessions !== undefined || chatConnectorsOff) await db.importWindowSettings({ autoStartSessions, chatConnectorsOff });
+          const saved = await db.settings();
+          const off = saved[CHAT_CONNECTORS_OFF_KEY];
+          set({
+            autoStartSessions: saved[AUTO_START_SESSIONS_KEY] === true,
+            chatConnectorsOff: off && typeof off === "object" && !Array.isArray(off) ? (off as Record<string, string[]>) : {},
+          });
+        } catch (error) {
+          log("warn", "ui", `could not read the shell's settings: ${String(error)}`);
+        }
+      },
       proposals: {},
       settleProposal: (id, outcome) => set((s) => ({ proposals: { ...s.proposals, [id]: outcome } })),
       settledWorktrees: {},
@@ -334,8 +373,8 @@ export const useUiStore = create<UiStore>()(
     {
       name: STORAGE_KEY,
       merge: (persisted, current) => {
-        // `approval` lived here in earlier builds: it is an app setting now.
-        const { approval: _moved, ...saved } = (persisted ?? {}) as Partial<UiStore>;
+        // `approval`, `autoStartSessions` and `chatConnectorsOff` lived here in earlier builds: they are app settings now.
+        const { approval: _moved, autoStartSessions: _auto, chatConnectorsOff: _off, ...saved } = (persisted ?? {}) as Partial<UiStore>;
         const openTabs = (saved.openTabs ?? current.openTabs).filter((id) => PANEL_IDS.includes(id));
         const activePanel = saved.activePanel && PANEL_IDS.includes(saved.activePanel) ? saved.activePanel : (openTabs[0] ?? null);
         const panelsByChat: Record<string, ChatPanels> = {};
@@ -359,7 +398,6 @@ export const useUiStore = create<UiStore>()(
         openInApp: state.openInApp,
         openInDefault: state.openInDefault,
         agentCards: state.agentCards,
-        autoStartSessions: state.autoStartSessions,
         proposals: state.proposals,
         settledWorktrees: state.settledWorktrees,
         rightPanelOpen: state.rightPanelOpen,
@@ -368,7 +406,6 @@ export const useUiStore = create<UiStore>()(
         sidebarWidth: state.sidebarWidth,
         sidePanelWidth: state.sidePanelWidth,
         openTabs: state.openTabs,
-        chatConnectorsOff: state.chatConnectorsOff,
         activePanel: state.activePanel,
         panelChat: state.panelChat,
         panelsByChat: state.panelsByChat,

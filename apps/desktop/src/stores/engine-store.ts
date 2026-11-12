@@ -10,7 +10,7 @@ import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
-import { EngineClient } from "@/engine/client";
+import { EngineClient, type EngineStateEvent, type OpenQuestion } from "@/engine/client";
 import {
   applyMeshEvent,
   childRunOf,
@@ -18,7 +18,6 @@ import {
   isMesh,
   MESH_VERSION,
   type MeshEnvelope,
-  type MeshNode,
   type MeshView,
 } from "@/engine/mesh";
 import type {
@@ -30,10 +29,9 @@ import type {
   EngineMessage,
   EngineState,
   ModelDescriptor,
+  TurnTotals,
 } from "@/engine/protocol";
 import {
-  carryPermissions,
-  hasOpenPermission,
   initialTranscript,
   transcriptFromMessages,
   transcriptReducer,
@@ -60,12 +58,12 @@ function promptPayload(text: string, images: PromptImage[] = []): Record<string,
   return { contentBlocks: blocks };
 }
 import { notify, windowFocused } from "@/features/notifications/notify";
-import { db, log } from "@/lib/db";
+import { db, log, type SessionRole } from "@/lib/db";
 import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow } from "@/lib/windows";
 import { worktrees } from "@/lib/worktrees";
 import { APPROVAL_CHANGED, useUiStore, worktreeKey } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
-import { connectorsChanged, useConnectorsStore } from "@/stores/connectors-store";
+import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
 import { UNTITLED, useSessionStore } from "@/stores/session-store";
 
@@ -87,7 +85,7 @@ export interface ChatRuntime {
   transcript: TranscriptState;
   contextBreakdown?: ContextBreakdown;
   contextBreakdownAt?: number;
-  /** Last time the chat was shown, for closing idle engines. */
+  /** Last time the chat was shown. */
   lastActive: number;
   /** Load the saved transcript once the engine is ready. */
   restore: boolean;
@@ -123,7 +121,6 @@ interface EngineStore extends Mirrored {
   /** Start a chat in a workspace (`null` = this computer), or in the current one. */
   newChat(workspaceId?: string | null): Promise<void>;
   /** Start a chat in the background with `prompt` (a scheduled task's run); its id. */
-  startTaskChat(task: { workspaceId: string | null; title: string; prompt: string }): Promise<string | null>;
   selectSession(id: string): Promise<void>;
   /** Archive or delete a chat, stopping its engine; the active one is replaced by a new chat. */
   closeChat(id: string, how: "archive" | "delete"): Promise<void>;
@@ -149,7 +146,6 @@ interface EngineStore extends Mirrored {
    * new startup settings (Settings → Sandbox). Running ones, and ones whose
    * subagents still work, keep going and pick them up when they next start.
    */
-  restartIdleEngines(): Promise<void>;
   /**
    * Have the engines of other chats that are not running a turn re-read
    * skills, commands and templates (a skill was switched on or off).
@@ -167,7 +163,15 @@ interface EngineStore extends Mirrored {
    */
   startChildSession(
     parentId: string,
-    options: { title: string; prompt: string; context?: "fresh" | "fork"; worktree?: boolean },
+    options: {
+      title: string;
+      prompt: string;
+      context?: "fresh" | "fork";
+      worktree?: boolean;
+      /** The resolved role and branch the proposal carries (FR-1, FR-9). */
+      role?: SessionRole | null;
+      branch?: string | null;
+    },
     proposalId?: string,
   ): Promise<string | null>;
   /** A proposal card's Dismiss: the hub starts nothing for it any more. */
@@ -232,21 +236,8 @@ const MAX_LOG_LINES = 500;
 const COMPACT_TIMEOUT_MS = 10 * 60_000;
 /** Per chat, who waits for its `compact` run to settle (`agent_settled` with `compact: true`). */
 const compactWaiters = new Map<string, (message: EngineMessage | null) => void>();
-/** Engines kept alive for chats that are neither shown nor running. */
-const MAX_IDLE_ENGINES = 4;
-/** Commands that change providers for every engine, not just the one asked. */
-const PROVIDER_COMMANDS = new Set([
-  "set_api_key",
-  "set_provider",
-  "remove_provider",
-  "refresh_provider_models",
-  "refresh_models_catalog",
-]);
-
 let client: EngineClient | null = null;
 
-/** Emitted by Settings → Sandbox after a change; every window restarts its idle engines. */
-export const SANDBOX_CHANGED = "sandbox://changed";
 /** No grants (a stable value for selectors). */
 const NO_GRANTS: ApprovalGrant[] = [];
 /** The kinds of call the person allowed for the rest of the active chat (chips next to the approval mode). */
@@ -343,16 +334,24 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   };
   const dispatch = (chat: string, action: TranscriptAction) => {
     flushDeltas();
-    const before = runtime(chat);
-    const asked = before ? hasOpenPermission(before.transcript) : false;
     update(chat, (rt) => ({ transcript: transcriptReducer(rt.transcript, action) }));
-    // An approval request held the chat's wake back (FR-19): look again now that it closed.
-    const after = runtime(chat);
-    if (asked && after && !hasOpenPermission(after.transcript)) scheduleWake(chat);
   };
 
-  /** Count a finished turn in the chat's totals, and flag it if nobody saw it finish. */
+  /**
+   * Chats whose engine said `ready` without `turnTotals` (a stale sidecar):
+   * the shell cannot record their turns, so this window does
+   * (docs/features/shell-hosted-engines/spec.md, FR-6; plan 3.3).
+   */
+  const noTurnTotals = new Set<string>();
+
+  /**
+   * Count a finished turn in the chat's totals, and flag it if nobody saw it
+   * finish. The shell records every turn of an engine that gives turn
+   * totals (src-tauri/src/supervisor/turns.rs, FR-6); this is the fallback
+   * for one that does not.
+   */
   const recordFinishedTurn = (chat: string) => {
+    if (!noTurnTotals.has(chat)) return;
     const rt = runtime(chat);
     const turn = rt?.transcript.turns.at(-1);
     if (!rt || !turn || turn.status === "running" || rt.recordedTurn === turn.id) return;
@@ -369,27 +368,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     });
     // A nested session's note to its parent goes through the shell's mesh hub
     // (src-tauri/src/mesh.rs): it reaches the parent whichever window shows it.
-    if (unseen) {
-      notify({
-        source: "agent",
-        level: turn.status === "error" ? "error" : "success",
-        title: turn.status === "error" ? "A run failed" : "Reply ready",
-        body: chatTitle(chat),
-        key: `agent:${chat}`,
-        target: { type: "session", id: chat },
-      });
-    }
-  };
-
-  /** Tell every other engine that provider settings changed. */
-  const broadcastProviders = (from: string | null) => {
-    for (const rt of Object.values(get().runtimes)) {
-      if (rt.chatId === from || rt.status !== "ready" || !client) continue;
-      void client
-        .request(rt.chatId, "reload_providers")
-        .then(() => get().refreshState(rt.chatId))
-        .catch((error) => log("warn", "engine", `reloading providers failed: ${String(error)}`, { chatId: rt.chatId }));
-    }
+    // "Reply ready" and "A run failed" are the shell's to announce, once
+    // (src-tauri/src/supervisor/notices.rs; shell-hosted-engines FR-10).
   };
 
   /** An engine told us it does not know the approval commands: said once (NFR-2). */
@@ -404,34 +384,20 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     log("warn", "engine", `${command} failed: ${String(error)}`, { chatId: chat });
   };
 
-  /** Tell every ready engine of this window the approval mode changed; it applies from its next tool call. */
-  const broadcastApprovalMode = (mode: ApprovalMode) => {
-    for (const rt of Object.values(get().runtimes)) {
-      if (rt.status !== "ready" || !client) continue;
-      void client
-        .request<ApprovalState>(rt.chatId, "set_approval_mode", { mode })
-        .then(() => get().refreshApproval(rt.chatId))
-        .catch((error) => approvalRequestFailed(rt.chatId, "set_approval_mode", error));
-    }
-  };
+  // Settings reach every engine from the shell, viewed or not: the approval
+  // mode, providers, resources (skills, plugins, memory) and the sandbox, with
+  // the hub's and the engines' limits (src-tauri/src/supervisor/settings.rs,
+  // docs/features/shell-hosted-engines/spec.md, FR-8). It says
+  // `engine://reloaded` when an engine follows a change; a sandbox restart
+  // comes as `engine://state` reason `settings`.
 
-  /** Close the engines of idle chats beyond the budget, least recently shown first. */
-  const trimIdle = () => {
-    const idle = Object.values(get().runtimes)
-      .filter(
-        (rt) =>
-          rt.chatId !== get().activeId &&
-          !rt.transcript.busy &&
-          rt.status !== "starting" &&
-          !pendingPrompts.has(rt.chatId) &&
-          // Background agents run in the chat's engine: stopping it would kill them.
-          !hasRunningAgents(rt.chatId),
-      )
-      .sort((a, b) => b.lastActive - a.lastActive);
-    for (const rt of idle.slice(MAX_IDLE_ENGINES)) void stopChat(rt.chatId);
-  };
+  // Idle engines are stopped by the shell, over the whole app: those with no
+  // work and no window beyond its limit (src-tauri/src/supervisor.rs,
+  // docs/features/shell-hosted-engines/spec.md, FR-3). It says so with
+  // `engine://state` `stopped` (`onState`).
 
-  const stopChat = async (chat: string) => {
+  /** Forget what this window keeps of `chat`'s engine. */
+  const dropRuntime = (chat: string) => {
     pendingDeltas.delete(chat);
     forgetEngine(chat);
     pausedEngines.delete(chat);
@@ -440,6 +406,11 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       delete runtimes[chat];
       return { runtimes };
     });
+  };
+
+  const stopChat = async (chat: string) => {
+    dropRuntime(chat);
+    void client?.detachChat(chat).catch(() => undefined);
     await client?.stop(chat).catch(() => undefined);
   };
 
@@ -452,12 +423,15 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       delete runtimes[chat];
       return { runtimes };
     });
+    void client?.detachChat(chat).catch(() => undefined);
   };
 
   /**
-   * Start `chat`'s engine in `cwd` with a fresh runtime. With `attach`, an
-   * engine that already runs (handed over by another window, or kept across a
-   * reload) is picked up as it is instead of restarted.
+   * Show `chat`'s engine in this window with a fresh runtime: the shell starts
+   * it in `cwd` when none runs, and sets it up (docs/features/shell-hosted-engines/spec.md,
+   * FR-1). With `attach`, an engine that already runs (handed over by another
+   * window, kept across a reload, or started by the shell for its mail) is
+   * picked up as it is; without, it is restarted.
    */
   const launch = async (chat: string, cwd: string | undefined, restore: boolean, attach = false) => {
     // What this window knew of an earlier process (its agents, its setup) is void.
@@ -477,21 +451,26 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       return chat === store.activeId ? { runtimes, ...mirror(rt) } : { runtimes };
     });
     try {
-      if (attach && client && (await client.running().catch((): string[] => [])).includes(chat)) {
-        update(chat, () => ({ status: "ready", error: undefined }));
-        // No `ready` comes from an engine that already runs: subscribe here,
-        // before the transcript loads, so its replay can be drawn into it.
-        await subscribeMesh(chat);
-        if (restore) await restoreTranscript(chat);
-        // Its tools were set up by whoever started it: the hub may send now.
-        void meshHosted(chat);
-        void loadDefault(chat);
-        void get().refreshState(chat);
-        return;
-      }
+      if (!client) return;
       // A draft has no row yet: the shell is told what it was set to.
       const row = useSessionStore.getState().sessions.find((s) => s.id === chat);
-      await client?.start(chat, cwd, row ? { memoryOff: row.memoryOff, incognito: row.incognito } : undefined);
+      // The shell keeps every chat's connector switches (`connectors.chatOff`).
+      const ensured = await client.ensure(chat, {
+        cwd,
+        options: row ? { memoryOff: row.memoryOff, incognito: row.incognito } : undefined,
+        restore,
+        restart: !attach,
+      });
+      if (ensured.started) return;
+      update(chat, () => ({ status: "ready", error: undefined }));
+      // The shell may still be setting it up: prompts wait for it.
+      trackSetup(chat);
+      // No `ready` comes from an engine that already runs: subscribe here,
+      // before the transcript loads, so its replay can be drawn into it.
+      await subscribeMesh(chat);
+      if (restore) await restoreTranscript(chat);
+      void loadDefault(chat);
+      void get().refreshState(chat);
     } catch (error) {
       update(chat, () => ({ status: "error", error: String(error) }));
       log("error", "engine", `could not start: ${String(error)}`, { chatId: chat });
@@ -513,13 +492,19 @@ export const useEngineStore = create<EngineStore>((set, get) => {
    */
   let selection = 0;
 
-  /** Show `chat`, starting its engine if it has none. */
+  /**
+   * Show `chat`, starting its engine if it has none. This window attaches to
+   * it: the shell keeps a shown chat's engine (FR-2), and hands over its open
+   * questions (FR-9).
+   */
   const activate = async (chat: string, cwd: string | undefined, restore: boolean) => {
     flushDeltas();
     set((store) => ({ activeId: chat, ...mirror(store.runtimes[chat]) }));
-    if (get().runtimes[chat]) update(chat, () => ({ lastActive: Date.now() }));
-    else await launch(chat, cwd, restore, true);
-    trimIdle();
+    const attached = await client?.attachChat(chat).catch(() => undefined);
+    if (get().runtimes[chat]) {
+      update(chat, () => ({ lastActive: Date.now() }));
+      for (const question of attached?.questions ?? []) showQuestion(chat, question);
+    } else await launch(chat, cwd, restore, true);
   };
 
   /**
@@ -530,9 +515,11 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   const restoreTranscript = async (chat: string, engineStarted = false, lostAgents?: string[]) => {
     if (!client) return;
     try {
-      const [data, state] = await Promise.all([
+      const [data, state, questions] = await Promise.all([
         client.request<{ messages: AgentMessage[] }>(chat, "get_messages", { limit: 2000 }),
         client.request<{ activeOperation?: unknown }>(chat, "get_state").catch(() => undefined),
+        // The engine does not ask again: the shell keeps what waits (FR-9).
+        client.questions(chat).catch((): OpenQuestion[] => []),
       ]);
       // The engine may still be working (the window reloaded mid-run, or
       // another window handed the chat over): its last turn then goes on, live.
@@ -542,15 +529,15 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         lostAgents,
       });
       update(chat, (rt) => ({
-        // The same engine goes on: a request it still waits on is not sent again.
-        transcript: engineStarted ? transcript : carryPermissions(transcript, rt.transcript),
+        transcript,
         restore: false,
         error: undefined,
         recordedTurn: state?.activeOperation ? rt.recordedTurn : (transcript.turns.at(-1)?.id ?? rt.recordedTurn),
       }));
+      // The questions it waits on, after a reload or from another window too.
+      for (const question of questions) showQuestion(chat, question);
       // Mesh events may have arrived before the transcript existed.
       redrawAgents(chat);
-      scheduleWake(chat);
     } catch (error) {
       update(chat, () => ({ restore: false, error: `Could not load this chat: ${String(error)}` }));
       log("error", "engine", `could not load the saved chat: ${String(error)}`, { chatId: chat });
@@ -614,13 +601,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
    * restarts, or went to another window): its mesh view, setup and timers.
    */
   const forgetEngine = (chat: string) => {
-    for (const node of meshViews.get(chat)?.nodes.values() ?? []) counted.delete(node.id);
     meshViews.delete(chat);
-    openCalls.delete(chat);
     engineSetup.delete(chat);
-    toolsStale.delete(chat);
-    clearTimeout(wakeTimers.get(chat));
-    wakeTimers.delete(chat);
     syncAgentsRunning(chat);
   };
 
@@ -629,38 +611,19 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   /** Chats `leaveWorktree` is moving back to their workspace folder. */
   const leavingWorktree = new Set<string>();
 
-  const ended = (node: MeshNode | undefined) => node?.state === "settled" || node?.state === "closed";
-
   const onMesh = (chat: string, envelope: MeshEnvelope) => {
     const view = meshViews.get(chat) ?? emptyView();
     meshViews.set(chat, view);
     const id = envelope.op === "node_state" ? (envelope.body?.node?.id as string | undefined) : undefined;
-    const known = id !== undefined && view.nodes.has(id);
-    const wasEnded = id !== undefined && ended(view.nodes.get(id));
     const changed = applyMeshEvent(view, envelope);
     if (!changed) return;
     const node = view.nodes.get(changed);
-    if (node?.kind === "session") {
-      // A run read every queued message and cleared the wake list.
-      if (node.state === "running") handledWakes.delete(chat);
-      scheduleWake(chat);
-      return;
-    }
+    // The session node lists what waits to be read: the shell wakes the chat
+    // for it (src-tauri/src/supervisor/wakes.rs, shell-hosted-engines FR-5).
+    if (node?.kind === "session") return;
     drawAgent(chat, view, changed);
     if (!node || changed !== id) return;
     syncAgentsRunning(chat);
-    if (node.kind !== "agent" || typeof node.meta.callId !== "string") return;
-    // First heard of (a replay after subscribing): what it used so far is not this window's to count.
-    if (!known) {
-      if (!counted.has(node.id)) counted.set(node.id, usageOf(node.usage));
-      // A foreground run in progress: its call is open, though this window missed its start.
-      if (!ended(node) && node.meta.background !== true) {
-        openCalls.set(chat, (openCalls.get(chat) ?? new Set<string>()).add(node.meta.callId));
-      }
-    } else if (!wasEnded && ended(node) && !openCalls.get(chat)?.has(node.meta.callId)) {
-      // A background (or released) run ended: no tool result carries its usage.
-      countAgent(chat, node);
-    }
   };
 
   // ── Background subagents ────────────────────────────────────────────────
@@ -668,210 +631,28 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   // A background `agent` call returns at once; the subagent keeps running in
   // the chat's engine (crates/evo-engine/src/tools/agent.rs). When it finishes
   // while the chat is idle, its report is queued for the chat's next run and
-  // the engine lists it in the session node's `meta.wake`; this window then
-  // wakes the chat with an automated prompt. The list clears when any run
-  // starts. Wakes coalesce for WAKE_DELAY_MS, and at most MAX_AUTO_WAKES
-  // happen in a row: then reports wait for the person's next message. No
-  // wake while the person has a draft in the chat's composer or an approval
-  // request is open there, and none of an archived chat (FR-19).
-  const WAKE_DELAY_MS = 2000;
-  const MAX_AUTO_WAKES = 5;
-  const autoWakes = new Map<string, number>();
-  const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Wake requests already acted on (or set aside) since the chat's last run, per chat. */
-  const handledWakes = new Map<string, Set<string>>();
-  /** Chats whose composer holds a draft (`setComposing`). */
-  const composing = new Set<string>();
+  // the engine lists it in the session node's `meta.wake`. The shell wakes
+  // the chat then, within the guard rails (FR-19; src-tauri/src/supervisor/wakes.rs,
+  // shell-hosted-engines FR-5): this window only tells it when the composer
+  // holds a draft (`setComposing`). The wake's turn comes as `mesh://prompted`.
+  //
+  // A subagent's usage counts toward a turn of its chat once (FR-6): the
+  // engine adds it to the turn's totals (`agent_settled.turn`), and the shell
+  // records them. A foreground run's usage also rides on its tool result,
+  // which the transcript shows; a background run's is shown from the totals
+  // when the turn settles (`showChildUsage`).
 
-  // A subagent's usage counts toward a turn of its chat once (FR-6). A
-  // foreground run's usage comes on its tool result (the transcript adds it);
-  // a background or released run's has no result to ride on, so it is added
-  // here when the run ends: to the turn in progress, or kept for the next one.
-  type AgentUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
-  const usageOf = (u?: Partial<AgentUsage> | null): AgentUsage => ({
-    input: u?.input ?? 0,
-    output: u?.output ?? 0,
-    cacheRead: u?.cacheRead ?? 0,
-    cacheWrite: u?.cacheWrite ?? 0,
-    cost: typeof u?.cost === "number" ? u.cost : 0,
-  });
-  /** Usage already counted per agent node (it accumulates over continued runs). */
-  const counted = new Map<string, AgentUsage>();
-  /** Usage of runs that ended while their chat was idle, for the chat's next turn. */
-  const pendingUsage = new Map<string, AgentUsage>();
-  /** Tool calls in progress per chat: an agent whose call is open reports its usage on the result. */
-  const openCalls = new Map<string, Set<string>>();
-
-  const asMessageUsage = (u: AgentUsage) => ({
-    input: u.input,
-    output: u.output,
-    cacheRead: u.cacheRead,
-    cacheWrite: u.cacheWrite,
-    cost: { total: u.cost },
-  });
-
-  /** Count the part of `agent`'s usage no turn has yet. */
-  const countAgent = (chat: string, agent: MeshNode) => {
-    const now = usageOf(agent.usage);
-    const before = counted.get(agent.id) ?? usageOf();
-    counted.set(agent.id, now);
-    const delta: AgentUsage = {
-      input: Math.max(0, now.input - before.input),
-      output: Math.max(0, now.output - before.output),
-      cacheRead: Math.max(0, now.cacheRead - before.cacheRead),
-      cacheWrite: Math.max(0, now.cacheWrite - before.cacheWrite),
-      cost: Math.max(0, now.cost - before.cost),
-    };
-    if (!(delta.input || delta.output || delta.cacheRead || delta.cacheWrite || delta.cost)) return;
-    if (runtime(chat)?.transcript.busy) {
-      dispatch(chat, { type: "extra-usage", usage: asMessageUsage(delta) });
-      return;
-    }
-    const kept = pendingUsage.get(chat) ?? usageOf();
-    pendingUsage.set(chat, {
-      input: kept.input + delta.input,
-      output: kept.output + delta.output,
-      cacheRead: kept.cacheRead + delta.cacheRead,
-      cacheWrite: kept.cacheWrite + delta.cacheWrite,
-      cost: kept.cost + delta.cost,
-    });
-  };
-
-  /** A turn of `chat` just started: it takes the usage kept for it. */
-  const takePendingUsage = (chat: string) => {
-    const kept = pendingUsage.get(chat);
-    if (!kept) return;
-    pendingUsage.delete(chat);
-    dispatch(chat, { type: "extra-usage", usage: asMessageUsage(kept) });
-  };
-
-  /**
-   * Follow the chat's tool calls for the usage of `agent` / `message_agent`
-   * runs: a result with `usage` was added to the turn by the transcript, so
-   * the agent is counted up to its snapshot (cumulative); a call that ended
-   * without one (it failed) has its agent counted here once it has ended.
-   */
-  const trackAgentCall = (chat: string, message: EngineMessage) => {
-    const callId = message.toolCallId;
-    if (typeof callId !== "string") return;
-    if (message.type === "tool_execution_start") {
-      const calls = openCalls.get(chat) ?? new Set<string>();
-      openCalls.set(chat, calls);
-      calls.add(callId);
-      return;
-    }
-    openCalls.get(chat)?.delete(callId);
-    const view = meshViews.get(chat);
-    if (!view) return;
-    const result = message.result as { usage?: unknown; details?: { child?: { agentId?: unknown; usage?: Partial<AgentUsage> } } } | undefined;
-    const child = result?.details?.child;
-    const agent = [...view.nodes.values()].find(
-      (node) =>
-        node.kind === "agent" &&
-        (typeof child?.agentId === "string" ? node.id.endsWith(`/a_${child.agentId}`) : node.meta.callId === callId),
-    );
-    if (!agent) return;
-    if (result?.usage && child?.usage) counted.set(agent.id, usageOf(child.usage));
-    // Still running: it went to the background and is counted when it ends.
-    else if (ended(agent) && agent.meta.callId === callId) countAgent(chat, agent);
-  };
-
-  /** A run of `chat` ended: no call outlives it. Agents whose calls it cut short are counted. */
-  const closeCalls = (chat: string) => {
-    const calls = openCalls.get(chat);
-    openCalls.delete(chat);
-    const view = meshViews.get(chat);
-    if (!calls?.size || !view) return;
-    for (const node of view.nodes.values()) {
-      if (node.kind === "agent" && calls.has(node.meta.callId) && ended(node)) countAgent(chat, node);
-    }
-  };
-
-  /** Start an automated run of `chat` (not the person typing). */
-  const startAutomatedRun = (chat: string, text: string) => {
-    dispatch(chat, { type: "prompt", text });
-    takePendingUsage(chat);
-    void setupDone(chat)
-      .then(() => client?.request(chat, "prompt", { message: text }))
-      .catch((error) => {
-        dispatch(chat, { type: "fail", error: error instanceof Error ? error.message : String(error) });
-      });
-  };
-
-  const wake = (chat: string, agents: MeshNode[], sessions: string[], mails: string[] = []) => {
-    const wakes = autoWakes.get(chat) ?? 0;
-    // The reports stay queued (and their usage kept): they reach the model with the next message.
-    if (wakes >= MAX_AUTO_WAKES) return;
-    autoWakes.set(chat, wakes + 1);
-    const quoted = (names: string[]) => names.map((name) => `"${name.replace(/"/g, "'")}"`).join(", ");
-    // The chip under the wake shows what woke the chat (chat-turn.tsx).
-    const text = !agents.length && !sessions.length
-      ? `<mail-arrived>
-${quoted(mails)} sent you ${mails.length === 1 ? "a message" : "messages"} above. If one asks a question, answer it with the reply tool (the asker is waiting); then continue the work.
-</mail-arrived>`
-      : agents.length
-      ? `<background-agents-done>
-${agents.length === 1 ? "A background agent" : "Background agents"} finished: ${quoted(agents.map((a) => a.title))}. ${
-          agents.length === 1 ? "Its report is" : "Their reports are"
-        } in the message${agents.length === 1 ? "" : "s"} above.${
-          sessions.length ? ` Nested sessions also reported: ${quoted(sessions)}.` : ""
-        }${mails.length ? ` Messages also arrived from ${quoted(mails)}; answer questions with the reply tool.` : ""} Continue the work with ${agents.length + sessions.length === 1 ? "it" : "them"}.
-</background-agents-done>`
-      : `<nested-sessions-done>
-${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a turn: ${quoted(sessions)}. ${
-          sessions.length === 1 ? "Its note is" : "Their notes are"
-        } in the message${sessions.length === 1 ? "" : "s"} above.${
-          mails.length ? ` Messages also arrived from ${quoted(mails)}; answer questions with the reply tool.` : ""
-        } Continue the work with ${sessions.length === 1 ? "it" : "them"}.
-</nested-sessions-done>`;
-    startAutomatedRun(chat, text);
-  };
-
-  /** Wake `chat` for the reports its session node says are waiting, if it is idle. */
-  const checkWake = (chat: string) => {
-    const view = meshViews.get(chat);
-    const rt = runtime(chat);
-    if (!view || rt?.status !== "ready" || rt.transcript.busy) return;
-    // Not while the person writes there or is asked for an approval: their
-    // Send would become a steer. Both look again when they end
-    // (`setComposing`, `dispatch`).
-    if (composing.has(chat) || hasOpenPermission(rt.transcript)) return;
-    // An archived (or deleted) chat is never woken.
-    if (!useSessionStore.getState().sessions.some((s) => s.id === chat)) return;
-    const handled = handledWakes.get(chat) ?? new Set<string>();
-    handledWakes.set(chat, handled);
-    const agents: MeshNode[] = [];
-    const sessions: string[] = [];
-    // Messages and questions from this chat's agents (crates/evo-engine/src/tools/mesh.rs).
-    const mails: string[] = [];
-    for (const session of view.nodes.values()) {
-      if (session.kind !== "session" || session.state !== "idle") continue;
-      const titles = (session.meta.wakeTitles ?? {}) as Record<string, string>;
-      const reasons = (session.meta.wakeReasons ?? {}) as Record<string, string>;
-      for (const address of (session.meta.wake ?? []) as string[]) {
-        if (handled.has(address)) continue;
-        const agent = view.nodes.get(address);
-        if (reasons[address] === "mail") mails.push(titles[address] ?? agent?.title ?? "an agent");
-        else if (agent) agents.push(agent);
-        // Mail from another session (a nested session's note, via the hub).
-        else if (!address.includes("/")) sessions.push(titles[address] ?? "a nested session");
-        else continue;
-        handled.add(address);
-      }
-    }
-    if (agents.length + sessions.length + mails.length > 0) wake(chat, agents, sessions, mails);
-  };
-
-  /** Check for wakes once events settle (several agents finishing make one wake). */
-  const scheduleWake = (chat: string) => {
-    clearTimeout(wakeTimers.get(chat));
-    wakeTimers.set(
-      chat,
-      setTimeout(() => {
-        wakeTimers.delete(chat);
-        checkWake(chat);
-      }, WAKE_DELAY_MS),
-    );
+  /** Show the part of a settled turn's totals the transcript did not count (background children). */
+  const showChildUsage = (chat: string, message: EngineMessage) => {
+    const turn = message.turn as TurnTotals | undefined;
+    const shown = runtime(chat)?.transcript.turns.at(-1)?.meta;
+    if (!turn || !shown) return;
+    const tokens = (m: { inputTokens?: number; outputTokens?: number; cacheRead?: number; cacheWrite?: number }) =>
+      (m.inputTokens ?? 0) + (m.outputTokens ?? 0) + (m.cacheRead ?? 0) + (m.cacheWrite ?? 0);
+    const cost = turn.costUsd + turn.childCostUsd - (shown.cost ?? 0);
+    const more = turn.input + turn.output + turn.cacheRead + turn.cacheWrite + turn.childTokens - tokens(shown);
+    if (cost <= 1e-12 && more <= 0) return;
+    dispatch(chat, { type: "extra-usage", usage: { input: Math.max(0, more), cost: { total: Math.max(0, cost) } } });
   };
 
   // ── Nested sessions ─────────────────────────────────────────────────────
@@ -884,7 +665,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
   // background agents). By default start_session only proposes: the person
   // starts it from the card (Settings → Sandbox can allow starting directly).
   // Nested sessions get none of these tools: one level deep.
-  const pendingPrompts = new Map<string, string>();
 
   const chatRow = (id: string) => {
     const sessions = useSessionStore.getState();
@@ -925,23 +705,13 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     }
   };
 
-  /** Start a turn of any chat (not only the one on screen). */
-  const promptChat = async (chat: string, text: string) => {
-    dispatch(chat, { type: "prompt", text });
-    takePendingUsage(chat);
-    try {
-      await client?.request(chat, "prompt", { message: text });
-    } catch (error) {
-      dispatch(chat, { type: "fail", error: error instanceof Error ? error.message : String(error) });
-    }
-  };
-
   /**
-   * A chat's setup after its engine is `ready` (model, tools). A prompt sent
-   * before it ends would start a run, and the engine refuses to change
-   * external tools while a run is active: the chat would lack its session,
-   * browser and connector tools. Prompts from this window wait for it,
-   * at most SETUP_WAIT_MS.
+   * A chat's setup after its engine is `ready`. The shell sets the engine up
+   * (its model, its tools, the hub's mail; src-tauri/src/supervisor.rs) and
+   * says so with `engine://state` `ready`. A prompt sent before that would
+   * start a run, and the engine refuses to change external tools while a run
+   * is active: the chat would lack its session, browser and connector tools.
+   * Prompts and model picks from this window wait for it, at most SETUP_WAIT_MS.
    */
   const engineSetup = new Map<string, Promise<unknown>>();
   const SETUP_WAIT_MS = 10_000;
@@ -950,39 +720,28 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     if (!setup) return Promise.resolve();
     return Promise.race([setup.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, SETUP_WAIT_MS))]);
   };
-  /** Chats whose tools could not be set during a run: set again when it settles. */
-  const toolsStale = new Set<string>();
+  /** What the shell last said of each chat's engine (`engine://state`). */
+  const shellStatus = new Map<string, EngineStateEvent["status"]>();
+  /** Who waits for the shell to finish setting a chat's engine up. */
+  const setupWaiters = new Map<string, (() => void)[]>();
+  /** Resolves once the shell has set `chat`'s engine up (or at once when it has). */
+  const shellSetUp = (chat: string): Promise<void> =>
+    shellStatus.get(chat) === "ready"
+      ? Promise.resolve()
+      : new Promise((resolve) => setupWaiters.set(chat, [...(setupWaiters.get(chat) ?? []), resolve]));
+  /** Prompts wait while the shell sets up an engine this window picked up running. */
+  const trackSetup = (chat: string) => {
+    if (shellStatus.get(chat) !== "starting") return;
+    const setup = shellSetUp(chat);
+    engineSetup.set(chat, setup);
+    void setup.finally(() => {
+      if (engineSetup.get(chat) === setup) engineSetup.delete(chat);
+    });
+  };
 
   /** Tell the shell which connectors are switched off for a chat (it builds and gates the connector tools). */
   const pushConnectorSwitches = (chat: string) =>
     invoke("agent_mcp_chat_config", { chat, off: useUiStore.getState().chatConnectorsOff[chat] ?? [] }).catch(() => undefined);
-
-  const configureSessionTools = async (chat: string) => {
-    if (!client) return;
-    // Every chat gets the shell's tools (browser, terminal, Files, scheduler,
-    // and the connectors' tools, built by the shell for the chat's folder and
-    // the connectors switched off for it); nested sessions get no session tools.
-    const folder = await chatFolder(chat).catch(() => "");
-    await pushConnectorSwitches(chat);
-    // Session tools are for top-level chats; they are defined and answered by
-    // the shell's mesh hub (src-tauri/src/mesh.rs). The scheduler tools are the
-    // shell's too (agent_tools/scheduler) and refuse nested chats themselves.
-    const topLevel = !chatRow(chat)?.parentChatId;
-    const sessionTools = topLevel
-      ? await invoke<Record<string, unknown>[]>("mesh_session_tools").catch((): Record<string, unknown>[] => [])
-      : [];
-    const shellTools = await invoke<Record<string, unknown>[]>("agent_tools_definitions", { chat, folder: folder || null }).catch((): Record<string, unknown>[] => []);
-    const tools = [...(topLevel ? sessionTools : []), ...shellTools];
-    await client
-      .request(chat, "configure_external_tools", { tools })
-      .then(() => toolsStale.delete(chat))
-      .catch((error) => {
-        // Refused during a run (a prompt overtook the setup, connectors
-        // changed mid-run): try again when the run settles.
-        if (/run is active/i.test(String(error))) toolsStale.add(chat);
-        log("warn", "engine", `could not add the session tools: ${String(error)}`, { chatId: chat });
-      });
-  };
 
   /**
    * Once per folder: when a top-level chat's project uses languages with no
@@ -1024,80 +783,116 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     });
   };
 
-  /** A chat's engine is ready: its tools, then a waiting first prompt. */
-  const onReadyNested = async (chat: string) => {
-    await configureSessionTools(chat);
-    const first = pendingPrompts.get(chat);
-    if (first) {
-      pendingPrompts.delete(chat);
-      await promptChat(chat, first);
-    }
-    // Set up: the mesh hub may send what waits for it (a session's brief,
-    // a message from its parent, notes).
-    await meshHosted(chat);
-  };
-
-  const meshHosted = (chat: string) =>
-    invoke("mesh_hosted", { chat }).catch((error) =>
-      log("warn", "engine", `mesh hub: ${String(error)}`, { chatId: chat }),
-    );
-
   /**
-   * Restarts of exited engines for mail, per chat: at most MAIL_RESTARTS in
-   * MAIL_RESTART_WINDOW_MS, so an engine that dies on start is not restarted
-   * forever (each exit with mail waiting asks for a host again).
+   * The main window keeps a runtime for an engine the shell started for
+   * mail or a scheduled run, as it did when it started that engine itself.
+   * The shell wakes it, records its turns and sends a scheduled task's first
+   * prompt as hub mail (docs/features/shell-hosted-engines, FR-5 – FR-7); the
+   * runtime is for recording the turns of an engine without turn totals. It
+   * only watches: its `ready` is handled like any other.
    */
-  const MAIL_RESTARTS = 3;
-  const MAIL_RESTART_WINDOW_MS = 120_000;
-  const mailRestarts = new Map<string, number[]>();
-  const mayRestartForMail = (chat: string) => {
-    const now = Date.now();
-    const recent = (mailRestarts.get(chat) ?? []).filter((at) => now - at < MAIL_RESTART_WINDOW_MS);
-    if (recent.length >= MAIL_RESTARTS) {
-      log("warn", "engine", "the engine keeps exiting: its mail waits until the chat is opened", { chatId: chat });
-      mailRestarts.set(chat, recent);
-      return false;
+  const adopt = (chat: string, restore: boolean) =>
+    set((store) => {
+      if (store.runtimes[chat]) return store;
+      const rt: ChatRuntime = { chatId: chat, status: "starting", cwd: undefined, state: {}, transcript: initialTranscript, lastActive: Date.now(), restore };
+      return { runtimes: { ...store.runtimes, [chat]: rt } };
+    });
+
+  /** The engines that run with no runtime here (the shell hosted them for mail before this window loaded). */
+  const adoptRunning = async () => {
+    if (!client || chatWindowId) return;
+    const running = await client.running().catch((): string[] => []);
+    const saved = new Set(useSessionStore.getState().sessions.filter((s) => !s.draft).map((s) => s.id));
+    for (const chat of running) {
+      if (!runtime(chat) && saved.has(chat)) await launch(chat, undefined, true, true);
     }
-    mailRestarts.set(chat, [...recent, now]);
-    return true;
   };
 
   /**
-   * The mesh hub needs `chat`'s engine: a session it just started, or a chat
-   * with mail (a nested session's note, a parent's message). A window that
-   * holds the chat tells the hub it is set up; otherwise the main window
-   * starts the engine in the background (`onReadyNested` then tells the hub).
+   * The shell started `chat`'s engine or finished setting it up. It starts
+   * engines on its own too: a session it created, mail for a chat, a crashed
+   * engine with mail waiting (FR-4). A window that shows such a chat picks
+   * the new process up and reloads its transcript when it is ready.
    */
-  const onHost = async (chat: string, cwd: string | null, restore: boolean) => {
-    if (!client) return;
+  const onState = ({ chat, status, reason, restore }: EngineStateEvent) => {
+    shellStatus.set(chat, status);
+    if (status === "ready") {
+      for (const resolve of setupWaiters.get(chat) ?? []) resolve();
+      setupWaiters.delete(chat);
+    }
     const rt = runtime(chat);
-    if (rt) {
-      if (rt.status === "ready") await meshHosted(chat);
-      // Its engine exited or never started (a crash): start it again, or the
-      // mail waits until someone opens the chat while its sender is told a
-      // note will come. Its `ready` tells the hub (`onReadyNested`).
-      else if ((rt.status === "exited" || rt.status === "error") && mayRestartForMail(chat)) {
-        log("info", "engine", "restarting the engine to deliver mail", { chatId: chat });
-        await launch(chat, rt.cwd ?? (await chatFolder(chat)), true);
-      }
+    if (reason === "detached") {
+      // The window that showed it closed while it runs (FR-2): the main
+      // window follows its runs, as it does any chat's engine the shell runs.
+      const saved = useSessionStore.getState().sessions.some((s) => s.id === chat && !s.draft);
+      if (!rt && !chatWindowId && saved) void launch(chat, undefined, true, true);
       return;
     }
-    if (chatWindowId) return;
-    let row = chatRow(chat);
-    // A chat the shell just created may not have reached this window yet.
-    if (!row) {
-      await useSessionStore.getState().load().catch(() => undefined);
-      row = chatRow(chat);
+    if (status === "ready") return;
+    if (status === "stopped") {
+      // The shell stopped it: no work and no window, beyond the idle limit (FR-3).
+      if (!rt || pausedEngines.has(chat)) return;
+      // Shown here after all (the stop crossed this window's attach): start it again.
+      if (chat === get().activeId) void launch(chat, rt.cwd, !isDraft(chat), true);
+      else dropRuntime(chat);
+      return;
     }
-    if (!row || row.archivedAt) return;
-    if ((await client.running().catch((): string[] => [])).includes(chat)) return;
-    await launch(chat, cwd ?? (await chatFolder(chat)), restore, true);
+    if (!rt) {
+      if (!chatWindowId && (reason === "mail" || reason === "restart" || reason === "schedule")) adopt(chat, restore ?? true);
+      return;
+    }
+    if (reason === "settings") {
+      // The shell started it again with a changed sandbox (FR-8): what this
+      // window knew of the old process is void; the new one's `ready` reloads it.
+      forgetEngine(chat);
+      pausedEngines.delete(chat);
+      update(chat, () => ({ status: "starting", restore: !isDraft(chat), error: undefined }));
+      return;
+    }
+    if (rt.status === "starting" || rt.status === "ready") return;
+    forgetEngine(chat);
+    pausedEngines.delete(chat);
+    update(chat, () => ({ status: "starting", restore: !isDraft(chat), error: undefined }));
   };
 
   // Questions the shell's tools raise (a connector tool set to "ask", the
   // browser's gate), shown like the engine's permission prompts;
   // `answerPermission` resolves them.
   const appApprovals = new Map<string, { chat: string; externalId: string; resolve(answer: number): void }>();
+
+  /**
+   * Draw a question the shell keeps for `chat` (docs/features/shell-hosted-engines,
+   * FR-9): one of its tools' (as an approval prompt), or the engine's, as the
+   * engine asked it. Drawing one again replaces it.
+   */
+  const showQuestion = (chat: string, question: OpenQuestion) => {
+    if (question.source === "shell") {
+      const id = `shell:${question.requestId}`;
+      appApprovals.set(id, {
+        chat,
+        externalId: question.callId ?? "",
+        resolve: (index) => void invoke("agent_ask_answer", { requestId: question.requestId, index }).catch(() => undefined),
+      });
+      dispatch(chat, {
+        type: "engine",
+        message: {
+          type: "ui_dialog_request",
+          requestId: id,
+          ui: { title: question.title, description: question.body ?? "", options: question.options.map((title) => ({ title })) },
+        },
+      });
+      return;
+    }
+    dispatch(chat, {
+      type: "engine",
+      message: {
+        type: "ui_dialog_request",
+        requestId: question.requestId,
+        toolCallId: question.toolCallId,
+        ui: question.ui ?? { title: question.title, description: question.body, options: question.options.map((title) => ({ title })) },
+      },
+    });
+  };
   /** The engine gave up on a call (the run stopped): its open question is moot. */
   const dropApprovals = (externalId: string) => {
     for (const [requestId, approval] of appApprovals) {
@@ -1119,43 +914,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       if (saved?.provider && saved.modelId) set({ defaultModel: `${saved.provider}/${saved.modelId}`, defaultSaved: true });
     })();
     return defaultLoaded;
-  };
-
-  /**
-   * A new chat starts on the default model. The engine already honours the
-   * saved default; this covers providers its automatic pick does not know.
-   * A chat whose row already names a model (a nested session: the hub gives
-   * it its parent's) starts on that one instead.
-   */
-  const startOnDefault = async (chat: string) => {
-    await loadDefault(chat);
-    await get().refreshState(chat);
-    const row = chatRow(chat);
-    if (client && row && !row.draft && row.provider && row.model) {
-      const state = runtime(chat)?.state;
-      if (state?.provider === row.provider && (state.modelId ?? state.model) === row.model) return;
-      const switched = await client
-        .request(chat, "set_model", { provider: row.provider, modelId: row.model })
-        .then(() => true)
-        .catch((error) => {
-          log("warn", "engine", `could not start on the chat's model: ${String(error)}`, { chatId: chat });
-          return false;
-        });
-      if (switched) {
-        await get().refreshState(chat);
-        return;
-      }
-      // That model is gone (its provider was removed): the default, as for any new chat.
-    }
-    const { defaultModel, defaultSaved } = get();
-    const state = runtime(chat)?.state;
-    if (!client || !defaultSaved || !defaultModel || !state?.provider) return;
-    if (`${state.provider}/${state.modelId ?? state.model}` === defaultModel) return;
-    const slash = defaultModel.indexOf("/");
-    await client
-      .request(chat, "set_model", { provider: defaultModel.slice(0, slash), modelId: defaultModel.slice(slash + 1) })
-      .then(() => get().refreshState(chat))
-      .catch((error) => log("warn", "engine", `could not start on the default model: ${String(error)}`, { chatId: chat }));
   };
 
   /** Runs of chats this window does not hold, for the sidebar. */
@@ -1180,6 +938,9 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     }
     if (message.type === "ready") {
       update(chat, () => ({ status: "ready", error: undefined }));
+      // Without turn totals the shell records no turn of this engine: this window does (FR-6).
+      if (message.turnTotals === true) noTurnTotals.delete(chat);
+      else noTurnTotals.add(chat);
       if (message.mesh?.version === MESH_VERSION) void subscribeMesh(chat);
       else log("warn", "engine", "this engine does not speak the session mesh: subagents will not update live", { chatId: chat });
       // The background agents of an earlier engine that never reported (FR-12).
@@ -1187,15 +948,13 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         ? message.lostBackgroundAgents.filter((id: unknown): id is string => typeof id === "string")
         : undefined;
       const setup = (async () => {
-        if (runtime(chat)?.restore) {
-          // `ready` comes from a new process: an earlier engine's background agents are gone.
-          await restoreTranscript(chat, true, lost);
-          void loadDefault(chat);
-          void get().refreshState(chat);
-        } else {
-          await startOnDefault(chat);
-        }
-        await onReadyNested(chat);
+        // `ready` comes from a new process: an earlier engine's background agents are gone.
+        if (runtime(chat)?.restore) await restoreTranscript(chat, true, lost);
+        // The shell sets the engine up: the chat's model (or the default),
+        // its tools, then the hub's mail (FR-1).
+        await Promise.race([shellSetUp(chat), new Promise((resolve) => setTimeout(resolve, SETUP_WAIT_MS))]);
+        void loadDefault(chat);
+        await get().refreshState(chat);
         void suggestCodeIntelligence(chat);
       })();
       // Prompts from this window wait for it (`setupDone`).
@@ -1220,9 +979,9 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     }
     if (message.type === "providers_changed") {
       // A sign-in finished or models.dev brought new data: this engine already
-      // swapped its provider runtimes; the others reload, and the UI refreshes.
+      // swapped its provider runtimes; the shell has the others reload
+      // (`engine://reloaded`), and the UI refreshes.
       void get().refreshState(chat);
-      broadcastProviders(chat);
       // Memory indexing stopped for a model it could not use may go on now.
       void db.memoryIndexPoke().catch(() => undefined);
       window.dispatchEvent(new CustomEvent("evo:providers-changed", { detail: message }));
@@ -1238,45 +997,26 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       });
       return;
     }
-    // Before the turn closes: agents whose calls the run's end cut short count toward it.
-    if (message.type === "agent_settled" || message.type === "agent_end") closeCalls(chat);
     dispatch(chat, { type: "engine", message });
-    if (message.type === "tool_execution_start" || message.type === "tool_execution_end") trackAgentCall(chat, message);
+    if (message.type === "agent_settled" && message.compact !== true) showChildUsage(chat, message);
     if (message.type === "agent_settled" && message.compact === true) {
       compactWaiters.get(chat)?.(message);
       compactWaiters.delete(chat);
     }
     if (message.type === "agent_settled" || message.type === "agent_end") {
       recordFinishedTurn(chat);
-      scheduleWake(chat);
-      if (message.type === "agent_settled" && toolsStale.has(chat)) void configureSessionTools(chat);
       // Context usage changes after every run.
       void get().refreshState(chat);
       if (chat === get().activeId) void get().loadContextBreakdown();
-      trimIdle();
-    } else if (message.type === "ui_dialog_request" && (chat !== get().activeId || !windowFocused())) {
-      const ui = (message.ui ?? {}) as { title?: string; question?: string; message?: string };
-      notify({
-        source: "agent",
-        level: "warning",
-        title: "Approval needed",
-        // Nothing an incognito chat says is kept, a notification's text included.
-        body: useSessionStore.getState().sessions.find((s) => s.id === chat)?.incognito
-          ? chatTitle(chat)
-          : `${chatTitle(chat)}: ${ui.title ?? ui.question ?? ui.message ?? "the agent needs your input"}`,
-        key: `agent:${chat}`,
-        target: { type: "session", id: chat },
-      });
     }
+    // An approval or a question in a chat nobody looks at is the shell's to
+    // announce, once (FR-9).
   };
 
   const onExit = (chat: string, code: number | null) => {
-    // Its subagents went with it: what they used so far still counts.
+    shellStatus.delete(chat);
     const hadAgents = hasRunningAgents(chat);
     const rt = runtime(chat);
-    for (const node of (rt && meshViews.get(chat)?.nodes.values()) || []) {
-      if (node.kind === "agent" && typeof node.meta.callId === "string" && !ended(node)) countAgent(chat, node);
-    }
     forgetEngine(chat);
     pausedEngines.delete(chat);
     if (!rt) {
@@ -1286,17 +1026,9 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     const wasBusy = rt.transcript.busy;
     update(chat, () => ({ status: "exited", error: code ? `Engine exited with code ${code}` : "The engine stopped" }));
     // Also for an idle chat whose subagents were working: the transcript settles them.
+    // The shell announces it when no focused window shows the chat (FR-10);
+    // a window that shows it has the banner.
     if (wasBusy || hadAgents) dispatch(chat, { type: "fail", error: "The engine stopped" });
-    if (chat === get().activeId || wasBusy || hadAgents) {
-      notify({
-        source: "engine",
-        level: "error",
-        title: "The engine stopped",
-        body: `${chatTitle(chat)} — ${code ? `exited with code ${code}` : "it stopped"}. Restart it from the banner.`,
-        key: `engine:${chat}`,
-        target: { type: "session", id: chat },
-      });
-    }
   };
 
   return {
@@ -1318,104 +1050,64 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         onStderr: (chat, line) =>
           set((store) => ({ logs: [...store.logs.slice(-MAX_LOG_LINES + 1), { at: Date.now(), chat, line }] })),
         onExit,
+        onState,
       });
       await client.attach();
+      // A reloaded window's composers hold no draft: wakes it held may go (FR-5).
+      void client.setComposing(null, false).catch(() => undefined);
+      // Start sessions without asking and the connector switches are app
+      // settings the shell follows; an older build's local values move into
+      // them once (shell-hosted-engines FR-8, NFR-4).
+      await useUiStore.getState().loadShellSettings();
       // The approval mode is an app setting: read it before any engine starts
-      // (an older build's local value moves into it), and follow changes from
-      // any window by telling this window's engines.
+      // (an older build's local value moves into it), and show changes from
+      // any window. The shell tells every engine (FR-8).
       await useUiStore.getState().loadApproval();
       void listen<{ mode?: ApprovalMode }>(APPROVAL_CHANGED, ({ payload }) => {
         const mode = payload?.mode;
         if (mode !== "ask" && mode !== "auto-edits" && mode !== "auto") return;
         useUiStore.getState().syncApproval(mode);
-        broadcastApprovalMode(mode);
       });
-      // Settings → Sandbox changed (in any window): idle engines restart with it.
-      void listen(SANDBOX_CHANGED, () => void get().restartIdleEngines());
-      // Connectors came, went or changed their tools: every ready chat hears.
-      connectorsChanged.add(() => {
-        for (const rt of Object.values(get().runtimes)) {
-          if (rt.status === "ready") void configureSessionTools(rt.chatId);
-        }
-      });
-      // The shell's own tools changed (computer app control switched on or
-      // off in Settings): every ready chat gets the new list.
-      void listen("agent-tools://changed", () => {
-        for (const rt of Object.values(get().runtimes)) {
-          if (rt.status === "ready") void configureSessionTools(rt.chatId);
-        }
-      });
-      // Memory indexing changed topics: every idle chat reads the new lists
-      // from its next message.
-      void listen("memory://changed", () => {
-        for (const rt of Object.values(get().runtimes)) {
-          if (rt.status === "ready" && !rt.transcript.busy && client) {
-            void client.request(rt.chatId, "reload_resources").catch(() => undefined);
-          }
-        }
-      });
-      // A chat was detached from its parent (or its parent was deleted), in
-      // any window: it is top-level now and gets the session tools.
-      useSessionStore.subscribe((state, before) => {
-        if (state.sessions === before.sessions) return;
-        for (const rt of Object.values(get().runtimes)) {
-          if (rt.status !== "ready") continue;
-          const now = state.sessions.find((s) => s.id === rt.chatId);
-          const was = before.sessions.find((s) => s.id === rt.chatId);
-          if (now && was && Boolean(now.parentChatId) !== Boolean(was.parentChatId)) void configureSessionTools(rt.chatId);
-        }
+      // An engine this window holds followed a changed setting: show its state.
+      void listen<{ chat: string; what: string }>("engine://reloaded", ({ payload }) => {
+        if (!runtime(payload.chat)) return;
+        if (payload.what === "approval") void get().refreshApproval(payload.chat);
+        else if (payload.what === "providers") void get().refreshState(payload.chat);
       });
       void useConnectorsStore.getState().load();
       // Plugins were installed, removed or switched: every ready chat re-reads
       // its skills, commands, subagents and hooks.
-      // The mesh hub needs a chat's engine (a new nested session, waiting mail).
-      void listen<{ chat: string; cwd: string | null; restore: boolean }>("mesh://host", ({ payload }) =>
-        void onHost(payload.chat, payload.cwd, payload.restore),
-      );
-      // Mail left undelivered when the app last closed (a nested session's
-      // note, a parent's message): nothing else asks for those engines now.
-      if (!chatWindowId) {
-        void invoke<string[]>("mesh_pending_chats")
-          .then((chats) => Promise.all(chats.map((chat) => onHost(chat, null, true))))
-          .catch((error) => log("warn", "engine", `mesh hub: ${String(error)}`));
-      }
+      // The shell's supervisor hosts what the mesh hub needs (a new nested
+      // session, waiting mail, at app start too) and sets every engine's
+      // tools up again when they change: no window does (FR-1, FR-4).
       // The hub starts a turn of a chat this window may show (a nested
       // session's brief, its parent's message): show it like a typed prompt.
       void listen<{ chat: string; text: string }>("mesh://prompted", ({ payload }) => {
         if (!runtime(payload.chat)) return;
         dispatch(payload.chat, { type: "prompt", text: payload.text });
-        takePendingUsage(payload.chat);
       });
-      // The hub starts sessions at once or proposes them (Settings → Sandbox).
-      const pushMeshSettings = (autoStartSessions: boolean) =>
-        void invoke("mesh_configure", { autoStartSessions }).catch(() => undefined);
-      pushMeshSettings(useUiStore.getState().autoStartSessions);
-      useUiStore.subscribe((state, before) => {
-        if (state.autoStartSessions !== before.autoStartSessions) pushMeshSettings(state.autoStartSessions);
+      // Open questions the shell keeps (FR-9). Its tools' questions (approvals)
+      // show as the chat's approval prompt; the engine's come with its own line.
+      // An answer from any window closes them in every window.
+      void listen<{ chat: string; question: OpenQuestion }>("engine://question", ({ payload }) => {
+        if (payload.question.source === "shell") showQuestion(payload.chat, payload.question);
       });
-      // Questions the shell's tools raise (approvals) show as the chat's approval prompt.
-      void listen<{ chat: string; requestId: string; callId?: string; title: string; description: string; options: string[] }>("agent://ask", ({ payload }) => {
-        const id = `shell:${payload.requestId}`;
-        appApprovals.set(id, {
-          chat: payload.chat,
-          externalId: payload.callId ?? "",
-          resolve: (index) => void invoke("agent_ask_answer", { requestId: payload.requestId, index }).catch(() => undefined),
+      void listen<{ chat: string; requestId: string }>("engine://question-closed", ({ payload }) => {
+        const shell = `shell:${payload.requestId}`;
+        const id = appApprovals.delete(shell) ? shell : payload.requestId;
+        dispatch(payload.chat, { type: "engine", message: { type: "ui_dialog_closed", requestId: id } });
+      });
+      // A notification or the tray asks to show a chat (the shell showed this window).
+      if (!chatWindowId) {
+        void listen<{ chat: string }>("app://open-chat", ({ payload }) => {
+          const ui = useUiStore.getState();
+          if (ui.settingsOpen) ui.closeSettings();
+          void get().selectSession(payload.chat);
         });
-        dispatch(payload.chat, {
-          type: "engine",
-          message: { type: "ui_dialog_request", requestId: id, ui: { title: payload.title, description: payload.description, options: payload.options.map((title) => ({ title })) } },
-        });
-      });
-      void listen<{ chat: string; requestId: string }>("agent://ask-closed", ({ payload }) => {
-        const id = `shell:${payload.requestId}`;
-        if (appApprovals.delete(id)) dispatch(payload.chat, { type: "engine", message: { type: "ui_dialog_closed", requestId: id } });
-      });
+      }
+      // Plugins changed: the shell has every engine re-read them (FR-8);
+      // Customize shows the new lists.
       void listen("plugins://changed", () => {
-        for (const rt of Object.values(get().runtimes)) {
-          if (rt.status === "ready" && !rt.transcript.busy && client) {
-            void client.request(rt.chatId, "reload_resources").catch(() => undefined);
-          }
-        }
         setTimeout(() => void useCustomizeStore.getState().load(true), 500);
       });
       const sessions = useSessionStore.getState();
@@ -1424,12 +1116,17 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       } catch (error) {
         log("error", "db", `could not load chats: ${String(error)}`);
       }
+      await adoptRunning();
       // A chat window shows its one chat.
       if (chatWindowId) {
         await get().selectSession(chatWindowId);
         return;
       }
-      const last = useSessionStore.getState().lastChatId;
+      // A notification or the tray asked for a chat while there was no main
+      // window: the shell built this one to show it (shell-hosted-engines FR-11).
+      const pending = await invoke<string | null>("app_open_pending").catch(() => null);
+      const known = (id: string) => useSessionStore.getState().sessions.some((s) => s.id === id && !s.draft);
+      const last = pending && known(pending) ? pending : useSessionStore.getState().lastChatId;
       if (last) await get().selectSession(last);
       else await get().newChat(null);
     },
@@ -1589,43 +1286,19 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
 
     async setChatConnector(chat, key, on) {
       useUiStore.getState().setChatConnectorOff(chat, key, !on);
+      // The shell gives the chat's engine its new tools.
       await pushConnectorSwitches(chat);
-      if (runtime(chat)?.status === "ready") await configureSessionTools(chat);
     },
 
     async reloadIdleResources() {
-      const active = get().activeId;
-      await Promise.all(
-        Object.values(get().runtimes)
-          .filter((rt) => rt.chatId !== active && rt.status === "ready" && !rt.transcript.busy && client)
-          .map((rt) =>
-            client!
-              .request(rt.chatId, "reload_resources")
-              .catch((error) => log("warn", "engine", `reloading skills failed: ${String(error)}`, { chatId: rt.chatId })),
-          ),
+      // The active chat's engine already reloaded; the shell has every other
+      // engine re-read them, viewed or not (FR-8).
+      await invoke("engine_reload_resources", { except: get().activeId }).catch((error) =>
+        log("warn", "engine", `reloading skills failed: ${String(error)}`),
       );
     },
 
-    async restartIdleEngines() {
-      for (const rt of Object.values(get().runtimes)) {
-        if (rt.transcript.busy || rt.status === "starting") continue;
-        // Subagents run in the chat's engine: a restart would kill them.
-        if (hasRunningAgents(rt.chatId) || pausedEngines.has(rt.chatId)) continue;
-        await launch(rt.chatId, rt.cwd, !isDraft(rt.chatId));
-      }
-    },
-
-    async startTaskChat({ workspaceId, title, prompt }) {
-      const id = newChatId();
-      const row = await useSessionStore.getState().createTaskChat({ id, workspaceId, title });
-      if (!row) return null;
-      // Sent once its engine is ready (`onReadyNested`), like a nested session.
-      pendingPrompts.set(id, prompt);
-      await launch(id, await chatFolder(id), false);
-      return id;
-    },
-
-    async startChildSession(parentId, { title, prompt, context = "fresh", worktree = false }, proposalId) {
+    async startChildSession(parentId, { title, prompt, context = "fresh", worktree = false, role, branch }, proposalId) {
       const parent = chatRow(parentId);
       if (!parent || parent.draft) return null;
       // The shell's mesh hub creates it, has a window host its engine and
@@ -1633,7 +1306,7 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
       // the hub answers a second Start with the same session.
       return invoke<string>("mesh_start_session", {
         parent: parentId,
-        spec: { title, prompt, fork: context === "fork", worktree },
+        spec: { title, prompt, fork: context === "fork", worktree, role: role ?? undefined, branch: branch ?? undefined },
         proposalId: proposalId ?? null,
       });
     },
@@ -1654,36 +1327,46 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     },
 
     setComposing(chat, on) {
-      if (on) composing.add(chat);
-      // A wake held back for the draft may go ahead.
-      else if (composing.delete(chat)) scheduleWake(chat);
+      // The shell holds the chat's wakes while a draft sits here (FR-5).
+      void client?.setComposing(chat, on).catch(() => undefined);
     },
 
     async stopEngine(chat) {
       const rt = runtime(chat);
       if (rt?.transcript.busy || get().busyElsewhere[chat]) throw new Error("This chat is in the middle of a turn. Stop it first.");
       if (hasRunningAgents(chat)) throw new Error("This chat has subagents still working. Wait for them, or stop them first.");
+      if (!client) return;
       if (!rt) {
         // Not shown here: another window may hold it, or nothing does (kept across a reload).
-        if (!client || !(await client.running().catch((): string[] => [])).includes(chat)) return;
-        if (chatWindowId || (await focusChatWindow(chat))) {
+        const running = (await client.running().catch((): string[] => [])).includes(chat);
+        if (running && (chatWindowId || (await focusChatWindow(chat)))) {
           throw new Error("This chat is open in another window. Apply or discard its worktree there.");
         }
-        await client.stop(chat);
+        // Mail must not start it while its folder goes: the shell holds it
+        // until `resumeEngine` or `leaveWorktree` (shell-hosted-engines plan 5).
+        await client.hold(chat, true);
+        if (running) await client.stop(chat);
         return;
       }
       pendingDeltas.delete(chat);
       forgetEngine(chat);
       pausedEngines.add(chat);
       update(chat, () => ({ status: "idle", error: undefined }));
+      await client.hold(chat, true);
       // Resolves once the process is gone: only then is its folder free (Windows).
-      await client?.stop(chat);
+      await client.stop(chat);
     },
 
     async resumeEngine(chat) {
-      // `leaveWorktree` starts it itself, in the workspace folder.
-      if (!pausedEngines.has(chat) || leavingWorktree.has(chat) || !runtime(chat)) return;
-      await launch(chat, await chatFolder(chat), !isDraft(chat));
+      // `leaveWorktree` starts it itself, in the workspace folder, and ends the hold.
+      if (leavingWorktree.has(chat)) return;
+      try {
+        // Starting it ends the shell's hold.
+        if (pausedEngines.has(chat) && runtime(chat)) await launch(chat, await chatFolder(chat), !isDraft(chat));
+      } finally {
+        // Nothing here starts it: mail may again, and what waited goes out.
+        await client?.hold(chat, false).catch(() => undefined);
+      }
     },
 
     async leaveWorktree(id) {
@@ -1701,6 +1384,8 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         }
       } finally {
         leavingWorktree.delete(id);
+        // Mail may start it again (in its workspace folder now); what waited goes out.
+        await client?.hold(id, false).catch(() => undefined);
       }
     },
 
@@ -1722,8 +1407,6 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
         void sessions.saveDraft(chat, message, { provider, model: modelId ?? model });
       }
       dispatch(chat, { type: "prompt", text: message, images: images.map(dataUrl) });
-      autoWakes.delete(chat);
-      takePendingUsage(chat);
       try {
         // A new chat's engine may still be setting up its tools.
         await setupDone(chat);
@@ -1808,6 +1491,11 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     async setModel(model) {
       const chat = get().activeId;
       if (!client || !chat) return;
+      // After the shell's set-up, which sets the chat's own model: the person's pick wins.
+      if (runtime(chat)?.status === "starting") {
+        await Promise.race([shellSetUp(chat), new Promise((resolve) => setTimeout(resolve, SETUP_WAIT_MS))]);
+      }
+      await setupDone(chat);
       await client.request(chat, "set_model", { provider: model.provider, modelId: model.id });
       if (!useSessionStore.getState().sessions.find((s) => s.id === chat)?.draft) {
         void db.updateChat(chat, { provider: model.provider, model: model.id }).catch(() => undefined);
@@ -1944,9 +1632,8 @@ ${sessions.length === 1 ? "A nested session" : "Nested sessions"} finished a tur
     async request<T>(type: string, payload?: Record<string, unknown>) {
       const chat = get().activeId;
       if (!client || !chat) throw new Error("The engine is not running");
-      const result = await client.request<T>(chat, type, payload);
-      if (PROVIDER_COMMANDS.has(type)) broadcastProviders(chat);
-      return result;
+      // A provider command reaches the other engines through the shell (FR-8).
+      return client.request<T>(chat, type, payload);
     },
 
     async refreshState(chat = get().activeId ?? undefined) {

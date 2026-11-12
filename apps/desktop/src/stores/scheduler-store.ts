@@ -1,21 +1,22 @@
 // Scheduled tasks: a prompt run as a new chat in a folder, on a schedule
-// (`lib/schedule.ts`). Saved in the app database (`scheduler.tasks`). The main
-// window runs them: a check every 20 seconds starts the tasks that are due, and
-// at launch a task missed while evo was closed runs once to catch up. Runs need
-// evo running — the tray icon and Keep awake (Settings → General) let tasks
-// carry on with the window closed or the computer idle.
+// (`lib/schedule.ts`). Saved in the app database (`scheduler.tasks`), which the
+// shell alone writes: it runs due tasks every 20 seconds and, at launch, a task
+// missed while evo was closed once, with or without a window
+// (src-tauri/src/agent_tools/scheduler/run.rs;
+// docs/features/shell-hosted-engines/spec.md, FR-7). This store shows the
+// tasks for the Scheduler page and edits them through the shell, so the page,
+// the agent's tools and the runner never overwrite each other. Runs need evo
+// running — the tray icon and Keep awake (Settings → General) let tasks carry
+// on with the window closed or the computer idle.
 
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { notify } from "@/features/notifications/notify";
 import { db } from "@/lib/db";
-import { describeSchedule, nextRun, type Schedule } from "@/lib/schedule";
-import { useEngineStore } from "./engine-store";
-import { useSessionStore } from "./session-store";
+import type { Schedule } from "@/lib/schedule";
 
 const KEY = "scheduler.tasks";
-const CHECK_MS = 20_000;
-const MAX_RUNS = 30;
 
 export interface TaskRun {
   id: string;
@@ -50,30 +51,33 @@ interface SchedulerStore {
   selectedId: string | null;
   select(id: string | null): void;
   load(): Promise<void>;
-  create(input: TaskInput, createdBy?: ScheduledTask["createdBy"]): Promise<ScheduledTask>;
+  create(input: TaskInput): Promise<ScheduledTask | null>;
   update(id: string, patch: Partial<TaskInput>): Promise<ScheduledTask | null>;
   remove(id: string): Promise<void>;
-  /** Start a run now; the new chat's id. */
-  run(id: string, trigger?: TaskRun["trigger"]): Promise<string | null>;
+  /** Run a task now (the shell starts its chat); the new chat's id. */
+  run(id: string): Promise<string | null>;
 }
 
-const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+const failed = (title: string) => (error: unknown) => {
+  notify({ title, body: String(error), level: "error", source: "scheduler" });
+  return null;
+};
 
-const withNext = (task: ScheduledTask, after = Date.now()): ScheduledTask => ({
-  ...task,
-  nextRunAt: task.enabled ? nextRun(task.schedule, after) : null,
-});
+let listening = false;
 
 export const useSchedulerStore = create<SchedulerStore>()((set, get) => {
-  const save = async (tasks: ScheduledTask[]) => {
-    // Never write before the saved tasks were read: that would drop them.
-    if (!get().loaded) throw new Error("Scheduled tasks are not loaded yet.");
-    set({ tasks });
-    await db.setSetting(KEY, tasks).catch((error) =>
-      notify({ title: "Could not save scheduled tasks", body: String(error), level: "error", source: "scheduler" }),
-    );
-  };
-  const replace = (task: ScheduledTask) => get().tasks.map((t) => (t.id === task.id ? task : t));
+  /** Show what the shell saved. */
+  const put = (task: ScheduledTask) =>
+    set((s) => ({
+      tasks: s.tasks.some((t) => t.id === task.id) ? s.tasks.map((t) => (t.id === task.id ? task : t)) : [...s.tasks, task],
+    }));
+  const save = (task: Partial<TaskInput> & { id?: string }) =>
+    invoke<ScheduledTask>("scheduler_save", { task })
+      .then((saved) => {
+        put(saved);
+        return saved;
+      })
+      .catch(failed("Could not save the scheduled task"));
 
   return {
     tasks: [],
@@ -82,133 +86,32 @@ export const useSchedulerStore = create<SchedulerStore>()((set, get) => {
     select: (selectedId) => set({ selectedId }),
 
     async load() {
-      // A failed read leaves the store unloaded (and throws): saving after it
-      // would replace the saved tasks with an empty list.
+      // The shell changes the tasks (a run, the agent's tools, another
+      // window's page) and says so.
+      if (!listening) {
+        listening = true;
+        void listen("scheduler://changed", () => void useSchedulerStore.getState().load().catch(() => undefined));
+      }
       const settings = await db.settings();
       const saved = Array.isArray(settings[KEY]) ? (settings[KEY] as ScheduledTask[]) : [];
       set({ tasks: saved, loaded: true });
     },
 
-    async create(input, createdBy = "you") {
-      const now = Date.now();
-      const task = withNext({
-        id: newId("task"),
-        name: input.name.trim() || "Untitled task",
-        prompt: input.prompt.trim(),
-        folder: input.folder,
-        schedule: input.schedule,
-        enabled: input.enabled ?? true,
-        createdAt: now,
-        updatedAt: now,
-        createdBy,
-        nextRunAt: null,
-        runs: [],
-      });
-      await save([...get().tasks, task]);
-      return task;
-    },
+    create: (input) => save(input),
 
     async update(id, patch) {
-      const current = get().tasks.find((t) => t.id === id);
-      if (!current) return null;
-      const task = withNext({
-        ...current,
-        ...patch,
-        name: (patch.name ?? current.name).trim() || current.name,
-        prompt: (patch.prompt ?? current.prompt).trim(),
-        updatedAt: Date.now(),
-      });
-      await save(replace(task));
-      return task;
+      if (!get().tasks.some((t) => t.id === id)) return null;
+      return save({ ...patch, id });
     },
 
     async remove(id) {
-      await save(get().tasks.filter((t) => t.id !== id));
-      if (get().selectedId === id) set({ selectedId: null });
+      await invoke("scheduler_delete", { id }).catch(failed("Could not delete the scheduled task"));
+      set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id), selectedId: s.selectedId === id ? null : s.selectedId }));
     },
 
-    async run(id, trigger = "manual") {
-      const task = get().tasks.find((t) => t.id === id);
-      if (!task) return null;
-      const record: TaskRun = { id: newId("run"), at: Date.now(), chatId: null, trigger };
-      try {
-        const workspace = task.folder ? await useSessionStore.getState().ensureWorkspace(task.folder) : null;
-        record.chatId = await useEngineStore
-          .getState()
-          .startTaskChat({ workspaceId: workspace?.id ?? null, title: task.name, prompt: task.prompt });
-        if (!record.chatId) record.error = "The chat could not be started.";
-      } catch (error) {
-        record.error = error instanceof Error ? error.message : String(error);
-      }
-      // A one-time task is done once it ran on schedule.
-      const finished = task.schedule.kind === "once" && trigger !== "manual";
-      const latest = get().tasks.find((t) => t.id === id) ?? task;
-      await save(
-        replace(
-          withNext({
-            ...latest,
-            enabled: finished ? false : latest.enabled,
-            runs: [record, ...latest.runs].slice(0, MAX_RUNS),
-          }),
-        ),
-      );
-      notify({
-        title: record.error ? `“${task.name}” could not run` : `Running “${task.name}”`,
-        body: record.error ?? (trigger === "missed" ? "Missed while evo was closed; running now." : describeSchedule(task.schedule)),
-        level: record.error ? "error" : "info",
-        source: "scheduler",
-        key: `scheduler:${task.id}`,
-        target: record.chatId ? { type: "session", id: record.chatId } : undefined,
-      });
-      return record.chatId;
+    async run(id) {
+      // The shell records the run and says how it went (bell and notification).
+      return invoke<string | null>("scheduler_run_now", { id }).catch(failed("Could not run the scheduled task"));
     },
   };
 });
-
-/** Whether the task's last run is still working (so a new one waits). */
-function lastRunBusy(task: ScheduledTask): boolean {
-  const chatId = task.runs[0]?.chatId;
-  if (!chatId) return false;
-  const engine = useEngineStore.getState();
-  return Boolean(engine.runtimes[chatId]?.transcript.busy || engine.busyElsewhere[chatId]);
-}
-
-let timer: ReturnType<typeof setInterval> | undefined;
-let listening = false;
-
-/** Run due tasks from now on (main window only). */
-export async function startScheduler() {
-  if (timer) return;
-  const store = useSchedulerStore.getState();
-  try {
-    await store.load();
-  } catch {
-    // The app database was not ready: try again shortly.
-    setTimeout(() => void startScheduler(), 10_000);
-    return;
-  }
-  // The shell's scheduler tools (the agent creating, changing or deleting a task)
-  // write the tasks themselves and say so: read them again so the page and the
-  // timers below see the change, and our next save does not undo it.
-  if (!listening) {
-    listening = true;
-    void listen("scheduler://changed", () => void useSchedulerStore.getState().load().catch(() => undefined));
-  }
-  const now = Date.now();
-  // Missed while closed: run once to catch up, then go on from now.
-  for (const task of useSchedulerStore.getState().tasks) {
-    if (task.enabled && task.nextRunAt !== null && task.nextRunAt < now) void store.run(task.id, "missed");
-  }
-  timer = setInterval(() => {
-    const at = Date.now();
-    for (const task of useSchedulerStore.getState().tasks) {
-      if (!task.enabled || task.nextRunAt === null || task.nextRunAt > at) continue;
-      if (lastRunBusy(task)) {
-        // Still working on the last run: skip this one.
-        void useSchedulerStore.getState().update(task.id, {});
-        continue;
-      }
-      void useSchedulerStore.getState().run(task.id, "schedule");
-    }
-  }, CHECK_MS);
-}

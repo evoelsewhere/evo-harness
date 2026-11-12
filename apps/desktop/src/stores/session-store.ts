@@ -6,6 +6,7 @@
 // engine (and an id) but no row yet, so chats that were never used leave
 // nothing behind.
 
+import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { db, log, type DbChat, type DbWorkspace, type TurnRecord } from "@/lib/db";
@@ -32,6 +33,28 @@ export const UNTITLED = "New chat";
 export const INCOGNITO_TITLE = "Incognito chat";
 export const LOCAL_GROUP = "local";
 
+/**
+ * A chat whose engine works or waits for the person, as the shell sees it,
+ * with or without a window (`engine_working`, `app://working`;
+ * docs/features/shell-hosted-engines/spec.md, NFR-5, FR-12).
+ */
+export type ChatWork = "working" | "waiting";
+export interface WorkingChat {
+  chat: string;
+  title: string;
+  state: ChatWork;
+}
+const WORK_CHANGED = "app://working";
+
+/** The shell's list of working and waiting chats, by chat id. */
+export function workByChat(list: readonly WorkingChat[] | null | undefined): Record<string, ChatWork> {
+  const work: Record<string, ChatWork> = {};
+  for (const item of list ?? []) {
+    if (item.state === "working" || item.state === "waiting") work[item.chat] = item.state;
+  }
+  return work;
+}
+
 const LAST_CHAT_KEY = "ui.lastChat";
 const LOCAL_COLLAPSED_KEY = "sidebar.localCollapsed";
 
@@ -47,6 +70,11 @@ interface SessionStore {
   lastChatId: string | null;
   /** Workspace ids (and "local") whose chat list is collapsed. */
   collapsed: string[];
+  /**
+   * Chats that work or wait for the person in the shell, also those no window
+   * holds (NFR-5): the sidebar shows them working. Kept current by the shell.
+   */
+  work: Record<string, ChatWork>;
 
   load(): Promise<void>;
   ensureWorkspace(path: string): Promise<Workspace>;
@@ -72,7 +100,6 @@ interface SessionStore {
   /** Move a chat to another workspace (`null`: "This computer"). */
   move(id: string, workspaceId: string | null): Promise<void>;
   /** Save a chat a scheduled task starts: top level, in the task's folder. */
-  createTaskChat(chat: { id: string; workspaceId: string | null; title: string }): Promise<SessionSummary | null>;
   /** Save a chat started by another chat's agent (nested sessions), without showing it. */
   createChild(chat: {
     id: string;
@@ -137,12 +164,32 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
     currentId: null,
     lastChatId: null,
     collapsed: [],
+    work: {},
 
     async load() {
       if (inTauri && !syncing) {
         syncing = true;
+        // What works with no window, now and as it changes (NFR-5); a change
+        // heard first is newer than the list read.
+        let heard = false;
+        void listen<{ chats: WorkingChat[] }>(WORK_CHANGED, ({ payload }) => {
+          heard = true;
+          set({ work: workByChat(payload.chats) });
+        });
+        void invoke<WorkingChat[]>("engine_working")
+          .then((list) => {
+            if (!heard) set({ work: workByChat(list) });
+          })
+          .catch(report("reading the working chats"));
         void listen<{ from: string; chat: DbChat }>(CHAT_UPDATED, ({ payload }) => {
-          if (payload.from !== WINDOW_TOKEN) apply(payload.chat, false);
+          if (payload.from === WINDOW_TOKEN) return;
+          // The shell made the chat in a folder that became a workspace just
+          // now (a scheduled task's run): read the workspaces again.
+          const workspace = payload.chat.workspaceId;
+          if (workspace && !get().workspaces.some((w) => w.id === workspace)) {
+            void db.workspaces().then((workspaces) => set({ workspaces })).catch(report("reading the workspaces"));
+          }
+          apply(payload.chat, false);
         });
         void listen<{ from: string; id: string }>(CHAT_REMOVED, ({ payload }) => {
           if (payload.from === WINDOW_TOKEN) return;
@@ -330,15 +377,6 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
       if (!chat || chat.draft || chat.workspaceId === workspaceId) return;
       set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, workspaceId } : x)) }));
       apply(await db.moveChat(id, workspaceId).catch(report("moving the chat")) ?? null);
-    },
-
-    async createTaskChat({ id, workspaceId, title }) {
-      const chat = await db.createChat({ id, workspaceId, title: titleFrom(title), scheduled: true }).catch((error) => {
-        report("saving the scheduled chat")(error);
-        return null;
-      });
-      apply(chat);
-      return chat;
     },
 
     async createChild({ id, parentChatId, workspaceId, title, worktreePath = null }) {

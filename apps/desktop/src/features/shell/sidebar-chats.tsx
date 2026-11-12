@@ -135,10 +135,18 @@ function RenameInput({ chat, onDone }: { chat: SessionSummary; onDone(): void })
   );
 }
 
-/** One chat row: right-click (or "…") for its actions; the title shimmers while it runs. */
+/**
+ * One chat row: right-click (or "…") for its actions; the title shimmers while
+ * it runs. A chat the shell runs with no window shows as working or waiting too
+ * (docs/features/shell-hosted-engines/spec.md, NFR-5).
+ */
 export function ChatItem({ chat, active }: { chat: SessionSummary; active: boolean }) {
-  const busy = useEngineStore((s) => Boolean(s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id]));
-  const waiting = useEngineStore((s) => Boolean(s.runtimes[chat.id]?.transcript.turns.at(-1)?.permission));
+  const shellWork = useSessionStore((s) => s.work[chat.id]);
+  const busy =
+    useEngineStore((s) => Boolean(s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id])) ||
+    shellWork === "working";
+  const asking = useEngineStore((s) => Boolean(s.runtimes[chat.id]?.transcript.turns.at(-1)?.permission));
+  const waiting = asking || shellWork === "waiting";
   const failed = useEngineStore((s) => s.runtimes[chat.id]?.status === "exited");
   const { selectSession, closeChat } = useEngineStore.getState();
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -168,7 +176,7 @@ export function ChatItem({ chat, active }: { chat: SessionSummary; active: boole
 
   // A run that waits for an approval is still running: the amber dot wins.
   const status = waiting ? (
-    <StatusDot tone="warn" pulse label="Waiting for approval" />
+    <StatusDot tone="warn" pulse label={asking ? "Waiting for approval" : "Waiting for you"} />
   ) : busy ? (
     <Spinner className="size-3.5 text-muted-foreground" aria-label="Running" />
   ) : failed ? (
@@ -283,11 +291,18 @@ function childrenByParent(sessions: SessionSummary[]): Map<string, SessionSummar
  */
 function NestedChats({ parentId, currentId }: { parentId: string; currentId: string | null }) {
   const children = useSessionStore(useShallow((s) => childrenByParent(s.sessions).get(parentId) ?? NO_CHILDREN));
+  // Working with no window counts too (NFR-5).
+  const work = useSessionStore((s) => s.work);
   const attention = useEngineStore((s) => {
     const marks: Record<string, number> = {};
     for (const child of children) {
       const rt = s.runtimes[child.id];
-      marks[child.id] = rt?.transcript.turns.at(-1)?.permission ? 3 : rt?.transcript.busy || s.busyElsewhere[child.id] ? 2 : 0;
+      marks[child.id] =
+        rt?.transcript.turns.at(-1)?.permission || work[child.id] === "waiting"
+          ? 3
+          : rt?.transcript.busy || s.busyElsewhere[child.id] || work[child.id] === "working"
+            ? 2
+            : 0;
     }
     return JSON.stringify(marks);
   });
@@ -372,8 +387,9 @@ export function WorkspaceGroup({
   // its chats, and chats running in another window.
   const index = useSessionStore((s) => childrenByParent(s.sessions));
   const family = chats.flatMap((chat) => [chat, ...(index.get(chat.id) ?? NO_CHILDREN)]);
+  const work = useSessionStore((s) => s.work);
   const running = useEngineStore((s) =>
-    family.some((chat) => s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id]),
+    family.some((chat) => s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id] || work[chat.id]),
   );
   const unread = family.some((s) => s.unread);
   const [confirmRemove, setConfirmRemove] = React.useState(false);
