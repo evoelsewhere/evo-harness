@@ -2,6 +2,7 @@ import * as React from "react";
 import { ArrowUpRightIcon, MessagesSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ToolPart } from "@/features/chat/transcript";
+import { roleLabel, type SessionRole } from "@/lib/db";
 import { chatWindowId } from "@/lib/windows";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -13,7 +14,8 @@ import { useUiStore } from "@/stores/ui-store";
 // (`details.externalToolResult.structuredContent`) and its brief in the call's
 // arguments, so the card survives a reload. The shell's mesh hub keeps what
 // became of a proposal (started once, or dismissed); the outcome is also kept
-// here, so the card draws without asking it.
+// here, so the card draws without asking it. A session started with a role
+// shows it on the card (docs/features/session-roles-and-mail/spec.md, FR-3).
 
 interface Proposal {
   status: "proposed" | "started";
@@ -24,7 +26,22 @@ interface Proposal {
   prompt?: string;
   context?: "fresh" | "fork";
   worktree?: boolean;
+  /** The role it runs as, resolved by the parent's engine (session-roles-and-mail FR-1, FR-3). */
+  role?: SessionRole | null;
+  /** Its worktree's branch name (FR-9). */
+  branch?: string | null;
 }
+
+/** What a role is, for a tooltip: its type, where it came from, model and access. */
+export const roleTitle = (role: SessionRole): string =>
+  [
+    role.name ? `Agent type ${role.name}${role.source ? ` (${role.source}${role.sourcePath ? `: ${role.sourcePath}` : ""})` : ""}` : null,
+    role.model ? `model ${role.provider ? `${role.provider}/` : ""}${role.model}` : null,
+    role.thinking ? `thinking ${role.thinking}` : null,
+    role.access === "read-only" ? "read-only: cannot change files" : "full access",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
 export const proposalOf = (part: ToolPart): Proposal | undefined => {
   // A refused call (`isError`) proposed nothing.
@@ -91,7 +108,14 @@ export function SessionProposal({ part }: { part: ToolPart }) {
     setError(null);
     const id = await startChildSession(
       chat,
-      { title: proposal.title, prompt: brief, context: proposal.context, worktree: proposal.worktree },
+      {
+        title: proposal.title,
+        prompt: brief,
+        context: proposal.context,
+        worktree: proposal.worktree,
+        role: proposal.role,
+        branch: proposal.branch,
+      },
       proposal.proposalId,
     )
       .catch((error: unknown) => {
@@ -121,9 +145,14 @@ export function SessionProposal({ part }: { part: ToolPart }) {
               : dismissed
                 ? "Dismissed"
                 : `Proposed session${proposal.context === "fork" ? " · forks this conversation" : ""}${
-                    proposal.worktree ? " · in its own worktree" : ""
+                    proposal.worktree ? ` · in its own worktree${proposal.branch ? ` (evo/${proposal.branch})` : ""}` : ""
                   }`}
           </p>
+          {proposal.role && (
+            <p className="text-xs text-muted-foreground" title={roleTitle(proposal.role)}>
+              Runs as {roleLabel(proposal.role)}
+            </p>
+          )}
         </div>
       </div>
       <button

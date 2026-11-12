@@ -1,7 +1,9 @@
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
+  BotIcon,
   ChevronDownIcon,
+  EyeIcon,
   ChevronRightIcon,
   FolderOpenIcon,
   FolderIcon,
@@ -9,7 +11,9 @@ import {
   GitBranchIcon,
   LaptopIcon,
 } from "lucide-react";
+import { roleTitle } from "@/components/ai-elements/session-proposal";
 import { WorktreeReview } from "@/components/ai-elements/worktree-review";
+import { worktrees } from "@/lib/worktrees";
 import { SidePanelIcon, SummaryIcon } from "@/components/icons/tool-icons";
 import { ContextPanel } from "@/features/chat/context-panel";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,32 @@ import { NotificationCenter } from "@/features/notifications/notification-center
 import { OpenInMenu } from "./open-in-menu";
 import { WindowControls } from "./window-controls";
 
+const normalPath = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+const samePath = (a: string, b: string) => normalPath(a) === normalPath(b);
+
+/**
+ * The branch of the managed worktree at `path` (`evo/<name>` when the agent
+ * named it: docs/features/session-roles-and-mail/spec.md, FR-9).
+ */
+function useWorktreeBranch(repo: string | undefined, path: string | undefined): string | undefined {
+  const [branch, setBranch] = React.useState<string | undefined>();
+  React.useEffect(() => {
+    setBranch(undefined);
+    if (!repo || !path || !inTauri) return;
+    let live = true;
+    worktrees
+      .list(repo)
+      .then((list) => {
+        if (live) setBranch(list.find((w) => samePath(w.path, path))?.branch);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [repo, path]);
+  return branch;
+}
+
 /**
  * A chat working in a worktree: review its changes, apply or discard them.
  * The chat's engine has its folder there, so it is stopped before the
@@ -46,6 +76,7 @@ function WorktreeChip() {
   const workspace = useSessionStore((s) => s.workspaces.find((w) => w.id === chat?.workspaceId));
   const session = useWorktreeSession(chat?.worktreePath ? chat.id : undefined);
   const [open, setOpen] = React.useState(false);
+  const branch = useWorktreeBranch(workspace?.path, chat?.worktreePath ?? undefined);
   const id = chat?.id;
   // The chat left the screen with its review open: its engine starts again.
   React.useEffect(() => {
@@ -60,11 +91,11 @@ function WorktreeChip() {
         variant="ghost"
         size="sm"
         className="no-drag min-w-0 gap-1.5 text-muted-foreground"
-        title={`Works in the worktree ${chat.worktreePath}`}
+        title={`Works in the worktree ${chat.worktreePath}${branch ? ` on the branch ${branch}` : ""}`}
         onClick={() => setOpen(true)}
       >
         <GitBranchIcon />
-        <span className="max-w-40 truncate">Worktree {name}</span>
+        <span className="max-w-40 truncate">{branch ?? `Worktree ${name}`}</span>
       </Button>
       <WorktreeReview
         open={open}
@@ -74,11 +105,36 @@ function WorktreeChip() {
         }}
         repo={workspace.path}
         path={chat.worktreePath}
+        branch={branch}
         busy={session.busy}
         beforeSettle={session.beforeSettle}
         onSettled={session.onSettled}
       />
     </>
+  );
+}
+
+/**
+ * A nested session that runs as a role: its agent type, model, thinking and
+ * access, with where the type came from in the tooltip
+ * (docs/features/session-roles-and-mail/spec.md, FR-3, NFR-4).
+ */
+function RoleChip() {
+  const role = useSessionStore((s) => s.sessions.find((x) => x.id === s.currentId)?.role);
+  if (!role) return null;
+  const hint = `Runs as a role: ${roleTitle(role)}`;
+  // The name only (read-only shows as the eye); the rest is in the tooltip,
+  // so the session's own title keeps its room.
+  const label = role.name ?? role.model ?? "role";
+  return (
+    <span
+      className="flex min-w-0 shrink-[2] items-center gap-1.5 px-2 text-sm text-muted-foreground"
+      title={hint}
+      aria-label={hint}
+    >
+      {role.access === "read-only" ? <EyeIcon className="size-4 shrink-0" /> : <BotIcon className="size-4 shrink-0" />}
+      <span className="max-w-32 truncate">{label}</span>
+    </span>
   );
 }
 
@@ -133,7 +189,7 @@ function ParentCrumb() {
         </Button>
       )}
       <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="max-w-48 truncate px-2 font-medium" title={child.title}>
+      <span className="max-w-48 min-w-12 truncate px-2 font-medium" title={child.title}>
         {child.title}
       </span>
     </span>
@@ -285,6 +341,7 @@ export function WorkspaceToolbar() {
       <WorkspaceSwitcher />
       <IncognitoChip />
       <ParentCrumb />
+      <RoleChip />
       <WorktreeChip />
       <div className="min-w-4 flex-1" />
 
