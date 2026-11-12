@@ -62,6 +62,19 @@ export interface ChatPanels {
  */
 export const worktreeKey = (path: string): string => path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
+/**
+ * The app setting with the sidebar items the person showed or hid
+ * (`{ [item id]: shown }`); an item not in it follows its default
+ * (docs/features/sidebar-items/spec.md, FR-5).
+ */
+export const SIDEBAR_ITEMS_KEY = "ui.sidebar.items";
+
+/** A saved `ui.sidebar.items` value: anything but an object of booleans counts as no choice. */
+export function parseSidebarShown(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
+}
+
 export const SIDEBAR_WIDTH ={ min: 220, default: 272, max: 420 } as const;
 export const SIDE_PANEL_WIDTH = { min: 300, default: 440 } as const;
 
@@ -112,6 +125,12 @@ interface UiStore {
   openUsage(): void;
   customizeSection: CustomizeSection;
   openCustomize(section?: CustomizeSection): void;
+  /** Sidebar items the person showed (true) or hid (false); the rest follow their default. */
+  sidebarShown: Record<string, boolean>;
+  /** Read `ui.sidebar.items` (once per window). */
+  loadSidebarItems(): Promise<void>;
+  /** Show or hide a sidebar item; applies at once and is saved. */
+  setSidebarShown(id: string, shown: boolean): void;
   closeCustomize(): void;
   /**
    * The approval mode: the app setting `approvalMode`, which every engine
@@ -210,6 +229,21 @@ export const useUiStore = create<UiStore>()(
       openUsage: () =>
         set({ usageOpen: true, schedulerOpen: false, customizeOpen: false, settingsOpen: false, commandOpen: false }),
       customizeSection: "skills",
+      sidebarShown: {},
+      loadSidebarItems: async () => {
+        try {
+          set({ sidebarShown: parseSidebarShown((await db.settings())[SIDEBAR_ITEMS_KEY]) });
+        } catch (error) {
+          log("warn", "ui", `could not read the sidebar items: ${String(error)}`);
+        }
+      },
+      setSidebarShown: (id, shown) => {
+        const sidebarShown = { ...get().sidebarShown, [id]: shown };
+        set({ sidebarShown });
+        void db
+          .setSetting(SIDEBAR_ITEMS_KEY, sidebarShown)
+          .catch((error) => log("error", "ui", `could not save the sidebar items: ${String(error)}`));
+      },
       chatConnectorsOff: {},
       setChatConnectorOff: (chat, key, off) =>
         set((s) => {

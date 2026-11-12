@@ -1,8 +1,15 @@
+import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { PluginsIcon, SchedulerIcon, UsageIcon } from "@/components/icons/tool-icons";
-import { FolderPlusIcon, MoonIcon, SearchIcon, SettingsIcon, SquarePenIcon, SunIcon } from "lucide-react";
+import { FolderPlusIcon, MoonIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquarePenIcon, SunIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import {
   Sidebar,
@@ -24,6 +31,8 @@ import { useEngineStore } from "@/stores/engine-store";
 import { LOCAL_GROUP, useSessionStore, type SessionSummary } from "@/stores/session-store";
 import { ArchivedGroup, ChatList, WorkspaceGroup } from "./sidebar-chats";
 import { useUiStore } from "@/stores/ui-store";
+import { EditSidebarDialog } from "./edit-sidebar-dialog";
+import { SIDEBAR_ITEMS, isShown } from "./sidebar-items";
 import { SidebarResizer } from "./sidebar-resizer";
 import { TitleBarActions } from "./title-bar";
 
@@ -70,10 +79,17 @@ export function AppSidebar() {
   const openWorkspace = useEngineStore((s) => s.openWorkspace);
   const setCommandOpen = useUiStore((s) => s.setCommandOpen);
   const openSettings = useUiStore((s) => s.openSettings);
-  const customizeOpen = useUiStore((s) => s.customizeOpen);
-  const schedulerOpen = useUiStore((s) => s.schedulerOpen);
-  const usageOpen = useUiStore((s) => s.usageOpen);
   const { resolved, setTheme } = useTheme();
+  // Page rows: the items the person shows; the others are in More (docs/features/sidebar-items/spec.md).
+  const saved = useUiStore((s) => s.sidebarShown);
+  const activeId = useUiStore((s) => SIDEBAR_ITEMS.find((item) => item.isActive(s))?.id ?? null);
+  const [editOpen, setEditOpen] = React.useState(false);
+  React.useEffect(() => {
+    void useUiStore.getState().loadSidebarItems();
+  }, []);
+  const shown = SIDEBAR_ITEMS.filter((item) => isShown(item, saved));
+  const hidden = SIDEBAR_ITEMS.filter((item) => !isShown(item, saved));
+  const hiddenActive = hidden.some((item) => item.id === activeId);
 
   const byUpdated = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt;
   // Nested sessions show under their parent; at the top level only when it is
@@ -116,37 +132,36 @@ export function AppSidebar() {
             </SidebarMenuButton>
             <SidebarMenuBadge className="font-normal text-muted-foreground">{modKey} N</SidebarMenuBadge>
           </SidebarMenuItem>
+          {shown.map((item) => (
+            <SidebarMenuItem key={item.id}>
+              <SidebarMenuButton onClick={item.open} isActive={activeId === item.id} className="h-7 text-[13px]">
+                <item.icon />
+                <span>{item.label}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
           <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => useUiStore.getState().openScheduler()}
-              isActive={schedulerOpen}
-              className="h-7 text-[13px]"
-            >
-              <SchedulerIcon />
-              <span>Scheduler</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => useUiStore.getState().openUsage()}
-              isActive={usageOpen}
-              className="h-7 text-[13px]"
-            >
-              <UsageIcon />
-              <span>Usage</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => useUiStore.getState().openCustomize()}
-              isActive={customizeOpen}
-              className="h-7 text-[13px]"
-            >
-              <PluginsIcon />
-              <span>Customize</span>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<SidebarMenuButton isActive={hiddenActive} className="h-7 text-[13px] aria-expanded:bg-sidebar-accent" />}
+              >
+                <MoreHorizontalIcon />
+                <span>More</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="right" className="w-48">
+                {hidden.map((item) => (
+                  <DropdownMenuItem key={item.id} onClick={item.open}>
+                    <item.icon />
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+                {hidden.length > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>Edit sidebar…</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
+        <EditSidebarDialog open={editOpen} onOpenChange={setEditOpen} />
       </SidebarHeader>
 
       <SidebarContent className="gap-0">
