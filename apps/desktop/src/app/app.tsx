@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { chatWindowId } from "@/lib/windows";
 import { SIDE_PANEL_WIDTH, useUiStore } from "@/stores/ui-store";
 import { MacMenu } from "@/features/shell/mac-menu";
+import { QuitDialog } from "@/features/shell/quit-dialog";
 import { useAppBootstrap, useAppHotkeys } from "./use-app-bootstrap";
 import { CustomizePage } from "@/features/customize/customize-page";
 import { SchedulerPage } from "@/features/scheduler/scheduler-page";
@@ -233,6 +234,8 @@ export function App() {
       </SidebarInset>
       <CommandPalette />
       <SettingsDialog />
+      {/* "N chats are working. Quit anyway?" in whichever window the shell asks (FR-11). */}
+      <QuitDialog />
       {!solo && <UpdatesHost />}
       <MacMenu />
       <Toaster />
