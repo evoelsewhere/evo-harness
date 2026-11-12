@@ -25,6 +25,8 @@ consequences and the alternatives rejected. The
 | [0015](0015-agent-drives-desktop-apps-in-the-background-only.md) | The shell drives other desktop apps in the background only, never with the person's input | Accepted | 2026-11-09 |
 | [0016](0016-memory-indexing-runs-in-a-short-lived-engine-process.md) | Memory indexing runs in a short-lived engine process the shell starts for idle chats | Accepted | 2026-11-10 |
 | [0017](0017-app-updates-from-signed-github-releases.md) | The app updates itself from signed GitHub releases | Accepted | 2026-11-10 |
+| [0019](0019-read-only-agents-run-under-an-os-write-restriction.md) | Read-only agents' shell commands run under an operating-system write restriction | Superseded by [0020](0020-read-only-agents-stay-guarded-by-the-command-checker.md) | 2026-11-11 |
+| [0020](0020-read-only-agents-stay-guarded-by-the-command-checker.md) | Read-only agents stay guarded by the command checker; no operating-system write restriction | Accepted | 2026-11-11 |
 
 ## Rules
 
