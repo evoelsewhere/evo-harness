@@ -16,9 +16,12 @@
 //! You review code changes. Report bugs with file:line and a fix …
 //! ```
 //!
-//! Found in `<cwd>/.evo/agents/*.md` (project) and `~/.evo/agent/agents/*.md`
-//! (user); a project type wins over a user type of the same name, both win
-//! over the built-in `general`, `explore` and `plan`.
+//! Found in `<cwd>/.evo/agents/*.md` (project), the folders a trusted
+//! project's settings list in `agentDirs`, `~/.evo/agent/agents/*.md` (user)
+//! and the folders the user's settings list in `agentDirs`, in that order
+//! (docs/features/session-roles-and-mail/spec.md, FR-11); the first type of a
+//! name wins, and every folder wins over the built-in `general`, `explore`
+//! and `plan`. Each type records where it came from ([`AgentType::origin`]).
 //!
 //! `access: read-only` is enforced, not just asked for: the child's tool calls
 //! go through [`crate::read_only::guard`], which refuses file writes, tools
@@ -50,6 +53,9 @@ pub struct AgentType {
     pub prompt: String,
     /// The file it came from; `None` for built-ins.
     pub source: Option<PathBuf>,
+    /// Which folder it came from: `project`, `projectDir`, `user`, `userDir`,
+    /// `plugin` or `builtin`.
+    pub origin: &'static str,
 }
 
 pub const DEFAULT_TYPE: &str = "general";
@@ -134,6 +140,7 @@ pub fn builtin() -> Vec<AgentType> {
         max_turns: None,
         prompt: prompt.into(),
         source: None,
+        origin: "builtin",
     };
     vec![
         AgentType {
@@ -173,9 +180,60 @@ pub fn builtin() -> Vec<AgentType> {
 
 /// The agent folders for `cwd`, project first.
 pub fn dirs(cwd: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![cwd.join(".evo").join("agents")];
-    if let Ok(agent) = crate::config::agent_dir() {
-        dirs.push(agent.join("agents"));
+    sourced_dirs(cwd).into_iter().map(|(dir, _)| dir).collect()
+}
+
+/// The agent folders for `cwd` with where each comes from, in load order.
+pub fn sourced_dirs(cwd: &Path) -> Vec<(PathBuf, &'static str)> {
+    let trusted = crate::config::project_trust_decision(cwd)
+        .ok()
+        .flatten()
+        .unwrap_or(true);
+    let project: Vec<_> = crate::settings::load_project_settings_with_paths(cwd)
+        .into_iter()
+        .map(|(_, settings)| settings)
+        .collect();
+    let user = crate::settings::load_settings().ok();
+    let agent_dir = crate::config::agent_dir().ok();
+    folders(cwd, trusted, &project, user.as_ref(), agent_dir.as_deref())
+}
+
+/// [`sourced_dirs`] from what was read: the project folder, the project's
+/// `agentDirs` (relative to the project, only when it is `trusted`), the
+/// user folder, the user's `agentDirs` (relative to the agent dir).
+fn folders(
+    cwd: &Path,
+    trusted: bool,
+    project: &[crate::settings::Settings],
+    user: Option<&crate::settings::Settings>,
+    agent_dir: Option<&Path>,
+) -> Vec<(PathBuf, &'static str)> {
+    let configured = |settings: &crate::settings::Settings, base: &Path| {
+        settings
+            .agent_dirs
+            .as_deref()
+            .map(|paths| crate::settings::resolve_configured_paths(base, paths))
+            .unwrap_or_default()
+    };
+    let mut dirs = vec![(cwd.join(".evo").join("agents"), "project")];
+    if trusted {
+        for settings in project {
+            dirs.extend(
+                configured(settings, cwd)
+                    .into_iter()
+                    .map(|d| (d, "projectDir")),
+            );
+        }
+    }
+    if let Some(agent_dir) = agent_dir {
+        dirs.push((agent_dir.join("agents"), "user"));
+        if let Some(settings) = user {
+            dirs.extend(
+                configured(settings, agent_dir)
+                    .into_iter()
+                    .map(|d| (d, "userDir")),
+            );
+        }
     }
     dirs
 }
@@ -194,12 +252,13 @@ fn evo_tool_name(name: &str) -> String {
 
 /// Every agent type for `cwd`: project, user, then built-in; first name wins.
 pub fn load(cwd: &Path) -> Vec<AgentType> {
-    let mut types = load_from(&dirs(cwd));
+    let mut types = load_sourced(&sourced_dirs(cwd));
     // Enabled plugins' agent types, named `plugin:name`.
     for (plugin, file) in crate::plugins::agent_files() {
         match parse(&file) {
             Ok(mut agent) => {
                 agent.name = format!("{plugin}:{}", agent.name);
+                agent.origin = "plugin";
                 if !types.iter().any(|t| t.name == agent.name) {
                     types.push(agent);
                 }
@@ -211,8 +270,14 @@ pub fn load(cwd: &Path) -> Vec<AgentType> {
 }
 
 pub fn load_from(dirs: &[PathBuf]) -> Vec<AgentType> {
+    let sourced: Vec<_> = dirs.iter().map(|dir| (dir.clone(), "user")).collect();
+    load_sourced(&sourced)
+}
+
+/// Every type in `dirs` (first name wins), then the built-ins.
+fn load_sourced(dirs: &[(PathBuf, &'static str)]) -> Vec<AgentType> {
     let mut types: Vec<AgentType> = Vec::new();
-    for dir in dirs {
+    for (dir, origin) in dirs {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
         };
@@ -224,7 +289,10 @@ pub fn load_from(dirs: &[PathBuf]) -> Vec<AgentType> {
         files.sort();
         for file in files {
             match parse(&file) {
-                Ok(agent) if !types.iter().any(|t| t.name == agent.name) => types.push(agent),
+                Ok(mut agent) if !types.iter().any(|t| t.name == agent.name) => {
+                    agent.origin = origin;
+                    types.push(agent)
+                }
                 Ok(_) => {}
                 Err(error) => tracing::warn!("skipping agent type {}: {error}", file.display()),
             }
@@ -350,6 +418,8 @@ pub fn parse(file: &Path) -> Result<AgentType, String> {
         max_turns,
         prompt,
         source: Some(file.to_path_buf()),
+        // Set by the loader from the folder it read.
+        origin: "user",
     })
 }
 
@@ -360,6 +430,74 @@ mod tests {
     fn write(dir: &Path, name: &str, text: &str) {
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(dir.join(name), text).unwrap();
+    }
+
+    fn settings(json: &str) -> crate::settings::Settings {
+        serde_json::from_str(json).unwrap()
+    }
+
+    // docs/features/session-roles-and-mail/spec.md (FR-11).
+    #[test]
+    fn agent_dirs_load_in_order_relative_to_their_owner() {
+        let cwd = Path::new("/work");
+        let agent_dir = Path::new("/home/u/.evo/agent");
+        let project = [settings(r#"{"agentDirs": ["team/roles", "/abs/roles"]}"#)];
+        let user = settings(r#"{"agents": ["mine"]}"#);
+        let dirs = folders(cwd, true, &project, Some(&user), Some(agent_dir));
+        let found: Vec<(String, &str)> = dirs
+            .iter()
+            .map(|(dir, origin)| (dir.to_string_lossy().replace('\\', "/"), *origin))
+            .collect();
+        assert_eq!(found[0], ("/work/.evo/agents".into(), "project"));
+        assert_eq!(found[1], ("/work/team/roles".into(), "projectDir"));
+        assert!(
+            found[2].0.ends_with("/abs/roles") && found[2].1 == "projectDir",
+            "{found:?}"
+        );
+        assert_eq!(found[3], ("/home/u/.evo/agent/agents".into(), "user"));
+        assert_eq!(found[4], ("/home/u/.evo/agent/mine".into(), "userDir"));
+        assert_eq!(found.len(), 5);
+    }
+
+    #[test]
+    fn agent_dirs_of_an_untrusted_project_are_ignored() {
+        let project = [settings(r#"{"agentDirs": ["team/roles"]}"#)];
+        let dirs = folders(Path::new("/work"), false, &project, None, None);
+        let origins: Vec<_> = dirs.iter().map(|(_, origin)| *origin).collect();
+        assert_eq!(origins, ["project"], "only the project's own folder");
+    }
+
+    #[test]
+    fn agent_dirs_types_record_their_origin() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let shared = root.path().join("shared");
+        write(
+            &project,
+            "reviewer.md",
+            "---\ndescription: Project reviewer.\n---\nP.\n",
+        );
+        write(
+            &shared,
+            "reviewer.md",
+            "---\ndescription: Shared reviewer.\n---\nS.\n",
+        );
+        write(
+            &shared,
+            "planner.md",
+            "---\ndescription: Shared planner.\n---\nS.\n",
+        );
+        let types = load_sourced(&[(project, "project"), (shared, "projectDir")]);
+        let find = |name: &str| types.iter().find(|t| t.name == name).unwrap();
+        assert_eq!(
+            (
+                find("reviewer").origin,
+                find("reviewer").description.as_str()
+            ),
+            ("project", "Project reviewer.")
+        );
+        assert_eq!(find("planner").origin, "projectDir");
+        assert_eq!(find("explore").origin, "builtin");
     }
 
     #[test]

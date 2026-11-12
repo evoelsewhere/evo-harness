@@ -461,6 +461,8 @@ pub fn describe(cwd: &Path, skills: &[Skill], templates: &[PromptTemplate]) -> V
                 "path": path,
                 "scope": scope,
                 "origin": family,
+                // The folder it came from (session-roles-and-mail FR-11).
+                "source": agent.origin,
                 "content": truncate(&agent.prompt, 40_000),
             })
         })

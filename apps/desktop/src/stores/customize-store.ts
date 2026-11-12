@@ -63,6 +63,12 @@ export interface AgentInfo {
   origin: "evo" | "agents" | "package" | "plugin";
   plugin?: string | null;
   content: string;
+  /**
+   * The folder it came from: `project`, `projectDir` (a folder the project's
+   * `agentDirs` lists), `user`, `userDir`, `plugin` or `builtin`
+   * (docs/features/session-roles-and-mail/spec.md, FR-11).
+   */
+  source?: string;
 }
 
 export interface Customizations {

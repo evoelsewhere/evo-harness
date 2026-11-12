@@ -76,9 +76,12 @@ const stateOptions: { id: SkillState; label: string; hint: string }[] = [
   { id: "off", label: "Off", hint: "Not loaded" },
 ];
 
-function sourceLabel(item: { scope: string; origin: string; plugin?: string | null }) {
+function sourceLabel(item: { scope: string; origin: string; plugin?: string | null; source?: string }) {
   if (item.scope === "builtin") return "Built-in";
   if (item.plugin) return `Plugin · ${item.plugin}`;
+  // An agent type from a folder the settings' `agentDirs` lists.
+  if (item.source === "projectDir") return "Project · agentDirs";
+  if (item.source === "userDir") return "Personal · agentDirs";
   if (item.origin === "package") return "Package";
   const where = item.scope === "project" ? "Project" : "Personal";
   return item.origin === "agents" ? `${where} · .agents` : where;
@@ -667,7 +670,7 @@ function AgentsSection({ query, scope }: { query: string; scope: Scope }) {
   const current = agents.find((agent) => agent.name === selected) ?? agents[0];
   return (
     <Split
-      intro="Agent types the chat can hand self-contained tasks to. Add one as a markdown file in .evo/agents (this project) or ~/.evo/agent/agents."
+      intro="Agent types the chat can hand self-contained tasks to, or start a session as. Add one as a markdown file in .evo/agents (this project) or ~/.evo/agent/agents, or list more folders under agentDirs in the settings."
       list={
         agents.length === 0 ? (
           <EmptyNote title="No matching subagents">

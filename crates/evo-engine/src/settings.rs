@@ -169,6 +169,11 @@ pub struct Settings {
     /// as a compatibility shorthand.
     #[serde(default, alias = "extensions")]
     pub extension_dirs: Option<Vec<String>>,
+    /// Additional agent-type directories, resolved like `skillDirs`; a
+    /// project's load only when the project is trusted. `agents` is accepted
+    /// as a shorthand (docs/features/session-roles-and-mail/spec.md, FR-11).
+    #[serde(default, alias = "agents")]
+    pub agent_dirs: Option<Vec<String>>,
     /// Per-skill visibility, set from Customize: `on`, `off`, `name-only`
     /// (listed without its description) or `user-invocable-only` (only `/name`).
     #[serde(default)]
