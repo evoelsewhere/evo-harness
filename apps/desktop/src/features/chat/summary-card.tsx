@@ -27,6 +27,7 @@ import { useEngineStore } from "@/stores/engine-store";
 import { openFile } from "@/stores/files-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { useSplitStore } from "@/stores/split-store";
 import { useShallow } from "zustand/react/shallow";
 import { AgentIcon } from "@/components/icons/agent-icon";
 import { SideChatIcon } from "@/components/icons/tool-icons";
@@ -678,7 +679,10 @@ export function SummaryCard() {
   const [measure, width] = useElementWidth<HTMLDivElement>();
   const chatWidth = useAppearanceStore((s) => s.chatWidth);
   const column = chatColumnPx(chatWidth, width) + CHAT_PADDING;
-  const fits = width === 0 || (width - column) / 2 >= CARD_WIDTH + CARD_GAP;
+  // With two panes the card would cover one: it opens only from the toolbar
+  // then, as in a narrow chat (docs/features/ux-polish/spec.md, FR-2).
+  const split = useSplitStore((s) => s.panes !== null);
+  const fits = !split && (width === 0 || (width - column) / 2 >= CARD_WIDTH + CARD_GAP);
   const setFits = useUiStore((s) => s.setSummaryFits);
   const setPeek = useUiStore((s) => s.setSummaryPeek);
   const shown = useUiStore((s) => (fits ? s.summaryOpen : s.summaryPeek));
