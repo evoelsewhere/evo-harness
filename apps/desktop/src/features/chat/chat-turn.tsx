@@ -230,8 +230,20 @@ const ProcessGroup = React.memo(function ProcessGroup({ parts, running, live: tu
   );
 }, sameGroup);
 
-/** "Working for 12s", ticking while the turn runs. */
-function RunningStatus({ startedAt }: { startedAt: number }) {
+/**
+ * "Working for 12s · running commands", ticking while the turn runs; names
+ * the step that runs now (ux-polish FR-12).
+ */
+function RunningStatus({ startedAt, parts }: { startedAt: number; parts: Turn["parts"] }) {
+  const step = React.useMemo(() => {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i];
+      if (part.kind === "tool" && (part.phase === "running" || part.phase === "preparing")) {
+        return activity[toolKind(part.name)].live.toLowerCase();
+      }
+    }
+    return null;
+  }, [parts]);
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -240,7 +252,10 @@ function RunningStatus({ startedAt }: { startedAt: number }) {
   return (
     <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
       <Spinner />
-      <span className="shimmer">Working for {seconds(now - startedAt)}</span>
+      <span className="shimmer">
+        Working for {seconds(now - startedAt)}
+        {step && ` · ${step}`}
+      </span>
     </div>
   );
 }
@@ -293,7 +308,7 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
   return (
     <Message>
       <MessageContent className="gap-4">
-        {running && <RunningStatus startedAt={turn.startedAt} />}
+        {running && <RunningStatus startedAt={turn.startedAt} parts={turn.parts} />}
 
         {foldable && (
           <button

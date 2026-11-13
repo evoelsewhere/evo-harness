@@ -253,6 +253,8 @@ export function ChatComposer() {
     setText("");
     setAttachments([]);
     setProblem(null);
+    // The caret stays in the composer, also after a click on Send (ux-polish FR-12).
+    requestAnimationFrame(() => textareaRef.current?.focus());
     if (chat && annotations.length > 0) useAnnotationsStore.getState().clear(chat);
     try {
       const prompt = await buildPrompt(await withResources(message), files);
