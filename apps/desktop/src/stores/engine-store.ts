@@ -6,6 +6,7 @@
 // the thread, composer and header read; background runtimes keep streaming.
 // One store owns the `EngineClient` so components never talk to IPC directly.
 
+import * as React from "react";
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
@@ -66,6 +67,8 @@ import { emitOfficeFileChanged } from "@/stores/office-events";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
 import { UNTITLED, useSessionStore } from "@/stores/session-store";
+import { forgetPane, restoreSplit } from "@/stores/split-store";
+import { paneView } from "@/stores/pane-view";
 
 export type EngineStatus = "idle" | "starting" | "ready" | "exited" | "error";
 
@@ -122,6 +125,18 @@ interface EngineStore extends Mirrored {
   newChat(workspaceId?: string | null): Promise<void>;
   /** Start a chat in the background with `prompt` (a scheduled task's run); its id. */
   selectSession(id: string): Promise<void>;
+  /**
+   * Split view: make `id` the active chat at once when this window holds its
+   * runtime, so a click in its pane acts on it (otherwise it is selected as
+   * usual). docs/features/chat-split-view/spec.md, FR-4.
+   */
+  focusPane(id: string): void;
+  /**
+   * Split view: attach `id` to this window (starting its engine when none
+   * runs) without making it active. A chat in a window of its own moves here
+   * (FR-11; NFR-2).
+   */
+  showChat(id: string): Promise<void>;
   /** Archive or delete a chat, stopping its engine; the active one is replaced by a new chat. */
   closeChat(id: string, how: "archive" | "delete"): Promise<void>;
   /** Stop engines of chats removed elsewhere (a removed workspace). */
@@ -241,7 +256,7 @@ let client: EngineClient | null = null;
 /** No grants (a stable value for selectors). */
 const NO_GRANTS: ApprovalGrant[] = [];
 /** The kinds of call the person allowed for the rest of the active chat (chips next to the approval mode). */
-export const useApprovalGrants = (): ApprovalGrant[] => useEngineStore((s) => s.state.approval?.grants ?? NO_GRANTS);
+export const useApprovalGrants = (): ApprovalGrant[] => usePaneEngine((s) => s.state.approval?.grants ?? NO_GRANTS);
 
 /** The saved default, read once from the first engine that is ready. */
 let defaultLoaded: Promise<void> | null = null;
@@ -256,19 +271,43 @@ const newChatId = () =>
     ? crypto.randomUUID()
     : `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+/** A chat with no runtime here has no state (one value, so selectors stay stable). */
+const NO_STATE: Mirrored["state"] = {};
+
 const mirror = (runtime: ChatRuntime | undefined): Mirrored => ({
   status: runtime?.status ?? "idle",
   error: runtime?.error,
   cwd: runtime?.cwd,
-  state: runtime?.state ?? {},
+  state: runtime?.state ?? NO_STATE,
   transcript: runtime?.transcript ?? initialTranscript,
   contextBreakdown: runtime?.contextBreakdown,
   contextBreakdownAt: runtime?.contextBreakdownAt,
 });
 
+/**
+ * Split view: the chat a pane shows (docs/features/chat-split-view/plan.md,
+ * 3.3). Outside a pane, and in the focused pane, it is the active chat.
+ */
+export const PaneChatContext = React.createContext<string | null>(null);
+
+/**
+ * Read the engine store as the pane on screen sees it: the store itself for
+ * the focused pane (its chat is `activeId`), a view with the pane's chat as
+ * the active one for the other pane (FR-3). Render-time reads in the chat
+ * view use this; actions still act on `activeId`, which a pointer or focus
+ * moving into a pane sets first (`focusPane`).
+ */
+export function usePaneEngine<T>(selector: (s: EngineStore) => T): T {
+  const pane = React.useContext(PaneChatContext);
+  return useEngineStore((s) => selector(pane ? paneView(s, pane, mirror) : s));
+}
+
+/** The chat the pane on screen shows (the active chat outside a pane). */
+export const usePaneChat = (): string | null => usePaneEngine((s) => s.activeId);
+
 /** The active chat's saved messages are still being loaded (show a spinner, not an empty chat). */
 export const useRestoring = () =>
-  useEngineStore((s) => {
+  usePaneEngine((s) => {
     const rt = s.activeId ? s.runtimes[s.activeId] : undefined;
     return Boolean(rt?.restore && rt.transcript.turns.length === 0);
   });
@@ -1127,8 +1166,11 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       const pending = await invoke<string | null>("app_open_pending").catch(() => null);
       const known = (id: string) => useSessionStore.getState().sessions.some((s) => s.id === id && !s.draft);
       const last = pending && known(pending) ? pending : useSessionStore.getState().lastChatId;
-      if (last) await get().selectSession(last);
-      else await get().newChat(null);
+      if (last) {
+        await get().selectSession(last);
+        // The other chat of a split saved with this window (chat-split-view FR-10).
+        await restoreSplit();
+      } else await get().newChat(null);
     },
 
     async start(cwd) {
@@ -1209,10 +1251,41 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       await activate(id, cwd, !chat.draft);
     },
 
+    focusPane(id) {
+      if (id === get().activeId) return;
+      if (!get().runtimes[id]) {
+        void get().selectSession(id);
+        return;
+      }
+      // Synchronous, so the click that moved the focus acts on this chat;
+      // it also overtakes selections still on their way.
+      selection++;
+      flushDeltas();
+      set((store) => ({ activeId: id, ...mirror(store.runtimes[id]) }));
+      useSessionStore.getState().select(id);
+      update(id, () => ({ lastActive: Date.now() }));
+    },
+
+    async showChat(id) {
+      if (chatWindowId) return;
+      const chat = useSessionStore.getState().sessions.find((s) => s.id === id);
+      if (!chat || chat.draft) return;
+      // A chat shown in a window of its own moves into the pane (FR-11).
+      await closeChatWindow(id);
+      const attached = await client?.attachChat(id).catch(() => undefined);
+      if (get().runtimes[id]) {
+        for (const question of attached?.questions ?? []) showQuestion(id, question);
+        return;
+      }
+      await launch(id, await chatFolder(id), true, true);
+    },
+
     async closeChat(id, how) {
       const sessions = useSessionStore.getState();
       const chat = sessions.sessions.find((s) => s.id === id) ?? sessions.archived.find((s) => s.id === id);
       const wasActive = id === get().activeId;
+      // Its pane closes; the other pane's chat takes the window (split view, FR-12).
+      const remaining = forgetPane(id);
       void closeChatWindow(id);
       await stopChat(id);
       if (how === "delete") {
@@ -1222,26 +1295,31 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       } else await sessions.setArchived(id, true);
       if (wasActive) {
         set({ activeId: null, ...mirror(undefined) });
-        await get().newChat(chat?.workspaceId ?? null);
+        if (remaining) get().focusPane(remaining);
+        else await get().newChat(chat?.workspaceId ?? null);
       }
     },
 
     async forgetChats(ids) {
       const active = get().activeId;
+      const remaining = ids.map(forgetPane).find((chat) => chat && !ids.includes(chat)) ?? null;
       await Promise.all(ids.map((id) => stopChat(id)));
       if (active && ids.includes(active)) {
         set({ activeId: null, ...mirror(undefined) });
-        await get().newChat(null);
+        if (remaining) get().focusPane(remaining);
+        else await get().newChat(null);
       }
     },
 
     async openInNewWindow(id) {
       const chat = useSessionStore.getState().sessions.find((s) => s.id === id);
       if (!chat || chat.draft || chatWindowId) return;
+      const remaining = forgetPane(id);
       if (runtime(id)) release(id);
       if (id === get().activeId) {
         set({ activeId: null, ...mirror(undefined) });
-        await get().newChat(chat.workspaceId ?? null);
+        if (remaining) get().focusPane(remaining);
+        else await get().newChat(chat.workspaceId ?? null);
       }
       await openChatWindow(id, chat.title).catch((error) =>
         notify({ source: "shell", level: "error", title: "Could not open a new window", body: String(error) }),
