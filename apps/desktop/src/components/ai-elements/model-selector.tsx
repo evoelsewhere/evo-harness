@@ -40,6 +40,7 @@ export function ModelSelector({
   thinkingLevel,
   thinkingLevels,
   disabled,
+  loading,
   onModelChange,
   onThinkingChange,
   onPinnedChange,
@@ -55,6 +56,8 @@ export function ModelSelector({
   thinkingLevel?: string;
   thinkingLevels: string[];
   disabled?: boolean;
+  /** The engine is still starting: its models are on their way. */
+  loading?: boolean;
   onModelChange(model: ModelDescriptor): void;
   onThinkingChange(level: string): void;
   /** The short list to keep: its order stays put, a model picked from "More models" joins at the top. */
@@ -65,7 +68,8 @@ export function ModelSelector({
   const [open, setOpen] = React.useState(false);
   const current = models.find((m) => m.provider === provider && m.id === modelId);
   const currentKey = current ? modelKey(current) : undefined;
-  const label = current?.name || modelId || "No model";
+  // While the engine starts there is no model yet: say so, not "No model" (ux-polish FR-3).
+  const label = current?.name || modelId || (loading ? "Loading models…" : "No model");
   const showEffort = thinkingLevels.length > 1 && (current?.reasoning ?? true);
   const effort = showEffort && thinkingLevel && thinkingLevel !== "off" ? effortName(thinkingLevel) : undefined;
 

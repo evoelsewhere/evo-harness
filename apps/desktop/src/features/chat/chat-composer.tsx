@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { useAnnotationsStore } from "@/stores/annotations-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
-import { useApprovalGrants, useEngineStore, usePaneEngine } from "@/stores/engine-store";
+import { useApprovalGrants, useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore, type ApprovalMode } from "@/stores/ui-store";
 import { ComposerAnnotations } from "./annotation-chips";
@@ -88,6 +88,10 @@ export function ChatComposer() {
   const models = usePaneEngine((s) => s.models);
   const state = usePaneEngine((s) => s.state);
   const unconfigured = state.provider === UNCONFIGURED_PROVIDER;
+  // The engine starts, or the chat loads before its engine reports a model
+  // (ux-polish FR-3): the picker says the models are on their way.
+  const restoring = useRestoring();
+  const modelsLoading = status === "starting" || (!unconfigured && !state.provider && !(state.modelId ?? state.model) && (restoring || status === "ready"));
   const thinkingLevels = usePaneEngine((s) => s.thinkingLevels);
   const defaultModel = usePaneEngine((s) => s.defaultModel);
   const pinnedModels = useUiStore((s) => s.pinnedModels);
@@ -484,6 +488,7 @@ export function ChatComposer() {
       toolbar={
         <>
           <ModelSelector
+            loading={modelsLoading}
             models={models}
             provider={unconfigured ? undefined : state.provider}
             modelId={unconfigured ? undefined : (state.modelId ?? state.model)}
