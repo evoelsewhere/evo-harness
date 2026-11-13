@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowUpRightIcon, MessagesSquareIcon } from "lucide-react";
+import { ArrowUpRightIcon, Columns2Icon, MessagesSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ToolPart } from "@/features/chat/transcript";
 import { roleLabel, type SessionRole } from "@/lib/db";
@@ -7,6 +7,9 @@ import { chatWindowId } from "@/lib/windows";
 import { usePaneEngine } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { openBeside } from "@/stores/split-store";
+import { startDrag } from "@/features/split/drag";
+import { cn } from "@/lib/utils";
 
 // A `start_session` call's card. By default the agent only proposes a nested
 // session: the person starts it here (or dismisses it). Started ones link to
@@ -101,6 +104,9 @@ export function SessionProposal({ part }: { part: ToolPart }) {
   const dismissed = !started && outcome?.status === "dismissed";
   const gone = missing && looked === sessionId;
   const brief = briefOf(part, proposal);
+  // A started session can be shown beside its parent: Open beside, or drag
+  // the card onto the chat area (docs/features/chat-split-view/spec.md, FR-14).
+  const besideable = started && !gone && Boolean(row) && row?.archivedAt == null && !chatWindowId;
 
   async function start() {
     if (!chat || !proposal?.proposalId) return;
@@ -134,7 +140,17 @@ export function SessionProposal({ part }: { part: ToolPart }) {
   }
 
   return (
-    <div className="flex max-w-xl flex-col gap-2.5 rounded-xl bg-card px-4 py-3.5 shadow-border-small">
+    <div
+      onPointerDown={(event) => {
+        // Buttons keep their clicks; the rest of the card is the handle.
+        if (!besideable || (event.target as HTMLElement).closest("button")) return;
+        startDrag(event, { kind: "chat", chat: sessionId!, title: row?.title ?? proposal.title });
+      }}
+      className={cn(
+        "flex max-w-xl flex-col gap-2.5 rounded-xl bg-card px-4 py-3.5 shadow-border-small",
+        besideable && "cursor-grab active:cursor-grabbing",
+      )}
+    >
       <div className="flex items-start gap-2.5">
         <MessagesSquareIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
@@ -181,6 +197,12 @@ export function SessionProposal({ part }: { part: ToolPart }) {
               Open session
               <ArrowUpRightIcon className="size-3.5" />
             </Button>
+            {besideable && (
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5" onClick={() => void openBeside(sessionId!)}>
+                <Columns2Icon className="size-3.5" />
+                Open beside
+              </Button>
+            )}
           </div>
         )
       ) : (
