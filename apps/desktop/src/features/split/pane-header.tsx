@@ -9,10 +9,13 @@ import { UNTITLED, useSessionStore } from "@/stores/session-store";
 import type { PaneIndex } from "@/stores/split-rules";
 import { useSplitStore } from "@/stores/split-store";
 import { startDrag } from "./drag";
+import { useDisplayTitle } from "@/hooks/use-display-title";
 
 /** A chat's title and whether it works or waits, for a pane header or the switcher. */
 function useChatLine(chat: string) {
-  const title = useSessionStore((s) => s.sessions.find((x) => x.id === chat)?.title) || UNTITLED;
+  const row = useSessionStore((s) => s.sessions.find((x) => x.id === chat));
+  // A scheduled run shows its date (ux-polish FR-5).
+  const title = useDisplayTitle(row, UNTITLED);
   const work = useSessionStore((s) => s.work[chat]);
   const busy = useEngineStore((s) => Boolean(s.runtimes[chat]?.transcript.busy || s.busyElsewhere[chat])) || work === "working";
   const waiting = useEngineStore((s) => Boolean(s.runtimes[chat]?.transcript.permissions?.length)) || work === "waiting";
@@ -62,7 +65,9 @@ function SwitcherItem({ chat, index, current }: { chat: string; index: PaneIndex
         current ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
       )}
     >
-      <span className="truncate">{title}</span>
+      <span className="truncate" title={title}>
+        {title}
+      </span>
       <ChatState busy={busy} waiting={waiting} />
     </button>
   );
@@ -92,7 +97,9 @@ export function PaneHeader({ chat, index, narrow, onClose }: { chat: string; ind
         </div>
       ) : (
         <>
-          <span className="min-w-0 truncate text-xs font-medium">{title}</span>
+          <span className="min-w-0 truncate text-xs font-medium" title={title}>
+            {title}
+          </span>
           <ChatState busy={busy} waiting={waiting} />
           <span className="flex-1" />
         </>

@@ -38,6 +38,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { startDrag } from "@/features/split/drag";
+import { useDisplayTitle } from "@/hooks/use-display-title";
+import { plainText } from "@/lib/plain-text";
 import { LOCAL_GROUP, UNTITLED, useSessionStore, type SessionSummary } from "@/stores/session-store";
 import { ChatMenuItems, useChatMenuKeys } from "./chat-menu";
 
@@ -148,6 +150,9 @@ export function ChatItem({ chat, active }: { chat: SessionSummary; active: boole
     shellWork === "working";
   const asking = useEngineStore((s) => Boolean(s.runtimes[chat.id]?.transcript.turns.at(-1)?.permission));
   const waiting = asking || shellWork === "waiting";
+  // A scheduled run shows its date (ux-polish FR-5); its preview reads as plain text (FR-9).
+  const shownTitle = useDisplayTitle(chat, UNTITLED);
+  const preview = chat.preview ? plainText(chat.preview) : "";
   const failed = useEngineStore((s) => s.runtimes[chat.id]?.status === "exited");
   const { selectSession, closeChat } = useEngineStore.getState();
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -198,9 +203,9 @@ export function ChatItem({ chat, active }: { chat: SessionSummary; active: boole
         onPointerDown={(event) => {
           if (!chat.draft && !archived) startDrag(event, { kind: "chat", chat: chat.id, title: chat.title });
         }}
-        title={chat.preview ? `${chat.title}
+        title={preview ? `${shownTitle}
 
-${chat.preview}` : chat.title}
+${preview}` : shownTitle}
         className="h-7 pr-8 text-[13px]"
       >
         {chat.pinned && !archived && <PinIcon className="size-3! text-muted-foreground" />}
@@ -214,7 +219,7 @@ ${chat.preview}` : chat.title}
             busy && "shimmer motion-reduce:shimmer-none",
           )}
         >
-          {chat.title || UNTITLED}
+          {shownTitle}
         </span>
       </SidebarMenuButton>
       {status && (

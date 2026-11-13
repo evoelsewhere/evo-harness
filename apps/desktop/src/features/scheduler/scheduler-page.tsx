@@ -1,4 +1,5 @@
 import * as React from "react";
+import { plainText } from "@/lib/plain-text";
 import {
   CalendarClockIcon,
   CircleAlertIcon,
@@ -229,8 +230,12 @@ function Runs({ task }: { task: ScheduledTask }) {
                 <StatusDot tone={chat?.unread ? "info" : "ok"} />
               )}
               <span className="w-36 shrink-0 tabular-nums">{formatWhen(run.at)}</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {run.error ?? chat?.preview ?? (chat ? chat.title : "Chat removed")}
+              {/* Plain text, whole on hover (ux-polish FR-9, FR-10). */}
+              <span
+                className="min-w-0 flex-1 truncate text-muted-foreground"
+                title={run.error ?? (chat?.preview ? plainText(chat.preview) : (chat?.title ?? "Chat removed"))}
+              >
+                {run.error ?? (chat?.preview ? plainText(chat.preview) : (chat ? chat.title : "Chat removed"))}
               </span>
               {run.trigger !== "schedule" && <Badge>{run.trigger === "manual" ? "Run now" : "Caught up"}</Badge>}
               {chat && <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />}
