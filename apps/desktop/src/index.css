@@ -454,3 +454,24 @@
   --viz-4: #c98500;
   --viz-other: #6b6b6b;
 }
+
+/*
+ * Overlays open and close with the same spring as split view's panes
+ * (features/split/motion.ts; docs/features/ux-polish/spec.md, FR-11). Their
+ * durations stay; Settings → Animations / reduce motion still turn them off.
+ */
+:root {
+  --ease-spring: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 20.5%, 1.043 24.5%, 1.035 28.4%, 1.007 36%, 0.998 43.7%, 1.001 59.9%, 1);
+}
+:where(
+    [data-slot="popover-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="hover-card-content"],
+    [data-slot="select-content"],
+    [data-slot="dialog-content"],
+    [data-slot="tooltip-content"]
+  )[data-open] {
+  --tw-ease: var(--ease-spring);
+}
