@@ -9,7 +9,7 @@ import { installErrorLogging } from "@/lib/db";
 import { hasMod, inTauri, isMac } from "@/lib/platform";
 import { useHistoryStore } from "@/stores/history-store";
 import { startChatScope } from "@/stores/chat-scope";
-import { startSplit } from "@/stores/split-store";
+import { startSplit, useSplitStore } from "@/stores/split-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -148,6 +148,15 @@ export function useAppHotkeys() {
       } else if (key === "j") {
         event.preventDefault();
         ui.toggleRightPanel();
+      } else if ((key === "1" || key === "2") && !event.shiftKey && useSplitStore.getState().panes) {
+        // Split view: focus the left or right pane (chat-split-view FR-8).
+        event.preventDefault();
+        useSplitStore.getState().focusIndex(key === "1" ? 0 : 1);
+      } else if (event.code === "Backslash" && !event.shiftKey && useSplitStore.getState().panes) {
+        // Split view: close the focused pane; its chat goes on.
+        event.preventDefault();
+        const split = useSplitStore.getState();
+        split.close(split.focus);
       } else if (!event.shiftKey) {
         // Tool panels: Ctrl/⌘ + key (see the panel registry).
         const panel = panels.find((p) => p.shortcut.toLowerCase() === key);

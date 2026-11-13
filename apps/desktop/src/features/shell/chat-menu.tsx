@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AppWindowIcon, CheckIcon, FolderIcon, LaptopIcon } from "lucide-react";
+import { AppWindowIcon, CheckIcon, Columns2Icon, FolderIcon, LaptopIcon } from "lucide-react";
 import {
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -14,6 +14,7 @@ import { notify } from "@/features/notifications/notify";
 import { openInApp, useOpenApps, type OpenApp } from "@/lib/open-apps";
 import { chatWindowId } from "@/lib/windows";
 import { useEngineStore } from "@/stores/engine-store";
+import { openBeside, useSplitStore } from "@/stores/split-store";
 import { useSessionStore, type SessionSummary } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { AppIcon } from "./open-in-menu";
@@ -48,6 +49,9 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
   const { setPinned, setArchived, markUnread } = useSessionStore.getState();
   const archived = chat.archivedAt != null;
   const folder = workspace?.path;
+  // Already on screen: the active chat with one pane, or either pane's chat.
+  const splitPanes = useSplitStore((s) => s.panes);
+  const shown = splitPanes ? splitPanes.includes(chat.id) : active;
 
   const launch = (app: OpenApp) => {
     if (!folder) return;
@@ -63,7 +67,7 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
   // (docs/features/memory-topics-and-chat-recall/spec.md, FR-19, FR-22).
   if (chat.incognito) {
     const end: Action[] = [{ key: "e", label: "End chat", run: onDelete, destructive: true }];
-    return { main: end, newWindow: null, openIn: [], busy, archived, incognito: true };
+    return { main: end, newWindow: null, splitView: null, openIn: [], busy, archived, incognito: true };
   }
 
   const main: Action[] = archived
@@ -79,6 +83,16 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
 
   const newWindow: Action | null =
     archived || chatWindowId ? null : { key: "1", label: "New window", run: () => void openInNewWindow(chat.id) };
+  // Split view: beside the active chat, or in the other pane (chat-split-view FR-8).
+  const splitView: Action | null =
+    archived || chatWindowId || chat.draft
+      ? null
+      : {
+          key: "s",
+          label: "Split view",
+          run: () => void openBeside(chat.id),
+          disabled: shown,
+        };
   const openIn = folder
     ? apps
         .filter((app) => app.kind !== "terminal")
@@ -88,7 +102,7 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
         .filter((entry) => entry.key.length === 1)
     : [];
 
-  return { main, newWindow, openIn, busy, archived, incognito: false };
+  return { main, newWindow, splitView, openIn, busy, archived, incognito: false };
 }
 
 /** Run the action whose key was pressed (no modifiers) and close the menu. */
@@ -125,7 +139,7 @@ function Item({ action }: { action: Action }) {
 /** The menu body: Open in ›, Pin, Mark as unread, Rename, Fork, Move to ›, Archive, Delete. */
 export function ChatMenuItems(props: ChatMenuProps) {
   const { chat, onClose } = props;
-  const { main, newWindow, openIn, busy, archived, incognito } = useChatActions(props);
+  const { main, newWindow, splitView, openIn, busy, archived, incognito } = useChatActions(props);
   const workspaces = useSessionStore((s) => s.workspaces);
   const moveChat = useEngineStore((s) => s.moveChat);
   // Moving restarts the chat's engine, which would end its subagents.
@@ -139,7 +153,7 @@ export function ChatMenuItems(props: ChatMenuProps) {
   const openParent = useEngineStore((s) => s.openParent);
   const setParent = useSessionStore((s) => s.setParent);
   const byKey = (key: string) => main.find((a) => a.key === key);
-  const subActions = [...(newWindow ? [newWindow] : []), ...openIn];
+  const subActions = [...(newWindow ? [newWindow] : []), ...(splitView && !splitView.disabled ? [splitView] : []), ...openIn];
   const places = [{ id: null as string | null, name: "This computer" }, ...workspaces.map((w) => ({ id: w.id as string | null, name: w.name }))];
 
   if (incognito) return <Item action={main[0]} />;
@@ -155,6 +169,13 @@ export function ChatMenuItems(props: ChatMenuProps) {
                   <AppWindowIcon className="text-muted-foreground" />
                   New window
                   <DropdownMenuShortcut>1</DropdownMenuShortcut>
+                </DropdownMenuItem>
+              )}
+              {splitView && (
+                <DropdownMenuItem onClick={splitView.run} disabled={splitView.disabled}>
+                  <Columns2Icon className="text-muted-foreground" />
+                  Split view
+                  <DropdownMenuShortcut>S</DropdownMenuShortcut>
                 </DropdownMenuItem>
               )}
               {openIn.length > 0 && (
