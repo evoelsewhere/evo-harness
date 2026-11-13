@@ -136,7 +136,7 @@
   --secondary: #f2f2f2;
   --secondary-foreground: #171717;
   --muted: #f2f2f2;
-  --muted-foreground: #8f8f8f;
+  --muted-foreground: #666666; /* ≥ 4.5:1 on every light surface (ux-polish FR-6) */
   --accent: #ebebeb;
   --accent-foreground: #171717;
   --destructive: #e5484d;
@@ -188,7 +188,7 @@
   --secondary: #292929;
   --secondary-foreground: #ededed;
   --muted: #292929;
-  --muted-foreground: #8f8f8f;
+  --muted-foreground: #999999; /* ≥ 4.5:1 on every dark surface (ux-polish FR-6) */
   --accent: #2e2e2e;
   --accent-foreground: #ededed;
   --destructive: #e5484d;
