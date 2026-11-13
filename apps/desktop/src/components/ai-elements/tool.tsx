@@ -71,6 +71,9 @@ const icons: Record<Kind, React.ComponentType<{ className?: string }>> = {
   other: WrenchIcon,
 };
 
+/** A call's output when it was stopped rather than failed (the run was aborted or cancelled). */
+const STOPPED = /^(?:error:\s*)?(?:operation (?:was )?aborted|aborted|cancelled|canceled|interrupted)\b/i;
+
 const verbs: Record<Kind, Record<ToolPart["phase"], string>> = {
   shell: { preparing: "Running", running: "Running", done: "Ran", error: "Failed to run" },
   read: { preparing: "Reading", running: "Reading", done: "Read", error: "Failed to read" },
@@ -577,14 +580,19 @@ export function Tool({
   const kind = toolKind(part.name);
   const Icon = icons[kind];
   const about = subject(part);
-  // A call that never finished while the turn is over was interrupted.
-  const phase: ToolPart["phase"] = !streaming && (part.phase === "running" || part.phase === "preparing") ? "error" : part.phase;
+  // A call that never finished while the turn is over was interrupted; one
+  // the person stopped (or that ended with the run) reads as stopped, in
+  // neutral colours, not as a failure (docs/features/ux-polish/spec.md, FR-4).
+  const interrupted = !streaming && (part.phase === "running" || part.phase === "preparing");
+  const stopped = interrupted || (part.phase === "error" && STOPPED.test(part.output ?? ""));
+  const phase: ToolPart["phase"] = stopped ? "running" : part.phase;
   // A background subagent runs on after its call returned (`agent`, or `message_agent` continuing one).
   const child = kind === "agent" ? childRun(part) : undefined;
   const live =
-    phase === "preparing" || phase === "running" || (phase === "done" && Boolean(child?.background) && child?.status === "running");
+    !stopped &&
+    (phase === "preparing" || phase === "running" || (phase === "done" && Boolean(child?.background) && child?.status === "running"));
   // A background agent's call succeeded when it started; the agent may still have failed.
-  const failed = phase === "error" || (Boolean(child?.background) && child?.status === "error");
+  const failed = !stopped && (phase === "error" || (Boolean(child?.background) && child?.status === "error"));
   const sessionLabel: Record<string, string> = {
     start_session: phase === "done" ? "Session" : "Starting a session",
     message_session: phase === "done" ? "Messaged a session" : "Messaging a session",
@@ -650,6 +658,7 @@ export function Tool({
       : kind === "visual"
       ? visualLabel(part, phase)
       : `${verbs[kind][phase]} ${about ?? (kind === "other" ? part.name : "")}`.trim();
+  const shownLabel = stopped ? `${label} · stopped` : label;
   // A file the call read or changed opens in the Files tool, at the line it touched.
   const fileTitle =
     about && (kind === "read" || kind === "write" || kind === "edit") ? (
@@ -669,7 +678,8 @@ export function Tool({
           <Icon />
         )}
       </TraceIcon>
-      <TraceTitle className={kind === "shell" ? "font-mono text-[13px]" : undefined}>{fileTitle ?? label}</TraceTitle>
+      <TraceTitle className={kind === "shell" ? "font-mono text-[13px]" : undefined}>{fileTitle ?? shownLabel}</TraceTitle>
+      {stopped && fileTitle && <TraceDescription className="text-xs">stopped</TraceDescription>}
       {child?.background && <TraceDescription className="text-xs">background</TraceDescription>}
       {diff && (diff.added || diff.removed) ? (
         <TraceDescription className="font-mono text-xs">
