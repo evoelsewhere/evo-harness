@@ -1,5 +1,5 @@
 import { AppWindowIcon, GlobeIcon } from "lucide-react";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import { useCardsStore, type Card } from "@/stores/cards-store";
 import { useCardTitle, useChatCards } from "./use-cards";
 
@@ -24,7 +24,7 @@ function Chip({ chat, card }: { chat: string; card: Card }) {
  * uses whose card is not showing; a click brings the card back (FR-4).
  */
 export function ChipRow() {
-  const chat = useEngineStore((s) => s.activeId);
+  const chat = usePaneEngine((s) => s.activeId);
   const { chips } = useChatCards(chat);
   if (!chat || chips.length === 0) return null;
   return (

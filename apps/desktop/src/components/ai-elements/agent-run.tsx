@@ -16,7 +16,7 @@ import type { ChildRun } from "@/engine/mesh";
 import { openInApp, useOpenApps, type OpenApp } from "@/lib/open-apps";
 import { cn } from "@/lib/utils";
 import { worktrees } from "@/lib/worktrees";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import { useUiStore, worktreeKey } from "@/stores/ui-store";
 import { WorktreeReview } from "./worktree-review";
 import { Trace } from "@/components/ui/trace";
@@ -42,7 +42,7 @@ export const childRun = (part: ToolPart): ChildRun | undefined =>
  */
 export function KeptWorktree({ part }: { part: ToolPart }) {
   const worktree = childRun(part)?.worktree;
-  const repo = useEngineStore((s) => s.cwd);
+  const repo = usePaneEngine((s) => s.cwd);
   const settled = useUiStore((s) => (worktree?.path ? s.settledWorktrees[worktreeKey(worktree.path)] : undefined));
   if (!worktree?.kept || settled) return null;
   return <WorktreeBadge worktree={worktree} repo={repo} live={false} />;
@@ -271,10 +271,10 @@ function WorktreeBadge({
 export function AgentRun({ part, live }: { part: ToolPart; live: boolean }) {
   const child = childRun(part);
   useTick(live);
-  const chat = useEngineStore((s) => s.activeId);
-  const cancel = useEngineStore((s) => s.cancelBackgroundAgent);
+  const chat = usePaneEngine((s) => s.activeId);
+  const cancel = usePaneEngine((s) => s.cancelBackgroundAgent);
   // The repository the worktree belongs to: this chat's folder.
-  const repo = useEngineStore((s) => s.cwd);
+  const repo = usePaneEngine((s) => s.cwd);
   // A background agent's call ended with "started": only the agent's own state
   // and report count, never the call's output. The report is the whole one
   // (`report`); `text` is only the end of what it wrote last.

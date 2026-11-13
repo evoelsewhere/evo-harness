@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { StatusDot } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import type { PermissionRequest, Question } from "./transcript";
 
 // The agent's questions (`ask_user`) take the chat input's place until they are
@@ -108,7 +108,7 @@ function QuestionCard({
 }
 
 export function QuestionsPanel({ permission }: { permission: PermissionRequest }) {
-  const answerQuestions = useEngineStore((s) => s.answerQuestions);
+  const answerQuestions = usePaneEngine((s) => s.answerQuestions);
   const questions = permission.questions ?? [];
   const [answers, setAnswers] = React.useState<Answer[]>(() => questions.map(() => ({ selected: [], other: "" })));
   const [step, setStep] = React.useState(0);

@@ -8,7 +8,7 @@ import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
 import { fileName } from "@/features/files/fs";
 import { parseAnnotatedMessage } from "@/lib/document-annotations";
 import { cn } from "@/lib/utils";
-import { useEngineStore } from "@/stores/engine-store";
+import { useEngineStore, usePaneEngine } from "@/stores/engine-store";
 import { SentAnnotations } from "./annotation-chips";
 import { splitPrompt } from "./composer-input";
 import type { Turn } from "./transcript";
@@ -97,7 +97,7 @@ function EditPrompt({ initial, onCancel, onSend }: { initial: string; onCancel()
 
 /** The person's message: pictures, text, pasted text and attached files, with Copy and Edit. */
 export function UserPrompt({ turn }: { turn: Turn }) {
-  const busy = useEngineStore((s) => s.transcript.busy);
+  const busy = usePaneEngine((s) => s.transcript.busy);
   const [copied, setCopied] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);

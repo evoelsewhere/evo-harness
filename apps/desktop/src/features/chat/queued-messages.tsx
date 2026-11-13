@@ -1,6 +1,6 @@
 import { CornerDownLeftIcon, ImageIcon, PencilIcon, SendHorizontalIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useEngineStore } from "@/stores/engine-store";
+import { useEngineStore, usePaneEngine } from "@/stores/engine-store";
 import { cn } from "@/lib/utils";
 import type { QueuedMessage } from "./transcript";
 import { splitPrompt } from "./composer-input";
@@ -32,7 +32,7 @@ function RowButton({ label, onClick, children }: { label: string; onClick(): voi
  * field; the cross takes it back altogether.
  */
 export function QueuedMessages({ onEdit }: { onEdit(text: string): void }) {
-  const queued = useEngineStore((s) => s.transcript.queued);
+  const queued = usePaneEngine((s) => s.transcript.queued);
   if (!queued?.length) return null;
   const { cancelQueued, queueMessage } = useEngineStore.getState();
 

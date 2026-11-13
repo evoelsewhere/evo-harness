@@ -7,7 +7,7 @@ import {
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
 import { Button } from "@/components/ui/button";
-import { useEngineStore, useRestoring } from "@/stores/engine-store";
+import { useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { ChatSkeleton } from "./chat-skeleton";
 import { AssistantMessage, UserMessage } from "./chat-turn";
@@ -33,18 +33,20 @@ const ThreadTurn = React.memo(function ThreadTurn({ turn }: { turn: Turn }) {
 
 /** The thread (shadcn/ui AI Elements · Chat): the person's turn anchors the scroll. */
 export function ChatThread() {
-  const turns = useEngineStore((s) => s.transcript.turns);
-  const busy = useEngineStore((s) => s.transcript.busy);
+  const turns = usePaneEngine((s) => s.transcript.turns);
+  const busy = usePaneEngine((s) => s.transcript.busy);
   const restoring = useRestoring();
   // A chat was clicked and is on its way (the sidebar shows it, the thread not yet).
-  const activeId = useEngineStore((s) => s.activeId);
+  const activeId = usePaneEngine((s) => s.activeId);
+  // Only the focused pane follows the sidebar's pick (split view, FR-4).
+  const focused = useEngineStore((s) => s.activeId === activeId);
   const switching = useSessionStore((s) => {
-    if (!s.currentId || s.currentId === activeId) return false;
+    if (!focused || !s.currentId || s.currentId === activeId) return false;
     const target = s.sessions.find((chat) => chat.id === s.currentId) ?? s.archived.find((chat) => chat.id === s.currentId);
     return Boolean(target && !target.draft);
   });
   // A saved chat that could not be loaded (the engine is up but said no).
-  const failed = useEngineStore((s) => (s.status === "ready" ? s.error : undefined));
+  const failed = usePaneEngine((s) => (s.status === "ready" ? s.error : undefined));
 
   // A saved chat is loading: its shape, not the previous chat or the empty "new chat" screen.
   if (switching || (restoring && turns.length === 0)) return <ChatSkeleton />;

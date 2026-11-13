@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { ToolPart } from "@/features/chat/transcript";
 import { roleLabel, type SessionRole } from "@/lib/db";
 import { chatWindowId } from "@/lib/windows";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 
@@ -72,10 +72,10 @@ const lookUpArchived = () =>
 
 export function SessionProposal({ part }: { part: ToolPart }) {
   const proposal = proposalOf(part);
-  const chat = useEngineStore((s) => s.activeId);
-  const startChildSession = useEngineStore((s) => s.startChildSession);
-  const dismissChildProposal = useEngineStore((s) => s.dismissChildProposal);
-  const selectSession = useEngineStore((s) => s.selectSession);
+  const chat = usePaneEngine((s) => s.activeId);
+  const startChildSession = usePaneEngine((s) => s.startChildSession);
+  const dismissChildProposal = usePaneEngine((s) => s.dismissChildProposal);
+  const selectSession = usePaneEngine((s) => s.selectSession);
   const outcome = useUiStore((s) => (proposal?.proposalId ? s.proposals[proposal.proposalId] : undefined));
   const settle = useUiStore((s) => s.settleProposal);
   const sessionId = proposal?.status === "started" ? proposal.sessionId : outcome?.sessionId;

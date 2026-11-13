@@ -1,6 +1,6 @@
 import * as React from "react";
 import "@/stores/cards-sync";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import { Card } from "./card";
 import { CardBody } from "./card-body";
 import { StageController } from "./stage-controller";
@@ -13,7 +13,7 @@ import { useChatCards } from "./use-cards";
  * Spec: docs/features/floating-cards (FR-1 – FR-3, FR-5, FR-11, FR-12).
  */
 export function CardLayer() {
-  const chat = useEngineStore((s) => s.activeId);
+  const chat = usePaneEngine((s) => s.activeId);
   const { shown } = useChatCards(chat);
   const ref = React.useRef<HTMLDivElement>(null);
   const [layer, setLayer] = React.useState({ w: 0, h: 0 });

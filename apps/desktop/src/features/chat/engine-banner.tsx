@@ -1,16 +1,16 @@
 import { KeyRoundIcon, RotateCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UNCONFIGURED_PROVIDER } from "@/engine/protocol";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import { useUiStore } from "@/stores/ui-store";
 
 /** Shown above the composer when the engine is not usable. */
 export function EngineBanner() {
-  const status = useEngineStore((s) => s.status);
-  const error = useEngineStore((s) => s.error);
-  const lastLog = useEngineStore((s) => [...s.logs].reverse().find((l) => l.chat === s.activeId)?.line);
-  const provider = useEngineStore((s) => s.state.provider);
-  const start = useEngineStore((s) => s.start);
+  const status = usePaneEngine((s) => s.status);
+  const error = usePaneEngine((s) => s.error);
+  const lastLog = usePaneEngine((s) => [...s.logs].reverse().find((l) => l.chat === s.activeId)?.line);
+  const provider = usePaneEngine((s) => s.state.provider);
+  const start = usePaneEngine((s) => s.start);
   const openSettings = useUiStore((s) => s.openSettings);
 
   if (status === "ready" && provider === UNCONFIGURED_PROVIDER) {

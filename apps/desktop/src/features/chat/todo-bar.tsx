@@ -2,7 +2,7 @@ import * as React from "react";
 import { CheckIcon, ChevronDownIcon, ListChecksIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 
 // The agent's task list (`update_todos`), pinned above the chat input: the
 // latest list of the latest turn that has one. Collapsed it shows progress
@@ -16,7 +16,7 @@ export interface Todo {
 
 /** The newest task list in the chat, and whether its turn is still running. */
 export function useLatestTodos(): { todos: Todo[]; live: boolean } | null {
-  const turns = useEngineStore((s) => s.transcript.turns);
+  const turns = usePaneEngine((s) => s.transcript.turns);
   return React.useMemo(() => {
     for (let t = turns.length - 1; t >= 0; t--) {
       const parts = turns[t].parts;

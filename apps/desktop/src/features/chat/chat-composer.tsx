@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { useAnnotationsStore } from "@/stores/annotations-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
-import { useApprovalGrants, useEngineStore } from "@/stores/engine-store";
+import { useApprovalGrants, useEngineStore, usePaneEngine } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore, type ApprovalMode } from "@/stores/ui-store";
 import { ComposerAnnotations } from "./annotation-chips";
@@ -83,19 +83,19 @@ export const composerDraft = {
 export function ChatComposer() {
   const [text, setText] = React.useState("");
   const [attachments, setAttachments] = React.useState<PromptAttachment[]>([]);
-  const status = useEngineStore((s) => s.status);
-  const busy = useEngineStore((s) => s.transcript.busy);
-  const models = useEngineStore((s) => s.models);
-  const state = useEngineStore((s) => s.state);
+  const status = usePaneEngine((s) => s.status);
+  const busy = usePaneEngine((s) => s.transcript.busy);
+  const models = usePaneEngine((s) => s.models);
+  const state = usePaneEngine((s) => s.state);
   const unconfigured = state.provider === UNCONFIGURED_PROVIDER;
-  const thinkingLevels = useEngineStore((s) => s.thinkingLevels);
-  const defaultModel = useEngineStore((s) => s.defaultModel);
+  const thinkingLevels = usePaneEngine((s) => s.thinkingLevels);
+  const defaultModel = usePaneEngine((s) => s.defaultModel);
   const pinnedModels = useUiStore((s) => s.pinnedModels);
   const { sendPrompt, queueMessage, abort, setModel, setThinkingLevel, setDefaultModel } = useEngineStore.getState();
-  const queuedCount = useEngineStore((s) => s.transcript.queued?.length ?? 0);
+  const queuedCount = usePaneEngine((s) => s.transcript.queued?.length ?? 0);
   const [problem, setProblem] = React.useState<string | null>(null);
   const [dropping, setDropping] = React.useState(false);
-  const chatId = useEngineStore((s) => s.activeId);
+  const chatId = usePaneEngine((s) => s.activeId);
   const approval = useUiStore((s) => s.approval);
   const setApproval = useUiStore((s) => s.setApproval);
   const approvalNoteSeen = useUiStore((s) => s.approvalNoteSeen);
@@ -135,10 +135,19 @@ export function ChatComposer() {
     return () => setComposing(chatId, false);
   }, [chatId, drafting]);
 
+  // With two panes, only the focused pane's composer takes what is put into
+  // "the composer" from elsewhere (split view, FR-4).
+  const chatIdRef = React.useRef(chatId);
+  chatIdRef.current = chatId;
+  const focused = () => useEngineStore.getState().activeId === chatIdRef.current;
   React.useEffect(() => {
-    const listener = (draft: string) => setText(draft);
+    const listener = (draft: string) => {
+      if (focused()) setText(draft);
+    };
     composerDraft.listeners.add(listener);
-    const attachListener = (path: string) => addAttachments([fileAttachment(path)]);
+    const attachListener = (path: string) => {
+      if (focused()) addAttachments([fileAttachment(path)]);
+    };
     composerDraft.attachListeners.add(attachListener);
     return () => {
       composerDraft.listeners.delete(listener);
@@ -198,6 +207,7 @@ export function ChatComposer() {
     }
     void webview
       .onDragDropEvent((event) => {
+        if (!focused()) return;
         const kind = event.payload.type;
         setDropping(kind === "enter" || kind === "over");
         if (kind === "drop" && event.payload.paths.length > 0) {
@@ -563,13 +573,13 @@ function PlusMenu({
   onCommands(): void;
   onResource(mention: string): void;
 }) {
-  const chat = useEngineStore((s) => s.activeId);
+  const chat = usePaneEngine((s) => s.activeId);
   const off = useUiStore((s) => (chat ? s.chatConnectorsOff[chat] : undefined)) ?? [];
-  const cwd = useEngineStore((s) => s.cwd);
+  const cwd = usePaneEngine((s) => s.cwd);
   // Memory and incognito are chosen before the first message; a saved chat's
   // choice is locked (docs/features/memory-topics-and-chat-recall/spec.md, FR-6, FR-19).
   const row = useSessionStore((s) => s.sessions.find((x) => x.id === chat));
-  const started = useEngineStore((s) => (s.activeId ? (s.runtimes[s.activeId]?.transcript.turns.length ?? 0) > 0 : false));
+  const started = usePaneEngine((s) => (s.activeId ? (s.runtimes[s.activeId]?.transcript.turns.length ?? 0) > 0 : false));
   const locked = !chat || !row?.draft || started;
   const setFlags = (flags: { memoryOff?: boolean; incognito?: boolean }) =>
     chat && void useEngineStore.getState().setChatFlags(chat, flags);
@@ -678,7 +688,7 @@ function PlusMenu({
 
 /** Says in the toolbar that this chat has no memory, or is incognito. */
 function ChatFlagsMark() {
-  const chat = useEngineStore((s) => s.activeId);
+  const chat = usePaneEngine((s) => s.activeId);
   const row = useSessionStore((s) => s.sessions.find((x) => x.id === chat));
   if (!row?.memoryOff && !row?.incognito) return null;
   const incognito = !!row.incognito;

@@ -2,7 +2,7 @@ import * as React from "react";
 import { Confirmation } from "@/components/ai-elements/confirmation";
 import { Kbd } from "@/components/ui/kbd";
 import { StatusDot } from "@/components/status-dot";
-import { useEngineStore } from "@/stores/engine-store";
+import { usePaneEngine } from "@/stores/engine-store";
 import type { PermissionRequest } from "./transcript";
 
 /**
@@ -10,7 +10,7 @@ import type { PermissionRequest } from "./transcript";
  * behind it (two subagents may ask at once) and show one after the other.
  */
 export function usePendingPermission(): PermissionRequest | undefined {
-  return useEngineStore((s) => s.transcript.permissions?.[0]);
+  return usePaneEngine((s) => s.transcript.permissions?.[0]);
 }
 
 /**
@@ -34,9 +34,9 @@ const rejects = (option: { title: string; permission?: string }) =>
  * activity.
  */
 export function ApprovalPanel({ permission }: { permission: PermissionRequest }) {
-  const answerPermission = useEngineStore((s) => s.answerPermission);
+  const answerPermission = usePaneEngine((s) => s.answerPermission);
   // Requests waiting behind this one.
-  const waiting = useEngineStore((s) => Math.max(0, (s.transcript.permissions?.length ?? 0) - 1));
+  const waiting = usePaneEngine((s) => Math.max(0, (s.transcript.permissions?.length ?? 0) - 1));
   const allowIndex = permission.options.findIndex((option) => !rejects(option));
   const rejectIndex = permission.options.findIndex(rejects);
   const answer = React.useCallback(
