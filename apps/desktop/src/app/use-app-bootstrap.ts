@@ -9,6 +9,7 @@ import { installErrorLogging } from "@/lib/db";
 import { hasMod, inTauri, isMac } from "@/lib/platform";
 import { useHistoryStore } from "@/stores/history-store";
 import { startChatScope } from "@/stores/chat-scope";
+import { startSplit } from "@/stores/split-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -25,6 +26,8 @@ export function useAppBootstrap() {
     applyZoom(useUiStore.getState().zoom);
     // Side panel tabs, pages and terminals follow the chat showing.
     startChatScope();
+    // Split view follows the active chat and the chat list (chat-split-view FR-4, FR-12).
+    startSplit();
     // The shell's notices about chats no window shows reach this window's bell.
     if (inTauri) startShellNotices(getCurrentWindow().label);
     // The main window follows app updates and raises their notifications.

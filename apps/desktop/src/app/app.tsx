@@ -3,7 +3,8 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { ChatView } from "@/features/chat/chat-view";
+import { SplitArea } from "@/features/split/split-area";
+import { DragGhost } from "@/features/split/drop-overlay";
 import { SummaryCard } from "@/features/chat/summary-card";
 import { RightPanel, ToolRail } from "@/features/panels/right-panel";
 import { CommandPalette } from "@/features/sessions/command-palette";
@@ -41,7 +42,8 @@ function ChatCard({ besidePanel }: { besidePanel: boolean }) {
     >
       <WorkspaceToolbar />
       <div className="relative min-h-0 flex-1">
-        <ChatView />
+        {/* One chat, or two side by side (docs/features/chat-split-view). */}
+        <SplitArea />
         <SummaryCard />
       </div>
     </div>
@@ -236,6 +238,8 @@ export function App() {
       <SettingsDialog />
       {/* "N chats are working. Quit anyway?" in whichever window the shell asks (FR-11). */}
       <QuitDialog />
+      {/* The chat being dragged onto the chat area (split view). */}
+      <DragGhost />
       {!solo && <UpdatesHost />}
       <MacMenu />
       <Toaster />

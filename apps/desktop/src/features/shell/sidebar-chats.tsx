@@ -37,6 +37,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
+import { startDrag } from "@/features/split/drag";
 import { LOCAL_GROUP, UNTITLED, useSessionStore, type SessionSummary } from "@/stores/session-store";
 import { ChatMenuItems, useChatMenuKeys } from "./chat-menu";
 
@@ -192,6 +193,11 @@ export function ChatItem({ chat, active }: { chat: SessionSummary; active: boole
       <SidebarMenuButton
         isActive={active || contextOpen}
         onClick={() => void selectSession(chat.id)}
+        // Drag a saved chat onto the chat area to show it beside another
+        // (docs/features/chat-split-view/spec.md, FR-2).
+        onPointerDown={(event) => {
+          if (!chat.draft && !archived) startDrag(event, { kind: "chat", chat: chat.id, title: chat.title });
+        }}
         title={chat.preview ? `${chat.title}
 
 ${chat.preview}` : chat.title}
