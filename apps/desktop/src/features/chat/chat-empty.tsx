@@ -1,39 +1,34 @@
-import { ArrowUpRightIcon, BugIcon, FileSearchIcon, FlaskConicalIcon, FolderIcon, MapIcon } from "lucide-react";
+import * as React from "react";
+import { ArrowUpRightIcon, FolderIcon } from "lucide-react";
 import { EvoLogo } from "@/components/icons/evo-logo";
 import { cn } from "@/lib/utils";
+import { git } from "@/lib/git";
+import { inTauri } from "@/lib/platform";
+import { usePaneChat, usePaneEngine } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { composerDraft } from "./chat-composer";
-
-const suggestions = [
-  {
-    icon: MapIcon,
-    label: "Explain this project",
-    hint: "Its structure and how the parts fit",
-    prompt: "Give me a tour of this project: its structure, main parts and how they fit together.",
-  },
-  {
-    icon: BugIcon,
-    label: "Find bugs",
-    hint: "Likely problems in recent changes",
-    prompt: "Look through the recent changes and point out likely bugs.",
-  },
-  {
-    icon: FlaskConicalIcon,
-    label: "Write tests",
-    hint: "Cover code that has none yet",
-    prompt: "Find code that lacks tests and write them.",
-  },
-  {
-    icon: FileSearchIcon,
-    label: "Summarize docs",
-    hint: "The key points of the docs",
-    prompt: "Summarize the documentation in this workspace.",
-  },
-];
+import { suggestionsFor } from "./suggestions";
 
 /** First screen of a chat: where the agent works, and one-click starters (AI Elements · Suggestion). */
 export function ChatEmpty() {
-  const workspace = useSessionStore((s) => s.workspaceOf(s.currentId));
+  // The chat of this pane (split view), and what its folder is: suggestions fit it (ux-polish FR-8).
+  const chat = usePaneChat();
+  const workspace = useSessionStore((s) => s.workspaceOf(chat));
+  const cwd = usePaneEngine((s) => s.cwd);
+  const [repo, setRepo] = React.useState<{ changed: number } | null>(null);
+  React.useEffect(() => {
+    setRepo(null);
+    if (!workspace || !cwd || !inTauri) return;
+    let live = true;
+    git
+      .status(cwd)
+      .then((status) => live && setRepo(status ? { changed: status.files.length } : null))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [workspace, cwd]);
+  const suggestions = suggestionsFor({ workspace: Boolean(workspace), repo: repo !== null, changed: repo?.changed ?? 0 });
 
   return (
     <div className="flex h-full min-w-0 flex-col items-center justify-center px-6 py-12">
