@@ -449,6 +449,22 @@ async fn failed_partial_responses_are_visible_but_not_replayed_as_successful_con
     assert_eq!(result["turns"][1]["status"], "done");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_provider_error_is_shown_as_the_reason_the_answer_failed() {
+    // An invalid API key: the side chat says so, not only that no answer came.
+    let mut refused = faux_assistant_message("", StopReason::Error);
+    refused.error_message = Some("http error 401: invalid x-api-key".into());
+    let script = FauxScript::new();
+    script.set_responses(vec![FauxStep::message(refused)]);
+    let parent = parent(script).await;
+    let manager = SideQuestions::default();
+    command(&manager, &parent, json!({"op":"start","question":"q"})).await;
+    let result = done(&manager, &parent).await;
+    assert_eq!(result["status"], "failed");
+    let error = result["error"].as_str().unwrap();
+    assert!(error.contains("401: invalid x-api-key"), "{error}");
+}
+
 #[test]
 fn history_limits_also_bound_failed_and_cancelled_turns() {
     for status in ["done", "failed", "cancelled"] {

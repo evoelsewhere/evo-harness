@@ -736,8 +736,7 @@ async fn run(child: ChildHarness, job: Arc<Job>, prompt: String, timeout: Durati
                                 || text.is_empty()
                             {
                                 state.status = "failed";
-                                state.error =
-                                    Some("side question did not produce a final answer".into());
+                                state.error = Some(no_answer(Some(&final_message), None));
                             } else if text.len() > MAX_OUTPUT {
                                 state.status = "failed";
                                 state.error = Some("side question output limit exceeded".into());
@@ -752,10 +751,22 @@ async fn run(child: ChildHarness, job: Arc<Job>, prompt: String, timeout: Durati
                                 state.status = "done";
                             }
                         }
-                        _ => {
+                        HarnessRunOutcome::Failed {
+                            error,
+                            final_message,
+                            ..
+                        } => {
                             state.status = "failed";
                             state.error =
-                                Some("side question did not produce a final answer".into());
+                                Some(no_answer(final_message.as_ref(), Some(&error.message)));
+                        }
+                        HarnessRunOutcome::Aborted { final_message, .. } => {
+                            state.status = "failed";
+                            state.error = Some(no_answer(Some(&final_message), None));
+                        }
+                        HarnessRunOutcome::Suspended { .. } => {
+                            state.status = "failed";
+                            state.error = Some(no_answer(None, None));
                         }
                     }
                     job.revision.fetch_add(1, Ordering::SeqCst);
@@ -769,6 +780,20 @@ async fn run(child: ChildHarness, job: Arc<Job>, prompt: String, timeout: Durati
         let _ = tokio::time::timeout(Duration::from_secs(2), &mut run).await;
     }
     let _ = child.harness.close().await;
+}
+
+/// Why a run gave no answer: the provider's own words when it gave them (an
+/// invalid API key, a rate limit), so the side chat shows the cause.
+fn no_answer(message: Option<&AssistantMessage>, error: Option<&str>) -> String {
+    let detail = message
+        .and_then(|message| message.error_message.as_deref())
+        .or(error)
+        .map(str::trim)
+        .filter(|detail| !detail.is_empty());
+    match detail {
+        Some(detail) => format!("side question failed: {detail}"),
+        None => "side question did not produce a final answer".into(),
+    }
 }
 
 #[cfg(test)]
