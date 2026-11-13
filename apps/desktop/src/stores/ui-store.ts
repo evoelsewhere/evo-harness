@@ -109,6 +109,9 @@ interface UiStore {
   /** `chat` is gone (deleted, archived or an untouched draft discarded): drop its saved tabs. */
   forgetChat(chat: string): void;
   commandOpen: boolean;
+  /** The keyboard shortcuts dialog (Ctrl/⌘+/; docs/features/ux-polish/spec.md, FR-7). */
+  shortcutsOpen: boolean;
+  setShortcutsOpen(open: boolean): void;
   /** The settings page replaces the sidebar and main column while open. */
   settingsOpen: boolean;
   settingsSection: SettingsSection;
@@ -220,6 +223,8 @@ export const useUiStore = create<UiStore>()(
       panelChat: null,
       panelsByChat: {},
       commandOpen: false,
+      shortcutsOpen: false,
+      setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen, commandOpen: false }),
       settingsOpen: false,
       customizeOpen: false,
       schedulerOpen: false,

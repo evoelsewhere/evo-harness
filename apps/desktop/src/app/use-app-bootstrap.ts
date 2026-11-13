@@ -145,6 +145,10 @@ export function useAppHotkeys() {
         event.preventDefault();
         if (ui.settingsOpen) ui.closeSettings();
         else ui.openSettings();
+      } else if (event.key === "/" && !event.shiftKey) {
+        // Every shortcut, in one list (ux-polish FR-7).
+        event.preventDefault();
+        ui.setShortcutsOpen(!ui.shortcutsOpen);
       } else if (key === "j") {
         event.preventDefault();
         ui.toggleRightPanel();

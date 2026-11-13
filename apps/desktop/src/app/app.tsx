@@ -19,6 +19,7 @@ import { chatWindowId } from "@/lib/windows";
 import { SIDE_PANEL_WIDTH, useUiStore } from "@/stores/ui-store";
 import { MacMenu } from "@/features/shell/mac-menu";
 import { QuitDialog } from "@/features/shell/quit-dialog";
+import { ShortcutsDialog } from "@/features/shell/shortcuts-dialog";
 import { useAppBootstrap, useAppHotkeys } from "./use-app-bootstrap";
 import { CustomizePage } from "@/features/customize/customize-page";
 import { SchedulerPage } from "@/features/scheduler/scheduler-page";
@@ -238,6 +239,8 @@ export function App() {
       <SettingsDialog />
       {/* "N chats are working. Quit anyway?" in whichever window the shell asks (FR-11). */}
       <QuitDialog />
+      {/* Ctrl/⌘+/ lists every shortcut (ux-polish FR-7). */}
+      <ShortcutsDialog />
       {/* The chat being dragged onto the chat area (split view). */}
       <DragGhost />
       {!solo && <UpdatesHost />}

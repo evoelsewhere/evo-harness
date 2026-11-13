@@ -1,6 +1,6 @@
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderOpenIcon, MessageSquareIcon, MoonIcon, PanelRightIcon, PlusIcon, RotateCwIcon } from "lucide-react";
+import { FolderOpenIcon, KeyboardIcon, MessageSquareIcon, MoonIcon, PanelRightIcon, PlusIcon, RotateCwIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import {
   CommandDialog,
@@ -96,6 +96,11 @@ export function CommandPalette() {
           <CommandItem onSelect={run(() => void start())}>
             <RotateCwIcon />
             Restart engine
+          </CommandItem>
+          <CommandItem onSelect={run(() => useUiStore.getState().setShortcutsOpen(true))}>
+            <KeyboardIcon />
+            Keyboard shortcuts
+            <CommandShortcut>{modKey} /</CommandShortcut>
           </CommandItem>
         </CommandGroup>
         <CommandSeparator />
