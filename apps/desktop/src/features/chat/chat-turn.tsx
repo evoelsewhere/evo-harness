@@ -1,8 +1,9 @@
 import * as React from "react";
-import { CheckIcon, ChevronRightIcon, CircleAlertIcon, CopyIcon, MessagesSquareIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, CopyIcon, MessagesSquareIcon } from "lucide-react";
 import { MessageAction } from "@/components/ai-elements/message-action";
 import { Reasoning, seconds } from "@/components/ai-elements/reasoning";
 import { Tool, activity, toolKind } from "@/components/ai-elements/tool";
+import { TurnError } from "./turn-error";
 import { Markdown } from "@/components/markdown";
 import { AgentIcon } from "@/components/icons/agent-icon";
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message";
@@ -335,12 +336,7 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
           <KeptWorktree key={part.key} part={part} />
         ))}
 
-        {turn.error && (
-          <div className="flex items-start gap-2 text-sm text-destructive" data-selectable>
-            <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
-            <span>{turn.error}</span>
-          </div>
-        )}
+        {turn.error && <TurnError error={turn.error} provider={turn.meta.provider} prompt={turn.prompt || undefined} />}
         {turn.status === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}
 
         {!running && (
