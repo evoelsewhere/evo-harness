@@ -70,6 +70,21 @@ export function openLink(url: string) {
   else window.open(url, "_blank", "noopener");
 }
 
+// The webview does not open new windows itself: libraries that call
+// `window.open` (the markdown link dialog) would do nothing. Send web links
+// to the system browser instead.
+if (inTauri && typeof window !== "undefined") {
+  const nativeOpen = window.open.bind(window);
+  window.open = ((url?: string | URL, ...rest: unknown[]) => {
+    const href = url?.toString() ?? "";
+    if (/^(https?|mailto):/i.test(href)) {
+      void openUrl(href).catch(() => undefined);
+      return null;
+    }
+    return (nativeOpen as (...args: unknown[]) => Window | null)(url, ...rest);
+  }) as typeof window.open;
+}
+
 // ── Editing ──────────────────────────────────────────────────────────────────
 //
 // Opening the menu moves focus to its button, so remember the last text field
