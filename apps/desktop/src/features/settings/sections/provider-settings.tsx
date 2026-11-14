@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import type { ProviderKind, ProviderRow, ProviderUsage, UsageLimit } from "@/engine/protocol";
 import { openLink } from "@/features/shell/app-commands";
-import { formatRelative } from "@/lib/format";
+import { formatCost, formatRelative, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { byRank, matchesProvider, useProviderStore } from "@/stores/provider-store";
@@ -395,6 +395,88 @@ function ProviderListItem({ row, open, onToggle }: { row: ProviderRow; open: boo
   );
 }
 
+/** Models the engine can use from one connected provider: limits and prices. */
+function ModelList({ providerId }: { providerId: string }) {
+  const all = useEngineStore((s) => s.models);
+  const [open, setOpen] = React.useState(false);
+  const [filter, setFilter] = React.useState("");
+  const models = React.useMemo(
+    () => all.filter((m) => m.provider === providerId).sort((a, b) => a.name.localeCompare(b.name)),
+    [all, providerId],
+  );
+  const shown = models.filter((m) => `${m.name} ${m.id}`.toLowerCase().includes(filter.trim().toLowerCase()));
+  if (models.length === 0) return null;
+  const price = (m: (typeof models)[number]) =>
+    m.cost && m.costConfigured !== false
+      ? m.cost.input === 0 && m.cost.output === 0
+        ? "Free"
+        : `${formatCost(m.cost.input)} / ${formatCost(m.cost.output)}`
+      : "—";
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">
+        <ChevronRightIcon className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+        {open ? "Hide models" : `Show ${models.length} models`}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-2 flex flex-col gap-2">
+          {models.length > 8 && (
+            <Input
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Filter models"
+              aria-label="Filter models"
+              className="h-8 text-xs"
+            />
+          )}
+          <div className="max-h-72 overflow-y-auto rounded-lg shadow-hairline">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-background text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-1.5 font-medium">Model</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Context</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Max out</th>
+                  <th className="px-3 py-1.5 text-right font-medium" title="USD per million tokens, input / output">
+                    In / out $/M
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((m) => (
+                  <tr key={m.id} className="border-t border-border/50">
+                    <td className="max-w-0 px-3 py-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate font-medium">{m.name}</span>
+                        {m.reasoning && (
+                          <span className="shrink-0 rounded px-1 text-[10px] text-muted-foreground shadow-hairline">Reasoning</span>
+                        )}
+                      </div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground" title={m.id}>
+                        {m.id}
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{m.contextWindow ? formatTokens(m.contextWindow) : "—"}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{m.maxTokens ? formatTokens(m.maxTokens) : "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{price(m)}</td>
+                  </tr>
+                ))}
+                {shown.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-3 text-center text-muted-foreground">
+                      No model matches.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function ProviderForm({ row }: { row: ProviderRow }) {
   const busy = useProviderStore((s) => s.busy[row.id]);
   const save = useProviderStore((s) => s.save);
@@ -506,6 +588,11 @@ function ProviderForm({ row }: { row: ProviderRow }) {
                 {row.discoveredAt ? ` · listed by ${row.label} ${formatRelative(row.discoveredAt * 1000)}` : " · from models.dev"}
               </span>
             </dd>
+            {row.connected && row.modelCount > 0 && (
+              <dd className="col-span-2 mt-1">
+                <ModelList providerId={row.id} />
+              </dd>
+            )}
           </>
         )}
         {row.discoveryError && (
