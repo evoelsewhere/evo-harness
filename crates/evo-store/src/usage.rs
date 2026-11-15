@@ -28,6 +28,9 @@ pub struct NewUsage {
     pub chat_id: Option<String>,
     /// One of [`SOURCES`]; anything else is stored as `chat`.
     pub source: String,
+    /// The plugin of a `plugin` row made by plugin AI (migration 0014).
+    #[serde(default)]
+    pub plugin_id: Option<String>,
     pub provider_id: String,
     pub model_id: String,
     pub input: i64,
@@ -76,6 +79,8 @@ pub struct UsageEvent {
     pub cost_usd: f64,
     pub stop_reason: Option<String>,
     pub duration_ms: Option<i64>,
+    /// The plugin of a plugin-AI response (plugin-ai FR-15).
+    pub plugin_id: Option<String>,
 }
 
 /// Which rows a query covers. Every field narrows; none means all.
@@ -159,6 +164,15 @@ pub struct SourceUsage {
     pub totals: UsageTotals,
 }
 
+/// One plugin's AI use (docs/features/plugin-ai/spec.md, FR-15).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUsage {
+    pub plugin_id: String,
+    #[serde(flatten)]
+    pub totals: UsageTotals,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSummary {
@@ -172,6 +186,8 @@ pub struct UsageSummary {
     /// The [`TOP_CHATS`] most expensive chats.
     pub by_chat: Vec<ChatUsage>,
     pub by_source: Vec<SourceUsage>,
+    /// Plugins' AI use, most expensive first.
+    pub by_plugin: Vec<PluginUsage>,
     /// The oldest row in the whole history (not just this query).
     pub first_ms: Option<i64>,
 }
@@ -245,8 +261,8 @@ pub fn record(conn: &mut Connection, rows: &[NewUsage]) -> Result<usize, DbError
             "INSERT INTO usage_events (at_ms, chat_id, source, provider_id, model_id,
                  input, output, cache_read, cache_write, reasoning,
                  cost_input, cost_output, cost_cache_read, cost_cache_write, cost_usd, stop_reason,
-                 duration_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                 duration_ms, plugin_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         )?;
         for row in &rows {
             statement.execute(params![
@@ -267,6 +283,7 @@ pub fn record(conn: &mut Connection, rows: &[NewUsage]) -> Result<usize, DbError
                 finite(row.cost_usd),
                 row.stop_reason,
                 row.duration_ms.filter(|ms| *ms > 0),
+                row.plugin_id,
             ])?;
         }
     }
@@ -390,6 +407,24 @@ pub fn summary(conn: &Connection, query: &UsageQuery) -> Result<UsageSummary, Db
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
+    let plugin_filter = if filter.is_empty() {
+        "WHERE u.plugin_id IS NOT NULL".to_string()
+    } else {
+        format!("{filter} AND u.plugin_id IS NOT NULL")
+    };
+    let by_plugin = conn
+        .prepare(&format!(
+            "SELECT u.plugin_id, {TOTALS} FROM usage_events u {plugin_filter}
+             GROUP BY u.plugin_id ORDER BY SUM(u.cost_usd) DESC"
+        ))?
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(PluginUsage {
+                plugin_id: row.get(0)?,
+                totals: totals_at(row, 1)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
     let first_ms = conn.query_row("SELECT MIN(at_ms) FROM usage_events", [], |row| row.get(0))?;
 
     Ok(UsageSummary {
@@ -399,6 +434,7 @@ pub fn summary(conn: &Connection, query: &UsageQuery) -> Result<UsageSummary, Db
         by_model,
         by_chat,
         by_source,
+        by_plugin,
         first_ms,
     })
 }
@@ -424,7 +460,7 @@ pub fn events(
         .prepare(&format!(
             "SELECT u.id, u.at_ms, u.chat_id, (SELECT title FROM chats c WHERE c.id = u.chat_id),
                     u.source, u.provider_id, u.model_id, u.input, u.output, u.cache_read,
-                    u.cache_write, u.reasoning, u.cost_usd, u.stop_reason, u.duration_ms
+                    u.cache_write, u.reasoning, u.cost_usd, u.stop_reason, u.duration_ms, u.plugin_id
              FROM usage_events u {filter} ORDER BY u.id DESC LIMIT ?"
         ))?
         .query_map(params_from_iter(values.iter()), |row| {
@@ -444,6 +480,7 @@ pub fn events(
                 cost_usd: row.get(12)?,
                 stop_reason: row.get(13)?,
                 duration_ms: row.get(14)?,
+                plugin_id: row.get(15)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

@@ -56,6 +56,7 @@ pub mod computer;
 pub mod logs;
 pub mod mail;
 pub mod memory_log;
+pub mod plugin_ai;
 pub mod settings;
 pub mod transcripts;
 pub mod usage;
@@ -130,6 +131,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 13,
         name: "chat_roles",
         sql: include_str!("migrations/0013_chat_roles.sql"),
+    },
+    Migration {
+        version: 14,
+        name: "plugin_ai",
+        sql: include_str!("migrations/0014_plugin_ai.sql"),
     },
 ];
 
