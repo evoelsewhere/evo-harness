@@ -74,6 +74,7 @@ export function PluginPage() {
           key={view.key}
           plugin={view.plugin}
           pluginName={view.pluginName}
+          backend={view.backend}
           slot="sidebar"
           view={view.view.id}
           title={view.view.title}
@@ -99,6 +100,7 @@ export function PluginPanel({ panel }: { panel: string }) {
           key={view.key}
           plugin={view.plugin}
           pluginName={view.pluginName}
+          backend={view.backend}
           slot="panels"
           view={view.view.id}
           title={view.view.title}
@@ -142,6 +144,7 @@ export function PluginCard({ plugin, card, title, data }: { plugin: string; card
         <PluginSlot
           plugin={view.plugin}
           pluginName={view.pluginName}
+          backend={view.backend}
           slot="cards"
           view={view.view.id}
           title={view.view.title}
@@ -179,6 +182,7 @@ function ComposerPopover({ view, anchor, onClose }: { view: PluginViewRef; ancho
               <PluginSlot
                 plugin={view.plugin}
                 pluginName={view.pluginName}
+                backend={view.backend}
                 slot="composer"
                 view={view.view.id}
                 title={view.view.title}

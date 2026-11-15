@@ -140,6 +140,10 @@ page for notes pinned around a chat.
   shown in its place) while the overlay is open, and comes back after.
 - A chat card scrolls out of sight: its webview is hidden. Cards far out of
   sight are unloaded and loaded again when they scroll back.
+- A view opens before its plugin's backend runs (the first start downloads
+  a runtime and installs dependencies): the slot waits for the backend
+  and says which step it is on, so the view's first `backend.call` does not
+  fail (FR-17).
 
 ## 4. Requirements
 
@@ -163,6 +167,7 @@ page for notes pinned around a chat.
 | FR-14 | A plugin's Developer mode (a switch in Customize › Plugins, off by default) watches its folder. A changed file reloads its open views and keeps its storage. | US-5. |
 | FR-15 | Disabling or uninstalling a plugin closes its views and removes its slots at once. Cards in old chats show a placeholder. | Edge case 1. |
 | FR-16 | Customize › Plugins shows each plugin's views and permissions, and lets the person revoke a permission. A revoked permission makes calls that need it fail. | Revoking `chat:send` makes `chat.send` fail. |
+| FR-17 | A view whose plugin has a backend to run (not set never to start, nothing waiting on the person) waits for it in its slot. While the backend's runtime is downloaded, its dependencies installed or it starts, the slot shows the plugin's icon with a soft ring and the steps — get its runtime, install its dependencies, start its backend — with the current one marked; a card or composer action shows the current step on one line. The view opens once the backend is in the pool (the opening wakes it) and shows once it runs. A failed preparation or start shows why, a Try again button and where its log is. A backend already running shows nothing extra: the words come after 300 ms. The ring stops for reduced motion. | A Python plugin's page opened right after install shows the steps, then the view; a backend that exits shows the error and Try again. |
 
 ### 4.2 Non-functional
 
@@ -229,3 +234,5 @@ n/a — all answered.
 - 2026-11-13 — FR-11: `tools.call` reaches app and connector tools. The
   engine's own tools need a new engine command and come with plugin
   backends.
+- 2026-11-15 — FR-17: a view waits for its plugin's backend, showing the
+  steps, instead of opening before the backend runs.

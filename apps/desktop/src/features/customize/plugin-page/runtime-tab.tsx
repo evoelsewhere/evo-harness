@@ -3,15 +3,14 @@
 // state with Start / Stop / Restart, when it starts, and its log.
 
 import * as React from "react";
-import { listen } from "@tauri-apps/api/event";
 import { PlayIcon, RotateCwIcon, SquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { inTauri } from "@/lib/platform";
-import { plugins, type InstalledPlugin, type PluginRuntime, type PluginWaiting, type RuntimeState } from "@/lib/plugins";
+import { plugins, type InstalledPlugin, type PluginRuntime, type PluginWaiting } from "@/lib/plugins";
 import { cn } from "@/lib/utils";
+import { usePluginRuntime } from "@/features/plugin-ui/backend-stage";
 import { Properties } from "../customize-parts";
 import { ErrorNote, Section, useBusy } from "./parts";
 
@@ -46,24 +45,8 @@ function waitingFor(plugin: InstalledPlugin, waiting: PluginWaiting): string {
   return `your approval: ${labels.join(", ")}`;
 }
 
-/** The plugin's code as it runs now, refreshed when the pool or its runtime changes. */
-function useRuntime(plugin: InstalledPlugin): [RuntimeState | null, () => void] {
-  const [state, setState] = React.useState<RuntimeState | null>(null);
-  const load = React.useCallback(() => {
-    if (!inTauri) return;
-    void plugins.runtimeState(plugin.id, plugin.name).then(setState).catch(() => undefined);
-  }, [plugin.id, plugin.name]);
-  React.useEffect(() => {
-    load();
-    if (!inTauri) return;
-    const offs = [listen("mcp://changed", load), listen("plugins://runtime", load), listen("plugins://changed", load)];
-    return () => offs.forEach((off) => void off.then((stop) => stop()));
-  }, [load]);
-  return [state, load];
-}
-
 export function RuntimeTab({ plugin }: { plugin: InstalledPlugin }) {
-  const [state, reload] = useRuntime(plugin);
+  const [state, reload] = usePluginRuntime(plugin.id, plugin.name);
   const { busy, error, run } = useBusy();
   const [idle, setIdle] = React.useState(String(plugin.idleStopMinutes ?? plugin.runtime?.idleStopMinutes ?? 10));
   const runs = plugin.runtime || plugin.connectors.length > 0 || plugin.hooks.length > 0;

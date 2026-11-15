@@ -5,17 +5,19 @@
 // side panel sliding), hides it while a menu or dialog covers it or while it
 // is not wholly inside its scroll area, and closes it when the slot goes.
 // Behind the view the slot shows the plugin's icon and title: that is what
-// shows while it loads, while it is hidden, and after it closed.
+// shows while it loads, while it is hidden, and after it closed. A view whose
+// plugin has a backend waits for it there, step by step (FR-17).
 
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
-import { PuzzleIcon, RotateCwIcon } from "lucide-react";
+import { CheckIcon, PuzzleIcon, RotateCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { PLUGIN_VIEW_EVENTS, pluginViews, type PluginSlotKind, type ViewBounds } from "@/lib/plugins";
+import { PLUGIN_VIEW_EVENTS, plugins, pluginViews, type PluginSlotKind, type ViewBounds } from "@/lib/plugins";
 import { inTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/stores/ui-store";
+import { opensAt, useBackendStage, type BackendStage } from "./backend-stage";
 
 /** Popups (menus, dialogs, popovers) that would sit under a native view. */
 const OVERLAYS =
@@ -158,10 +160,12 @@ export interface PluginSlotProps {
   generation?: number;
   /** Keep the view, hidden, for a while after the slot goes (pages and panels). */
   keepAlive?: boolean;
+  /** Its plugin has a backend to wait for (FR-17). */
+  backend?: boolean;
   className?: string;
 }
 
-export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, unloadOffscreen, onHeight, generation = 0, keepAlive, className }: PluginSlotProps) {
+export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, unloadOffscreen, onHeight, generation = 0, keepAlive, backend = false, className }: PluginSlotProps) {
   const area = React.useRef<HTMLDivElement>(null);
   const zoom = useUiStore((s) => s.zoom);
   const [label, setLabel] = React.useState<string | null>(null);
@@ -175,12 +179,21 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
   dataRef.current = data;
   const live = !unloadOffscreen || near;
 
+  // The backend: the view opens once it can wake it, and shows once it runs.
+  const stage = useBackendStage(plugin, pluginName, backend);
+  const ready = stage.kind === "ready";
+  const readyRef = React.useRef(ready);
+  readyRef.current = ready;
+  const [cleared, setCleared] = React.useState(opensAt(stage));
+  if (!cleared && opensAt(stage)) setCleared(true);
+
   // Open the view (again when the slot comes back into reach, or on Reopen).
   React.useEffect(() => {
     const element = area.current;
-    if (!element || !live || !inTauri) return;
+    if (!element || !live || !inTauri || !cleared) return;
     let cancelled = false;
     const place = placementOf(element, useUiStore.getState().zoom || 1);
+    const shown = place.visible && readyRef.current;
     setFailure(null);
     const keyOfView = keepAlive ? `${slot}:${plugin}/${view}` : null;
     const reused = keyOfView ? takeKept(keyOfView, generation) : null;
@@ -201,19 +214,19 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
       return done;
     }
     pluginViews
-      .open(plugin, slot, view, place.bounds, place.visible, dataRef.current)
+      .open(plugin, slot, view, place.bounds, shown, dataRef.current)
       .then((opened) => {
         if (cancelled) {
           void pluginViews.close(opened).catch(() => undefined);
           return;
         }
         labelRef.current = opened;
-        sent.current = { bounds: JSON.stringify(place.bounds), visible: place.visible };
+        sent.current = { bounds: JSON.stringify(place.bounds), visible: shown };
         setLabel(opened);
       })
       .catch((error) => !cancelled && setFailure(String(error)));
     return done;
-  }, [plugin, slot, view, live, attempt, generation, keepAlive]);
+  }, [plugin, slot, view, live, attempt, generation, keepAlive, cleared]);
 
   // Keep the view on the slot's box, shown only when it can be seen whole.
   React.useLayoutEffect(() => {
@@ -232,9 +245,10 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
           sent.current.bounds = bounds;
           void pluginViews.bounds(open, place.bounds).catch(() => undefined);
         }
-        if (place.visible !== sent.current.visible) {
-          sent.current.visible = place.visible;
-          void pluginViews.visible(open, place.visible).catch(() => undefined);
+        const shown = place.visible && readyRef.current;
+        if (shown !== sent.current.visible) {
+          sent.current.visible = shown;
+          void pluginViews.visible(open, shown).catch(() => undefined);
         }
       });
     };
@@ -261,7 +275,7 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
       clearInterval(settle);
       clearTimeout(stop);
     };
-  }, [zoom, label, unloadOffscreen]);
+  }, [zoom, label, unloadOffscreen, ready]);
 
   React.useEffect(() => {
     if (viewNews.height && onHeight) onHeight(viewNews.height);
@@ -269,14 +283,32 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
 
   const closed = viewNews.closed;
   const loading = live && !failure && !closed && !viewNews.loaded;
+  // A backend already running needs no words: they come after a moment.
+  const waiting = useLate(live && !failure && !closed && !ready, 300);
+  const [retrying, setRetrying] = React.useState(false);
+  const retry = () => {
+    setRetrying(true);
+    void plugins
+      .runtimeControl(plugin, pluginName, "start")
+      .catch(() => undefined)
+      .finally(() => setRetrying(false));
+  };
   return (
     <div ref={area} className={cn("relative h-full w-full overflow-hidden", className)} data-plugin-slot={`${plugin}/${view}`}>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
-        <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <span className="relative flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          {waiting && stage.kind !== "failed" && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-lg border border-brand/60 motion-safe:animate-[plugin-waiting-ring_2.4s_ease-out_infinite]"
+            />
+          )}
           {icon ? <img src={icon} alt="" className="size-5" /> : <PuzzleIcon className="size-4" />}
         </span>
         <p className="text-[13px] font-medium">{title}</p>
-        {failure ? (
+        {waiting && !ready ? (
+          <BackendWaiting stage={stage} pluginName={pluginName} compact={slot === "cards" || slot === "composer"} retrying={retrying} onRetry={retry} />
+        ) : failure ? (
           <>
             <p className="max-w-72 text-xs text-muted-foreground">
               {pluginName} could not open this view: {failure}
@@ -297,6 +329,98 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
           <p className="text-xs text-muted-foreground">{pluginName}</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** `on`, once it has stayed on for `ms`. */
+function useLate(on: boolean, ms: number): boolean {
+  const [late, setLate] = React.useState(false);
+  React.useEffect(() => {
+    if (!on) return setLate(false);
+    const timer = setTimeout(() => setLate(true), ms);
+    return () => clearTimeout(timer);
+  }, [on, ms]);
+  return on && late;
+}
+
+const STEPS = ["Get its runtime", "Install its dependencies", "Start its backend"] as const;
+
+function stepOf(stage: BackendStage): number {
+  if (stage.kind === "preparing") return stage.step === "downloading" ? 0 : 1;
+  return 2;
+}
+
+/** What the slot says while the plugin's backend gets ready, or why it did not (FR-17). */
+function BackendWaiting({
+  stage,
+  pluginName,
+  compact,
+  retrying,
+  onRetry,
+}: {
+  stage: BackendStage;
+  pluginName: string;
+  compact: boolean;
+  retrying: boolean;
+  onRetry(): void;
+}) {
+  if (stage.kind === "failed") {
+    return (
+      <>
+        <p className="max-w-80 text-xs text-muted-foreground">{pluginName}'s backend could not start.</p>
+        {stage.detail && !compact && (
+          <pre className="max-h-24 max-w-80 overflow-auto rounded-md bg-muted px-2 py-1.5 text-left font-mono text-[11px] whitespace-pre-wrap text-muted-foreground">
+            {stage.detail}
+          </pre>
+        )}
+        <Button size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+          {retrying ? <Spinner /> : <RotateCwIcon />} Try again
+        </Button>
+        {!compact && <p className="max-w-80 text-[11px] text-muted-foreground/80">Its log is in Customize → Plugins → {pluginName} → Runtime.</p>}
+      </>
+    );
+  }
+  const current = stepOf(stage);
+  if (compact) {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Spinner className="size-3.5" /> {STEPS[current]}…
+      </p>
+    );
+  }
+  return (
+    <div role="status" className="flex flex-col items-center gap-2.5 pt-1">
+      <ol className="flex flex-col gap-1.5 text-left text-xs">
+        {STEPS.map((step, index) => (
+          <li
+            key={step}
+            className={cn(
+              "flex items-center gap-2",
+              index < current && "text-muted-foreground",
+              index === current && "font-medium text-foreground",
+              index > current && "text-muted-foreground/50",
+            )}
+          >
+            {index < current ? (
+              <CheckIcon className="size-3.5 text-brand" />
+            ) : index === current ? (
+              <Spinner className="size-3.5 text-brand" />
+            ) : (
+              <span className="flex size-3.5 items-center justify-center">
+                <span className="size-1.5 rounded-full bg-current" />
+              </span>
+            )}
+            {step}
+          </li>
+        ))}
+      </ol>
+      {stage.kind === "preparing" && (
+        <p className="max-w-72 text-[11px] text-muted-foreground/80">
+          {stage.step === "downloading" && stage.detail ? `${stage.detail}. ` : ""}
+          The first start downloads and installs what it needs; later starts are quick.
+        </p>
+      )}
     </div>
   );
 }

@@ -437,6 +437,19 @@
   }
 }
 
+/* A plugin view waiting for its backend (features/plugin-ui/plugin-slot.tsx):
+   a soft ring spreads from the plugin's icon. */
+@keyframes plugin-waiting-ring {
+  from {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
 /* Chart series colours (Usage page): one hue per model, always in this order,
    validated for colour-vision deficiency on the light and dark surfaces
    (adjacent ΔE ≥ 8). Models past the fourth fold into a neutral "Other". */

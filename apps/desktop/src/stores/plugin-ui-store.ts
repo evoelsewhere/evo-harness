@@ -35,6 +35,15 @@ export interface PluginViewRef {
   view: PluginView;
   /** The icon as a data URL, when it has one. */
   icon?: string;
+  /** Its plugin has a backend that is to run: the view waits for it (FR-17). */
+  backend: boolean;
+}
+
+/** Whether `plugin` has a backend that is to run: not set to never start, nothing waiting on the person. */
+export function runsBackend(plugin: InstalledPlugin): boolean {
+  if (!plugin.runtime) return false;
+  if ((plugin.startMode ?? plugin.runtime.startup) === "off") return false;
+  return !(plugin.waiting ?? []).some((w) => w.part === "setup" || w.part === "runtime");
 }
 
 /** `plugin:<plugin id>/<view id>`. */
@@ -56,6 +65,7 @@ export function viewsFrom(installed: InstalledPlugin[]): PluginViewRef[] {
   const views: PluginViewRef[] = [];
   for (const plugin of installed) {
     if (!plugin.enabled || !plugin.ui) continue;
+    const backend = runsBackend(plugin);
     for (const slot of SLOTS) {
       for (const view of plugin.ui[slot] ?? []) {
         views.push({
@@ -65,6 +75,7 @@ export function viewsFrom(installed: InstalledPlugin[]): PluginViewRef[] {
           slot,
           view,
           icon: view.icon ? plugin.icons?.[view.icon] : undefined,
+          backend,
         });
       }
     }
