@@ -1,0 +1,27 @@
+[package]
+name = "evo-vault"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version = "0.1.0"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Plugin secrets for evo: a key in the operating system's keychain sealing one encrypted file per plugin"
+
+[dependencies]
+base64 = { workspace = true }
+ring = "0.17"
+serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["async-secret-service", "crypto-rust", "tokio"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
