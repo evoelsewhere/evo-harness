@@ -1,11 +1,12 @@
 //! App-control tools of the agent (ADR 0013): open or close a side panel, read
 //! the Usage page's numbers, search and read past chats, start a project's
-//! dev server. They run in the shell like the browser and terminal tools and
+//! dev server, show a plugin's card or open its page or panel. They run in the shell like the browser and terminal tools and
 //! are registered by `agent_tools::registry`.
 //!
 //! Spec: docs/features/agent-browser (FR-18 – FR-21), plan 3.2 – 3.5.
 
 pub mod panel;
+pub mod plugin;
 pub mod preview;
 pub mod sessions;
 pub mod usage;
@@ -18,6 +19,7 @@ use super::Tool;
 pub fn tools() -> Vec<Tool> {
     let mut tools = Vec::new();
     tools.extend(panel::tools());
+    tools.extend(plugin::tools());
     tools.extend(usage::tools());
     tools.extend(sessions::tools());
     tools.extend(preview::tools());
@@ -134,11 +136,11 @@ mod tests {
     }
 
     #[test]
-    fn the_group_registers_five_unique_tools_with_closed_schemas() {
+    fn the_group_registers_seven_unique_tools_with_closed_schemas() {
         let tools = tools();
         let mut names: Vec<_> = tools.iter().map(|tool| tool.name).collect();
         names.sort_unstable();
-        assert_eq!(names, ["app_panel", "preview_start", "session_read", "session_search", "usage_get"]);
+        assert_eq!(names, ["app_panel", "plugin_open", "plugin_show_card", "preview_start", "session_read", "session_search", "usage_get"]);
         for tool in &tools {
             let schema = (tool.schema)();
             assert_eq!(schema["type"], "object", "{}", tool.name);

@@ -59,7 +59,8 @@ fn record(map: &mut HashMap<String, ChatPanels>, chat: &str, state: ChatPanels) 
 /// whether a window shows the chat (`stores/agent-events.ts`).
 #[tauri::command]
 pub fn agent_panels_report(chat: String, open_tabs: Vec<String>, active_panel: Option<String>, showing: bool, panel_open: Option<bool>) {
-    let open_tabs: Vec<String> = open_tabs.into_iter().filter(|tab| PANELS.contains(&tab.as_str())).collect();
+    // Plugin panels (`plugin:<id>/<view>`) are tabs too (plugin-ui FR-5).
+    let open_tabs: Vec<String> = open_tabs.into_iter().filter(|tab| PANELS.contains(&tab.as_str()) || tab.starts_with("plugin:")).collect();
     let active = active_panel.filter(|panel| open_tabs.contains(panel));
     let state = ChatPanels { open_tabs, active, showing, panel_open };
     record(MIRROR.lock().expect("panel mirror lock").get_or_insert_with(HashMap::new), &chat, state);
