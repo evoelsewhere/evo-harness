@@ -15,6 +15,7 @@
 //!   lifecycle events shared by sessions, subagents and their clients.
 //! - [`office`] — Office preview, document versions and the
 //!   `office_file_changed` event.
+//! - [`plugin_ai`] — the plugin-AI engine's commands and run events.
 //! - [`message_accumulator`] — folds streamed assistant deltas back into
 //!   complete messages on the client side.
 //! - [`RpcMessageUpdates`] — how assistant message updates are put on the wire.
@@ -28,6 +29,7 @@ pub mod framing;
 pub use evo_mesh::wire as mesh;
 pub mod message_accumulator;
 pub mod office;
+pub mod plugin_ai;
 pub mod protocol;
 
 /// RPC message-update wire representation. Missing capability metadata on older
