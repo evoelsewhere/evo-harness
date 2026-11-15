@@ -28,13 +28,16 @@
   limits, costs and thinking options come from models.dev, not from code.
 - **Workspace tools beside the chat:** Files with a code editor and Git
   changes, Terminal, a Browser the agent can drive, Memory and a side chat.
+- **Plugins with their own screens, code and AI.** Ask evo to build one with
+  you (Creator Mode), or install one: it can add pages and panels, run a
+  backend, sign in to services and use your own models, only as you allow.
 - **You stay in control:** approval prompts, a sandbox, project trust, and the
   usage and cost of every response, all kept on your machine.
 
 ## Core features
 
-Animated walkthroughs of these four are on the
-[website](https://evoelsewhere.asia/#core).
+Animated walkthroughs of Customize, Browser, Computer App Control and Office
+are on the [website](https://evoelsewhere.asia/#core).
 
 ### Customize
 
@@ -50,8 +53,9 @@ the sidebar. Changes apply without restarting the app.
   Each tool is set to Allow, Ask or Block, and connectors can be switched off
   per chat from the composer's `+` menu.
 - **Plugins and marketplaces** bundle skills, commands, subagents, hooks and
-  connectors. Install them from a GitHub `owner/repo`, any git URL or a
-  folder.
+  connectors, and can add views, a backend, accounts and AI of their own
+  ([below](#plugins-and-creator-mode)). Install them from a GitHub
+  `owner/repo`, any git URL or a folder.
 - **Hooks** run a command or a web request on session, prompt and tool events,
   and can block, allow or rewrite a tool call or add context.
 - **Instructions** for every chat (Personal) and for one project.
@@ -59,6 +63,41 @@ the sidebar. Changes apply without restarting the app.
 A project's skills, hooks, instructions and `.mcp.json` servers are only used
 after you trust the folder and approve them.
 [Spec](docs/features/customize-skills-plugins-connectors/spec.md)
+
+### Plugins and Creator Mode
+
+A plugin is a folder evo installs. Besides skills and connectors, it can bring
+its own screens, code and AI, and it gets only what you approve in its consent
+dialog. Each plugin has a page in **Customize → Plugins** with its settings,
+accounts, permissions, runtime, data and models.
+
+- **Creator Mode.** Ask in a chat for the plugin you want. The bundled
+  `evo-creator` skill leads the agent through the folder, the manifest, the
+  code and a design that matches evo, then you add it from its folder and turn
+  on Developer mode to see each edit at once.
+- **Views in the app:** a sidebar page, a side panel, chat cards and composer
+  actions. They are native webviews, one origin per plugin, that reach evo
+  only through `window.evo`, with every call checked against the permissions
+  you approved. Incognito chats are invisible to them.
+- **Its own code and accounts.** A backend runs on demand under Deno, limited
+  to the sites and folders you allowed, or with uv for Python. Settings can be
+  secret, sealed in a vault whose key is in your OS keychain. Accounts sign in
+  with OAuth, a device code, an API key or a web login, and evo renews tokens.
+  The plugin's pages see an account's state, never its token.
+- **Your AI models, natively.** With `ai`, a plugin streams answers from the
+  models you connected, chosen by need (fast, balanced or best) among those
+  you allow for it, with one fallback when a provider fails. Its runs can call
+  functions of its own page, tools of its backend, and evo's read, edit,
+  command, web, browser and terminal tools under your approval mode. Runs keep
+  threads per subject and can attach the open chat or files you allowed. The
+  plugin never sees a key; its **Models** tab shows what it spent and its runs,
+  and sets caps per day and month.
+
+[Plugin UI](docs/features/plugin-ui/spec.md) ·
+[Settings, secrets and runtime](docs/features/plugin-settings/spec.md) ·
+[Plugin AI](docs/features/plugin-ai/spec.md) · Samples:
+[every view slot](examples/plugin-ui-sample/README.md),
+[settings, accounts and AI](examples/plugin-settings-sample/README.md)
 
 ### Browser
 
@@ -234,7 +273,8 @@ Each feature above links to its spec. Detailed contracts and guides live under
 The engine owns agent behaviour: the agent loop, tools, sessions, compaction,
 skills, hooks, memory, model selection and credentials. The shell owns native
 features (windows, terminals, files, browser webviews, the MCP connection
-pool, plugins) and relays the protocol. Model providers are replaceable, while
+pool, plugins) and relays the protocol. Plugins' model calls run in one more
+engine process (`evo-engine --mode plugin-ai`) that the shell gates. Model providers are replaceable, while
 the harness handles context, tools, permissions, memory and verification.
 
 ## Project layout
@@ -242,7 +282,8 @@ the harness handles context, tools, permissions, memory and verification.
 ```text
 crates/         Rust workspace: engine, protocol, agent loop, tools, providers
 apps/desktop/   Tauri 2 shell (src-tauri/) and React 19 UI (src/)
-examples/       minimal native plugin used by extension tests
+examples/       sample plugins (views; settings, accounts and AI) and the
+                native plugin used by extension tests
 scripts/        Office runtime build, README screenshots
 docs/           architecture (ADD, ADRs) and feature spec / plan / tasks
 ```

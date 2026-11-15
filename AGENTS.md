@@ -25,7 +25,8 @@ crates/                 Rust workspace (one version, released together)
   evo-mesh              session mesh: wire types + hub routing mail between sessions
   evo-store             on-device SQLite app database: schema, migrations, chats, logs
   evo-mcp               MCP client and connection pool (connectors)
-  evo-plugins           plugins and marketplaces (skills, commands, agents, hooks, connectors)
+  evo-plugins           plugins and marketplaces (skills, commands, agents, hooks, connectors, views, settings, accounts, runtimes, AI permissions)
+  evo-vault             a plugin's secrets sealed with a key kept in the OS keychain
   evo-plugin-sdk        stable #[repr(C)] ABI for cdylib plugins (must not depend on the host)
   evo-extensions        host side of the plugin ABI
   evo-hooks             hooks: commands / web requests on agent events
@@ -37,6 +38,7 @@ apps/desktop/           desktop app (its own Cargo workspace in src-tauri/, bun 
   src/                  React UI — see apps/desktop/README.md for the UI map and layout rules
   src-tauri/            Rust shell: engine bridge, windows, terminal, files, browser, MCP, plugins
 examples/plugin-stub/   minimal cdylib plugin used by extension tests
+examples/plugin-ui-sample/, plugin-settings-sample/   sample plugins: every view slot; settings, a backend, accounts and AI
 docs/                   ADD, ADRs, and spec / plan / tasks per feature (rules in docs/README.md)
 DESIGN.md               visual design language for the desktop UI
 ```
