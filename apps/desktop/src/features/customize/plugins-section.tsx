@@ -9,18 +9,19 @@ import {
   RefreshCwIcon,
   StoreIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { plugins, PLUGINS_CHANGED, type CatalogEntry, type InstalledPlugin, type PluginsState } from "@/lib/plugins";
-import { Badge, EmptyNote, IconAction, ListRow, Properties, Split } from "./customize-parts";
+import { plugins, PLUGINS_CHANGED, type CatalogEntry, type PluginsState } from "@/lib/plugins";
+import { Badge, EmptyNote, IconAction, ListRow, Split } from "./customize-parts";
+import { PluginConsentDialog, askConsent } from "./plugin-consent";
+import { PluginPage, setPluginEnabled } from "./plugin-page";
+import { ErrorNote, useBusy } from "./plugin-page/parts";
 
 // Customize → Plugins: bundles of skills, commands, subagents, hooks and
 // connectors (src-tauri/src/plugins.rs, crates/evo-plugins). Installed ones
@@ -30,167 +31,7 @@ import { Badge, EmptyNote, IconAction, ListRow, Properties, Split } from "./cust
 
 type Tab = "installed" | "discover" | "marketplaces";
 
-function useBusy() {
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const run = async (key: string, work: () => Promise<unknown>) => {
-    setBusy(key);
-    setError(null);
-    try {
-      await work();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  };
-  return { busy, error, run, setError };
-}
-
-function ErrorNote({ error }: { error: string | null }) {
-  if (!error) return null;
-  return (
-    <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-      <TriangleAlertIcon className="mt-px size-3.5 shrink-0 text-destructive" />
-      <span className="min-w-0 break-words">{error}</span>
-    </div>
-  );
-}
-
 const authorName = (author: CatalogEntry["author"]) => (typeof author === "string" ? author : author?.name);
-
-// ── Installed ───────────────────────────────────────────────────────────────
-
-function Contents({ plugin }: { plugin: InstalledPlugin }) {
-  const rows: [string, React.ReactNode][] = [
-    ["Skills", plugin.skills.length ? plugin.skills.map((s) => `/${plugin.name}:${s}`).join("  ") : undefined],
-    ["Commands", plugin.commands || undefined],
-    ["Subagents", plugin.agents.length ? plugin.agents.map((a) => `${plugin.name}:${a}`).join(", ") : undefined],
-    ["Hooks", plugin.hooks.length ? plugin.hooks.map((h) => `${h.event} (${h.count})`).join(", ") : undefined],
-    ["Connectors", plugin.connectors.length ? plugin.connectors.join(", ") : undefined],
-    ["Commands on PATH", plugin.bin ? "bin/" : undefined],
-  ];
-  const any = rows.some(([, v]) => v !== undefined);
-  return any ? <Properties items={rows} /> : <p className="text-xs text-muted-foreground">This plugin adds nothing evo can use.</p>;
-}
-
-function ConfigForm({ plugin }: { plugin: InstalledPlugin }) {
-  const options = Object.entries(plugin.userConfig);
-  const [values, setValues] = React.useState<Record<string, unknown>>(plugin.config);
-  const { busy, error, run } = useBusy();
-  if (!options.length) return null;
-  return (
-    <section className="flex flex-col gap-2">
-      <h3 className="text-xs font-medium text-muted-foreground">Settings</h3>
-      <div className="flex flex-col gap-3 rounded-xl border border-border/70 p-3.5">
-        {options.map(([key, option]) => (
-          <label key={key} className="flex flex-col gap-1">
-            <span className="text-xs font-medium">
-              {option.title ?? key}
-              {option.required && <span className="text-destructive"> *</span>}
-            </span>
-            {option.type === "boolean" ? (
-              <Switch checked={Boolean(values[key] ?? option.default)} onCheckedChange={(on) => setValues((v) => ({ ...v, [key]: on }))} />
-            ) : (
-              <Input
-                type={option.sensitive ? "password" : option.type === "number" ? "number" : "text"}
-                value={String(values[key] ?? option.default ?? "")}
-                onChange={(e) =>
-                  setValues((v) => ({ ...v, [key]: option.type === "number" ? Number(e.target.value) : e.target.value }))
-                }
-                className="font-mono"
-              />
-            )}
-            {option.description && <span className="text-[11px] text-muted-foreground">{option.description}</span>}
-          </label>
-        ))}
-        <ErrorNote error={error} />
-        <Button size="sm" className="self-end" disabled={busy !== null} onClick={() => void run("save", () => plugins.setConfig(plugin.id, values))}>
-          {busy ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function InstalledDetail({ plugin }: { plugin: InstalledPlugin }) {
-  const { busy, error, run } = useBusy();
-  const [confirm, setConfirm] = React.useState(false);
-  const local = plugin.marketplace === "local";
-  return (
-    <div className="flex flex-col gap-5">
-      <header className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12 text-brand">
-          <BlocksIcon className="size-5" />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="truncate text-base font-semibold">{plugin.name}</h2>
-            <Badge>v{plugin.version.length > 14 ? plugin.version.slice(0, 12) : plugin.version}</Badge>
-            <Badge>{local ? "Folder" : plugin.marketplace}</Badge>
-          </div>
-          {plugin.description && <p className="text-[13px] leading-relaxed text-muted-foreground">{plugin.description}</p>}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <IconAction label="Show in folder" onClick={() => void revealItemInDir(plugin.path).catch(() => undefined)}>
-            <FolderOpenIcon />
-          </IconAction>
-          {!local && (
-            <IconAction label="Update" onClick={() => void run("update", () => plugins.update(plugin.id))}>
-              <RefreshCwIcon className={cn(busy === "update" && "animate-spin")} />
-            </IconAction>
-          )}
-          {confirm ? (
-            <Button size="sm" variant="destructive" onBlur={() => setConfirm(false)} onClick={() => void run("remove", () => plugins.uninstall(plugin.id))}>
-              Uninstall
-            </Button>
-          ) : (
-            <IconAction label="Uninstall" onClick={() => setConfirm(true)}>
-              <Trash2Icon />
-            </IconAction>
-          )}
-          <Switch aria-label={plugin.enabled ? "Turn off" : "Turn on"} checked={plugin.enabled} onCheckedChange={(on) => void run("toggle", () => plugins.setEnabled(plugin.id, on))} />
-        </div>
-      </header>
-      <ErrorNote error={error} />
-      {plugin.problems.length > 0 && (
-        <div className="flex flex-col gap-1 rounded-xl border border-amber-500/30 bg-amber-500/8 px-3.5 py-3 text-xs">
-          <p className="font-medium">Some parts could not be read</p>
-          {plugin.problems.map((p) => (
-            <p key={p} className="font-mono break-words text-muted-foreground">
-              {p}
-            </p>
-          ))}
-        </div>
-      )}
-      <div className="@container rounded-xl bg-muted/40 px-4 py-3 dark:bg-accent/30">
-        <Properties
-          items={[
-            ["Author", plugin.author],
-            ["License", plugin.license],
-            ["Homepage", plugin.homepage && (
-              <button type="button" className="text-link hover:underline" onClick={() => void openUrl(plugin.homepage!).catch(() => undefined)}>
-                {plugin.homepage}
-              </button>
-            )],
-            ["Repository", plugin.repository],
-            ["Keywords", plugin.keywords.length ? plugin.keywords.join(", ") : undefined],
-          ]}
-        />
-      </div>
-      <section className="flex flex-col gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">What it adds</h3>
-        <div className={cn("@container rounded-xl border border-border/70 px-4 py-3", !plugin.enabled && "opacity-60")}>
-          <Contents plugin={plugin} />
-        </div>
-      </section>
-      <ConfigForm key={plugin.id} plugin={plugin} />
-      <p className="truncate font-mono text-[11px] text-muted-foreground" title={plugin.path}>
-        {plugin.path}
-      </p>
-    </div>
-  );
-}
 
 // ── Discover ────────────────────────────────────────────────────────────────
 
@@ -246,11 +87,11 @@ function Discover({ state, query, onGoToMarketplaces }: { state: PluginsState; q
                     </span>
                   </div>
                   {entry.installed ? (
-                    <Button size="xs" variant="outline" disabled={busy !== null} onClick={() => void run(entry.id, () => plugins.install(entry.marketplace, entry.name))}>
+                    <Button size="xs" variant="outline" disabled={busy !== null} onClick={() => void run(entry.id, async () => askConsent(await plugins.install(entry.marketplace, entry.name), entry.name))}>
                       {busy === entry.id ? "Installing…" : "Reinstall"}
                     </Button>
                   ) : (
-                    <Button size="xs" disabled={busy !== null} onClick={() => void run(entry.id, () => plugins.install(entry.marketplace, entry.name))}>
+                    <Button size="xs" disabled={busy !== null} onClick={() => void run(entry.id, async () => askConsent(await plugins.install(entry.marketplace, entry.name), entry.name))}>
                       <DownloadIcon />
                       {busy === entry.id ? "Installing…" : "Install"}
                     </Button>
@@ -407,6 +248,8 @@ export function PluginsSection({ query }: { query: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Approving a plugin's permissions (docs/features/plugin-ui/spec.md, FR-3). */}
+      <PluginConsentDialog />
       <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-4 py-1.5">
         {tabs.map((t) => (
           <button
@@ -429,7 +272,10 @@ export function PluginsSection({ query }: { query: string }) {
           disabled={busy !== null}
           onClick={async () => {
             const folder = await open({ directory: true, title: "Plugin folder" });
-            if (typeof folder === "string") void run("folder", () => plugins.installFolder(folder));
+            if (typeof folder === "string") {
+              const name = folder.split(/[\\/]/).filter(Boolean).pop() ?? "this plugin";
+              void run("folder", async () => askConsent(await plugins.installFolder(folder), name));
+            }
           }}
         >
           <FolderPlusIcon />
@@ -476,7 +322,7 @@ export function PluginsSection({ query }: { query: string }) {
                       <Switch
                         aria-label={`Use ${plugin.name}`}
                         checked={plugin.enabled}
-                        onCheckedChange={(on) => void run(plugin.id, () => plugins.setEnabled(plugin.id, on))}
+                        onCheckedChange={(on) => void run(plugin.id, () => setPluginEnabled(plugin, on))}
                       />
                     }
                   />
@@ -484,7 +330,7 @@ export function PluginsSection({ query }: { query: string }) {
               </div>
             )
           }
-          detail={current ? <InstalledDetail key={current.id} plugin={current} /> : null}
+          detail={current ? <PluginPage key={current.id} plugin={current} /> : null}
         />
       )}
     </div>

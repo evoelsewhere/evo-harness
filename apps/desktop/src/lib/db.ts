@@ -165,6 +165,8 @@ export interface UsageSummary {
   byModel: (UsageTotals & { providerId: string; modelId: string; lastMs: number })[];
   byChat: (UsageTotals & { chatId: string | null; chatTitle: string | null; lastMs: number })[];
   bySource: (UsageTotals & { source: UsageSource })[];
+  /** Plugins' AI use (plugin-ai FR-15), most expensive first. */
+  byPlugin?: (UsageTotals & { pluginId: string })[];
   /** The oldest response in the whole history. */
   firstMs: number | null;
 }
@@ -185,6 +187,8 @@ export interface UsageEvent {
   costUsd: number;
   stopReason: string | null;
   durationMs: number | null;
+  /** The plugin of a plugin-AI response. */
+  pluginId?: string | null;
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";

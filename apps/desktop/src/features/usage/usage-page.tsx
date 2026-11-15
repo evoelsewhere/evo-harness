@@ -41,6 +41,9 @@ import { Legend, ModelBars, TimeChart, type Metric, type SeriesInfo } from "./us
 
 const REFRESH_MS = 15_000;
 
+/** A plugin's name from its id (`name@marketplace`). */
+const pluginName = (id: string) => id.split("@")[0] || id;
+
 const SOURCE_LABELS: Record<UsageSource, string> = {
   chat: "Chats",
   subagent: "Subagents",
@@ -259,6 +262,18 @@ function UsageReport({
             ])}
           />
         </Panel>
+        {(summary.byPlugin?.length ?? 0) > 0 && (
+          <Panel title="Plugins' AI">
+            <Shares
+              total={totals.costUsd}
+              rows={(summary.byPlugin ?? []).map((p) => [
+                pluginName(p.pluginId),
+                p.costUsd,
+                `${responses(p.requests)} · ${formatTokens(tokensOf(p))} tokens`,
+              ])}
+            />
+          </Panel>
+        )}
       </section>
 
       <ChatTable summary={summary} />
@@ -648,7 +663,7 @@ function RecentTable({ recent, models }: { recent: UsageEvent[]; models: ModelDe
                 </td>
                 <td className={cn(TD, "w-1/2 max-w-0")}>
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate">{e.chatTitle ?? (e.chatId ? "Deleted chat" : "No chat")}</span>
+                    <span className="truncate">{e.pluginId ? pluginName(e.pluginId) : (e.chatTitle ?? (e.chatId ? "Deleted chat" : "No chat"))}</span>
                     {e.source !== "chat" && <Badge>{SOURCE_LABELS[e.source] ?? e.source}</Badge>}
                     {(e.stopReason === "error" || e.stopReason === "aborted") && <Badge>{e.stopReason}</Badge>}
                   </span>
