@@ -108,6 +108,8 @@ pub enum Reason {
     Settings,
     /// Started: a scheduled task's run (FR-7).
     Schedule,
+    /// Started: a plugin view reads the chat (docs/features/plugin-ui/spec.md, FR-10).
+    Plugin,
 }
 
 impl Reason {
@@ -120,6 +122,7 @@ impl Reason {
             Reason::Detached => "detached",
             Reason::Settings => "settings",
             Reason::Schedule => "schedule",
+            Reason::Plugin => "plugin",
         }
     }
 }
@@ -195,6 +198,11 @@ pub trait Host: Send + Sync {
     /// `chat`'s engine follows a changed setting now (`what`: `approval`,
     /// `providers`, `resources`): the windows read its state again (FR-8).
     fn reloaded(&self, chat: &str, what: &str);
+    /// `set_plugin_host` for engines: the plugin host API and the keys of
+    /// plugins whose hooks run (plugin-settings FR-26); `None`: nothing to send.
+    fn plugin_host(&self) -> Option<Value> {
+        None
+    }
 }
 
 /// What `ensure` is asked to do.
@@ -425,7 +433,8 @@ impl EngineSupervisor {
     }
 
     /// `chat`'s engine of `generation` said `ready`: set it up as a window did
-    /// (FR-1) — model, tools, then the hub's mail.
+    /// (FR-1) — model, tools, the plugin host (plugin-settings FR-26), then the
+    /// hub's mail.
     pub async fn on_ready<H: Host>(&self, host: &H, chat: &str, generation: u64) {
         // The `ensure` that started it has recorded it.
         drop(self.gate.lock().await);
@@ -439,6 +448,7 @@ impl EngineSupervisor {
         if self.with_record(chat, generation, |_| ()).is_none() {
             return;
         }
+        self.send_plugin_host(host, chat).await;
         // Follow its agents: an engine whose agents work is never stopped as
         // idle (FR-3). An engine has one subscriber, its stdout, and the last
         // `subscribe` sets its level: the shell asks for the level windows use
@@ -457,6 +467,17 @@ impl EngineSupervisor {
             host.state(chat, generation, "ready", None, restore);
             // Reports that waited for an engine may wake it now (FR-5).
             self.schedule_wake(host, chat);
+        }
+    }
+
+    /// Give `chat`'s engine the plugin host and its plugins' hook keys. An
+    /// older engine refuses the command: its plugin hooks run without them.
+    pub(crate) async fn send_plugin_host<H: Host>(&self, host: &H, chat: &str) {
+        let Some(payload) = host.plugin_host() else {
+            return;
+        };
+        if let Err(error) = host.request(chat, "set_plugin_host", payload).await {
+            host.log(chat, "info", format!("set_plugin_host: {error}"));
         }
     }
 
@@ -1205,6 +1226,11 @@ impl Host for AppHost {
     fn reloaded(&self, chat: &str, what: &str) {
         let _ = self.0.emit("engine://reloaded", json!({ "chat": chat, "what": what }));
     }
+
+    fn plugin_host(&self) -> Option<Value> {
+        let plugins = evo_plugins::Store::in_agent_dir(&crate::mcp::agent_dir()).enabled();
+        crate::plugin_host::engine_payload(&plugins)
+    }
 }
 
 /// Now, in ms since the epoch.
@@ -1221,6 +1247,8 @@ pub async fn on_line(app: &AppHandle, chat: &str, generation: u64, line: &Value)
     if supervisor.rpc.on_line(chat, line) {
         return;
     }
+    // Plugin views that follow this chat (docs/features/plugin-ui/spec.md, FR-10).
+    crate::plugin_ui::bridge::on_engine_line(app, chat, line);
     // Providers changed in this engine: the others reload them (FR-8).
     if settings::provider_change(line) {
         settings::providers_changed(app, chat);

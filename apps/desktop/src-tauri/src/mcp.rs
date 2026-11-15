@@ -41,10 +41,20 @@ pub fn setup(app: &AppHandle) {
         crate::supervisor::connectors_changed(&handle);
     });
     app.manage(McpState(pool.clone()));
+    // Plugin servers' stderr goes to Settings → Logs, secrets hidden
+    // (docs/features/plugin-settings/spec.md, FR-13).
+    let logs = app.clone();
+    pool.set_log_sink(std::sync::Arc::new(move |plugin: &str, server: &str, line: &str| {
+        if let Some(db) = logs.try_state::<crate::db::Db>() {
+            db.log(evo_store::logs::NewLog::new("info", &format!("plugin:{plugin}"), format!("{server}: {line}")));
+        }
+    }));
     tauri::async_runtime::spawn(async move {
         if let Err(error) = pool.start() {
             eprintln!("[warn] connectors: {error}");
         }
+        // Idle plugin servers sleep; crashed ones restart (FR-11, FR-12).
+        pool.start_lifecycles(std::time::Duration::from_secs(15));
     });
 }
 

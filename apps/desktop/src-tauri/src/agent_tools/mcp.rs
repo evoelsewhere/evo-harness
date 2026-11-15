@@ -560,6 +560,13 @@ async fn run_tool(ctx: ToolCtx, name: &str, args: Value) -> ToolOutput {
             Answer::Once => {}
         }
     }
+    // A plugin's tool that needs an account not signed in: ask first
+    // (docs/features/plugin-settings/spec.md, FR-28).
+    if tool.server.starts_with("plugin:") {
+        if let Err(output) = sign_in_first(&ctx, &tool.server).await {
+            return output;
+        }
+    }
     let Some(state) = ctx.app.try_state::<crate::mcp::McpState>() else {
         return ToolOutput::error(format!("{name} is not available: its connector is off or disconnected."));
     };
@@ -574,6 +581,40 @@ async fn run_tool(ctx: ToolCtx, name: &str, args: Value) -> ToolOutput {
         // The engine dropped the call: nobody waits for the answer.
         _ = ctx.cancel.cancelled() => ToolOutput::text(""),
     }
+}
+
+/// Ask the person to sign in to each account the plugin behind `server`
+/// needs and lacks; the call waits for the sign-in. `Err`: the result to give.
+async fn sign_in_first(ctx: &ToolCtx, server: &str) -> Result<(), ToolOutput> {
+    let server = server.to_string();
+    let missing = tokio::task::spawn_blocking(move || crate::plugin_auth::missing_for_server(&server)).await.unwrap_or_default();
+    for (plugin, id, account) in missing {
+        if matches!(account.method, evo_plugins::accounts::Method::Token { .. }) {
+            return Err(ToolOutput::error(format!("{plugin} needs your {} key: the person enters it in Customize → Plugins → {plugin} → Settings.", account.service)));
+        }
+        let verb = if matches!(account.method, evo_plugins::accounts::Method::Web(_)) { "Log in" } else { "Sign in" };
+        let why = account.reason.clone().map(|r| format!("{plugin} uses it to: {r}")).unwrap_or_default();
+        let answer = ctx.ask(&format!("{verb} to {} for {plugin}?", account.service), &why, &[verb, "Cancel"]).await;
+        match answer {
+            -1 => return Err(ToolOutput::text("")),
+            0 => {}
+            _ => return Err(ToolOutput::error(format!("The person did not sign in to {} for {plugin}, so its tool did not run.", account.service))),
+        }
+        let signing = crate::plugin_auth::sign_in_and_wait(&id, &account.id);
+        tokio::select! {
+            result = signing => {
+                if let Err(error) = result {
+                    let why = if error == "cancelled" { "the sign-in was cancelled".to_string() } else { error };
+                    return Err(ToolOutput::error(format!("{plugin} could not sign in to {}: {why}.", account.service)));
+                }
+            }
+            _ = ctx.cancel.cancelled() => {
+                crate::plugin_auth::cancel(&id, &account.id);
+                return Err(ToolOutput::text(""));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn find_tool(tools: &[ChatTool], name: &str) -> Option<ChatTool> {

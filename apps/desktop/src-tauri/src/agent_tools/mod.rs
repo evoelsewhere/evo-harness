@@ -160,7 +160,7 @@ impl ToolOutput {
         self
     }
 
-    fn to_json(&self) -> Value {
+    pub(crate) fn to_json(&self) -> Value {
         let content: Vec<Value> = self
             .content
             .iter()
@@ -304,6 +304,7 @@ pub(crate) fn static_definitions() -> Vec<Value> {
 fn offered(app: &AppHandle, definition: &Value) -> bool {
     match definition.get("name").and_then(Value::as_str) {
         Some(name) if name == "computer_app" => computer::tool::enabled(app),
+        Some(name @ ("plugin_show_card" | "plugin_open")) => app::plugin::offered(app, name),
         _ => true,
     }
 }
@@ -319,13 +320,110 @@ pub struct ToolCtx {
     pub cancel: CancellationToken,
     tool: &'static str,
     class: Class,
+    /// The plugin whose view made the call (`tools.call`), by name; `None`
+    /// for the agent's own calls (docs/features/plugin-ui/spec.md, FR-11).
+    plugin: Option<String>,
+    /// A plugin's AI run that called, instead of a chat's agent
+    /// (docs/features/plugin-ai/spec.md, FR-16): `chat` is its owner key.
+    run: Option<PluginRun>,
+}
+
+/// A plugin's AI run calling app tools: its id and the folder it works in.
+#[derive(Clone, Debug)]
+pub struct PluginRun {
+    pub id: String,
+    pub folder: PathBuf,
+}
+
+/// The app tools a plugin's run may use (`ai.tools:apps`): the browser and
+/// terminals. The rest only mean something in a chat (cards, panels, files
+/// sent to it, scheduled tasks, sessions), or control other apps.
+pub const PLUGIN_RUN_PREFIXES: [&str; 2] = ["browser_", "terminal_"];
+
+/// A plugin run's tool answer goes to the plugin-AI engine as one line, at most.
+const PLUGIN_RUN_FRAME: usize = 900_000;
+
+/// The owner key of a plugin run's tabs and terminals.
+pub fn plugin_run_key(run: &str) -> String {
+    format!("plugin-ai:{run}")
+}
+
+/// The definitions of the app tools a plugin's run may use, now.
+pub fn plugin_run_tools(app: &AppHandle) -> Vec<Value> {
+    static_definitions()
+        .into_iter()
+        .filter(|d| d["name"].as_str().is_some_and(|n| PLUGIN_RUN_PREFIXES.iter().any(|p| n.starts_with(p))))
+        .filter(|d| offered(app, d))
+        .collect()
+}
+
+/// Run app tool `name` for plugin `plugin`'s AI run `run` (FR-16): as a
+/// chat's agent would, under the same approval mode and gates, asking
+/// through the plugin-AI dialog; its tabs and terminals are the run's.
+/// The result as `{content, isError}`.
+pub async fn call_for_plugin_run(app: &AppHandle, run: PluginRun, plugin: &str, name: &str, args: Value, cancel: CancellationToken) -> Value {
+    let allowed = PLUGIN_RUN_PREFIXES.iter().any(|p| name.starts_with(p));
+    let Some(tool) = find(name).filter(|_| allowed) else {
+        return ToolOutput::error(format!("{name} is not one of the app tools a plugin's AI may use.")).fit(PLUGIN_RUN_FRAME).to_json();
+    };
+    let request_id = format!("plugin-run-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1);
+    let ctx = ToolCtx {
+        app: app.clone(),
+        chat: plugin_run_key(&run.id),
+        request_id,
+        cancel,
+        tool: tool.name,
+        class: tool.class,
+        plugin: Some(plugin.to_string()),
+        run: Some(run),
+    };
+    let args = if args.is_null() { json!({}) } else { args };
+    let output = (tool.run)(ctx, args).await;
+    let mut result = output.fit(PLUGIN_RUN_FRAME).to_json();
+    result["isError"] = json!(result["isError"] == true);
+    result
+}
+
+/// A plugin's AI run ended: close its pages and stop its terminals.
+pub fn end_plugin_run(app: &AppHandle, run: &str) {
+    let key = plugin_run_key(run);
+    for (tab, _) in crate::browser::chat_tabs(app, &key) {
+        crate::browser::close_tab_for_tool(app, &tab);
+    }
+    let terminals = app.state::<crate::terminal::TerminalState>();
+    for session in terminals.in_chat(&key) {
+        session.kill();
+        terminals.close(session.id());
+    }
 }
 
 impl ToolCtx {
     /// Question the person in the chat's approval prompt: the chosen index, or -1
-    /// when the question became moot (the call was dropped).
+    /// when the question became moot (the call was dropped). A plugin's call
+    /// names the plugin (FR-11).
     pub async fn ask(&self, title: &str, description: &str, options: &[&str]) -> i32 {
-        ask_person(&self.app, &self.chat, &self.request_id, &self.cancel, title, description, options.iter().map(|o| o.to_string()).collect()).await
+        if let Some(run) = &self.run {
+            // A plugin's AI run: the plugin-AI dialog, and a grant for the run.
+            let plugin = self.plugin.clone().unwrap_or_default();
+            let options: Vec<String> = options.iter().map(|o| if *o == "Allow for this chat" { "Allow for this run".to_string() } else { o.to_string() }).collect();
+            let detail = format!("{plugin}'s AI asks, not a chat's agent.\n{description}");
+            return crate::plugin_ai::ask_in_run(&run.id, &format!("{plugin}: {title}"), &detail, options, &self.cancel).await;
+        }
+        let (title, description) = match &self.plugin {
+            Some(plugin) => (format!("{plugin} (plugin): {title}"), format!("The plugin {plugin} asks, not the agent.
+{description}")),
+            None => (title.to_string(), description.to_string()),
+        };
+        ask_person(&self.app, &self.chat, &self.request_id, &self.cancel, &title, &description, options.iter().map(|o| o.to_string()).collect()).await
+    }
+
+    /// What "Allow for this chat" covers: the agent's calls in this chat, or
+    /// one plugin's calls in it, never both.
+    fn grant_scope(&self) -> String {
+        match &self.plugin {
+            Some(plugin) => format!("{}#plugin:{plugin}", self.chat),
+            None => self.chat.clone(),
+        }
     }
 
     /// Run the approval gate for this call. `url` is the address it acts on
@@ -334,7 +432,7 @@ impl ToolCtx {
     pub async fn gate(&self, url: &str, summary: &str) -> Result<(), ToolOutput> {
         let mode = self.approval_mode();
         let ctx = self.clone();
-        let verdict = gate::check(self.tool, self.class, &mode, &self.chat, url, summary, move |title, description, options| {
+        let verdict = gate::check(self.tool, self.class, &mode, &self.grant_scope(), url, summary, move |title, description, options| {
             let ctx = ctx.clone();
             async move {
                 let options: Vec<&str> = options.iter().map(String::as_str).collect();
@@ -355,7 +453,7 @@ impl ToolCtx {
     pub async fn gate_control(&self, actions: &[String], always: bool) -> Result<(), ToolOutput> {
         let mode = self.approval_mode();
         let ctx = self.clone();
-        let verdict = gate::check_control(self.tool, always, &mode, &self.chat, actions, move |title, description, options| {
+        let verdict = gate::check_control(self.tool, always, &mode, &self.grant_scope(), actions, move |title, description, options| {
             let ctx = ctx.clone();
             async move {
                 let options: Vec<&str> = options.iter().map(String::as_str).collect();
@@ -390,6 +488,9 @@ impl ToolCtx {
 
     /// The folder the chat works in: its worktree, else its workspace, else the home folder.
     pub fn folder(&self) -> PathBuf {
+        if let Some(run) = &self.run {
+            return run.folder.clone();
+        }
         chat_folder(&self.app, &self.chat)
     }
 
@@ -426,6 +527,11 @@ pub struct AgentTools {
     /// Which chat each window shows.
     windows: Mutex<HashMap<String, String>>,
     next: AtomicU64,
+}
+
+/// The chat `window` shows now, as it last reported (`agent_window_chat`).
+pub fn chat_of_window(app: &AppHandle, window: &str) -> Option<String> {
+    app.state::<AgentTools>().windows.lock().expect("windows lock").get(window).cloned()
 }
 
 fn window_of_chat(app: &AppHandle, chat: &str) -> String {
@@ -524,6 +630,47 @@ pub async fn call_tool(ctx: &ToolCtx, name: &str, args: Value) -> ToolOutput {
     (tool.run)(inner, args).await
 }
 
+/// A plugin view's `tools.call` in `chat` (docs/features/plugin-ui/spec.md,
+/// FR-11): an app or connector tool, as the agent's call would run, with the
+/// same approval mode, read-only role and per-tool gates; approvals name the
+/// plugin. The engine's own tools are not reachable: they are not here.
+pub async fn call_for_plugin(app: &AppHandle, chat: &str, plugin: &str, name: &str, args: Value) -> ToolOutput {
+    let hidden = crate::chat_flags::hidden_tools(app, Some(chat)).await;
+    if hidden.contains(&name) || !offered(app, &json!({ "name": name })) {
+        return ToolOutput::error(format!("{name} is not available in this chat."));
+    }
+    let Some(target) = resolve(name, providers()) else {
+        return ToolOutput::error(format!("Unknown tool {name}: plugins call app and connector tools only."));
+    };
+    let (tool_name, class) = match &target {
+        Target::Static(tool) => (tool.name, tool.class),
+        Target::Dynamic(_) => ("dynamic", Class::Command),
+    };
+    if matches!(target, Target::Static(_)) && class != Class::Read && read_only_chat(app, chat) {
+        return ToolOutput::error(READ_ONLY_REFUSAL.replace("{tool}", name));
+    }
+    let request_id = format!("plugin-call-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1);
+    let ctx = ToolCtx {
+        app: app.clone(),
+        chat: chat.to_string(),
+        request_id,
+        cancel: CancellationToken::new(),
+        tool: tool_name,
+        class,
+        plugin: Some(plugin.to_string()),
+        run: None,
+    };
+    let args = if args.is_null() { json!({}) } else { args };
+    let body = match target {
+        Target::Static(tool) => tauri::async_runtime::spawn((tool.run)(ctx, args)),
+        Target::Dynamic(provider) => tauri::async_runtime::spawn(provider.run(ctx, name.to_string(), args)),
+    };
+    match body.await {
+        Ok(output) => output.fit(1_000_000),
+        Err(error) => ToolOutput::error(format!("The tool failed: {error}")),
+    }
+}
+
 // ── Dispatch ────────────────────────────────────────────────────────────────
 
 /// One stdout line of `chat`'s engine: answer an `external_tool_request` for a
@@ -559,7 +706,7 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
                 let _ = app.state::<crate::engine::EngineState>().write(chat, &answer).await;
                 return;
             }
-            let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id: request_id.to_string(), cancel: cancel.clone(), tool: tool_name, class };
+            let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id: request_id.to_string(), cancel: cancel.clone(), tool: tool_name, class, plugin: None, run: None };
             let (app, chat, request_id, name) = (app.clone(), chat.to_string(), request_id.to_string(), name.to_string());
             tauri::async_runtime::spawn(async move {
                 // The cards over the chat show what a browser or terminal tool is doing.

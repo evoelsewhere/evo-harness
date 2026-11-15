@@ -197,6 +197,10 @@ impl EngineSupervisor {
 
     async fn reload<H: Host>(&self, host: &H, chat: &str, providers: bool) {
         let (command, what) = if providers { ("reload_providers", "providers") } else { ("reload_resources", "resources") };
+        // Plugins changed: hook keys first, so their hooks run with them.
+        if !providers {
+            self.send_plugin_host(host, chat).await;
+        }
         match host.request(chat, command, json!({})).await {
             Ok(_) => host.reloaded(chat, what),
             Err(error) => host.log(chat, "warn", format!("{command} failed: {error}")),
@@ -331,6 +335,8 @@ fn sandbox_changed(app: &AppHandle) {
 /// Providers changed in `from`'s engine: every other engine reloads them.
 pub fn providers_changed(app: &AppHandle, from: &str) {
     spawn_change(app, Change::Providers { from: Some(from.to_string()) });
+    // The plugin-AI engine reads them again too (plugin-ai, ADR 0023).
+    crate::plugin_ai::reload_providers();
 }
 
 /// Plugins, memory topics, skills or instructions changed: every engine

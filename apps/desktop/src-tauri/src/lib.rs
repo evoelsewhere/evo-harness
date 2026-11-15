@@ -20,6 +20,12 @@ mod files;
 mod mcp;
 mod memory_index;
 mod mesh;
+mod plugin_ai;
+mod plugin_auth;
+mod plugin_host;
+mod plugin_runtime;
+mod plugin_settings;
+mod plugin_ui;
 mod plugins;
 mod shell_integration;
 mod supervisor;
@@ -51,6 +57,10 @@ pub fn run() {
         // App updates, driven from Rust only (updates.rs): the webview has no
         // updater permission.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Plugin views' files and bridge (docs/features/plugin-ui; ADR 0021).
+        .register_asynchronous_uri_scheme_protocol(plugin_ui::SCHEME, |ctx, request, responder| {
+            plugin_ui::serve(ctx, request, responder)
+        })
         .manage(engine::EngineState::default())
         .manage(supervisor::EngineSupervisor::default())
         .manage(apps::AppsState::default())
@@ -65,6 +75,8 @@ pub fn run() {
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
         .manage(browser::BrowserState::default())
+        .manage(plugin_ui::PluginUiState::default())
+        .manage(plugin_runtime::RuntimeState::default())
         .setup(|app| {
             // The session mesh hub: mail between chats' engines.
             app.manage(mesh::MeshHub::new(app.handle().clone()));
@@ -86,10 +98,19 @@ pub fn run() {
             // The main window starts hidden (tauri.conf.json) and shows here,
             // unless evo was started at sign-in into the tray.
             system::setup(app.handle());
+            // The plugin host API, before plugins' code starts (plugin-settings FR-26).
+            if let Err(error) = plugin_host::start(std::sync::Arc::new(plugin_host::AppBacking(app.handle().clone()))) {
+                eprintln!("[warn] {error}");
+            }
             // Connectors: one MCP pool for every chat.
             mcp::setup(app.handle());
             // Plugins' connectors join the pool.
             plugins::setup(app.handle());
+            plugin_ui::watch::start(app.handle());
+            // Plugin sign-ins: events, and renewing connector servers' tokens.
+            plugin_auth::setup(app.handle());
+            // Plugin AI: its engine starts on the first call (ADR 0023).
+            plugin_ai::setup(app.handle());
             // Computer app control: put back windows a crashed run left off screen.
             computer::setup(app.handle());
             // App updates: the check timer, after the window is shown.
@@ -115,12 +136,44 @@ pub fn run() {
                 // A window's terminals end with it.
                 window.app_handle().state::<terminal::TerminalState>().kill_window(&label);
                 window.app_handle().state::<browser::BrowserState>().close_window(window.app_handle(), &label);
+                plugin_ui::views::window_closed(window.app_handle(), &label);
                 // A window is a viewer: its chat's engine goes on while it has
                 // work (docs/features/shell-hosted-engines/spec.md, FR-2).
                 supervisor::window_gone(window.app_handle(), &label);
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler({
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+            plugin_runtime::plugin_runtime_state,
+            plugin_runtime::plugin_runtime_control,
+            plugin_runtime::plugin_runtime_mode,
+            plugin_settings::plugin_settings_save,
+            plugin_settings::plugin_secret_set,
+            plugin_settings::plugin_secret_clear,
+            plugin_settings::plugin_data,
+            plugin_settings::plugin_data_clear,
+            plugin_settings::plugin_optional_answer,
+            plugin_ai::plugin_ai_state,
+            plugin_ai::plugin_ai_settings_save,
+            plugin_ai::plugin_ai_models,
+            plugin_ai::plugin_ai_cancel,
+            plugin_ai::plugin_ai_threads,
+            plugin_ai::plugin_ai_questions,
+            plugin_ai::plugin_ai_answer,
+            plugin_ai::plugin_ai_thread,
+            plugin_ai::plugin_ai_thread_delete,
+            plugin_auth::plugin_account_sign_in,
+            plugin_auth::plugin_account_cancel,
+            plugin_auth::plugin_account_sign_out,
+            plugin_auth::plugin_account_default,
+            plugin_auth::plugin_account_test,
+            plugin_ui::views::plugin_view_open,
+            plugin_ui::views::plugin_view_bounds,
+            plugin_ui::views::plugin_view_visible,
+            plugin_ui::views::plugin_view_reload,
+            plugin_ui::views::plugin_view_close,
+            plugin_ui::views::plugin_view_theme,
+            plugin_ui::views::plugin_view_reset,
             supervisor::engine_ensure,
             supervisor::engine_attach,
             supervisor::engine_detach,
@@ -215,6 +268,9 @@ pub fn run() {
             plugins::plugin_update,
             plugins::plugin_set_enabled,
             plugins::plugin_set_config,
+            plugins::plugin_approve,
+            plugins::plugin_revoke,
+            plugins::plugin_set_developer_mode,
             worktrees::worktree_create,
             worktrees::worktree_list,
             worktrees::worktree_changes,
@@ -278,7 +334,18 @@ pub fn run() {
             computer::computer_permissions,
             computer::computer_request_permission,
             computer::computer_restart,
-        ])
+        ];
+            // Plugin views reach no command: the capability ACL refuses
+            // them, and so does this second guard; their bridge is their own
+            // scheme (docs/architecture/decisions/0021).
+            move |invoke: tauri::ipc::Invoke<tauri::Wry>| {
+                if !plugin_ui::allowed(invoke.message.webview_ref().label()) {
+                    invoke.resolver.reject("plugin views cannot call app commands");
+                    return true;
+                }
+                handler(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building the evo desktop app")
         .run(|_app, _event| {
