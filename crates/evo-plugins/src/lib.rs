@@ -17,9 +17,13 @@
 //! The engine reads [`store::Store::enabled`] to add the plugins' parts to a
 //! session; the desktop shell manages installs.
 
+pub mod accounts;
 pub mod manifest;
 pub mod marketplace;
+pub mod runtime;
+pub mod settings;
 pub mod store;
+pub mod ui;
 
 pub use manifest::Plugin;
 pub use marketplace::{Marketplace, MarketplaceSource};

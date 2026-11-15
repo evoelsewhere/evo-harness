@@ -5,8 +5,13 @@
 //! marketplaces/<name>/       their clones (folders are read in place)
 //! cache/<marketplace>/<plugin>/<version>/   installed copies
 //! data/<plugin id>/          each plugin's data, kept across updates
-//! installed.json             {id: {name, marketplace, version, path, enabled, config}}
+//! installed.json             {id: {name, marketplace, version, path, enabled, config, …}}
 //! ```
+//!
+//! `installed.json` never holds a secret: secret settings, tokens and
+//! cookies live in the plugin's vault (`evo-vault`), and only the names of
+//! the secrets that are set are kept here (docs/features/plugin-settings/spec.md,
+//! FR-5).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -21,7 +26,7 @@ use crate::{copy_dir, valid_name};
 /// The marketplace name for plugins added from a folder.
 pub const LOCAL: &str = "local";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Installed {
     /// `name@marketplace`.
@@ -37,6 +42,215 @@ pub struct Installed {
     /// Values for the plugin's `userConfig`.
     #[serde(default)]
     pub config: Map<String, Value>,
+    /// The permissions the person approved for its views
+    /// (docs/features/plugin-ui/spec.md, FR-3, FR-16).
+    #[serde(default)]
+    pub approved_permissions: Vec<String>,
+    /// Reload its views when its files change (FR-14).
+    #[serde(default)]
+    pub developer_mode: bool,
+    /// An update that asks for more permissions, kept until the person
+    /// approves them; the installed version runs meanwhile (FR-3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<Pending>,
+    /// Workspace values of per-workspace settings, by workspace id
+    /// (plugin-settings FR-3). No secrets.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub workspace_config: BTreeMap<String, Map<String, Value>>,
+    /// The secret settings that have a value in the vault: `key`, or
+    /// `key@<workspace id>` for a workspace's own (FR-4, FR-5).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets_set: Vec<String>,
+    /// When its backend runs, as the person chose; the manifest's when unset
+    /// (FR-11).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_mode: Option<crate::runtime::StartMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_stop_minutes: Option<u32>,
+    /// Answers to optional permissions it asked for later: allowed or not (FR-9).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub optional_answers: BTreeMap<String, bool>,
+    /// Signed-in accounts, without their tokens or cookies (FR-20, FR-29).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<AccountRecord>,
+    /// The person's rules for its AI (docs/features/plugin-ai/spec.md, FR-14).
+    #[serde(default, skip_serializing_if = "AiSettings::is_empty")]
+    pub ai: AiSettings,
+}
+
+/// A model by provider and id, as the person picked it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiModel {
+    pub provider: String,
+    pub model: String,
+}
+
+/// What a plugin's AI may use and spend, as the person set it
+/// (docs/features/plugin-ai/spec.md, FR-14). Unset: every connected
+/// provider, evo's choice of model, no cap.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<AiModel>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<AiModel>,
+    /// Pinned models per tier: `{fast?, balanced?, best?}`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tiers: BTreeMap<String, AiModel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_day_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap_month_usd: Option<f64>,
+}
+
+impl AiSettings {
+    pub fn is_empty(&self) -> bool {
+        *self == AiSettings::default()
+    }
+}
+
+/// One signed-in account of a plugin. Its secrets are in the vault under
+/// `account:<record id>`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRecord {
+    /// The manifest's account id (`github`).
+    pub account: String,
+    /// This sign-in's own id.
+    pub id: String,
+    /// The name the service gave (`ana@example.com`).
+    pub label: String,
+    /// `signedIn`, `needsSignIn` or `offline`.
+    pub state: String,
+    /// The account used where no workspace chose another.
+    #[serde(default)]
+    pub default: bool,
+    /// Workspaces that use this account instead of the default.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspaces: Vec<String>,
+    /// The access granted (OAuth scopes).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+}
+
+/// A downloaded update waiting for consent to new permissions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pending {
+    pub version: String,
+    pub path: PathBuf,
+    pub permissions: Vec<String>,
+}
+
+/// The plugin in `folder`, read for its permissions only.
+fn peek(folder: &Path) -> Plugin {
+    manifest::load(folder, "", "", folder, &Map::new())
+}
+
+/// The permissions the plugin in `folder` cannot run without: declared and
+/// not optional, and implied by its parts (plugin-settings FR-8).
+pub fn requested_permissions(folder: &Path) -> Vec<String> {
+    peek(folder).required_permissions()
+}
+
+/// Every permission the plugin in `folder` may be given, optional ones too.
+pub fn all_permissions(folder: &Path) -> Vec<String> {
+    peek(folder).permissions
+}
+
+/// What a reinstall keeps of the person's choices.
+fn carry(previous: Option<&Installed>, fresh: Installed) -> Installed {
+    let Some(previous) = previous else {
+        return fresh;
+    };
+    Installed {
+        config: previous.config.clone(),
+        developer_mode: previous.developer_mode,
+        workspace_config: previous.workspace_config.clone(),
+        secrets_set: previous.secrets_set.clone(),
+        start_mode: previous.start_mode,
+        idle_stop_minutes: previous.idle_stop_minutes,
+        optional_answers: previous.optional_answers.clone(),
+        accounts: previous.accounts.clone(),
+        ai: previous.ai.clone(),
+        ..fresh
+    }
+}
+
+/// Hold back the parts of `plugin` that may not run yet (FR-4, FR-8,
+/// FR-17): hooks without `hooks`; its backend and connector servers without
+/// `runtime`, or without `secrets` when they use secrets; everything that
+/// runs while a required setting is missing.
+pub fn gate(plugin: &mut Plugin, installed: &Installed) {
+    let approved = |p: &str| installed.approved_permissions.iter().any(|a| a == p);
+    let personal_secrets: Vec<String> = installed
+        .secrets_set
+        .iter()
+        .filter(|s| !s.contains('@'))
+        .cloned()
+        .collect();
+    let missing =
+        crate::settings::missing_required(&plugin.settings, &installed.config, &personal_secrets);
+    let has_code = !plugin.mcp_servers.is_empty() || plugin.runtime.is_some();
+    let mut wait = |part: &str, needs: Vec<String>| {
+        plugin.waiting.push(manifest::Waiting {
+            part: part.into(),
+            needs,
+        })
+    };
+    if !missing.is_empty() && (has_code || !plugin.hooks.is_empty()) {
+        wait("setup", missing);
+    }
+    if !plugin.hooks.is_empty() && !approved("hooks") {
+        wait("hooks", vec!["hooks".into()]);
+    }
+    if has_code && !approved("runtime") {
+        wait("runtime", vec!["runtime".into()]);
+    }
+    let uses_secrets = serde_json::to_string(&plugin.mcp_servers)
+        .is_ok_and(|s| s.contains("${secret."))
+        || plugin
+            .runtime
+            .as_ref()
+            .is_some_and(|r| !crate::runtime::secret_keys(&r.env).is_empty())
+        || !plugin.accounts.is_empty();
+    if has_code && uses_secrets && !approved("secrets") {
+        wait("runtime", vec!["secrets".into()]);
+    }
+    let held = |part: &str| {
+        plugin
+            .waiting
+            .iter()
+            .any(|w| w.part == part || w.part == "setup")
+    };
+    if held("hooks") {
+        plugin.hooks.clear();
+    }
+    if held("runtime") {
+        plugin.mcp_servers.clear();
+        plugin.runtime = None;
+    }
+}
+
+impl Installed {
+    /// Permissions asked for and not approved: those of the installed
+    /// version, then those of a pending update.
+    pub fn unapproved(&self) -> Vec<String> {
+        let mut asked = requested_permissions(&self.path);
+        if let Some(pending) = &self.pending {
+            asked.extend(pending.permissions.iter().cloned());
+        }
+        let mut out: Vec<String> = Vec::new();
+        for permission in asked {
+            if !self.approved_permissions.contains(&permission) && !out.contains(&permission) {
+                out.push(permission);
+            }
+        }
+        out
+    }
 }
 
 fn now_ms() -> u64 {
@@ -369,25 +583,63 @@ impl Store {
         remove_dir(&staging);
         copied?;
         let id = format!("{plugin}@{}", marketplace.name);
+        let asked = requested_permissions(&dest);
         let mut result = None;
         self.save_installed(|map| {
-            let previous = map.get(&id);
-            let installed = Installed {
-                id: id.clone(),
-                name: plugin.to_string(),
-                marketplace: marketplace.name.clone(),
-                version: version.clone(),
-                path: dest.clone(),
-                enabled: previous.map(|p| p.enabled).unwrap_or(true),
-                installed_at: now_ms(),
-                config: previous.map(|p| p.config.clone()).unwrap_or_default(),
-            };
-            // An older version's copy is no longer needed.
-            if let Some(previous) = previous {
-                if previous.path != dest && previous.marketplace != LOCAL {
-                    remove_dir(&previous.path);
+            let previous = map.get(&id).cloned();
+            let installed = match previous {
+                // An update that asks for permissions not yet approved waits
+                // as pending; the installed version runs on (FR-3).
+                Some(previous)
+                    if previous.path != dest
+                        && asked
+                            .iter()
+                            .any(|p| !previous.approved_permissions.contains(p)) =>
+                {
+                    if let Some(old) = &previous.pending {
+                        if old.path != dest {
+                            remove_dir(&old.path);
+                        }
+                    }
+                    Installed {
+                        pending: Some(Pending {
+                            version: version.clone(),
+                            path: dest.clone(),
+                            permissions: asked.clone(),
+                        }),
+                        ..previous
+                    }
                 }
-            }
+                previous => {
+                    let approved = previous
+                        .as_ref()
+                        .map(|p| p.approved_permissions.clone())
+                        .unwrap_or_default();
+                    let consented = asked.iter().all(|p| approved.contains(p));
+                    // An older version's copy is no longer needed.
+                    if let Some(previous) = &previous {
+                        if previous.path != dest && previous.marketplace != LOCAL {
+                            remove_dir(&previous.path);
+                        }
+                    }
+                    carry(
+                        previous.as_ref(),
+                        Installed {
+                            id: id.clone(),
+                            name: plugin.to_string(),
+                            marketplace: marketplace.name.clone(),
+                            version: version.clone(),
+                            path: dest.clone(),
+                            // A plugin that asks for permissions starts off
+                            // until the person approves them.
+                            enabled: consented && previous.as_ref().is_none_or(|p| p.enabled),
+                            installed_at: now_ms(),
+                            approved_permissions: approved,
+                            ..Default::default()
+                        },
+                    )
+                }
+            };
             map.insert(id.clone(), installed.clone());
             result = Some(installed);
             Ok(())
@@ -424,16 +676,29 @@ impl Store {
             path: folder.to_path_buf(),
             enabled: true,
             installed_at: now_ms(),
-            config: Map::new(),
+            ..Default::default()
         };
-        let saved = installed.clone();
+        let asked = requested_permissions(folder);
+        let mut result = installed.clone();
         self.save_installed(|map| {
-            let config = map.get(&id).map(|p| p.config.clone()).unwrap_or_default();
-            map.insert(id.clone(), Installed { config, ..saved });
+            let previous = map.get(&id);
+            let approved = previous
+                .map(|p| p.approved_permissions.clone())
+                .unwrap_or_default();
+            let consented = asked.iter().all(|p| approved.contains(p));
+            result = carry(
+                previous,
+                Installed {
+                    enabled: consented && previous.is_none_or(|p| p.enabled),
+                    approved_permissions: approved,
+                    ..installed
+                },
+            );
+            map.insert(id.clone(), result.clone());
             Ok(())
         })?;
         std::fs::create_dir_all(self.data_dir(&id)).ok();
-        Ok(installed)
+        Ok(result)
     }
 
     /// Install again from its marketplace, fetched fresh.
@@ -474,6 +739,86 @@ impl Store {
         })
     }
 
+    /// Approve `permissions` for `id` (those it does not ask for are
+    /// ignored). Once everything asked for is approved the plugin is on, and
+    /// a pending update takes the installed version's place (FR-3).
+    pub fn approve(&self, id: &str, permissions: &[String]) -> Result<Installed, String> {
+        let mut result = None;
+        self.save_installed(|map| {
+            let entry = map
+                .get_mut(id)
+                .ok_or_else(|| format!("`{id}` is not installed"))?;
+            let mut asked = requested_permissions(&entry.path);
+            if let Some(pending) = &entry.pending {
+                asked.extend(pending.permissions.iter().cloned());
+            }
+            // Optional ones may be given too (FR-9).
+            let mut allowed = all_permissions(&entry.path);
+            if let Some(pending) = &entry.pending {
+                allowed.extend(all_permissions(&pending.path));
+            }
+            for permission in permissions {
+                if allowed.contains(permission) && !entry.approved_permissions.contains(permission)
+                {
+                    entry.approved_permissions.push(permission.clone());
+                }
+            }
+            if asked.iter().all(|p| entry.approved_permissions.contains(p)) {
+                if let Some(pending) = entry.pending.take() {
+                    if entry.path != pending.path && entry.marketplace != LOCAL {
+                        remove_dir(&entry.path);
+                    }
+                    entry.path = pending.path;
+                    entry.version = pending.version;
+                }
+                entry.enabled = true;
+            }
+            result = Some(entry.clone());
+            Ok(())
+        })?;
+        Ok(result.expect("set above"))
+    }
+
+    /// Take back one approved permission: calls that need it fail (FR-16).
+    pub fn revoke(&self, id: &str, permission: &str) -> Result<(), String> {
+        self.save_installed(|map| {
+            map.get_mut(id)
+                .ok_or_else(|| format!("`{id}` is not installed"))?
+                .approved_permissions
+                .retain(|p| p != permission);
+            Ok(())
+        })
+    }
+
+    /// Watch its files and reload its views on change (FR-14).
+    pub fn set_developer_mode(&self, id: &str, on: bool) -> Result<(), String> {
+        self.save_installed(|map| {
+            map.get_mut(id)
+                .ok_or_else(|| format!("`{id}` is not installed"))?
+                .developer_mode = on;
+            Ok(())
+        })
+    }
+
+    /// Change one installed plugin's record; the changed record.
+    pub fn edit(&self, id: &str, change: impl FnOnce(&mut Installed)) -> Result<Installed, String> {
+        let mut result = None;
+        self.save_installed(|map| {
+            let entry = map
+                .get_mut(id)
+                .ok_or_else(|| format!("`{id}` is not installed"))?;
+            change(entry);
+            result = Some(entry.clone());
+            Ok(())
+        })?;
+        Ok(result.expect("set above"))
+    }
+
+    /// Where plugins' sealed vaults live (`evo-vault`; plugin-settings FR-5).
+    pub fn vault_dir(&self) -> PathBuf {
+        self.root.join("vault")
+    }
+
     pub fn set_config(&self, id: &str, config: Map<String, Value>) -> Result<(), String> {
         self.save_installed(|map| {
             map.get_mut(id)
@@ -494,12 +839,17 @@ impl Store {
         )
     }
 
-    /// The plugins that are on, loaded.
+    /// The plugins that are on, loaded, with the parts that may not run yet
+    /// held back ([`gate`]; `waiting` says which and why).
     pub fn enabled(&self) -> Vec<Plugin> {
         self.installed()
             .iter()
             .filter(|i| i.enabled)
-            .map(|i| self.load(i))
+            .map(|i| {
+                let mut plugin = self.load(i);
+                gate(&mut plugin, i);
+                plugin
+            })
             .collect()
     }
 }
@@ -609,6 +959,284 @@ mod tests {
         store.remove_marketplace("team").unwrap();
         assert!(store.marketplaces().is_empty());
         assert!(market.exists(), "a folder marketplace is not deleted");
+    }
+
+    // docs/features/plugin-ui/spec.md (FR-3, FR-14, FR-16; T5).
+    #[test]
+    fn views_ask_for_consent_and_an_update_with_more_permissions_waits() {
+        let dir = tempfile::tempdir().unwrap();
+        let (market, _) = fixture(dir.path());
+        let manifest = market.join("plugins/notes/.evo-plugin/plugin.json");
+        write_file(
+            &manifest,
+            r#"{"name": "notes", "version": "1.0.0", "permissions": ["chat:read"]}"#,
+        );
+        let store = Store::new(dir.path().join("plugins"));
+        store.add_marketplace(&market.to_string_lossy()).unwrap();
+
+        // New: off until approved.
+        let notes = store.install("team", "notes").unwrap();
+        assert!(!notes.enabled);
+        assert_eq!(notes.unapproved(), vec!["chat:read"]);
+        let notes = store
+            .approve("notes@team", &["chat:read".into(), "storage".into()])
+            .unwrap();
+        assert!(notes.enabled);
+        assert_eq!(
+            notes.approved_permissions,
+            vec!["chat:read"],
+            "only what it asks for"
+        );
+        assert!(notes.unapproved().is_empty());
+
+        // An update asking for more: the installed version runs on.
+        write_file(
+            &manifest,
+            r#"{"name": "notes", "version": "1.1.0", "permissions": ["chat:read", "chat:send"]}"#,
+        );
+        let updated = store.update("notes@team").unwrap();
+        assert_eq!(updated.version, "1.0.0");
+        assert!(updated.enabled);
+        assert_eq!(
+            updated.pending.as_ref().map(|p| p.version.as_str()),
+            Some("1.1.0")
+        );
+        assert!(updated.path.is_dir(), "the running version is kept");
+        assert_eq!(updated.unapproved(), vec!["chat:send"]);
+
+        // Approving swaps it in and drops the old copy.
+        let approved = store.approve("notes@team", &["chat:send".into()]).unwrap();
+        assert_eq!(approved.version, "1.1.0");
+        assert!(approved.pending.is_none());
+        assert!(!updated.path.exists());
+
+        store.revoke("notes@team", "chat:send").unwrap();
+        store.set_developer_mode("notes@team", true).unwrap();
+        let now = store
+            .installed()
+            .into_iter()
+            .find(|i| i.id == "notes@team")
+            .unwrap();
+        assert_eq!(now.approved_permissions, vec!["chat:read"]);
+        assert!(now.developer_mode);
+        // Reinstalling keeps Developer mode; the revoked permission is asked again.
+        let again = store.update("notes@team").unwrap();
+        assert!(again.developer_mode);
+        assert_eq!(again.unapproved(), vec!["chat:send"]);
+    }
+
+    #[test]
+    fn installed_files_from_earlier_builds_still_read() {
+        let old: Installed = serde_json::from_value(json!({
+            "id": "a@m", "name": "a", "marketplace": "m", "version": "1", "path": "/x", "enabled": true
+        }))
+        .unwrap();
+        assert!(
+            old.approved_permissions.is_empty() && !old.developer_mode && old.pending.is_none()
+        );
+    }
+
+    // docs/features/plugin-settings/spec.md (FR-4, FR-8, FR-9, FR-17; T5, T7).
+    fn code_plugin(dir: &Path, manifest: &str) -> PathBuf {
+        let root = dir.join("code-plugin");
+        write_file(&root.join(".evo-plugin/plugin.json"), manifest);
+        write_file(&root.join("server/main.ts"), "x");
+        root
+    }
+
+    const CODE: &str = r#"{
+      "name": "sync",
+      "settings": { "space": { "kind": "text", "required": true }, "token": { "kind": "secret", "required": true } },
+      "runtime": { "server": { "language": "typescript", "entry": "server/main.ts", "env": { "TOKEN": "${secret.token}" } } },
+      "mcpServers": { "old": { "command": "run", "env": { "T": "${user_config.token}" } } },
+      "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "x" }] }] },
+      "permissions": [{ "id": "startup", "optional": true }]
+    }"#;
+
+    #[test]
+    fn parts_wait_for_their_permissions_and_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = code_plugin(dir.path(), CODE);
+        let store = Store::new(dir.path().join("plugins"));
+        let installed = store.install_folder(&root).unwrap();
+        assert!(
+            !installed.enabled,
+            "a plugin whose code needs permissions starts off"
+        );
+        let mut unapproved = installed.unapproved();
+        unapproved.sort();
+        assert_eq!(
+            unapproved,
+            ["hooks", "runtime", "secrets"],
+            "optional `startup` is not asked for now"
+        );
+
+        // Approved, but settings missing: nothing runs.
+        let installed = store
+            .approve(
+                &installed.id,
+                &[
+                    "hooks".into(),
+                    "runtime".into(),
+                    "secrets".into(),
+                    "startup".into(),
+                ],
+            )
+            .unwrap();
+        assert!(installed.enabled);
+        assert!(
+            installed
+                .approved_permissions
+                .contains(&"startup".to_string()),
+            "optional ones may be given"
+        );
+        let plugin = &store.enabled()[0];
+        assert!(
+            plugin.hooks.is_empty() && plugin.mcp_servers.is_empty() && plugin.runtime.is_none()
+        );
+        assert_eq!(plugin.waiting[0].part, "setup");
+        assert_eq!(plugin.waiting[0].needs, ["space", "token"]);
+
+        // Settings filled: everything runs.
+        let mut config = Map::new();
+        config.insert("space".into(), json!("team"));
+        store.set_config(&installed.id, config).unwrap();
+        store
+            .save_installed(|map| {
+                map.get_mut(&installed.id).unwrap().secrets_set = vec!["token".into()];
+                Ok(())
+            })
+            .unwrap();
+        let plugin = &store.enabled()[0];
+        assert!(plugin.waiting.is_empty(), "{:?}", plugin.waiting);
+        assert!(
+            !plugin.hooks.is_empty() && !plugin.mcp_servers.is_empty() && plugin.runtime.is_some()
+        );
+
+        // Taking back `hooks` holds the hooks only; `secrets` holds the code.
+        store.revoke(&installed.id, "hooks").unwrap();
+        let plugin = &store.enabled()[0];
+        assert!(plugin.hooks.is_empty() && plugin.runtime.is_some());
+        store.revoke(&installed.id, "secrets").unwrap();
+        let plugin = &store.enabled()[0];
+        assert!(plugin.runtime.is_none() && plugin.mcp_servers.is_empty());
+        assert!(plugin
+            .waiting
+            .iter()
+            .any(|w| w.part == "runtime" && w.needs == ["secrets"]));
+    }
+
+    #[test]
+    fn an_enabled_plugin_from_before_keeps_its_skills_while_its_code_waits() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = code_plugin(
+            dir.path(),
+            r#"{ "name": "old", "mcpServers": { "s": { "command": "run" } } }"#,
+        );
+        write_file(
+            &root.join("skills/a/SKILL.md"),
+            "---\nname: a\ndescription: d\n---\n",
+        );
+        let store = Store::new(dir.path().join("plugins"));
+        // As an earlier build left it: on, nothing approved.
+        store
+            .save_installed(|map| {
+                map.insert(
+                    "old@local".into(),
+                    Installed {
+                        id: "old@local".into(),
+                        name: "old".into(),
+                        marketplace: LOCAL.into(),
+                        version: "1".into(),
+                        path: root.clone(),
+                        enabled: true,
+                        ..Default::default()
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+        let plugin = &store.enabled()[0];
+        assert_eq!(plugin.skills.len(), 1, "skills keep working");
+        assert!(plugin.mcp_servers.is_empty(), "its server waits for review");
+        assert_eq!(store.installed()[0].unapproved(), ["runtime"]);
+    }
+
+    #[test]
+    fn hooks_run_only_once_approved_and_stop_when_taken_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = code_plugin(
+            dir.path(),
+            r#"{ "name": "h", "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "echo hi" }] }] } }"#,
+        );
+        let store = Store::new(dir.path().join("plugins"));
+        let approve = |list: &[&str]| {
+            store
+                .save_installed(|map| {
+                    map.insert(
+                        "h@local".into(),
+                        Installed {
+                            id: "h@local".into(),
+                            name: "h".into(),
+                            marketplace: LOCAL.into(),
+                            version: "1".into(),
+                            path: root.clone(),
+                            enabled: true,
+                            approved_permissions: list.iter().map(|s| s.to_string()).collect(),
+                            ..Default::default()
+                        },
+                    );
+                    Ok(())
+                })
+                .unwrap()
+        };
+        approve(&[]);
+        assert!(
+            store.enabled()[0].hooks.is_empty(),
+            "not approved: no hooks"
+        );
+        approve(&["hooks"]);
+        assert!(store.enabled()[0].hooks.contains_key("Stop"));
+        approve(&[]);
+        assert!(
+            store.enabled()[0].hooks.is_empty(),
+            "taken back: gone at the next read"
+        );
+    }
+
+    #[test]
+    fn a_reinstall_keeps_the_persons_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = code_plugin(dir.path(), r#"{ "name": "keep" }"#);
+        let store = Store::new(dir.path().join("plugins"));
+        let installed = store.install_folder(&root).unwrap();
+        store
+            .save_installed(|map| {
+                let entry = map.get_mut(&installed.id).unwrap();
+                entry.secrets_set = vec!["k".into()];
+                entry.start_mode = Some(crate::runtime::StartMode::WithApp);
+                entry.workspace_config.insert("ws1".into(), Map::new());
+                entry.accounts.push(AccountRecord {
+                    account: "gh".into(),
+                    id: "a1".into(),
+                    label: "ana".into(),
+                    state: "signedIn".into(),
+                    default: true,
+                    ..Default::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+        let again = store.install_folder(&root).unwrap();
+        assert_eq!(again.secrets_set, ["k"]);
+        assert_eq!(again.start_mode, Some(crate::runtime::StartMode::WithApp));
+        assert!(again.workspace_config.contains_key("ws1"));
+        assert_eq!(again.accounts.len(), 1);
+        let text = std::fs::read_to_string(store.root().join("installed.json")).unwrap();
+        assert!(
+            text.contains("\"secretsSet\"") && !text.contains("\"workspaceConfig\": {}\n"),
+            "{text}"
+        );
     }
 
     #[test]

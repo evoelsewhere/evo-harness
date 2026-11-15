@@ -36,7 +36,78 @@ pub struct Plugin {
     pub bin: Option<PathBuf>,
     /// The options the plugin asks for (`userConfig`).
     pub user_config: Map<String, Value>,
+    /// Its views, by slot (`ui`; docs/features/plugin-ui/spec.md, FR-1).
+    pub ui: crate::ui::PluginUi,
+    /// Every permission it asks for, declared or implied (ids; optional
+    /// ones too).
+    pub permissions: Vec<String>,
+    /// The same, with reasons and whether each is optional or implied
+    /// (docs/features/plugin-settings/spec.md, FR-8, FR-9).
+    pub permission_info: Vec<crate::ui::PermissionInfo>,
+    /// Its settings (`settings` and `userConfig`; FR-2).
+    pub settings: Vec<crate::settings::Setting>,
+    /// The accounts it signs in to (FR-20).
+    pub accounts: Vec<crate::accounts::Account>,
+    /// Its backend (FR-10).
+    pub runtime: Option<crate::runtime::Runtime>,
+    /// Parts held back, and why (`Store::enabled`; FR-4, FR-8, FR-17).
+    pub waiting: Vec<Waiting>,
     pub problems: Vec<String>,
+}
+
+/// A part of a plugin that does not run yet.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Waiting {
+    /// `hooks`, `runtime` (its backend and connector servers) or `setup`.
+    pub part: String,
+    /// The permission it waits for, or the settings still to fill in.
+    pub needs: Vec<String>,
+}
+
+impl Plugin {
+    /// The permissions it cannot run its parts without: declared and not
+    /// optional, and implied.
+    pub fn required_permissions(&self) -> Vec<String> {
+        self.permission_info
+            .iter()
+            .filter(|p| !p.optional)
+            .map(|p| p.id.clone())
+            .collect()
+    }
+
+    /// The parts of it that network and file permissions do not bind,
+    /// as the person reads them: only a Deno backend (and views) are held
+    /// to them (plugin-settings FR-15, FR-16).
+    pub fn unenforced_parts(&self) -> Vec<&'static str> {
+        let mut parts = Vec::new();
+        if !self.hooks.is_empty() {
+            parts.push("hooks");
+        }
+        if !self.mcp_servers.is_empty() {
+            parts.push("connector servers");
+        }
+        if self
+            .runtime
+            .as_ref()
+            .is_some_and(|r| !r.language.enforced())
+        {
+            parts.push("Python backend");
+        }
+        if self.bin.is_some() {
+            parts.push("commands");
+        }
+        parts
+    }
+
+    /// Keys of its secret settings.
+    pub fn secret_keys(&self) -> Vec<String> {
+        self.settings
+            .iter()
+            .filter(|s| s.kind == crate::settings::Kind::Secret)
+            .map(|s| s.key.clone())
+            .collect()
+    }
 }
 
 /// `.evo-plugin/plugin.json`, else `.claude-plugin/plugin.json`, else
@@ -95,37 +166,121 @@ fn entries(value: Option<&Value>) -> Vec<Value> {
     }
 }
 
+/// What [`substitute`] fills in.
+struct Fill<'a> {
+    root: &'a Path,
+    data: &'a Path,
+    config: &'a Map<String, Value>,
+    /// Keys of secret settings: never filled from `config`.
+    secrets: &'a [String],
+}
+
+/// Remove every `${secret.KEY}` from `text`; the keys removed.
+fn strip_secrets(text: &mut String) -> Vec<String> {
+    let mut keys = Vec::new();
+    while let Some(start) = text.find("${secret.") {
+        let Some(end) = text[start..].find('}') else {
+            break;
+        };
+        keys.push(text[start + 9..start + end].to_string());
+        text.replace_range(start..start + end + 1, "");
+    }
+    keys
+}
+
 /// Fill in `${PLUGIN_ROOT}`, `${PLUGIN_DATA}` (also spelled
 /// `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`) and `${user_config.KEY}`
-/// in every string of `value`.
-fn substitute(value: &mut Value, root: &Path, data: &Path, config: &Map<String, Value>) {
+/// in every string of `value`. A secret setting becomes `${secret.KEY}`,
+/// which the shell fills from the vault, and only inside `env` and
+/// `headers`; anywhere else (arguments, URLs, commands) it is left out and
+/// reported (docs/features/plugin-settings/spec.md, FR-6).
+fn substitute(
+    value: &mut Value,
+    fill: &Fill,
+    secret_ok: bool,
+    field: &str,
+    problems: &mut Vec<String>,
+) {
     match value {
         Value::String(s) => {
             if s.contains("${") {
-                let (root, data) = (root.to_string_lossy(), data.to_string_lossy());
+                let (root, data) = (fill.root.to_string_lossy(), fill.data.to_string_lossy());
                 let mut out = s
                     .replace("${PLUGIN_ROOT}", &root)
                     .replace("${CLAUDE_PLUGIN_ROOT}", &root)
                     .replace("${PLUGIN_DATA}", &data)
                     .replace("${CLAUDE_PLUGIN_DATA}", &data);
-                for (key, v) in config {
+                for key in fill.secrets {
+                    out = out.replace(
+                        &format!("${{user_config.{key}}}"),
+                        &format!("${{secret.{key}}}"),
+                    );
+                }
+                for (key, v) in fill.config {
+                    if fill.secrets.contains(key) {
+                        continue;
+                    }
                     let shown = match v {
                         Value::String(t) => t.clone(),
                         other => other.to_string(),
                     };
                     out = out.replace(&format!("${{user_config.{key}}}"), &shown);
                 }
+                if !secret_ok {
+                    for key in strip_secrets(&mut out) {
+                        let problem = format!("{field}: the secret `{key}` is not passed in command lines or addresses; use `env` or `headers`");
+                        if !problems.contains(&problem) {
+                            problems.push(problem);
+                        }
+                    }
+                }
                 *s = out;
             }
         }
         Value::Array(items) => items
             .iter_mut()
-            .for_each(|v| substitute(v, root, data, config)),
-        Value::Object(map) => map
-            .values_mut()
-            .for_each(|v| substitute(v, root, data, config)),
+            .for_each(|v| substitute(v, fill, secret_ok, field, problems)),
+        Value::Object(map) => {
+            for (key, v) in map.iter_mut() {
+                let secret_ok = secret_ok || key == "env" || key == "headers";
+                substitute(v, fill, secret_ok, field, problems);
+            }
+        }
         _ => {}
     }
+}
+
+/// Add the permissions the plugin's parts need but it did not declare
+/// (FR-8): hooks need `hooks`; connector servers and a backend need
+/// `runtime`; secret settings and accounts need `secrets`. Needed ones
+/// declared optional become required.
+fn imply_permissions(plugin: &mut Plugin) {
+    let mut needed = Vec::new();
+    if !plugin.hooks.is_empty() {
+        needed.push("hooks");
+    }
+    if !plugin.mcp_servers.is_empty() || plugin.runtime.is_some() {
+        needed.push("runtime");
+    }
+    if !plugin.secret_keys().is_empty() || !plugin.accounts.is_empty() {
+        needed.push("secrets");
+    }
+    for id in needed {
+        match plugin.permission_info.iter_mut().find(|p| p.id == id) {
+            Some(info) => info.optional = false,
+            None => plugin.permission_info.push(crate::ui::PermissionInfo {
+                id: id.to_string(),
+                reason: None,
+                optional: false,
+                implied: true,
+            }),
+        }
+    }
+    plugin.permissions = plugin
+        .permission_info
+        .iter()
+        .map(|p| p.id.clone())
+        .collect();
 }
 
 /// Load the plugin in `root`. `name_fallback` names it when the manifest
@@ -183,6 +338,23 @@ pub fn load(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    let (ui, problems) = crate::ui::parse_ui(root, manifest.get("ui"));
+    plugin.ui = ui;
+    plugin.problems.extend(problems);
+    let (permissions, problems) = crate::ui::parse_permission_info(manifest.get("permissions"));
+    plugin.permission_info = permissions;
+    plugin.problems.extend(problems);
+    let (settings, problems) =
+        crate::settings::parse_settings(manifest.get("settings"), manifest.get("userConfig"));
+    plugin.settings = settings;
+    plugin.problems.extend(problems);
+    let (accounts, problems) =
+        crate::accounts::parse_accounts(manifest.get("accounts"), &plugin.settings);
+    plugin.accounts = accounts;
+    plugin.problems.extend(problems);
+    let (runtime, problems) = crate::runtime::parse_runtime(root, manifest.get("runtime"));
+    plugin.runtime = runtime;
+    plugin.problems.extend(problems);
 
     let paths = |plugin: &mut Plugin, field: &str| -> Vec<PathBuf> {
         let mut out = Vec::new();
@@ -296,18 +468,138 @@ pub fn load(
     let bin = root.join("bin");
     plugin.bin = bin.is_dir().then_some(bin);
 
+    let secrets = plugin.secret_keys();
+    let fill = Fill {
+        root,
+        data,
+        config,
+        secrets: &secrets,
+    };
+    let mut problems = Vec::new();
     let mut hooks = Value::Object(std::mem::take(&mut plugin.hooks));
-    substitute(&mut hooks, root, data, config);
+    substitute(&mut hooks, &fill, false, "hooks", &mut problems);
     plugin.hooks = hooks.as_object().cloned().unwrap_or_default();
     let mut servers = Value::Object(std::mem::take(&mut plugin.mcp_servers));
-    substitute(&mut servers, root, data, config);
+    substitute(&mut servers, &fill, false, "mcpServers", &mut problems);
     plugin.mcp_servers = servers.as_object().cloned().unwrap_or_default();
+    plugin.problems.extend(problems);
+    imply_permissions(&mut plugin);
     plugin
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // docs/features/plugin-settings/spec.md (FR-6, FR-8, NFR-4; T5).
+    #[test]
+    fn secrets_reach_only_env_and_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("p");
+        write(
+            &root.join(".evo-plugin/plugin.json"),
+            r#"{
+              "name": "sync",
+              "userConfig": { "token": { "type": "string", "sensitive": true }, "space": { "type": "string" } },
+              "mcpServers": {
+                "local": { "command": "run", "args": ["--token", "${user_config.token}", "--space", "${user_config.space}"],
+                           "env": { "TOKEN": "${user_config.token}", "AUTH": "Bearer ${secret.token}" } },
+                "remote": { "url": "https://x/${user_config.token}", "headers": { "Authorization": "Bearer ${user_config.token}" } }
+              },
+              "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "notify ${user_config.token}" }] }] }
+            }"#,
+        );
+        // A plain value an older build saved for the secret is not used.
+        let config = serde_json::json!({ "token": "PLAIN-OLD", "space": "team" });
+        let plugin = load(
+            &root,
+            "sync@m",
+            "p",
+            &dir.path().join("d"),
+            config.as_object().unwrap(),
+        );
+        let local = &plugin.mcp_servers["local"];
+        assert_eq!(
+            local["args"],
+            serde_json::json!(["--token", "", "--space", "team"])
+        );
+        assert_eq!(local["env"]["TOKEN"], "${secret.token}");
+        assert_eq!(local["env"]["AUTH"], "Bearer ${secret.token}");
+        assert_eq!(plugin.mcp_servers["remote"]["url"], "https://x/");
+        assert_eq!(
+            plugin.mcp_servers["remote"]["headers"]["Authorization"],
+            "Bearer ${secret.token}"
+        );
+        assert_eq!(plugin.hooks["Stop"][0]["hooks"][0]["command"], "notify ");
+        let text = serde_json::to_string(&plugin.mcp_servers).unwrap()
+            + &serde_json::to_string(&plugin.hooks).unwrap();
+        assert!(!text.contains("PLAIN-OLD"), "{text}");
+        assert!(
+            plugin
+                .problems
+                .iter()
+                .any(|p| p.starts_with("mcpServers: the secret `token`")),
+            "{:?}",
+            plugin.problems
+        );
+        assert!(
+            plugin
+                .problems
+                .iter()
+                .any(|p| p.starts_with("hooks: the secret `token`")),
+            "{:?}",
+            plugin.problems
+        );
+    }
+
+    #[test]
+    fn parts_imply_their_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("p");
+        write(&root.join("server/main.ts"), "x");
+        write(
+            &root.join(".evo-plugin/plugin.json"),
+            r#"{
+              "name": "full",
+              "settings": { "key": { "kind": "secret" } },
+              "runtime": { "server": { "language": "typescript", "entry": "server/main.ts" } },
+              "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "x" }] }] },
+              "permissions": [{ "id": "runtime", "optional": true, "reason": "Sync" }, { "id": "startup", "optional": true }, "network:https://api.x.com"]
+            }"#,
+        );
+        let plugin = load(&root, "full@m", "p", &dir.path().join("d"), &Map::new());
+        assert!(plugin.problems.is_empty(), "{:?}", plugin.problems);
+        let ids: Vec<(&str, bool, bool)> = plugin
+            .permission_info
+            .iter()
+            .map(|p| (p.id.as_str(), p.optional, p.implied))
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                ("runtime", false, false),
+                ("startup", true, false),
+                ("network:https://api.x.com", false, false),
+                ("hooks", false, true),
+                ("secrets", false, true)
+            ]
+        );
+        assert_eq!(plugin.permission_info[0].reason.as_deref(), Some("Sync"));
+        assert_eq!(
+            plugin.required_permissions(),
+            ["runtime", "network:https://api.x.com", "hooks", "secrets"]
+        );
+        assert_eq!(plugin.permissions.len(), 5);
+
+        // Skills only: nothing implied (NFR-4).
+        let skills = dir.path().join("s");
+        write(
+            &skills.join("skills/a/SKILL.md"),
+            "---\nname: a\ndescription: d\n---\n",
+        );
+        let plain = load(&skills, "s@m", "s", &dir.path().join("d2"), &Map::new());
+        assert!(plain.permission_info.is_empty());
+    }
 
     fn write(path: &Path, text: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
