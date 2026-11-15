@@ -857,6 +857,9 @@ pub async fn build_prepared(
         publish_session_identity(&tool_context, &metadata.id);
         crate::hooks::set_session_id(&metadata.id);
     }
+    // `SessionStart` hooks, in the background: a saved session resumes.
+    let resumed = matches!(session.get_leaf_id().await, Ok(Some(_)));
+    crate::hooks::session_start(if resumed { "resume" } else { "startup" });
     // `--name`/`-n` sets the session display name durably (a `name` fact in the
     // log). It applies to whichever session this launch works in — a fresh one
     // or a restored one — and an empty value clears a previous name. This is the

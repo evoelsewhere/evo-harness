@@ -76,6 +76,10 @@ pub struct Hooks {
     pub disabled: bool,
     /// Entries that could not be read.
     pub problems: Vec<String>,
+    /// Extra environment for the commands of one `source` (a plugin's
+    /// `plugin:<name>`: its host API address and key). Never shown.
+    #[serde(skip)]
+    pub env: std::collections::HashMap<String, Vec<(String, String)>>,
 }
 
 impl Hooks {

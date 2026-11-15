@@ -1,8 +1,11 @@
 //! Hooks for this session (`evo-hooks`): which ones apply, and the points
 //! where the engine runs them.
 //!
-//! * `SessionStart` — when the engine starts; its context goes with the first
-//!   prompt.
+//! * `SessionStart` — once per engine, when its session is set up (`startup`,
+//!   or `resume` for a saved one), in the background so the engine is ready
+//!   at once; the first prompt waits for it and takes its context. A
+//!   plugin's `SessionStart` hook may run before the desktop's
+//!   `set_plugin_host`, so without its host key.
 //! * `UserPromptSubmit` — before a prompt runs: a hook can block it, or add
 //!   context (sent with the prompt in a `<hook-context>` block).
 //! * `PreToolUse` — before a tool runs (`before_tool_call`): block it (the
@@ -19,9 +22,17 @@
 //! settings) turns them all off. The tool-call hooks are installed when the
 //! session starts with hooks for those events; the others follow the
 //! settings as they are now (RPC `reload_resources`).
+//!
+//! Plugins' hooks run only when the person approved `hooks` (the plugin
+//! store gates them). Their commands get `EVO_PLUGIN_HOST` and
+//! `EVO_PLUGIN_KEY` for the plugin host API, which the desktop sends with
+//! `set_plugin_host` (docs/features/plugin-settings/spec.md, FR-8, FR-26):
+//! only in that plugin's hook processes, never in the engine's environment,
+//! which the agent's shell commands inherit.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
@@ -39,9 +50,70 @@ struct Runtime {
     recent: Mutex<VecDeque<RunRecord>>,
     /// `SessionStart` context waiting for the first prompt.
     pending_context: Mutex<Vec<String>>,
+    /// `SessionStart` ran or runs (once per engine).
+    started: AtomicBool,
+    /// Its run, which the first prompt waits for.
+    session_start: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+impl Runtime {
+    fn new(cwd: &Path, trusted: bool, hooks: Hooks) -> Runtime {
+        Runtime {
+            cwd: cwd.to_path_buf(),
+            trusted,
+            session_id: Mutex::new(String::new()),
+            hooks: RwLock::new(hooks),
+            recent: Mutex::new(VecDeque::new()),
+            pending_context: Mutex::new(Vec::new()),
+            started: AtomicBool::new(false),
+            session_start: Mutex::new(None),
+        }
+    }
+
+    fn has(&self, event: &str) -> bool {
+        let hooks = self.hooks.read().unwrap();
+        !hooks.disabled && hooks.entries.iter().any(|e| e.event == event)
+    }
 }
 
 static RUNTIME: OnceLock<Arc<Runtime>> = OnceLock::new();
+
+/// The plugin host API: its URL and a key per plugin id.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PluginHost {
+    pub url: String,
+    pub keys: std::collections::HashMap<String, String>,
+}
+
+static PLUGIN_HOST: RwLock<Option<PluginHost>> = RwLock::new(None);
+
+/// `set_plugin_host`: keys for the plugins' hooks from now on.
+pub fn set_plugin_host(host: PluginHost) {
+    *PLUGIN_HOST.write().unwrap() = Some(host);
+}
+
+/// The environment of each plugin's hook commands, by hook source
+/// (`plugin:<name>`), for the plugins in `plugins`.
+fn plugin_env(
+    plugins: &[evo_plugins::Plugin],
+) -> std::collections::HashMap<String, Vec<(String, String)>> {
+    let Some(host) = PLUGIN_HOST.read().unwrap().clone() else {
+        return Default::default();
+    };
+    plugins
+        .iter()
+        .filter_map(|plugin| {
+            let key = host.keys.get(&plugin.id)?;
+            Some((
+                format!("plugin:{}", plugin.name),
+                vec![
+                    ("EVO_PLUGIN_HOST".to_string(), host.url.clone()),
+                    ("EVO_PLUGIN_KEY".to_string(), key.clone()),
+                ],
+            ))
+        })
+        .collect()
+}
 
 /// The session's folder, once [`init`] ran.
 pub fn cwd() -> Option<PathBuf> {
@@ -83,14 +155,7 @@ fn load_settings(cwd: &Path, trusted: bool) -> Hooks {
 
 /// Load this session's hooks (once per engine process).
 pub fn init(cwd: &Path, trusted: bool) {
-    let _ = RUNTIME.set(Arc::new(Runtime {
-        cwd: cwd.to_path_buf(),
-        trusted,
-        session_id: Mutex::new(String::new()),
-        hooks: RwLock::new(load(cwd, trusted)),
-        recent: Mutex::new(VecDeque::new()),
-        pending_context: Mutex::new(Vec::new()),
-    }));
+    let _ = RUNTIME.set(Arc::new(Runtime::new(cwd, trusted, load(cwd, trusted))));
 }
 
 pub fn set_session_id(id: &str) {
@@ -108,18 +173,20 @@ pub fn reload() {
 
 /// Whether any hook is configured for `event` (and hooks are on).
 pub fn has(event: &str) -> bool {
-    RUNTIME.get().is_some_and(|rt| {
-        let hooks = rt.hooks.read().unwrap();
-        !hooks.disabled && hooks.entries.iter().any(|e| e.event == event)
-    })
+    RUNTIME.get().is_some_and(|rt| rt.has(event))
 }
 
 /// Run `event`'s hooks with `input`; records the runs.
-pub async fn run(event: &str, target: Option<&str>, mut input: Value) -> Outcome {
+pub async fn run(event: &str, target: Option<&str>, input: Value) -> Outcome {
     let Some(rt) = RUNTIME.get().cloned() else {
         return Outcome::default();
     };
-    let hooks = rt.hooks.read().unwrap().clone();
+    run_in(&rt, event, target, input).await
+}
+
+async fn run_in(rt: &Runtime, event: &str, target: Option<&str>, mut input: Value) -> Outcome {
+    let mut hooks = rt.hooks.read().unwrap().clone();
+    hooks.env = plugin_env(&crate::plugins::enabled());
     if let Some(object) = input.as_object_mut() {
         object.insert("session_id".into(), json!(*rt.session_id.lock().unwrap()));
     }
@@ -172,24 +239,43 @@ pub fn set_disabled(disabled: bool) -> Result<(), String> {
 
 // ── Session start / prompt / stop / end ─────────────────────────────────────
 
-/// `SessionStart`: context is kept for the first prompt.
-pub async fn session_start(source: &str) {
-    if !has("SessionStart") {
+/// `SessionStart` in the background, once per engine (`source`: `startup`,
+/// or `resume` for a saved session); its context is kept for the first prompt.
+pub fn session_start(source: &str) {
+    if let Some(rt) = RUNTIME.get().cloned() {
+        session_start_in(rt, source);
+    }
+}
+
+fn session_start_in(rt: Arc<Runtime>, source: &str) {
+    if rt.started.swap(true, Ordering::SeqCst) || !rt.has("SessionStart") {
         return;
     }
-    let outcome = run("SessionStart", None, json!({ "source": source })).await;
-    if let Some(rt) = RUNTIME.get() {
-        rt.pending_context.lock().unwrap().extend(outcome.context);
+    let input = json!({ "source": source });
+    let task = rt.clone();
+    let handle = tokio::spawn(async move {
+        let outcome = run_in(&task, "SessionStart", None, input).await;
+        task.pending_context.lock().unwrap().extend(outcome.context);
+    });
+    *rt.session_start.lock().unwrap() = Some(handle);
+}
+
+/// The `SessionStart` context, once its hooks are done.
+async fn start_context(rt: &Runtime) -> Vec<String> {
+    let running = rt.session_start.lock().unwrap().take();
+    if let Some(running) = running {
+        let _ = running.await;
     }
+    std::mem::take(&mut *rt.pending_context.lock().unwrap())
 }
 
 /// `UserPromptSubmit` for `text`: `Err(reason)` when a hook blocks it,
 /// otherwise the context to send along (with any `SessionStart` context).
 pub async fn prompt_submit(text: &str) -> Result<Vec<String>, String> {
-    let mut context: Vec<String> = RUNTIME
-        .get()
-        .map(|rt| std::mem::take(&mut *rt.pending_context.lock().unwrap()))
-        .unwrap_or_default();
+    let mut context: Vec<String> = match RUNTIME.get().cloned() {
+        Some(rt) => start_context(&rt).await,
+        None => Vec::new(),
+    };
     if has("UserPromptSubmit") {
         let outcome = run("UserPromptSubmit", None, json!({ "prompt": text })).await;
         if let Some(reason) = outcome.block.or(outcome.stop) {
@@ -488,6 +574,94 @@ mod tests {
                 "a removed worktree is not reported"
             );
         }
+    }
+
+    // docs/features/plugin-settings/spec.md (FR-26).
+    #[test]
+    fn each_plugins_hooks_get_only_its_own_key() {
+        let plugin = |id: &str, name: &str| evo_plugins::Plugin {
+            id: id.into(),
+            name: name.into(),
+            ..Default::default()
+        };
+        let plugins = [plugin("a@m", "a"), plugin("b@m", "b")];
+        assert!(
+            plugin_env(&plugins).is_empty(),
+            "nothing before the desktop sends it"
+        );
+        set_plugin_host(PluginHost {
+            url: "http://127.0.0.1:9".into(),
+            keys: [("a@m".to_string(), "key-a".to_string())].into(),
+        });
+        let env = plugin_env(&plugins);
+        assert_eq!(
+            env["plugin:a"],
+            vec![
+                (
+                    "EVO_PLUGIN_HOST".to_string(),
+                    "http://127.0.0.1:9".to_string()
+                ),
+                ("EVO_PLUGIN_KEY".to_string(), "key-a".to_string()),
+            ]
+        );
+        assert!(!env.contains_key("plugin:b"), "no key, no access");
+        assert!(
+            std::env::var("EVO_PLUGIN_KEY").is_err(),
+            "never in the engine's environment"
+        );
+    }
+
+    /// A `SessionStart` hook printing `start:<source>`.
+    fn start_hook() -> evo_hooks::HookEntry {
+        let (command, args) = if cfg!(windows) {
+            ("powershell", vec!["-NoProfile", "-NonInteractive", "-Command",
+                "$in = [Console]::In.ReadToEnd() | ConvertFrom-Json; [Console]::Out.Write('start:' + $in.source)"])
+        } else {
+            (
+                "sh",
+                vec!["-c", r#"sed -n 's/.*"source":"\([a-z]*\)".*/start:\1/p'"#],
+            )
+        };
+        evo_hooks::HookEntry {
+            event: "SessionStart".into(),
+            matcher: None,
+            handler: evo_hooks::Handler::Command {
+                command: command.into(),
+                args: Some(args.into_iter().map(str::to_string).collect()),
+                shell: None,
+                timeout: Some(60),
+            },
+            source: "user".into(),
+            file: "settings.json".into(),
+        }
+    }
+
+    // docs/features/customize-skills-plugins-connectors/spec.md (FR-31).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn session_start_runs_once_and_its_context_waits_for_the_first_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let hooks = Hooks {
+            entries: vec![start_hook()],
+            ..Default::default()
+        };
+        let rt = Arc::new(Runtime::new(dir.path(), false, hooks));
+        session_start_in(rt.clone(), "resume");
+        session_start_in(rt.clone(), "startup");
+        assert_eq!(start_context(&rt).await, vec!["start:resume".to_string()]);
+        assert!(
+            start_context(&rt).await.is_empty(),
+            "only the first prompt gets it"
+        );
+        assert_eq!(rt.recent.lock().unwrap().len(), 1, "it ran once");
+    }
+
+    #[tokio::test]
+    async fn no_session_start_hook_runs_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = Arc::new(Runtime::new(dir.path(), false, Hooks::default()));
+        session_start_in(rt.clone(), "startup");
+        assert!(rt.session_start.lock().unwrap().is_none());
+        assert!(start_context(&rt).await.is_empty());
     }
 
     #[test]

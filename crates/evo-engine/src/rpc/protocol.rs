@@ -303,6 +303,13 @@ pub enum Command {
     },
     /// Re-read skills, templates and extensions in place.
     ReloadResources,
+    /// The plugin host API's URL and a key per plugin id, for plugins' hook
+    /// commands (`hooks.rs`; plugin-settings FR-26).
+    SetPluginHost {
+        url: String,
+        #[serde(default)]
+        keys: std::collections::HashMap<String, String>,
+    },
     /// The hooks in effect, problems, and recent runs (`hooks.rs`).
     ListHooks,
     /// Turn every hook off (or on) in user settings.
@@ -438,6 +445,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "undo_memory_change",
     "save_instructions",
     "reload_resources",
+    "set_plugin_host",
     "list_hooks",
     "set_hooks_disabled",
     "set_approval_mode",
@@ -662,6 +670,7 @@ mod tests {
             json!({"type": "undo_memory_change", "change": 7}),
             json!({"type": "save_instructions", "scope": "personal", "content": "Be brief."}),
             json!({"type": "reload_resources"}),
+            json!({"type": "set_plugin_host", "url": "http://127.0.0.1:1", "keys": {"p@m": "k"}}),
         ] {
             let name = frame["type"].as_str().unwrap();
             assert!(SUPPORTED_COMMANDS.contains(&name), "{name} not advertised");

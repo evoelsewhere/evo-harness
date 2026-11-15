@@ -93,9 +93,14 @@ pub async fn run_event(
     } else {
         None
     };
-    let runs = entries
-        .iter()
-        .map(|entry| run_one(entry, &payload, cwd, cap));
+    let runs = entries.iter().map(|entry| {
+        let env = hooks
+            .env
+            .get(&entry.source)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        run_one(entry, &payload, cwd, cap, env)
+    });
     let results = futures::future::join_all(runs).await;
     for (entry, result) in entries.iter().zip(results) {
         apply(&mut outcome, entry, event, target, result);
@@ -238,7 +243,13 @@ fn cut(text: &str) -> String {
     }
 }
 
-async fn run_one(entry: &HookEntry, payload: &str, cwd: &Path, cap: Option<u64>) -> Raw {
+async fn run_one(
+    entry: &HookEntry,
+    payload: &str,
+    cwd: &Path,
+    cap: Option<u64>,
+    env: &[(String, String)],
+) -> Raw {
     let started = Instant::now();
     match &entry.handler {
         Handler::Command {
@@ -256,7 +267,7 @@ async fn run_one(entry: &HookEntry, payload: &str, cwd: &Path, cap: Option<u64>)
                 args.as_deref(),
                 shell.as_deref(),
                 payload,
-                cwd,
+                (cwd, env),
                 limit,
                 started,
             )
@@ -321,7 +332,7 @@ async fn run_command(
     args: Option<&[String]>,
     shell: Option<&str>,
     payload: &str,
-    cwd: &Path,
+    (cwd, env): (&Path, &[(String, String)]),
     limit: Duration,
     started: Instant,
 ) -> Raw {
@@ -335,6 +346,7 @@ async fn run_command(
     };
     cmd.current_dir(cwd)
         .env("EVO_PROJECT_DIR", cwd)
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -570,6 +582,64 @@ mod tests {
         )
         .await;
         assert_eq!(out.context, vec!["today is Friday".to_string()]);
+    }
+
+    /// A hook that prints `<tag>:` and its `EVO_PLUGIN_KEY`.
+    fn print_key(tag: &str) -> Handler {
+        if cfg!(windows) {
+            Handler::Command {
+                command: "powershell".into(),
+                args: Some(vec![
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                    format!("$null = [Console]::In.ReadToEnd(); [Console]::Out.Write('{tag}:' + $env:EVO_PLUGIN_KEY)"),
+                ]),
+                shell: None,
+                timeout: Some(60),
+            }
+        } else {
+            Handler::Command {
+                command: "sh".into(),
+                args: Some(vec![
+                    "-c".into(),
+                    format!("cat >/dev/null; printf '%s' \"{tag}:$EVO_PLUGIN_KEY\""),
+                ]),
+                shell: None,
+                timeout: Some(60),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn only_a_plugins_own_hooks_get_its_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = hooks(vec![
+            ("UserPromptSubmit", None, print_key("user")),
+            ("UserPromptSubmit", None, print_key("plugin")),
+            ("UserPromptSubmit", None, print_key("other")),
+        ]);
+        h.entries[1].source = "plugin:p".into();
+        h.entries[2].source = "plugin:q".into();
+        h.env.insert(
+            "plugin:p".into(),
+            vec![("EVO_PLUGIN_KEY".into(), "k-p".into())],
+        );
+        assert!(
+            !serde_json::to_string(&h).unwrap().contains("k-p"),
+            "never shown"
+        );
+        let out = run_event(
+            &h,
+            "UserPromptSubmit",
+            None,
+            json!({"prompt": "hi"}),
+            dir.path(),
+        )
+        .await;
+        let mut context = out.context.clone();
+        context.sort();
+        assert_eq!(context, vec!["other:", "plugin:k-p", "user:"]);
     }
 
     #[tokio::test]

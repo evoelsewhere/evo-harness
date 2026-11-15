@@ -1510,6 +1510,26 @@ where
                 crate::hooks::reload();
                 Ok(rpc_reload_resources(harness, &rpc_providers).await)
             }
+            // The plugin host API for plugins' hooks (plugin-settings FR-26).
+            "set_plugin_host" => {
+                let url = msg.get("url").and_then(serde_json::Value::as_str);
+                let keys = msg.get("keys").and_then(serde_json::Value::as_object);
+                match (url, keys) {
+                    (Some(url), Some(keys)) => {
+                        let keys: std::collections::HashMap<String, String> = keys
+                            .iter()
+                            .filter_map(|(id, key)| Some((id.clone(), key.as_str()?.to_string())))
+                            .collect();
+                        let count = keys.len();
+                        crate::hooks::set_plugin_host(crate::hooks::PluginHost {
+                            url: url.to_string(),
+                            keys,
+                        });
+                        Ok(serde_json::json!({ "plugins": count }))
+                    }
+                    _ => Err("set_plugin_host needs `url` and `keys`".to_string()),
+                }
+            }
             // Customize → Hooks: the hooks in effect, problems, recent runs.
             "list_hooks" => {
                 crate::hooks::reload();
