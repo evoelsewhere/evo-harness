@@ -90,8 +90,9 @@ pub async fn connect(
                 args,
                 env,
                 cwd: own_cwd,
+                minimal_env,
             } => {
-                let mut cmd = stdio_command(command, args, env);
+                let mut cmd = stdio_command(command, args, env, *minimal_env);
                 if let Some(dir) = own_cwd.as_deref().map(Path::new).or(cwd) {
                     cmd.current_dir(dir);
                 }
@@ -167,10 +168,42 @@ where
 /// The command for a stdio server. On Windows a bare name like `npx` is
 /// usually a `.cmd` script, which needs `cmd /c`; servers start without a
 /// console window.
+/// What a process needs from the app's environment when it gets no more
+/// (`minimal_env`): finding programs, its home and temporary folders, the
+/// system folders on Windows, the locale, and proxies.
+const MINIMAL_ENV: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "SystemRoot",
+    "WINDIR",
+    "COMSPEC",
+    "SYSTEMDRIVE",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "HOME",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "LANG",
+    "LC_ALL",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+];
+
 fn stdio_command(
     command: &str,
     args: &[String],
     env: &BTreeMap<String, String>,
+    minimal_env: bool,
 ) -> tokio::process::Command {
     #[cfg(windows)]
     let mut cmd = match resolve_windows(command) {
@@ -200,6 +233,14 @@ fn stdio_command(
         cmd.args(args);
         cmd
     };
+    if minimal_env {
+        cmd.env_clear();
+        for name in MINIMAL_ENV {
+            if let Some(value) = std::env::var_os(name) {
+                cmd.env(name, value);
+            }
+        }
+    }
     cmd.envs(env);
     cmd.kill_on_drop(true);
     #[cfg(windows)]

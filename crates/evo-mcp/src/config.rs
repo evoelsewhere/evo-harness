@@ -60,6 +60,10 @@ pub enum Transport {
         args: Vec<String>,
         env: BTreeMap<String, String>,
         cwd: Option<String>,
+        /// Start it with a small environment (no variables of the app's
+        /// own beyond what a process needs) and without `${VAR}` expansion:
+        /// a plugin's backend (`"minimalEnv": true`; plugin-settings NFR-1).
+        minimal_env: bool,
     },
     Http {
         url: String,
@@ -94,15 +98,24 @@ impl ServerConfig {
                     .map(str::trim)
                     .filter(|c| !c.is_empty());
                 let command = command.ok_or("a command is required")?;
+                let minimal_env = self
+                    .extra
+                    .get("minimalEnv")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let fill = |text: &str| {
+                    if minimal_env {
+                        text.to_string()
+                    } else {
+                        expand(text)
+                    }
+                };
                 Ok(Transport::Stdio {
-                    command: expand(command),
-                    args: self.args.iter().map(|a| expand(a)).collect(),
-                    env: self
-                        .env
-                        .iter()
-                        .map(|(k, v)| (k.clone(), expand(v)))
-                        .collect(),
-                    cwd: self.cwd.as_deref().map(expand),
+                    command: fill(command),
+                    args: self.args.iter().map(|a| fill(a)).collect(),
+                    env: self.env.iter().map(|(k, v)| (k.clone(), fill(v))).collect(),
+                    cwd: self.cwd.as_deref().map(fill),
+                    minimal_env,
                 })
             }
             "http" | "streamable-http" | "sse" => {
@@ -231,7 +244,8 @@ mod tests {
                 command: "npx".into(),
                 args: vec!["-y".into(), "server-files".into(), "/tmp".into()],
                 env: BTreeMap::new(),
-                cwd: None
+                cwd: None,
+                minimal_env: false
             }
         );
         let remote = &file.servers["remote"];
@@ -245,6 +259,28 @@ mod tests {
         assert_eq!(back["mcpServers"]["files"]["note"], "kept");
         assert_eq!(back["mcpServers"]["remote"]["disabled"], true);
         assert!(back["mcpServers"]["files"].get("disabled").is_none());
+    }
+
+    #[test]
+    fn a_plugin_backend_gets_no_expansion_of_the_apps_variables() {
+        std::env::set_var("EVO_MCP_TEST_SECRET_HOST", "leaked");
+        let config: ServerConfig = serde_json::from_value(serde_json::json!({
+            "command": "deno", "args": ["${EVO_MCP_TEST_SECRET_HOST}"], "env": { "A": "${EVO_MCP_TEST_SECRET_HOST}" }, "minimalEnv": true
+        }))
+        .unwrap();
+        match config.transport().unwrap() {
+            Transport::Stdio {
+                args,
+                env,
+                minimal_env,
+                ..
+            } => {
+                assert!(minimal_env);
+                assert_eq!(args, ["${EVO_MCP_TEST_SECRET_HOST}"]);
+                assert_eq!(env["A"], "${EVO_MCP_TEST_SECRET_HOST}");
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]

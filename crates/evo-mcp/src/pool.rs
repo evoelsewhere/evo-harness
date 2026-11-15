@@ -7,10 +7,18 @@
 //! tool's permission (`allow` / `ask` / `block`) defaults to `allow` for
 //! tools the server marks read-only and `ask` for the rest. Every change
 //! calls `on_change`, so the host can tell its UI and its chats.
+//!
+//! Plugin servers have a lifecycle (docs/features/plugin-settings/spec.md,
+//! FR-11 – FR-13): `Always` connects at once; `OnDemand` sleeps until a call
+//! needs it — its tools are offered meanwhile from the last list it gave —
+//! and goes back to sleep when idle; `Off` never starts. [`Pool::tick`]
+//! puts idle servers to sleep and restarts crashed ones, giving up after
+//! [`MAX_CRASHES`] crashes in a minute.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
@@ -24,6 +32,30 @@ const LOG_LINES: usize = 200;
 const MAX_RESULT_CHARS: usize = 100_000;
 /// Model APIs limit tool names to 64 characters.
 const MAX_TOOL_NAME: usize = 64;
+/// Crashes within [`CRASH_WINDOW`] after which a server is left stopped.
+pub const MAX_CRASHES: usize = 5;
+const CRASH_WINDOW: Duration = Duration::from_secs(60);
+
+/// When a plugin server runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Lifecycle {
+    /// Connected at once and kept running.
+    #[default]
+    Always,
+    /// Started by a call; stopped after `idle` without one.
+    OnDemand { idle: Duration },
+    /// Never started.
+    Off,
+}
+
+/// A plugin's server for [`Pool::set_plugin_servers`].
+#[derive(Debug, Clone)]
+pub struct PluginServer {
+    pub plugin: String,
+    pub server: String,
+    pub config: ServerConfig,
+    pub lifecycle: Lifecycle,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -32,6 +64,10 @@ pub enum Status {
     Connected,
     NeedsAuth,
     Failed,
+    /// Not running; its last tool list is offered and a call starts it.
+    Sleeping,
+    /// Stopped after crashing too often; started again by hand.
+    Crashed,
 }
 
 impl Status {
@@ -42,6 +78,8 @@ impl Status {
             Status::Connected => "connected",
             Status::NeedsAuth => "needs-auth",
             Status::Failed => "failed",
+            Status::Sleeping => "sleeping",
+            Status::Crashed => "crashed",
         }
     }
 }
@@ -64,6 +102,12 @@ struct Entry {
     log: VecDeque<String>,
     /// Bumped on every (re)connect, so a slow old attempt cannot win.
     generation: u64,
+    /// When it runs (plugin servers; others are always connected).
+    lifecycle: Lifecycle,
+    /// The last call through it.
+    last_used: Option<Instant>,
+    /// Recent crashes, oldest first.
+    crashes: VecDeque<Instant>,
 }
 
 impl Entry {
@@ -86,11 +130,17 @@ impl Entry {
             conn: None,
             log: VecDeque::new(),
             generation: 0,
+            lifecycle: Lifecycle::Always,
+            last_used: None,
+            crashes: VecDeque::new(),
         }
     }
 }
 
 type OnChange = Arc<dyn Fn() + Send + Sync>;
+/// Receives plugin servers' log lines: `(plugin, server label, line)`, with
+/// their `env` and `headers` values hidden.
+pub type LogSink = Arc<dyn Fn(&str, &str, &str) + Send + Sync>;
 
 struct Shared {
     path: PathBuf,
@@ -98,11 +148,48 @@ struct Shared {
     cwd: Option<PathBuf>,
     servers: Mutex<BTreeMap<String, Entry>>,
     on_change: OnChange,
+    log_sink: Mutex<Option<LogSink>>,
 }
 
 #[derive(Clone)]
 pub struct Pool {
     shared: Arc<Shared>,
+}
+
+/// Which server and tool a chat's tool name stands for: the server's key,
+/// the tool, its connection (none while it sleeps), its permission, and
+/// whether a call may start it.
+type Resolved = (String, String, Option<Arc<Connection>>, Permission, bool);
+
+/// A plugin server's config and log as the windows may see them: its `env`
+/// and `headers` values hidden (they may hold the plugin's secrets, filled
+/// in from its vault), and those values hidden in its log lines too
+/// (docs/features/plugin-settings/spec.md, NFR-1).
+fn hide_plugin_values(config: &ServerConfig, log: Vec<String>) -> (Value, Vec<String>) {
+    let mut values: Vec<&String> = config
+        .env
+        .values()
+        .chain(config.headers.values())
+        .filter(|v| v.len() >= 4)
+        .collect();
+    values.sort_by_key(|v| std::cmp::Reverse(v.len()));
+    let mut shown = serde_json::to_value(config).unwrap_or(Value::Null);
+    for field in ["env", "headers"] {
+        if let Some(map) = shown.get_mut(field).and_then(Value::as_object_mut) {
+            for value in map.values_mut() {
+                *value = Value::String("(hidden)".into());
+            }
+        }
+    }
+    let log = log
+        .into_iter()
+        .map(|line| {
+            values.iter().fold(line, |line, secret| {
+                line.replace(secret.as_str(), "(hidden)")
+            })
+        })
+        .collect();
+    (shown, log)
 }
 
 /// `mcp__<server>__<tool>` with characters models accept, at most 64 long.
@@ -227,6 +314,7 @@ impl Pool {
                 cwd,
                 servers: Mutex::new(BTreeMap::new()),
                 on_change: Arc::new(on_change),
+                log_sink: Mutex::new(None),
             }),
         }
     }
@@ -341,6 +429,7 @@ impl Pool {
         generation: u64,
         result: Result<(Connection, Vec<Value>, Vec<Value>, Vec<Value>), ConnectError>,
     ) {
+        let mut cache = None;
         {
             let mut servers = self.shared.servers.lock().unwrap();
             let Some(entry) = servers.get_mut(name) else {
@@ -358,6 +447,10 @@ impl Pool {
                     entry.prompts = prompts;
                     entry.resources = resources;
                     entry.conn = Some(Arc::new(conn));
+                    entry.last_used = Some(Instant::now());
+                    if let Some(plugin) = entry.plugin.clone() {
+                        cache = Some((plugin, entry.label.clone(), entry.tools.clone()));
+                    }
                 }
                 Err(ConnectError::NeedsAuth(error)) => {
                     entry.status = Status::NeedsAuth;
@@ -369,17 +462,230 @@ impl Pool {
                 }
             }
         }
+        // A plugin server's tools are kept, to offer them while it sleeps.
+        if let Some((plugin, label, tools)) = cache {
+            let server = label
+                .strip_prefix(&format!("plugin_{plugin}_"))
+                .unwrap_or(&label)
+                .to_string();
+            let _ = self.save(|file| {
+                let all = file
+                    .extra
+                    .entry("pluginServers")
+                    .or_insert_with(|| json!({}));
+                if !all.is_object() {
+                    *all = json!({});
+                }
+                let entry = all
+                    .as_object_mut()
+                    .unwrap()
+                    .entry(plugin)
+                    .or_insert_with(|| json!({}));
+                if !entry.is_object() {
+                    *entry = json!({});
+                }
+                let server = entry
+                    .as_object_mut()
+                    .unwrap()
+                    .entry(server)
+                    .or_insert_with(|| json!({}));
+                if !server.is_object() {
+                    *server = json!({});
+                }
+                server["tools"] = Value::Array(tools);
+            });
+        }
         self.changed();
     }
 
     fn log(&self, name: &str, line: String) {
-        let mut servers = self.shared.servers.lock().unwrap();
-        if let Some(entry) = servers.get_mut(name) {
-            if entry.log.len() >= LOG_LINES {
-                entry.log.pop_front();
+        let mut sink = None;
+        {
+            let mut servers = self.shared.servers.lock().unwrap();
+            if let Some(entry) = servers.get_mut(name) {
+                if let Some(plugin) = &entry.plugin {
+                    let (_, hidden) = hide_plugin_values(&entry.config, vec![line.clone()]);
+                    sink = Some((
+                        plugin.clone(),
+                        entry.label.clone(),
+                        hidden.into_iter().next().unwrap_or_default(),
+                    ));
+                }
+                if entry.log.len() >= LOG_LINES {
+                    entry.log.pop_front();
+                }
+                entry.log.push_back(line);
             }
-            entry.log.push_back(line);
         }
+        if let Some((plugin, label, line)) = sink {
+            if let Some(sink) = self.shared.log_sink.lock().unwrap().clone() {
+                sink(&plugin, &label, &line);
+            }
+        }
+    }
+
+    /// Where plugin servers' log lines go besides the pool (the app's log).
+    pub fn set_log_sink(&self, sink: LogSink) {
+        *self.shared.log_sink.lock().unwrap() = Some(sink);
+    }
+
+    /// The keys of `plugin`'s servers.
+    pub fn plugin_keys(&self, plugin: &str) -> Vec<String> {
+        let servers = self.shared.servers.lock().unwrap();
+        servers
+            .iter()
+            .filter(|(_, e)| e.plugin.as_deref() == Some(plugin))
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
+    /// Start `key` if it is not running (a sleeping, stopped or crashed
+    /// plugin server); the connection, or why it could not start.
+    pub async fn wake(&self, key: &str) -> Result<Arc<Connection>, String> {
+        let running = {
+            let mut servers = self.shared.servers.lock().unwrap();
+            let entry = servers
+                .get_mut(key)
+                .ok_or_else(|| format!("`{key}` is not a server"))?;
+            if entry.lifecycle == Lifecycle::Off {
+                return Err(format!("{} is set not to run", entry.label));
+            }
+            entry.last_used = Some(Instant::now());
+            entry.conn.clone().filter(|c| !c.is_closed())
+        };
+        if let Some(conn) = running {
+            return Ok(conn);
+        }
+        self.connect(key).await;
+        let servers = self.shared.servers.lock().unwrap();
+        let entry = servers
+            .get(key)
+            .ok_or_else(|| format!("`{key}` is not a server"))?;
+        entry.conn.clone().ok_or_else(|| {
+            format!(
+                "{} could not start: {}",
+                entry.label,
+                entry
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| entry.status.as_str().into())
+            )
+        })
+    }
+
+    /// Stop `key` and let it sleep: its tools stay offered, the next call
+    /// starts it again.
+    pub async fn sleep(&self, key: &str) {
+        let old = {
+            let mut servers = self.shared.servers.lock().unwrap();
+            let Some(entry) = servers.get_mut(key) else {
+                return;
+            };
+            entry.generation += 1;
+            entry.status = if entry.tools.is_empty() {
+                Status::Off
+            } else {
+                Status::Sleeping
+            };
+            entry.error = None;
+            entry.conn.take()
+        };
+        self.changed();
+        if let Some(old) = old.and_then(|c| Arc::try_unwrap(c).ok()) {
+            old.close().await;
+        }
+    }
+
+    /// Call `tool` of server `key` itself, starting it when it sleeps (a
+    /// plugin's own view calling its backend: plugin-settings FR-14).
+    pub async fn call_server(
+        &self,
+        key: &str,
+        tool: &str,
+        arguments: Option<Map<String, Value>>,
+    ) -> Result<Value, String> {
+        {
+            let servers = self.shared.servers.lock().unwrap();
+            let entry = servers
+                .get(key)
+                .ok_or_else(|| format!("`{key}` is not a server"))?;
+            let found = entry
+                .tools
+                .iter()
+                .find(|t| tool_name(t) == tool)
+                .ok_or_else(|| format!("{} has no tool `{tool}`", entry.label))?;
+            if permission_of(&entry.config, found) == Permission::Block {
+                return Err(format!("`{tool}` is blocked in Customize → Connectors"));
+            }
+        }
+        let conn = self.wake(key).await?;
+        conn.call_tool(tool, arguments).await.map(trim_result)
+    }
+
+    /// One look at the plugin servers at `now`: those idle past their time
+    /// sleep; those whose process ended while connected count a crash and
+    /// start again, or stay stopped after [`MAX_CRASHES`] in a minute.
+    pub async fn tick(&self, now: Instant) {
+        let mut idle = Vec::new();
+        let mut restart = Vec::new();
+        let mut gave_up = false;
+        {
+            let mut servers = self.shared.servers.lock().unwrap();
+            for (key, entry) in servers
+                .iter_mut()
+                .filter(|(_, e)| e.plugin.is_some() && e.status == Status::Connected)
+            {
+                let closed = entry.conn.as_ref().is_none_or(|c| c.is_closed());
+                if closed {
+                    entry.crashes.push_back(now);
+                    while entry
+                        .crashes
+                        .front()
+                        .is_some_and(|at| now.duration_since(*at) > CRASH_WINDOW)
+                    {
+                        entry.crashes.pop_front();
+                    }
+                    entry.conn = None;
+                    if entry.crashes.len() >= MAX_CRASHES {
+                        entry.status = Status::Crashed;
+                        entry.error =
+                            Some(format!("stopped after {MAX_CRASHES} crashes in a minute"));
+                        gave_up = true;
+                    } else {
+                        restart.push(key.clone());
+                    }
+                    continue;
+                }
+                if let Lifecycle::OnDemand { idle: limit } = entry.lifecycle {
+                    if entry
+                        .last_used
+                        .is_none_or(|used| now.duration_since(used) >= limit)
+                    {
+                        idle.push(key.clone());
+                    }
+                }
+            }
+        }
+        if gave_up {
+            self.changed();
+        }
+        for key in idle {
+            self.sleep(&key).await;
+        }
+        for key in restart {
+            self.spawn_connect(key);
+        }
+    }
+
+    /// Run [`Pool::tick`] every `every`, for as long as the pool lives.
+    pub fn start_lifecycles(&self, every: Duration) {
+        let pool = self.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(every).await;
+                pool.tick(Instant::now()).await;
+            }
+        });
     }
 
     fn save(&self, change: impl FnOnce(&mut ConfigFile)) -> Result<(), String> {
@@ -564,6 +870,12 @@ impl Pool {
             .iter()
             .map(|(key, entry)| {
                 let name = &entry.label;
+                let log: Vec<String> = entry.log.iter().cloned().collect();
+                let shown = if entry.plugin.is_some() {
+                    hide_plugin_values(&entry.config, log)
+                } else {
+                    (serde_json::to_value(&entry.config).unwrap_or(Value::Null), log)
+                };
                 let transport = entry.config.transport();
                 let kind = match &transport {
                     Ok(crate::config::Transport::Stdio { .. }) => "stdio",
@@ -603,7 +915,7 @@ impl Pool {
                     "resources": resources,
                     "kind": kind,
                     "summary": entry.config.summary(),
-                    "config": entry.config,
+                    "config": shown.0,
                     "status": entry.status.as_str(),
                     "signedIn": kind != "stdio" && auth::signed_in(&auth_path, key),
                     "error": entry.error.clone().or_else(|| transport.err()),
@@ -611,7 +923,7 @@ impl Pool {
                     "instructions": entry.info.get("instructions").cloned().unwrap_or(Value::Null),
                     "tools": tools,
                     "prompts": entry.prompts,
-                    "log": entry.log.iter().collect::<Vec<_>>(),
+                    "log": shown.1,
                 })
             })
             .collect();
@@ -628,7 +940,7 @@ impl Pool {
         let mut out = Vec::new();
         for (key, entry) in ordered(&servers, root.as_deref())
             .into_iter()
-            .filter(|(_, e)| e.status == Status::Connected)
+            .filter(|(_, e)| e.status == Status::Connected || e.status == Status::Sleeping)
         {
             let name = &entry.label;
             for tool in &entry.tools {
@@ -657,22 +969,23 @@ impl Pool {
     }
 
     /// Which server and tool a chat's tool name stands for.
-    fn resolve(
-        &self,
-        exposed: &str,
-        cwd: Option<&Path>,
-    ) -> Option<(String, String, Arc<Connection>, Permission)> {
+    fn resolve(&self, exposed: &str, cwd: Option<&Path>) -> Option<Resolved> {
         let root = cwd.and_then(project_root).map(|r| root_key(&r));
         let servers = self.shared.servers.lock().unwrap();
         for (key, entry) in ordered(&servers, root.as_deref()) {
             for tool in &entry.tools {
                 if exposed_name(&entry.label, tool_name(tool)) == exposed {
-                    let conn = entry.conn.clone()?;
+                    // A plugin server may sleep: the call starts it.
+                    let wakes = entry.plugin.is_some() && entry.lifecycle != Lifecycle::Off;
+                    if entry.conn.is_none() && !wakes {
+                        return None;
+                    }
                     return Some((
                         key.clone(),
                         tool_name(tool).to_string(),
-                        conn,
+                        entry.conn.clone(),
                         permission_of(&entry.config, tool),
+                        wakes,
                     ));
                 }
             }
@@ -688,7 +1001,7 @@ impl Pool {
         arguments: Option<Map<String, Value>>,
         cwd: Option<&Path>,
     ) -> Result<Value, String> {
-        let (server, tool, conn, permission) = self
+        let (server, tool, conn, permission, wakes) = self
             .resolve(exposed, cwd)
             .ok_or_else(|| format!("`{exposed}` is not available (is its connector connected?)"))?;
         if permission == Permission::Block {
@@ -696,12 +1009,23 @@ impl Pool {
                 "`{tool}` of {server} is blocked in Customize → Connectors"
             ));
         }
-        if conn.is_closed() {
-            self.spawn_connect(server.clone());
-            return Err(format!(
-                "{server} disconnected; reconnecting — try again in a moment"
-            ));
-        }
+        let conn = match conn {
+            Some(conn) if !conn.is_closed() => {
+                if wakes {
+                    if let Some(entry) = self.shared.servers.lock().unwrap().get_mut(&server) {
+                        entry.last_used = Some(Instant::now());
+                    }
+                }
+                conn
+            }
+            _ if wakes => self.wake(&server).await?,
+            _ => {
+                self.spawn_connect(server.clone());
+                return Err(format!(
+                    "{server} disconnected; reconnecting — try again in a moment"
+                ));
+            }
+        };
         conn.call_tool(&tool, arguments).await.map(trim_result)
     }
 
@@ -765,11 +1089,12 @@ impl Pool {
         Some((plugin.to_string(), server.to_string()))
     }
 
-    /// Make the pool's plugin servers exactly `servers` (`(plugin, server,
-    /// config)` of the plugins that are on): new ones connect, gone ones
-    /// close, changed ones reconnect. Their tools reach every chat as
+    /// Make the pool's plugin servers exactly `servers` (those of the
+    /// plugins that are on), with their lifecycles: new or changed ones start
+    /// (or sleep, offering the tools they gave last time), gone ones close
+    /// (plugin-settings FR-11). Their tools reach every chat as
     /// `mcp__plugin_<plugin>_<server>__<tool>`.
-    pub async fn set_plugin_servers(&self, servers: Vec<(String, String, ServerConfig)>) {
+    pub async fn set_plugin_servers(&self, servers: Vec<PluginServer>) {
         let saved: Map<String, Value> = ConfigFile::load(&self.shared.path)
             .ok()
             .and_then(|f| {
@@ -779,29 +1104,42 @@ impl Pool {
                     .cloned()
             })
             .unwrap_or_default();
-        let wanted: Vec<(String, String, String, ServerConfig)> = servers
+        let wanted: Vec<(String, String, String, ServerConfig, Lifecycle, Vec<Value>)> = servers
             .into_iter()
-            .map(|(plugin, server, mut config)| {
-                config.disabled = false;
-                if let Some(perms) = saved
-                    .get(&plugin)
-                    .and_then(|p| p.get(&server))
-                    .and_then(|s| s.get("toolPermissions"))
-                    .and_then(Value::as_object)
-                {
-                    for (tool, p) in perms {
-                        if let Ok(p) = serde_json::from_value::<Permission>(p.clone()) {
-                            config.tool_permissions.insert(tool.clone(), p);
+            .map(
+                |PluginServer {
+                     plugin,
+                     server,
+                     mut config,
+                     lifecycle,
+                 }| {
+                    config.disabled = false;
+                    let saved_server = saved.get(&plugin).and_then(|p| p.get(&server));
+                    if let Some(perms) = saved_server
+                        .and_then(|s| s.get("toolPermissions"))
+                        .and_then(Value::as_object)
+                    {
+                        for (tool, p) in perms {
+                            if let Ok(p) = serde_json::from_value::<Permission>(p.clone()) {
+                                config.tool_permissions.insert(tool.clone(), p);
+                            }
                         }
                     }
-                }
-                (
-                    format!("plugin:{plugin}:{server}"),
-                    format!("plugin_{plugin}_{server}"),
-                    plugin,
-                    config,
-                )
-            })
+                    let cached = saved_server
+                        .and_then(|s| s.get("tools"))
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    (
+                        format!("plugin:{plugin}:{server}"),
+                        format!("plugin_{plugin}_{server}"),
+                        plugin,
+                        config,
+                        lifecycle,
+                        cached,
+                    )
+                },
+            )
             .collect();
         let (connect, close) = {
             let mut entries = self.shared.servers.lock().unwrap();
@@ -817,15 +1155,51 @@ impl Pool {
                 }
             }
             let mut connect = Vec::new();
-            for (key, label, plugin, config) in wanted {
-                let changed = entries.get(&key).is_none_or(|e| e.config != config);
-                if changed {
-                    let mut entry = Entry::new(label, config, None);
-                    entry.plugin = Some(plugin);
-                    if let Some(old) = entries.insert(key.clone(), entry).and_then(|e| e.conn) {
-                        close.push(old);
+            for (key, label, plugin, config, lifecycle, cached) in wanted {
+                let same = entries.get(&key).is_some_and(|e| e.config == config);
+                if same {
+                    let entry = entries.get_mut(&key).expect("present");
+                    if entry.lifecycle != lifecycle {
+                        entry.lifecycle = lifecycle;
+                        match lifecycle {
+                            Lifecycle::Off => {
+                                if let Some(conn) = entry.conn.take() {
+                                    close.push(conn);
+                                }
+                                entry.generation += 1;
+                                entry.status = Status::Off;
+                            }
+                            Lifecycle::Always if entry.conn.is_none() => connect.push(key.clone()),
+                            Lifecycle::OnDemand { .. } if entry.conn.is_none() => {
+                                if entry.tools.is_empty() {
+                                    connect.push(key.clone());
+                                } else {
+                                    entry.status = Status::Sleeping;
+                                }
+                            }
+                            _ => {}
+                        }
                     }
-                    connect.push(key);
+                    continue;
+                }
+                let mut entry = Entry::new(label, config, None);
+                entry.plugin = Some(plugin);
+                entry.lifecycle = lifecycle;
+                match lifecycle {
+                    // Not offered while off; kept for when it is turned back on.
+                    Lifecycle::Off => {
+                        entry.status = Status::Off;
+                        entry.tools = cached;
+                    }
+                    // Asleep with the tools it gave last time; never run yet: run once to learn them.
+                    Lifecycle::OnDemand { .. } if !cached.is_empty() => {
+                        entry.status = Status::Sleeping;
+                        entry.tools = cached;
+                    }
+                    _ => connect.push(key.clone()),
+                }
+                if let Some(old) = entries.insert(key.clone(), entry).and_then(|e| e.conn) {
+                    close.push(old);
                 }
             }
             (connect, close)
@@ -1092,6 +1466,172 @@ impl Pool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // docs/features/plugin-settings/spec.md (FR-11, FR-12; T13).
+    fn broken(lifecycle: Lifecycle) -> PluginServer {
+        PluginServer {
+            plugin: "notes".into(),
+            server: "backend".into(),
+            config: ServerConfig {
+                command: Some("evo-no-such-mcp-server-xyz".into()),
+                ..Default::default()
+            },
+            lifecycle,
+        }
+    }
+
+    const KEY: &str = "plugin:notes:backend";
+
+    fn pool_with_cached_tools(dir: &Path) -> Pool {
+        let path = dir.join("mcp.json");
+        std::fs::write(
+            &path,
+            serde_json::to_string(&json!({
+                "mcpServers": {},
+                "pluginServers": { "notes": { "backend": { "tools": [{ "name": "echo", "description": "Echo", "inputSchema": { "type": "object" } }] } } }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let pool = Pool::new(path, None, || {});
+        pool.start().unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn a_sleeping_plugin_server_offers_its_last_tools_and_a_call_starts_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = pool_with_cached_tools(dir.path());
+        pool.set_plugin_servers(vec![broken(Lifecycle::OnDemand {
+            idle: Duration::from_secs(600),
+        })])
+        .await;
+        assert_eq!(
+            pool.snapshot()["servers"][0]["status"],
+            "sleeping",
+            "no process for a server not in use"
+        );
+        let names: Vec<String> = pool
+            .chat_tools(None)
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, ["mcp__plugin_notes_backend__echo"]);
+        // The call starts it; this one cannot start, and says so.
+        let error = pool
+            .call("mcp__plugin_notes_backend__echo", None, None)
+            .await
+            .unwrap_err();
+        assert!(error.contains("could not start"), "{error}");
+        assert_eq!(pool.snapshot()["servers"][0]["status"], "failed");
+        // Its own view calling it gets the same answer.
+        assert!(pool
+            .call_server(KEY, "echo", None)
+            .await
+            .unwrap_err()
+            .contains("could not start"));
+        assert!(pool
+            .call_server(KEY, "nope", None)
+            .await
+            .unwrap_err()
+            .contains("no tool `nope`"));
+    }
+
+    #[tokio::test]
+    async fn an_off_server_never_starts_and_offers_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = pool_with_cached_tools(dir.path());
+        pool.set_plugin_servers(vec![broken(Lifecycle::Off)]).await;
+        assert_eq!(pool.snapshot()["servers"][0]["status"], "off");
+        assert!(pool.chat_tools(None).is_empty());
+        assert!(pool
+            .wake(KEY)
+            .await
+            .err()
+            .unwrap()
+            .contains("set not to run"));
+        // Changing only the lifecycle keeps the entry.
+        pool.set_plugin_servers(vec![broken(Lifecycle::OnDemand {
+            idle: Duration::from_secs(60),
+        })])
+        .await;
+        assert_eq!(pool.plugin_keys("notes"), [KEY]);
+        assert_eq!(
+            pool.snapshot()["servers"][0]["status"],
+            "sleeping",
+            "back on demand, it sleeps"
+        );
+        pool.set_plugin_servers(vec![]).await;
+        assert!(
+            pool.plugin_keys("notes").is_empty(),
+            "a plugin turned off loses its servers"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_server_that_keeps_crashing_is_left_stopped() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = pool_with_cached_tools(dir.path());
+        pool.set_plugin_servers(vec![broken(Lifecycle::OnDemand {
+            idle: Duration::from_secs(600),
+        })])
+        .await;
+        let start = Instant::now();
+        for n in 0..MAX_CRASHES {
+            // As if it had been running and its process ended.
+            pool.shared
+                .servers
+                .lock()
+                .unwrap()
+                .get_mut(KEY)
+                .unwrap()
+                .status = Status::Connected;
+            pool.tick(start + Duration::from_secs(n as u64)).await;
+        }
+        let snap = pool.snapshot();
+        assert_eq!(snap["servers"][0]["status"], "crashed");
+        assert!(snap["servers"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("5 crashes"));
+        // Old crashes leave the window.
+        pool.shared
+            .servers
+            .lock()
+            .unwrap()
+            .get_mut(KEY)
+            .unwrap()
+            .status = Status::Connected;
+        pool.tick(start + Duration::from_secs(120)).await;
+        assert_ne!(
+            pool.snapshot()["servers"][0]["status"],
+            "crashed",
+            "one crash after a quiet minute restarts it"
+        );
+    }
+
+    // docs/features/plugin-settings/spec.md (NFR-1).
+    #[test]
+    fn plugin_server_secrets_stay_out_of_what_windows_see() {
+        let config: ServerConfig = serde_json::from_value(json!({
+            "command": "run", "args": ["--space", "team"],
+            "env": { "TOKEN": "tok-SECRET-42", "N": "1" },
+            "headers": { "Authorization": "Bearer hdr-SECRET-7" }
+        }))
+        .unwrap();
+        let (shown, log) = hide_plugin_values(
+            &config,
+            vec![
+                "using tok-SECRET-42 now".into(),
+                "auth Bearer hdr-SECRET-7".into(),
+                "plain".into(),
+            ],
+        );
+        assert_eq!(shown["env"]["TOKEN"], "(hidden)");
+        assert_eq!(shown["headers"]["Authorization"], "(hidden)");
+        assert_eq!(shown["args"], json!(["--space", "team"]));
+        assert_eq!(log, ["using (hidden) now", "auth (hidden)", "plain"]);
+    }
 
     #[test]
     fn exposed_names_are_safe_and_short() {

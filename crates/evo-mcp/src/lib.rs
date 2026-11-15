@@ -20,4 +20,4 @@ pub mod config;
 pub mod pool;
 
 pub use config::{ConfigFile, Permission, ServerConfig};
-pub use pool::{Pool, Status};
+pub use pool::{Lifecycle, PluginServer, Pool, Status};
