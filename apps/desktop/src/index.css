@@ -437,16 +437,98 @@
   }
 }
 
-/* A plugin view waiting for its backend (features/plugin-ui/plugin-slot.tsx):
-   a soft ring spreads from the plugin's icon. */
-@keyframes plugin-waiting-ring {
+/* A plugin view waiting for its backend (features/plugin-ui/plugin-slot.tsx),
+   in the manner of a build in progress: a beam runs round the plugin's icon,
+   a glow breathes behind it, the progress bar and the current step's line
+   shimmer, and its text catches the light. */
+.plugin-waiting-beam {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 2px;
+}
+.plugin-waiting-beam::before {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  background: conic-gradient(from 0deg, transparent 0 62%, color-mix(in oklab, var(--brand) 35%, transparent) 75%, var(--brand) 88%, transparent 100%);
+  animation: plugin-waiting-spin 1.6s linear infinite;
+}
+.plugin-waiting-glow {
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--brand) 45%, transparent), transparent);
+  animation: plugin-waiting-breathe 2.4s ease-in-out infinite;
+}
+.plugin-waiting-sweep {
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, white 55%, transparent), transparent);
+  animation: plugin-waiting-slide 1.4s ease-in-out infinite;
+}
+.plugin-waiting-flow {
+  background: linear-gradient(to bottom, transparent, var(--brand), transparent);
+  animation: plugin-waiting-fall 1.2s ease-in infinite;
+}
+.plugin-waiting-shimmer {
+  background: linear-gradient(90deg, var(--foreground) 0 40%, var(--brand) 50%, var(--foreground) 60% 100%) 0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: plugin-waiting-text 2.2s linear infinite;
+}
+@keyframes plugin-waiting-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes plugin-waiting-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+@keyframes plugin-waiting-slide {
   from {
-    opacity: 0.55;
-    transform: scale(1);
+    transform: translateX(-100%);
   }
   to {
-    opacity: 0;
-    transform: scale(1.45);
+    transform: translateX(250%);
+  }
+}
+@keyframes plugin-waiting-fall {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(200%);
+  }
+}
+@keyframes plugin-waiting-text {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+/* Reduced motion (the rules above stop the animations): no moving parts left half-way. */
+:root[data-motion="reduced"] :is(.plugin-waiting-sweep, .plugin-waiting-flow) {
+  display: none;
+}
+:root[data-motion="reduced"] .plugin-waiting-shimmer {
+  background: none;
+  color: var(--foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion="system"] :is(.plugin-waiting-sweep, .plugin-waiting-flow) {
+    display: none;
+  }
+  :root[data-motion="system"] .plugin-waiting-shimmer {
+    background: none;
+    color: var(--foreground);
   }
 }
 

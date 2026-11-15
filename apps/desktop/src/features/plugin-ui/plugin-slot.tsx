@@ -296,15 +296,20 @@ export function PluginSlot({ plugin, pluginName, slot, view, title, icon, data, 
   return (
     <div ref={area} className={cn("relative h-full w-full overflow-hidden", className)} data-plugin-slot={`${plugin}/${view}`}>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
-        <span className="relative flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          {waiting && stage.kind !== "failed" && (
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 rounded-lg border border-brand/60 motion-safe:animate-[plugin-waiting-ring_2.4s_ease-out_infinite]"
-            />
-          )}
-          {icon ? <img src={icon} alt="" className="size-5" /> : <PuzzleIcon className="size-4" />}
-        </span>
+        {waiting && stage.kind !== "failed" ? (
+          <span className="relative flex size-11 items-center justify-center">
+            <span aria-hidden className="plugin-waiting-glow pointer-events-none absolute -inset-5 rounded-full" />
+            <span className="plugin-waiting-beam flex size-11 rounded-xl bg-border">
+              <span className="flex flex-1 items-center justify-center rounded-[10px] bg-background text-foreground">
+                {icon ? <img src={icon} alt="" className="size-5" /> : <PuzzleIcon className="size-[18px]" />}
+              </span>
+            </span>
+          </span>
+        ) : (
+          <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            {icon ? <img src={icon} alt="" className="size-5" /> : <PuzzleIcon className="size-4" />}
+          </span>
+        )}
         <p className="text-[13px] font-medium">{title}</p>
         {waiting && !ready ? (
           <BackendWaiting stage={stage} pluginName={pluginName} compact={slot === "cards" || slot === "composer"} retrying={retrying} onRetry={retry} />
@@ -351,6 +356,48 @@ function stepOf(stage: BackendStage): number {
   return 2;
 }
 
+/** `12s`, `1m 05s`. */
+function duration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/** When each step seen here began and ended, and the time now, ticking each second. */
+function useStepTimes(current: number) {
+  const [times] = React.useState(() => new Map<number, { start: number; end?: number }>());
+  const [now, setNow] = React.useState(() => Date.now());
+  if (!times.has(current)) {
+    const at = Date.now();
+    for (const [step, time] of times) if (step < current && time.end === undefined) time.end = at;
+    times.set(current, { start: at });
+  }
+  React.useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return { times, now };
+}
+
+function StepMark({ state }: { state: "done" | "current" | "next" }) {
+  if (state === "done") {
+    return (
+      <span className="flex size-4 items-center justify-center rounded-full bg-brand text-brand-foreground">
+        <CheckIcon className="size-2.5" strokeWidth={3.5} />
+      </span>
+    );
+  }
+  if (state === "current") {
+    return (
+      <span className="relative flex size-4 items-center justify-center">
+        <span className="absolute inset-0 rounded-full bg-brand/45 motion-safe:animate-ping" />
+        <span className="absolute inset-0.5 rounded-full bg-brand/20" />
+        <span className="relative size-2 rounded-full bg-brand" />
+      </span>
+    );
+  }
+  return <span className="size-4 rounded-full border border-dashed border-muted-foreground/40" />;
+}
+
 /** What the slot says while the plugin's backend gets ready, or why it did not (FR-17). */
 function BackendWaiting({
   stage,
@@ -365,6 +412,8 @@ function BackendWaiting({
   retrying: boolean;
   onRetry(): void;
 }) {
+  const current = stepOf(stage);
+  const { times, now } = useStepTimes(stage.kind === "failed" ? -1 : current);
   if (stage.kind === "failed") {
     return (
       <>
@@ -381,42 +430,58 @@ function BackendWaiting({
       </>
     );
   }
-  const current = stepOf(stage);
   if (compact) {
     return (
-      <p role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Spinner className="size-3.5" /> {STEPS[current]}…
+      <p role="status" className="flex items-center gap-2 text-xs font-medium">
+        <StepMark state="current" />
+        <span className="plugin-waiting-shimmer">{STEPS[current]}…</span>
       </p>
     );
   }
+  const elapsed = (step: number) => {
+    const time = times.get(step);
+    return time ? duration((time.end ?? now) - time.start) : null;
+  };
   return (
-    <div role="status" className="flex flex-col items-center gap-2.5 pt-1">
-      <ol className="flex flex-col gap-1.5 text-left text-xs">
-        {STEPS.map((step, index) => (
-          <li
-            key={step}
-            className={cn(
-              "flex items-center gap-2",
-              index < current && "text-muted-foreground",
-              index === current && "font-medium text-foreground",
-              index > current && "text-muted-foreground/50",
-            )}
-          >
-            {index < current ? (
-              <CheckIcon className="size-3.5 text-brand" />
-            ) : index === current ? (
-              <Spinner className="size-3.5 text-brand" />
-            ) : (
-              <span className="flex size-3.5 items-center justify-center">
-                <span className="size-1.5 rounded-full bg-current" />
+    <div role="status" className="flex w-64 flex-col gap-4 pt-2">
+      <div className="relative h-1 overflow-hidden rounded-full bg-muted">
+        <div
+          className="absolute inset-y-0 left-0 overflow-hidden rounded-full bg-brand transition-[width] duration-700 ease-out"
+          style={{ width: `${((current + 0.5) / STEPS.length) * 100}%` }}
+        >
+          <span className="plugin-waiting-sweep absolute inset-y-0 left-0 w-1/2" />
+        </div>
+      </div>
+      <ol className="flex flex-col text-left text-xs">
+        {STEPS.map((step, index) => {
+          const state = index < current ? "done" : index === current ? "current" : "next";
+          const time = state === "next" ? null : elapsed(index);
+          return (
+            <li key={step} className="relative flex items-center gap-2.5 pb-3.5 last:pb-0">
+              {index < STEPS.length - 1 && (
+                <span aria-hidden className="absolute top-[18px] bottom-0.5 left-[7.5px] w-px overflow-hidden bg-border">
+                  {state === "done" && <span className="absolute inset-0 bg-brand" />}
+                  {state === "current" && <span className="plugin-waiting-flow absolute inset-x-0 top-0 h-1/2" />}
+                </span>
+              )}
+              <StepMark state={state} />
+              <span
+                className={cn(
+                  "flex-1",
+                  state === "done" && "text-muted-foreground",
+                  state === "current" && "plugin-waiting-shimmer font-medium",
+                  state === "next" && "text-muted-foreground/50",
+                )}
+              >
+                {step}
               </span>
-            )}
-            {step}
-          </li>
-        ))}
+              {time && <span className={cn("font-mono text-[11px] tabular-nums", state === "current" ? "text-foreground/80" : "text-muted-foreground/70")}>{time}</span>}
+            </li>
+          );
+        })}
       </ol>
       {stage.kind === "preparing" && (
-        <p className="max-w-72 text-[11px] text-muted-foreground/80">
+        <p className="text-center text-[11px] text-muted-foreground/80">
           {stage.step === "downloading" && stage.detail ? `${stage.detail}. ` : ""}
           The first start downloads and installs what it needs; later starts are quick.
         </p>
