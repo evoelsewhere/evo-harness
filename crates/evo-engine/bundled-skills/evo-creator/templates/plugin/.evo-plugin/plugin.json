@@ -1,0 +1,73 @@
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "One sentence on what it does for the person.",
+  "author": { "name": "Your name" },
+  "homepage": "https://example.com/my-plugin",
+  "license": "MIT",
+  "keywords": ["example"],
+
+  "settings": {
+    "baseUrl": { "kind": "text", "title": "Service address", "default": "https://api.example.com", "pattern": "https://[^ ]+", "group": "Connection" },
+    "region": { "kind": "select", "title": "Region", "options": ["eu", "us"], "default": "eu", "group": "Connection" },
+    "project": { "kind": "text", "title": "Project", "scope": "workspace", "description": "Each workspace may use its own." },
+    "pageSize": { "kind": "number", "title": "Items per page", "default": 20, "min": 1, "max": 100 },
+    "notify": { "kind": "boolean", "title": "Notify when done", "default": true },
+    "clientId": { "kind": "text", "title": "OAuth app client ID", "group": "Your app" },
+    "clientSecret": { "kind": "secret", "title": "OAuth app client secret", "group": "Your app" },
+    "apiKey": { "kind": "secret", "title": "API key", "description": "Settings → API keys in the service." }
+  },
+
+  "accounts": [
+    {
+      "id": "service", "service": "Example", "kind": "oauth", "reason": "Read your items",
+      "oauth": {
+        "authorizeUrl": "https://example.com/oauth/authorize",
+        "tokenUrl": "https://example.com/oauth/token",
+        "revokeUrl": "https://example.com/oauth/revoke",
+        "userinfoUrl": "https://api.example.com/me",
+        "clientIdSetting": "clientId",
+        "clientSecretSetting": "clientSecret",
+        "scopes": ["items:read"]
+      }
+    },
+    { "id": "key", "service": "Example API", "kind": "token", "setting": "apiKey", "test": "check_key", "optional": true },
+    {
+      "id": "portal", "service": "Example portal", "kind": "web", "optional": true, "reason": "Read pages behind your login",
+      "web": { "loginUrl": "https://portal.example.com/login", "domains": ["portal.example.com"], "done": { "cookie": "session" } }
+    }
+  ],
+
+  "runtime": {
+    "server": {
+      "language": "typescript",
+      "entry": "server/main.ts",
+      "startup": "onDemand",
+      "idleStopMinutes": 10,
+      "env": { "BASE_URL": "${user_config.baseUrl}", "PAGE_SIZE": "${user_config.pageSize}", "API_KEY": "${secret.apiKey}" }
+    }
+  },
+
+  "ui": {
+    "sidebar": [{ "id": "page", "title": "My page", "entry": "ui/page.html", "icon": "ui/icon.svg", "defaultShown": true }],
+    "panels": [{ "id": "panel", "title": "My panel", "entry": "ui/page.html", "icon": "ui/icon.svg", "shortcut": "M" }],
+    "cards": [{ "id": "card", "title": "My card", "entry": "ui/page.html", "icon": "ui/icon.svg" }],
+    "composer": [{ "id": "insert", "title": "Insert from my plugin", "entry": "ui/page.html", "icon": "ui/icon.svg" }]
+  },
+
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node", "args": ["${PLUGIN_ROOT}/hooks/done.js"], "timeout": 30 }] }]
+  },
+
+  "mcpServers": {
+    "tracker": { "command": "npx", "args": ["-y", "tracker-mcp@1.4.2"], "env": { "TRACKER_TOKEN": "${secret.account.service}" } }
+  },
+
+  "permissions": [
+    { "id": "network:https://api.example.com", "reason": "Read your items from Example" },
+    { "id": "storage", "reason": "Remember what you pinned" },
+    { "id": "chat:read", "reason": "Show items mentioned in the open chat" },
+    { "id": "composer:write", "reason": "Put an item's link in your message" },
+    { "id": "startup", "optional": true, "reason": "Have your items ready when evo opens" }
+  ]
+}

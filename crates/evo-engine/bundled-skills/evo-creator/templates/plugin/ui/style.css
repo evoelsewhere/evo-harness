@@ -1,0 +1,61 @@
+/* A view styled like evo (references/view-style.md): the app's theme arrives
+   as --evo-* variables; the fallbacks are evo's light theme. */
+:root {
+  color-scheme: light dark;
+  --bg: var(--evo-background, #fafafa);
+  --fg: var(--evo-foreground, #171717);
+  --card: var(--evo-card, #ffffff);
+  --recessed: var(--evo-muted, #f2f2f2);
+  --muted: var(--evo-muted-foreground, #4d4d4d);
+  --hover: var(--evo-accent, #ebebeb);
+  --line: var(--evo-border, rgb(0 0 0 / 0.08));
+  --ring: var(--evo-ring, #0072f5);
+  --brand: var(--evo-brand, #0072f5);
+  --brand-fg: var(--evo-brand-foreground, #ffffff);
+  --danger: var(--evo-destructive, #e5484d);
+  --radius: var(--evo-radius, 6px);
+  --font: var(--evo-font-sans, ui-sans-serif, system-ui, sans-serif);
+  --mono: var(--evo-font-mono, ui-monospace, monospace);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { padding: 16px; background: var(--bg); color: var(--fg); font: 400 13px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+
+h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+h2 { font-size: 12px; font-weight: 500; color: var(--muted); margin: 20px 0 8px; }
+p { margin: 0 0 12px; }
+.hint, .meta { color: var(--muted); }
+.hint { font-size: 12px; }
+.meta { font-size: 11px; }
+code { font-family: var(--mono); font-size: 12px; background: var(--recessed); border-radius: 4px; padding: 1px 4px; }
+
+/* Surfaces: borders are shadows, cards 12px. */
+.card { background: var(--card); border-radius: 12px; box-shadow: 0 0 0 1px var(--line); padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.list { display: flex; flex-direction: column; }
+.list > .item { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.list > .item + .item { box-shadow: 0 -1px 0 0 var(--line); }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Controls: 6px radius, colour changes only on hover, the double focus ring. */
+button, input, select, textarea { font: inherit; color: inherit; }
+button { height: 28px; padding: 0 10px; border: 0; border-radius: var(--radius); background: var(--card); box-shadow: 0 0 0 1px var(--line); font-size: 12px; font-weight: 500; cursor: pointer; transition: background-color 150ms, color 150ms; }
+button:hover { background: var(--hover); }
+button.primary { background: var(--brand); color: var(--brand-fg); box-shadow: none; }
+button.primary:hover { background: color-mix(in srgb, var(--brand) 88%, black); }
+button.ghost { background: transparent; box-shadow: none; }
+button.ghost:hover { background: var(--hover); }
+button:disabled { opacity: 0.5; cursor: default; }
+input, select, textarea { width: 100%; min-height: 28px; padding: 4px 8px; border: 0; border-radius: var(--radius); background: var(--recessed); box-shadow: 0 0 0 1px var(--line); }
+:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring); }
+
+/* Status only as small dots or text. */
+.dot { width: 8px; height: 8px; border-radius: 9999px; background: var(--muted); flex: none; }
+.dot.ok { background: #45a557; }
+.dot.warn { background: #ff990a; }
+.dot.error { background: var(--danger); }
+.badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 9999px; background: var(--recessed); color: var(--muted); font-size: 11px; font-weight: 500; }
+.error { color: var(--danger); font-size: 12px; white-space: pre-wrap; }
+.empty { color: var(--muted); font-size: 12px; padding: 16px 0; text-align: center; }

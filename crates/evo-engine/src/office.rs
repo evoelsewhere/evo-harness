@@ -719,6 +719,196 @@ mod tests {
         }
     }
 
+    /// The evo-creator skill's AI reference (docs/features/plugin-ai/spec.md,
+    /// FR-23) names every `evo.ai` call a view has, every `/v1/ai/*` route
+    /// and every AI permission.
+    #[test]
+    fn evo_creator_names_every_ai_call() {
+        let reference = BUNDLED_SKILLS
+            .get_file("evo-creator/references/ai.md")
+            .and_then(|f| f.contents_utf8())
+            .expect("references/ai.md is bundled");
+        // The calls `window.evo.ai` has (apps/desktop's client.js).
+        let client = include_str!("../../../apps/desktop/src-tauri/src/plugin_ui/client.js");
+        let start = client
+            .find("ai: Object.freeze({")
+            .expect("evo.ai in client.js");
+        let end = start
+            + client[start..]
+                .find(
+                    "
+    }),",
+                )
+                .expect("its end");
+        let calls: Vec<&str> = client[start..end]
+            .lines()
+            .skip(1)
+            .filter_map(|line| {
+                let line = line.strip_prefix("      ")?;
+                let name = line.split(':').next()?;
+                (!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric()))
+                    .then_some(name)
+            })
+            .collect();
+        assert!(calls.len() >= 8, "{calls:?}");
+        for call in calls {
+            assert!(
+                reference.contains(&format!("evo.ai.{call}(")),
+                "ai.md does not name evo.ai.{call}"
+            );
+        }
+        // The host API's routes (the shell's plugin_ai/host.rs).
+        let host = include_str!("../../../apps/desktop/src-tauri/src/plugin_ai/host.rs");
+        let routes: Vec<&str> = host
+            .lines()
+            .filter_map(|l| l.strip_prefix("//! "))
+            .filter_map(|l| l.split_whitespace().nth(1))
+            .filter(|path| path.starts_with("/v1/ai/"))
+            .collect();
+        assert!(routes.len() >= 7, "{routes:?}");
+        for route in routes {
+            assert!(reference.contains(route), "ai.md does not name {route}");
+        }
+        for permission in evo_plugins::ui::AI_PERMISSIONS {
+            assert!(
+                reference.contains(&format!("`{permission}`")),
+                "ai.md does not name {permission}"
+            );
+        }
+    }
+
+    /// The evo-creator skill (docs/features/plugin-settings/spec.md, FR-32)
+    /// stays in step with evo: its example manifest loads with no problem
+    /// and every part present, its DESIGN.md is the repository's, the
+    /// files it names are bundled, and nothing under it is a second skill.
+    #[test]
+    fn bundled_evo_creator_matches_what_evo_reads() {
+        let file = |path: &str| {
+            BUNDLED_SKILLS
+                .get_file(format!("evo-creator/{path}"))
+                .unwrap_or_else(|| panic!("evo-creator/{path} is not bundled"))
+                .contents_utf8()
+                .unwrap()
+                .replace("\r\n", "\n")
+        };
+        let skill = file("SKILL.md");
+        let (front, body) = evo_harness::frontmatter::parse_frontmatter(&skill).unwrap();
+        assert_eq!(front["name"], "evo-creator");
+        assert!(front["description"].as_str().unwrap().chars().count() <= 1024);
+        // Every `references/…` or `templates/…` path SKILL.md or a reference
+        // names is bundled; so is every reference a reference names by file.
+        let references = BUNDLED_SKILLS.get_dir("evo-creator/references").unwrap();
+        let mut texts = vec![("SKILL.md".to_string(), body.clone())];
+        for entry in references.files() {
+            let name = entry
+                .path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            if name != "design.md" {
+                texts.push((name.clone(), file(&format!("references/{name}"))));
+            }
+        }
+        for (name, text) in &texts {
+            for part in text.split('`').skip(1).step_by(2) {
+                let path = part.trim_end_matches('/');
+                // `<…>` marks an example path of the person's plugin.
+                let named = if path.contains('<') {
+                    None
+                } else if path.starts_with("references/") || path.starts_with("templates/") {
+                    Some(path.to_string())
+                } else if name != "SKILL.md"
+                    && path.ends_with(".md")
+                    && path
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c == '-' || c == '.')
+                {
+                    Some(format!("references/{path}"))
+                } else {
+                    None
+                };
+                if let Some(path) = named {
+                    let bundled = BUNDLED_SKILLS
+                        .get_file(format!("evo-creator/{path}"))
+                        .is_some()
+                        || BUNDLED_SKILLS
+                            .get_dir(format!("evo-creator/{path}"))
+                            .is_some();
+                    assert!(bundled, "{name} names {path}, which is not bundled");
+                }
+            }
+        }
+
+        // Its copy of DESIGN.md is the repository's.
+        let repo =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../DESIGN.md"))
+                .unwrap();
+        assert!(
+            file("references/design.md") == repo.replace("\r\n", "\n"),
+            "references/design.md differs from DESIGN.md: copy it again"
+        );
+
+        // Its template is a plugin evo installs as it is.
+        let dir = tempfile::tempdir().unwrap();
+        BUNDLED_SKILLS
+            .get_dir("evo-creator/templates/plugin")
+            .expect("the template plugin is bundled")
+            .extract(dir.path())
+            .unwrap();
+        let root = dir.path().join("evo-creator/templates/plugin");
+        assert!(
+            root.join(".evo-plugin/plugin.json").is_file(),
+            "the manifest is bundled"
+        );
+        let plugin = evo_plugins::manifest::load(
+            &root,
+            "my-plugin@local",
+            "x",
+            &dir.path().join("data"),
+            &serde_json::Map::new(),
+        );
+        assert!(plugin.problems.is_empty(), "{:?}", plugin.problems);
+        assert_eq!(plugin.name, "my-plugin");
+        assert_eq!(plugin.settings.len(), 8);
+        assert_eq!(plugin.accounts.len(), 3);
+        assert!(plugin.runtime.is_some());
+        assert_eq!(
+            (
+                plugin.ui.sidebar.len(),
+                plugin.ui.panels.len(),
+                plugin.ui.cards.len(),
+                plugin.ui.composer.len()
+            ),
+            (1, 1, 1, 1)
+        );
+        assert!(plugin.hooks.contains_key("Stop"));
+        assert!(plugin.mcp_servers.contains_key("tracker"));
+        for implied in ["runtime", "hooks", "secrets"] {
+            assert!(
+                plugin.permission_info.iter().any(|p| p.id == implied),
+                "{implied} not implied"
+            );
+        }
+
+        // Nothing under it loads as another skill.
+        let mut stack = vec![BUNDLED_SKILLS.get_dir("evo-creator").unwrap()];
+        while let Some(dir) = stack.pop() {
+            for entry in dir.entries() {
+                match entry {
+                    include_dir::DirEntry::Dir(sub) => stack.push(sub),
+                    include_dir::DirEntry::File(f) => {
+                        let path = f.path().to_string_lossy().replace('\\', "/");
+                        assert!(
+                            path == "evo-creator/SKILL.md" || !path.ends_with("SKILL.md"),
+                            "{path} would be a second skill"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn the_embedded_skills_extract_once_and_replace_older_copies() {
         let dir = tempfile::tempdir().unwrap();
@@ -760,6 +950,7 @@ mod tests {
             [
                 "computer-app-control",
                 "docx-official",
+                "evo-creator",
                 "office-annotation-edit",
                 "pptx-official",
                 "xlsx-official"
