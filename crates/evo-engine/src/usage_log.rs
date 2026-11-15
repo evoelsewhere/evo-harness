@@ -152,6 +152,24 @@ pub fn record(message: &AssistantMessage, source: Source) {
     let _ = jobs.send(Job::Row(Box::new(row)));
 }
 
+/// Record a plugin-AI response, counted as the plugin's
+/// (docs/features/plugin-ai/spec.md, FR-15). Does nothing until [`start`] ran.
+pub fn record_plugin(message: &AssistantMessage, plugin_id: &str) {
+    let Some(recorder) = RECORDER.get() else {
+        return;
+    };
+    let mut row = row_for(None, message, Source::Plugin, now_ms());
+    row.plugin_id = Some(plugin_id.to_string());
+    if row.is_empty() {
+        return;
+    }
+    let jobs = recorder
+        .jobs
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let _ = jobs.send(Job::Row(Box::new(row)));
+}
+
 /// Wait up to `timeout` for every recorded response to reach the database.
 pub fn flush(timeout: Duration) {
     let Some(recorder) = RECORDER.get() else {
@@ -186,6 +204,7 @@ fn row_for(
         at_ms,
         chat_id,
         source: source.as_str().into(),
+        plugin_id: None,
         provider_id: message.provider.clone(),
         model_id: message.model.clone(),
         input: usage.input,

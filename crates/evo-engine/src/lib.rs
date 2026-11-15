@@ -50,6 +50,7 @@ pub mod modes;
 pub mod native_store;
 pub mod office;
 pub mod packages;
+pub mod plugin_ai;
 pub mod plugins;
 pub mod prebuilt_extensions;
 pub mod provider;

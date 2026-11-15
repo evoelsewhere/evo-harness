@@ -183,6 +183,11 @@ async fn run_inner() -> i32 {
     if parsed.mode == crate::args::Mode::Index {
         return crate::memory_index::main(&parsed).await;
     }
+    // The plugin-AI engine is not a chat either: plugins' model calls only
+    // (plugin_ai/, ADR 0023).
+    if parsed.mode == crate::args::Mode::PluginAi {
+        return crate::plugin_ai::main().await;
+    }
     // Process security for this engine's shell and file tools.
     if let Some(json) = &parsed.sandbox_config {
         let applied = serde_json::from_str::<evo_tools::sandbox::SandboxConfig>(json)

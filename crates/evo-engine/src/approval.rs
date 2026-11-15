@@ -280,7 +280,7 @@ fn edit_delta(args: &Value) -> (usize, usize) {
 }
 
 /// What the prompt says: the title and the one-line summary.
-fn describe(tool: &str, kind: Kind, args: &Value) -> (String, String) {
+pub(crate) fn describe(tool: &str, kind: Kind, args: &Value) -> (String, String) {
     let path = args.get("path").and_then(Value::as_str).unwrap_or("a file");
     match (tool, kind) {
         ("bash" | "powershell", _) => (

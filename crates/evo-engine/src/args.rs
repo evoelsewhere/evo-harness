@@ -81,6 +81,9 @@ pub enum Mode {
     /// with two tools, print one result line and exit (`memory_index.rs`,
     /// docs/architecture/decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md).
     Index,
+    /// The plugin-AI engine: plugins' model calls, many at once, over JSONL
+    /// on stdio (`plugin_ai/`, docs/architecture/decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md).
+    PluginAi,
 }
 
 /// RPC message-update wire representation; defined by the wire protocol.
@@ -376,6 +379,7 @@ pub fn parse_args(args: &[String]) -> Args {
                         "json" => Mode::Json,
                         "rpc" => Mode::Rpc,
                         "index" => Mode::Index,
+                        "plugin-ai" => Mode::PluginAi,
                         other => {
                             result.errors.push(format!(
                                 "Invalid --mode \"{other}\". Valid: text, json, rpc"
