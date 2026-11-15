@@ -331,7 +331,9 @@ Connectors:
 
 Hooks:
 
-- `SessionStart`: context waits for the first prompt.
+- `SessionStart`: once per engine, when its session is set up (`source`
+  `startup`, or `resume` when the session already has entries), in the
+  background; the first prompt waits for it and takes its context.
 - `UserPromptSubmit`: in the RPC prompt path (`rpc_prompt_hooks`); block →
   "Blocked by a hook: …"; context rides after the prompt in a
   `<hook-context>` block, hidden in the transcript by `typedPrompt`.
@@ -486,3 +488,8 @@ Instructions:
 - **Desktop, not yet**: `@agent-name` mentions, Plugins and Manage
   connectors in the `+` menu, connector icons on tool rows (FR-60).
 - **Not yet**: `.mcpb` bundles (FR-42), elicitation dialog (FR-48).
+- 2026-11-14 — `SessionStart` hooks were never run: `hooks::session_start`
+  had no caller. `build_prepared` (`session.rs`) now starts them after
+  `hooks::init`, in the background so `ready` is not held up; a plugin's
+  `SessionStart` hook may run before the desktop sends `set_plugin_host`,
+  so without its host key.

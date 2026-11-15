@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | Living document — describes the system as built |
-| Updated | 2026-11-12 |
+| Updated | 2026-11-15 |
 | Decisions | [ADR index](decisions/README.md) |
 | Features | [Feature catalogue](../features/README.md) |
 
@@ -42,7 +42,9 @@ and tasks (`docs/features/`).
                                 │                            │
                      model providers (HTTPS)       models.dev (model database),
                                                    web pages, plugin marketplaces (git),
-                                                   GitHub Releases (app updates)
+                                                   GitHub Releases (app updates),
+                                                   Deno and uv releases (plugin runtimes),
+                                                   services plugins sign in to
 ```
 
 | External | Used for | Trust |
@@ -51,7 +53,9 @@ and tasks (`docs/features/`).
 | models.dev | model list, limits, costs, thinking options | data only, cached in `evo.db` |
 | MCP servers | connector tools, prompts, resources | per-tool Allow / Ask / Block; project servers need approval |
 | Web | `web_fetch`, `web_search`, the in-app browser | untrusted content; public addresses only for fetch |
-| Plugin marketplaces | plugin bundles | installed by explicit user action |
+| Plugin marketplaces | plugin bundles | installed by explicit user action; a plugin's views are untrusted pages that reach the app only through the plugin bridge, under the permissions the person approved ([ADR 0021](decisions/0021-plugin-views-run-in-native-webviews.md)); its code runs only as evo launches it, with the permissions the person approved ([ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)) |
+| Deno and uv releases (GitHub) | the runtimes of plugin backends | downloaded on first need and used only when their SHA-256 matches the one pinned in the app ([ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)) |
+| Services plugins sign in to | OAuth, device-code and web sign-ins of plugin accounts | the person signs in in their own browser or an isolated login window; tokens and cookies stay in the plugin's sealed vault |
 | GitHub Releases (evo's own) | the update manifest and new app versions | installed only when signed with the project's release key, after the person chooses to restart ([ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)) |
 
 ## 3. Architectural drivers
@@ -84,15 +88,43 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 │     ▲ Tauri events            │ invoke(commands)                          │
 │  shell: engine supervisor · mesh hub (evo-mesh) · MCP pool (evo-mcp) ·    │
 │         plugins (evo-plugins) · app DB (evo-store) · pty · files ·        │
-│         browser child webviews · worktrees (evo-worktrees) · tray         │
-└──────┬───────────────────────────┬───────────────────────────────────────┘
-       │ stdin/stdout JSONL         │ (one child process per chat with work or a viewer)
-   evo-engine --mode rpc       evo-engine --mode rpc
-   --session-id <chat>         --session-id <chat>
-   --session-db                --session-db
-     transcripts/<chat>.db       transcripts/<chat>.db
-   --sandbox-config …          --sandbox-config …
+│         browser and plugin-view child webviews · worktrees · tray ·       │
+│         plugin host API (127.0.0.1) · plugin login windows                │
+└──────┬───────────────────────────┬───────────────────────┬───────────────┘
+       │ stdin/stdout JSONL        │                       │ stdio (MCP), from the pool
+   evo-engine --mode rpc           evo-engine --mode rpc     plugin backends:
+   --session-id <chat>             --session-id <chat>         deno run (approved net, files)
+   --session-db                    --session-db                uv's Python in <data>/venv
+     transcripts/<chat>.db           transcripts/<chat>.db   connector servers of plugins
+   --sandbox-config …              --sandbox-config …
+   (one child process per chat with work or a viewer)
+
+   evo-engine --mode plugin-ai     one process for every plugin's model calls,
+                                   started on the first, stopped after 5 idle minutes
 ```
+
+- **Plugin views are child webviews of a window** (`plugin-<n>`), served
+  from their plugin's folder by the `evo-plugin://` scheme at one origin
+  per plugin. They reach no Tauri command; their only way in is
+  `POST /__bridge` on their own origin, which the scheme handler answers
+  for the calling view (`src-tauri/src/plugin_ui/`,
+  [ADR 0021](decisions/0021-plugin-views-run-in-native-webviews.md),
+  [plugin UI spec](../features/plugin-ui/spec.md)).
+
+- **Plugin code runs only as evo launches it**
+  ([ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md),
+  [plugin settings spec](../features/plugin-settings/spec.md)). A plugin's
+  backend is an MCP server in the shell's pool: TypeScript/JavaScript under
+  Deno with `--allow-net`/`--allow-read`/`--allow-write` from the person's
+  approvals and no subprocesses, Python through uv in the plugin's own
+  environment (not confined). Each starts on demand (or with evo, or
+  never), sleeps after its idle minutes with its tools still offered, and
+  restarts after a crash, 5 times a minute at most. It and the plugin's
+  hooks reach evo through the **plugin host API** on `127.0.0.1` with a
+  key that names the plugin (`src-tauri/src/plugin_host/`): an account's
+  token or cookies, its settings, a log line. Sign-ins open the person's
+  browser (OAuth, device code) or a **login window** with storage of its
+  own (`plugin-login-<n>`, no Tauri command; `src-tauri/src/plugin_auth/`).
 
 - **Each chat's transcript is a file of its own**, written only by that
   chat's engine, so engines never wait on one another's write lock
@@ -109,8 +141,9 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   - it starts one when a window shows the chat, the mesh hub needs a host for
     mail or a new session, the Scheduler runs a task, or the app starts with
     mail waiting; it is the only code that spawns an engine;
-  - it sets the engine up on `ready` (model, tools, mesh subscription, the
-    hub's waiting mail; see [6.3](#63-hosting-an-engine));
+  - it sets the engine up on `ready` (model, tools, the plugin host for
+    plugins' hooks, mesh subscription, the hub's waiting mail; see
+    [6.3](#63-hosting-an-engine));
   - it restarts an engine that exits with pending work, at most 3 times in
     2 minutes, then notifies and leaves the mail waiting;
   - it stops engines with no work and no viewer beyond 4 idle ones over the
@@ -131,6 +164,20 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   last window with the tray off, asks once while chats work ("2 chats are
   working. Quit anyway?"), then stops every engine. Work never outlives the
   evo process.
+- **Plugins use the person's models through one long-lived engine
+  process** (`evo-engine --mode plugin-ai`, [ADR 0023](decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md),
+  [plugin AI spec](../features/plugin-ai/spec.md)). The shell starts it on a
+  plugin's first AI call and stops it after 5 minutes without runs; it
+  speaks its own JSONL (`evo-protocol::plugin_ai`). The shell gates every
+  run (`ai` and the tool groups the person approved, the plugin's caps,
+  3 runs per plugin and 6 overall, a 30 s queue), routes its events to
+  the views and backend streams that follow it, runs view functions and
+  backend tools the model calls, and shows approvals for evo's own tools in
+  the main window. The engine chooses the model from models.dev facts and
+  the person's rules, calls the provider directly, falls back once,
+  executes evo's tools in the run's folder under the approval mode and
+  sandbox config, and records each call's usage against the plugin. A run
+  goes on when the view that started it closes.
 - **Memory indexing is a short-lived engine process**
   (`evo-engine --mode index`,
   [ADR 0016](decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md)).
@@ -335,11 +382,15 @@ sequenceDiagram
 | Where | What | Owner |
 | --- | --- | --- |
 | `~/.evo/agent/evo.db` (SQLite, WAL) | chats, workspaces, chat search text, app settings, run log, mail, provider settings, models.dev cache, usage and cost history, windows the agent moved off screen (put back on the next start, [ADR 0015](decisions/0015-agent-drives-desktop-apps-in-the-background-only.md)), each chat's memory flags, summary and "indexed up to" mark, the list of memory changes made by indexing | `evo-store` (schema + migrations); shell and engines both open it |
+| `evo.db` tables `plugin_ai_runs`, `plugin_ai_threads`, `plugin_ai_messages`, and `usage_events.plugin_id` (migration 0014) | plugins' AI runs (status, model, cost, kept result and last events; 7 days), their threads per subject (the provider messages, without reasoning, images or attached context), and each model call's usage counted against its plugin; removed with the plugin (usage stays) | written by the plugin-AI engine; read by the shell (caps, Models tab) ([ADR 0023](decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md)) |
 | `~/.evo/agent/transcripts/<chat id>.db` (SQLite, WAL) | one chat's transcript: evo-harness's `sessions` row and progress frames | written only by that chat's engine; the shell reads, forks and removes them (`evo_store::transcripts`, [ADR 0007](decisions/0007-one-transcript-file-per-chat.md)) |
 | `~/.evo/agent/auth.json` | credentials (owner-only on Unix) | engine |
 | `~/.evo/agent/settings.json`, `models.json`, `trust.json` | defaults, user model catalog, project trust | engine |
 | `~/.evo/agent/mcp.json`, `mcp-auth.json` | connectors and their OAuth tokens | shell |
 | `~/.evo/agent/{skills,plugins,lsp,memory}`, `projects/<folder>/memory` | personal skills, plugins, language servers, memory | engine / shell |
+| `~/.evo/agent/plugins/installed.json`, `plugins/data/<plugin>/storage.json` | installed plugins with the permissions approved (views and code), optional answers, Developer mode, an update waiting for consent, plain settings (personal and per workspace), which secrets are set, when its code starts, its sign-ins' names and states (never a secret), its AI rules (providers and models allowed, default, tier pins, caps); each plugin's own key–value storage (10 MB, removed on uninstall) | shell (`plugins.rs`, `plugin_settings.rs`, `plugin_auth/`, `plugin_ui/bridge.rs`) |
+| OS keychain, service `evo.plugins` (Credential Manager, Keychain, Secret Service), and `~/.evo/agent/plugins/vault/<plugin>.vault` | one 32-byte key per plugin in the keychain; the plugin's secret settings, tokens, refresh tokens and cookies sealed with it (AES-256-GCM); both removed on uninstall | shell only (`evo-vault`, [ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)) |
+| `~/.evo/agent/runtimes/{deno-<v>,uv-<v>,deno-cache,python}`, `plugins/data/<plugin>/` | Deno and uv for plugin backends, Deno's module cache, uv's Python; each plugin's data folder (with a Python plugin's `venv/`) | shell (`plugin_runtime/`) |
 | `~/.evo/agent/AGENTS.md` | personal instructions for every chat | engine |
 | `~/.evo/agent/{runtimes,cache/office,bundled-skills,document-versions/<chat>}` | LibreOffice runtime, Office preview cache (native HTML, exact PDFs), extracted Office skills, copies of Office files saved in a chat (versions) | engine (`office.rs`, `evo-office`); the shell removes a chat's versions with the chat |
 | `<project>/AGENTS.md`, `<project>/.evo/`, `.mcp.json` | project instructions, commands, agents, settings, connectors | the user (read by the engine after trust) |
@@ -353,7 +404,8 @@ Rules:
   `crates/evo-store/src/migrations/`; old databases must keep upgrading.
 - One writer per transcript file: only the chat's engine writes it; nothing
   else opens it for writing while that engine may run.
-- Secrets stay out of `evo.db`, the transcript files and logs.
+- Secrets stay out of `evo.db`, the transcript files and logs. A plugin's
+  secrets live only in its sealed vault; `installed.json` says which are set.
 - Repository and project files are user-owned: app cleanup never deletes them.
 - Models are data from models.dev
   ([ADR 0002](decisions/0002-models-dev-is-the-model-database.md)); no model is
@@ -372,6 +424,11 @@ Details: [app database spec](../features/app-database/spec.md).
 | Plugin ABI | engine ↔ `cdylib` plugins | `crates/evo-plugin-sdk` | stable `#[repr(C)]`; breaking changes need a new ABI version |
 | MCP | shell ↔ connectors | `crates/evo-mcp` | follows the MCP spec |
 | Hooks | engine ↔ user commands / URLs | `crates/evo-hooks` | documented exit codes and JSON |
+| Plugin bridge (`window.evo`) | plugin views ↔ shell | `apps/desktop/src-tauri/src/plugin_ui/{bridge.rs,client.js}`, [sample plugin](../../examples/plugin-ui-sample/README.md) | calls are added, never changed in meaning; every call is checked against the plugin's approved permissions |
+| Plugin host API (`/v1/…` on `127.0.0.1`, `EVO_PLUGIN_HOST` + `EVO_PLUGIN_KEY`) | plugin backends and hooks ↔ shell | `apps/desktop/src-tauri/src/plugin_host/`, [sample plugin](../../examples/plugin-settings-sample/README.md) | versioned path (`/v1`); endpoints added, never changed in meaning; each call checked against the key's plugin, its part's permission and `secrets` |
+| Plugin AI (`window.evo.ai`, `/v1/ai/*` on the host API) | plugin views and backends ↔ shell | `apps/desktop/src-tauri/src/plugin_ai/`, `plugin_ui/client.js`, [evo-creator `references/ai.md`](../../crates/evo-engine/bundled-skills/evo-creator/references/ai.md), [sample plugin](../../examples/plugin-settings-sample/README.md) | as the bridge and the host API: calls and options added, never changed in meaning; every run checked against `ai`, its tool groups and the person's caps |
+| Plugin-AI protocol | shell ↔ `evo-engine --mode plugin-ai` | `crates/evo-protocol/src/plugin_ai.rs` (`PROTOCOL`, announced in `ready`) | additive; the shell speaks it as JSON without linking the crate, and its tests pin the shapes |
+| Plugin manifest (`settings`, `accounts`, `runtime`, permissions) | plugins ↔ evo | `crates/evo-plugins` (`settings.rs`, `accounts.rs`, `runtime.rs`, `manifest.rs`) | fields added as optional; a wrong entry is left out with its problem, never fatal for the plugin |
 
 ## 9. Cross-cutting concepts
 
@@ -399,6 +456,38 @@ Details: [app database spec](../features/app-database/spec.md).
   an open question counts as working, so its engine is never trimmed.
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
+- **Plugin views.** A plugin's views are untrusted pages. Each runs in its
+  own webview at its plugin's own origin, with a CSP (no remote or inline
+  scripts, no frames, fetches only to its `network:` origins), no Tauri
+  command (no capability covers it, and the invoke handler refuses
+  `plugin-*` webviews), and one way in: the bridge. The bridge maps the
+  calling webview to its plugin, then checks the call's shape, the
+  permission the person approved (at install, and again when an update asks
+  for more) and a rate of 100 calls a second. Tool calls from a view go
+  through the same approval mode and gates as the agent's, and the approval
+  names the plugin. Incognito chats are invisible to plugins
+  ([ADR 0021](decisions/0021-plugin-views-run-in-native-webviews.md)).
+- **Plugin code and secrets.** A plugin's hooks run only with `hooks`, its
+  backend and connector servers only with `runtime`, and any of its code
+  that uses secrets or accounts only with `secrets`; a required setting not
+  filled holds its code back. Taking a permission back stops that part at
+  once. Network and file limits are enforced where evo can enforce them
+  (Deno) and marked "not enforced" elsewhere (Python, hooks, connector
+  servers). Secrets reach code only as environment variables of its own
+  processes, or on request through the host API; never in arguments, URLs,
+  logs or the windows. Views see accounts' states, never tokens
+  ([ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)).
+- **Plugins and the person's models.** A plugin never holds a provider
+  key: the plugin-AI engine reads evo's credentials, and a plugin learns
+  only models, abilities and prices. `ai` is a consent permission that
+  says it may cost money; each of evo's tool groups (`ai.tools:read`,
+  `edit`, `command`, `web`) is one more. Caps per day and month (none by
+  default) are checked when a run starts and on every usage event. Evo's
+  tools in a plugin's run go through the person's approval mode as a
+  chat's do, with questions that name the plugin; attached context and
+  tool results are marked as data to the model and change no tool or
+  permission; runs, threads and follows are checked against the calling
+  plugin ([ADR 0023](decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md)).
 - **Project trust.** Project hooks, `.mcp.json` servers and settings apply only
   after the user trusts or approves them.
 - **Configuration.** Settings changes apply without restarting the app. The
@@ -438,6 +527,11 @@ Details: [app database spec](../features/app-database/spec.md).
   Linux/Windows/macOS, MSRV check, desktop type-check and build.
 - One running copy of the app (single-instance); a second launch focuses the
   first.
+- Plugin runtimes are not shipped: Deno and uv are downloaded into
+  `~/.evo/agent/runtimes` the first time a plugin needs them, from their
+  GitHub releases, at versions and SHA-256 sums pinned in the app
+  (`src-tauri/src/plugin_runtime/install.rs`); uv brings its own Python.
+  A new pin ships with an app update ([ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)).
 
 ## 11. Architecture decisions
 
@@ -454,6 +548,12 @@ The index of decisions, their status and links is in
 | The release key is one key pair: lost, installed apps cannot update in the app; leaked, it could sign a malicious update | every installed copy | [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md) |
 | Engines work with no window: nested sessions, background agents, wakes and scheduled runs go on while every window is closed | work, cost and tool calls the person does not watch as they happen. Mitigations: the sidebar marks chats working or waiting with no window, the tray counts them and opens a waiting one, questions are notified and never answered for the person, quitting asks once while chats work. The macOS app menu's own Quit still quits without asking | [shell-hosted engines](../features/shell-hosted-engines/spec.md) NFR-5, FR-11, FR-12, [ADR 0018](decisions/0018-the-shell-hosts-engines-windows-attach.md) |
 | The desktop has no automated UI test runner | regressions found late | — |
+| Plugin views are checked on Windows only; a first open takes about 0.6 s (WebView2 creates the view), a reopen within 5 minutes about 0.1 s | macOS behaviour and isolation unproven; slow first open | [plugin UI spec](../features/plugin-ui/spec.md) NFR-2, NFR-4 |
+| A plugin granted `chat:read` reads every chat but incognito ones | a trusted plugin sees a lot; consent is the only gate | [plugin UI spec](../features/plugin-ui/spec.md) FR-3, 4.3 |
+| Python backends, hooks and connector servers of plugins are not confined (network, files, subprocesses) | an approved plugin's code can do what the person can; the consent says "not enforced" | [plugin settings spec](../features/plugin-settings/spec.md) FR-15, FR-16, [ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) |
+| The keychain protects plugin secrets at rest, not from the person's other programs (Windows Credential Manager entries are readable by them) or the agent's own commands | a local program running as the person can read a plugin's vault key | [ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md), plugin settings plan 3.7 |
+| Plugin settings, the host API and sign-ins are checked on Windows only; a plugin's `SessionStart` hook may run before the engine has its host key | macOS and Linux unproven | [plugin settings spec](../features/plugin-settings/spec.md) NFR-3 |
+| Plugin AI spends the person's money: with no cap set, an approved plugin may spend without limit; with `ai.tools:apps` its AI browses in evo's browser (with the person's sites' sessions) and runs terminals, under the approval mode | cost and actions the person does not watch as they happen; the consent and the Models tab show spend, caps stop runs, the approval mode asks before edits and commands, and "auto" asks for none | [plugin AI spec](../features/plugin-ai/spec.md) FR-13, FR-14, T23, [ADR 0023](decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md) |
 | Main JS bundle ~1.2 MB | startup time | [apps/desktop/README.md](../../apps/desktop/README.md) "Known gaps" |
 | A transcript's `state_json` is the whole reducer snapshot, rewritten on every write | slow writes in very long chats | [app database plan, "Planned tables"](../features/app-database/plan.md#planned-tables) |
 
@@ -474,3 +574,8 @@ The index of decisions, their status and links is in
 | Topic | A memory: one short document about one subject, changed in place |
 | Index run | A short-lived `evo-engine --mode index` process that reads what is new in one idle chat, updates memory topics and writes the chat's summary |
 | Incognito chat | A chat that uses no memory and leaves no history: it is removed when it ends |
+| Plugin backend | A plugin's own MCP server that evo runs under Deno or uv, with the permissions the person approved |
+| Plugin AI run | One request of a plugin to the person's models: a model chosen by need, a stream of events, optional tools, a thread, a result; run by `evo-engine --mode plugin-ai` |
+| Thread | A plugin's conversation about one subject, kept in `evo.db` and continued by runs that name it |
+| Vault | A plugin's secrets, sealed with a key kept in the OS keychain |
+| Host API | The shell's loopback HTTP API where a plugin's backend and hooks ask for tokens, cookies and settings |

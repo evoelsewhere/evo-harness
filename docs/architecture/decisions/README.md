@@ -28,6 +28,9 @@ consequences and the alternatives rejected. The
 | [0018](0018-the-shell-hosts-engines-windows-attach.md) | The shell hosts engines; windows attach to them as viewers | Accepted | 2026-11-11 |
 | [0019](0019-read-only-agents-run-under-an-os-write-restriction.md) | Read-only agents' shell commands run under an operating-system write restriction | Superseded by [0020](0020-read-only-agents-stay-guarded-by-the-command-checker.md) | 2026-11-11 |
 | [0020](0020-read-only-agents-stay-guarded-by-the-command-checker.md) | Read-only agents stay guarded by the command checker; no operating-system write restriction | Accepted | 2026-11-11 |
+| [0021](0021-plugin-views-run-in-native-webviews.md) | Plugin views run in native child webviews with no IPC; their bridge is their own scheme | Accepted | 2026-11-13 |
+| [0022](0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) | Plugin code runs under evo's runtimes; its secrets live in a keychain-sealed vault and reach it through a loopback host API | Accepted | 2026-11-14 |
+| [0023](0023-plugin-ai-runs-in-one-long-lived-engine-process.md) | Plugin AI runs in one long-lived engine process (`--mode plugin-ai`); the shell gates it | Accepted | 2026-11-14 |
 
 ## Rules
 

@@ -151,7 +151,7 @@ out, and sign-in is tried against a real provider.
 | FR-28 | Manual: a chat with more than 40 connector tools | not run |
 | FR-29 | `cargo test -p evo-hooks matchers`, `loads_user_and_project_hooks_and_skips_bad_ones`, `disable_all_hooks` | not run |
 | FR-30 | `cargo test -p evo-hooks exit_codes_and_json_decisions`, `the_event_arrives_on_stdin_and_hooks_run_in_parallel`, `a_missing_command_is_an_error_not_a_block` | not run |
-| FR-31 | End to end with the real engine: a `UserPromptSubmit` hook that exits 2 blocked a prompt before any model call | passed (recorded 2026-11-06) for `UserPromptSubmit`; other events not run |
+| FR-31 | End to end with the real engine: a `UserPromptSubmit` hook that exits 2 blocked a prompt before any model call | passed (recorded 2026-11-06) for `UserPromptSubmit`; `SessionStart` passed (2026-11-14): `session_start_runs_once_and_its_context_waits_for_the_first_prompt`, and the real engine in RPC mode ran a user `SessionStart` hook with `source: startup` while it answered `ready`; other events not run |
 | FR-32 | End to end: `list_hooks` showed the run; manual **Customize → Hooks** | passed (recorded 2026-11-06) for `list_hooks`; page not run |
 | FR-33 | `cargo test -p evo-plugins manifest`, `layout_without_a_manifest`; end to end: a plugin hook with `${PLUGIN_ROOT}` filled in | passed (recorded 2026-11-06) end to end; unit tests not run |
 | FR-34 | `cargo test -p evo-plugins sources_parse`, `catalog_in_either_plugin_folder` | not run |
