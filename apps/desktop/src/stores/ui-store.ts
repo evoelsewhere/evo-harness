@@ -6,9 +6,13 @@ import { emit } from "@tauri-apps/api/event";
 import type { ApprovalMode } from "@/engine/protocol";
 import { db, log } from "@/lib/db";
 
-export type PanelId = "terminal" | "browser" | "files" | "side-chat" | "memory";
+export type BuiltinPanelId = "terminal" | "browser" | "files" | "side-chat" | "memory";
+/** A built-in tool, or a plugin's panel (`plugin:<plugin id>/<view id>`; docs/features/plugin-ui/spec.md, FR-5). */
+export type PanelId = BuiltinPanelId | `plugin:${string}`;
 /** Panels that exist; a saved tab for any other (Plugins moved to Customize, Scheduler to its page) is dropped. */
 const PANEL_IDS: readonly string[] = ["terminal", "browser", "files", "side-chat", "memory"];
+/** A saved tab that may still exist: a built-in tool, or a plugin's panel (shown as "off" while its plugin is). */
+const keptTab = (id: string): id is PanelId => PANEL_IDS.includes(id) || id.startsWith("plugin:");
 export type { ApprovalMode };
 /** The app setting that holds the approval mode (read by the shell for every engine it starts). */
 export const APPROVAL_MODE_KEY = "approvalMode";
@@ -128,6 +132,9 @@ interface UiStore {
   openUsage(): void;
   customizeSection: CustomizeSection;
   openCustomize(section?: CustomizeSection): void;
+  /** A plugin's sidebar page (`plugin:<id>/<view>`) shows instead of the chat (plugin-ui FR-4). */
+  pluginPage: string | null;
+  openPluginPage(key: string): void;
   /** Sidebar items the person showed (true) or hid (false); the rest follow their default. */
   sidebarShown: Record<string, boolean>;
   /** Read `ui.sidebar.items` (once per window). */
@@ -229,10 +236,13 @@ export const useUiStore = create<UiStore>()(
       customizeOpen: false,
       schedulerOpen: false,
       openScheduler: () =>
-        set({ schedulerOpen: true, usageOpen: false, customizeOpen: false, settingsOpen: false, commandOpen: false }),
+        set({ schedulerOpen: true, usageOpen: false, customizeOpen: false, pluginPage: null, settingsOpen: false, commandOpen: false }),
       usageOpen: false,
       openUsage: () =>
-        set({ usageOpen: true, schedulerOpen: false, customizeOpen: false, settingsOpen: false, commandOpen: false }),
+        set({ usageOpen: true, schedulerOpen: false, customizeOpen: false, pluginPage: null, settingsOpen: false, commandOpen: false }),
+      pluginPage: null,
+      openPluginPage: (pluginPage) =>
+        set({ pluginPage, usageOpen: false, schedulerOpen: false, customizeOpen: false, settingsOpen: false, commandOpen: false }),
       customizeSection: "skills",
       sidebarShown: {},
       loadSidebarItems: async () => {
@@ -391,12 +401,13 @@ export const useUiStore = create<UiStore>()(
           customizeOpen: true,
           schedulerOpen: false,
           usageOpen: false,
+          pluginPage: null,
           customizeSection: section ?? s.customizeSection,
           settingsOpen: false,
           commandOpen: false,
         })),
-      // Leaves any full page (Customize, Scheduler or Usage) for the chat.
-      closeCustomize: () => set({ customizeOpen: false, schedulerOpen: false, usageOpen: false }),
+      // Leaves any full page (Customize, Scheduler, Usage or a plugin's) for the chat.
+      closeCustomize: () => set({ customizeOpen: false, schedulerOpen: false, usageOpen: false, pluginPage: null }),
       setApproval: (approval) => {
         if (approval === get().approval) return;
         set({ approval });
@@ -414,11 +425,11 @@ export const useUiStore = create<UiStore>()(
       merge: (persisted, current) => {
         // `approval`, `autoStartSessions` and `chatConnectorsOff` lived here in earlier builds: they are app settings now.
         const { approval: _moved, autoStartSessions: _auto, chatConnectorsOff: _off, ...saved } = (persisted ?? {}) as Partial<UiStore>;
-        const openTabs = (saved.openTabs ?? current.openTabs).filter((id) => PANEL_IDS.includes(id));
-        const activePanel = saved.activePanel && PANEL_IDS.includes(saved.activePanel) ? saved.activePanel : (openTabs[0] ?? null);
+        const openTabs = (saved.openTabs ?? current.openTabs).filter(keptTab);
+        const activePanel = saved.activePanel && keptTab(saved.activePanel) ? saved.activePanel : (openTabs[0] ?? null);
         const panelsByChat: Record<string, ChatPanels> = {};
         for (const [chat, panels] of Object.entries(saved.panelsByChat ?? {})) {
-          const tabs = (panels?.openTabs ?? []).filter((id) => PANEL_IDS.includes(id));
+          const tabs = (panels?.openTabs ?? []).filter(keptTab);
           panelsByChat[chat] = {
             openTabs: tabs,
             activePanel: panels?.activePanel && tabs.includes(panels.activePanel) ? panels.activePanel : (tabs[0] ?? null),

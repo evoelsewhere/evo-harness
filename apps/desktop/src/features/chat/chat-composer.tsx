@@ -54,6 +54,7 @@ import {
   textAttachment,
 } from "./composer-input";
 import { QueuedMessages } from "./queued-messages";
+import { ComposerActions } from "@/features/plugin-ui";
 
 const approvals: { id: ApprovalMode; name: string; hint: string }[] = [
   { id: "ask", name: "Ask every time", hint: "Asks before edits and commands" },
@@ -70,9 +71,14 @@ const grantChips = {
 /** A draft the empty state or a suggestion can prefill. */
 export const composerDraft = {
   listeners: new Set<(text: string) => void>(),
+  insertListeners: new Set<(text: string) => void>(),
   attachListeners: new Set<(path: string) => void>(),
   set(text: string) {
     for (const listener of this.listeners) listener(text);
+  },
+  /** Put text in at the caret, keeping the draft (a plugin's `composer.insert`; plugin-ui FR-6). */
+  insert(text: string) {
+    for (const listener of this.insertListeners) listener(text);
   },
   /** Attach a file or folder to the next message (Files tool → Attach as context). */
   attach(path: string) {
@@ -149,12 +155,23 @@ export function ChatComposer() {
       if (focused()) setText(draft);
     };
     composerDraft.listeners.add(listener);
+    const insertListener = (insert: string) => {
+      if (!focused()) return;
+      const field = textareaRef.current;
+      setText((current) => {
+        const at = field && document.activeElement === field ? field.selectionStart : current.length;
+        return current.slice(0, at) + insert + current.slice(at);
+      });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    composerDraft.insertListeners.add(insertListener);
     const attachListener = (path: string) => {
       if (focused()) addAttachments([fileAttachment(path)]);
     };
     composerDraft.attachListeners.add(attachListener);
     return () => {
       composerDraft.listeners.delete(listener);
+      composerDraft.insertListeners.delete(insertListener);
       composerDraft.attachListeners.delete(attachListener);
     };
   }, []);
@@ -536,6 +553,8 @@ export function ChatComposer() {
             </DropdownMenuContent>
           </DropdownMenu>
           <ChatFlagsMark />
+          {/* Plugins' composer actions (docs/features/plugin-ui/spec.md, FR-6). */}
+          <ComposerActions />
           {chatId &&
             grants.filter((grant) => grant in grantChips).map((grant) => (
               <InputGroupButton

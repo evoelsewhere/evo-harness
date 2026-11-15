@@ -17,13 +17,14 @@ import { modKey } from "@/lib/platform";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
-import { panels } from "@/features/panels/panel-registry";
+import { usePanels } from "@/features/panels/panel-registry";
 
 /** Search chats and run app commands (Ctrl/⌘ P). */
 export function CommandPalette() {
   const commandOpen = useUiStore((s) => s.commandOpen);
   const setCommandOpen = useUiStore((s) => s.setCommandOpen);
   const openPanel = useUiStore((s) => s.openPanel);
+  const panels = usePanels();
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const sessions = useSessionStore((s) => s.sessions);
   const { newChat, start, openWorkspace, selectSession } = useEngineStore.getState();

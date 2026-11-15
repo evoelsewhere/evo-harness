@@ -45,7 +45,7 @@ export interface EngineStateEvent {
    * (`schedule`); stopped with no work and no window beyond the idle limit
    * (`idle`); still running after its last window closed (`detached`).
    */
-  reason?: "viewer" | "mail" | "restart" | "idle" | "detached" | "settings" | "schedule" | null;
+  reason?: "viewer" | "mail" | "restart" | "idle" | "detached" | "settings" | "schedule" | "plugin" | null;
   /** The engine reopens a saved session (its transcript is there to load). */
   restore?: boolean;
 }

@@ -26,7 +26,8 @@ import { useNotificationStore } from "./notification-store";
 import { useUiStore, type PanelId } from "./ui-store";
 
 const PANELS: readonly string[] = ["terminal", "browser", "files", "memory", "side-chat"];
-const isPanel = (value: unknown): value is PanelId => typeof value === "string" && PANELS.includes(value);
+// A plugin's panel (`plugin:<id>/<view>`, plugin_open; plugin-ui FR-8) is a tab too.
+const isPanel = (value: unknown): value is PanelId => typeof value === "string" && (PANELS.includes(value) || value.startsWith("plugin:"));
 
 /** `agent://panel`: the agent of `chat` opens or closes `panel`. */
 export interface AgentPanelEvent {

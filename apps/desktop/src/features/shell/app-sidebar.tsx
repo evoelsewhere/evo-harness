@@ -32,7 +32,7 @@ import { LOCAL_GROUP, useSessionStore, type SessionSummary } from "@/stores/sess
 import { ArchivedGroup, ChatList, WorkspaceGroup } from "./sidebar-chats";
 import { useUiStore } from "@/stores/ui-store";
 import { EditSidebarDialog } from "./edit-sidebar-dialog";
-import { SIDEBAR_ITEMS, isShown } from "./sidebar-items";
+import { isShown, useSidebarItems } from "./sidebar-items";
 import { SidebarResizer } from "./sidebar-resizer";
 import { TitleBarActions } from "./title-bar";
 
@@ -82,13 +82,14 @@ export function AppSidebar() {
   const { resolved, setTheme } = useTheme();
   // Page rows: the items the person shows; the others are in More (docs/features/sidebar-items/spec.md).
   const saved = useUiStore((s) => s.sidebarShown);
-  const activeId = useUiStore((s) => SIDEBAR_ITEMS.find((item) => item.isActive(s))?.id ?? null);
+  const items = useSidebarItems();
+  const activeId = useUiStore((s) => items.find((item) => item.isActive(s))?.id ?? null);
   const [editOpen, setEditOpen] = React.useState(false);
   React.useEffect(() => {
     void useUiStore.getState().loadSidebarItems();
   }, []);
-  const shown = SIDEBAR_ITEMS.filter((item) => isShown(item, saved));
-  const hidden = SIDEBAR_ITEMS.filter((item) => !isShown(item, saved));
+  const shown = items.filter((item) => isShown(item, saved));
+  const hidden = items.filter((item) => !isShown(item, saved));
   const hiddenActive = hidden.some((item) => item.id === activeId);
 
   const byUpdated = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt;

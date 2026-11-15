@@ -5,11 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUiStore } from "@/stores/ui-store";
-import { SIDEBAR_ITEMS, isShown } from "./sidebar-items";
+import { isShown, useSidebarItems } from "./sidebar-items";
 
 export function EditSidebarDialog({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
   const saved = useUiStore((s) => s.sidebarShown);
   const setShown = useUiStore((s) => s.setSidebarShown);
+  const items = useSidebarItems();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -19,7 +20,7 @@ export function EditSidebarDialog({ open, onOpenChange }: { open: boolean; onOpe
           <DialogDescription>Choose which items appear in your sidebar. The others are under More.</DialogDescription>
         </DialogHeader>
         <div className="-mx-2 flex flex-col">
-          {SIDEBAR_ITEMS.map((item) => {
+          {items.map((item) => {
             const Icon = item.icon;
             return (
               <label

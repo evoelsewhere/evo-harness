@@ -24,6 +24,7 @@ import { useAppBootstrap, useAppHotkeys } from "./use-app-bootstrap";
 import { CustomizePage } from "@/features/customize/customize-page";
 import { SchedulerPage } from "@/features/scheduler/scheduler-page";
 import { UsagePage } from "@/features/usage/usage-page";
+import { AiQuestionDialog, DeviceCodeDialog, PermissionRequestDialog, PluginPage } from "@/features/plugin-ui";
 
 /** Below this width (right of the sidebar) the side panel overlays instead of splitting. */
 const SPLIT_MIN_WIDTH = 900;
@@ -193,6 +194,7 @@ export function App() {
   const customizeOpen = useUiStore((s) => s.customizeOpen);
   const schedulerOpen = useUiStore((s) => s.schedulerOpen);
   const usageOpen = useUiStore((s) => s.usageOpen);
+  const pluginPage = useUiStore((s) => s.pluginPage);
   const [insetRef, insetWidth] = useElementWidth<HTMLElement>();
   const split = insetWidth === 0 || insetWidth >= SPLIT_MIN_WIDTH;
   // A chat window shows its one chat: no sidebar.
@@ -221,6 +223,14 @@ export function App() {
               <UsagePage />
             </div>
           </div>
+        ) : pluginPage && !solo ? (
+          <div className="flex h-full min-w-0 flex-col">
+            <WindowTitleBar />
+            {/* A plugin's sidebar page (docs/features/plugin-ui/spec.md, FR-4). */}
+            <div className="min-h-0 flex-1 overflow-hidden bg-background min-[900px]:rounded-tl-xl">
+              <PluginPage />
+            </div>
+          </div>
         ) : customizeOpen && !solo ? (
           <div className="flex h-full min-w-0 flex-col">
             <WindowTitleBar />
@@ -241,6 +251,10 @@ export function App() {
       <QuitDialog />
       {/* Ctrl/⌘+/ lists every shortcut (ux-polish FR-7). */}
       <ShortcutsDialog />
+      {/* A plugin asks for an optional permission while in use (plugin-settings FR-9). */}
+      {!solo && <PermissionRequestDialog />}
+      {!solo && <AiQuestionDialog />}
+      {!solo && <DeviceCodeDialog />}
       {/* The chat being dragged onto the chat area (split view). */}
       <DragGhost />
       {!solo && <UpdatesHost />}

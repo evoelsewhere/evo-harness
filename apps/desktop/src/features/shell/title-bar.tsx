@@ -18,7 +18,7 @@ import {
 import { useSidebar } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme, type Theme } from "@/components/theme-provider";
-import { panels } from "@/features/panels/panel-registry";
+import { usePanels } from "@/features/panels/panel-registry";
 import { inTauri, isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
@@ -83,6 +83,7 @@ export function AppMenu() {
   const { theme, setTheme } = useTheme();
   const engine = useEngineStore.getState();
   const ui = useUiStore.getState();
+  const panels = usePanels();
   const history = useHistoryStore();
   useSessionStore((s) => s.sessions); // back/forward skip chats that are gone
   const zoom = useUiStore((s) => s.zoom);
@@ -200,7 +201,7 @@ export function AppMenu() {
             <DropdownMenuSeparator />
             <Submenu label="Tools" className="w-52">
               {panels.map((panel) => (
-                <Item key={panel.id} shortcut={keys("Mod", panel.shortcut)} onClick={() => ui.openPanel(panel.id)}>
+                <Item key={panel.id} shortcut={panel.shortcut ? keys("Mod", panel.shortcut) : undefined} onClick={() => ui.openPanel(panel.id)}>
                   <panel.icon className="text-muted-foreground" />
                   {panel.title}
                 </Item>

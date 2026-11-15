@@ -2,8 +2,10 @@
 // (docs/features/sidebar-items/spec.md, FR-1). A new page is one entry here:
 // the sidebar row, the More menu and Edit sidebar all read this list.
 
-import type * as React from "react";
+import * as React from "react";
 import { PluginsIcon, SchedulerIcon, UsageIcon } from "@/components/icons/tool-icons";
+import { pluginIcon } from "@/features/plugin-ui";
+import { usePluginUiStore, type PluginViewRef } from "@/stores/plugin-ui-store";
 import { useUiStore } from "@/stores/ui-store";
 
 type UiState = ReturnType<typeof useUiStore.getState>;
@@ -47,6 +49,26 @@ export const SIDEBAR_ITEMS: readonly SidebarItem[] = [
     isActive: (ui) => ui.customizeOpen,
   },
 ];
+
+/** Enabled plugins' sidebar pages as items (docs/features/plugin-ui/spec.md, FR-4). */
+export function pluginSidebarItems(views: readonly PluginViewRef[]): SidebarItem[] {
+  return views
+    .filter((view) => view.slot === "sidebar")
+    .map((view) => ({
+      id: view.key,
+      label: view.view.title,
+      icon: pluginIcon(view.icon),
+      defaultShown: view.view.defaultShown,
+      open: () => useUiStore.getState().openPluginPage(view.key),
+      isActive: (ui) => ui.pluginPage === view.key,
+    }));
+}
+
+/** The fixed items, then the enabled plugins' pages. */
+export function useSidebarItems(): readonly SidebarItem[] {
+  const views = usePluginUiStore((s) => s.views);
+  return React.useMemo(() => [...SIDEBAR_ITEMS, ...pluginSidebarItems(views)], [views]);
+}
 
 /** The person's choice for `item`, or its default when they made none. */
 export const isShown = (item: SidebarItem, saved: Record<string, boolean>): boolean => saved[item.id] ?? item.defaultShown;

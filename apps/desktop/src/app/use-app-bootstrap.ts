@@ -1,7 +1,8 @@
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { panels } from "@/features/panels/panel-registry";
+import { allPanels } from "@/features/panels/panel-registry";
+import { startPluginUi } from "@/stores/plugin-ui-store";
 import { applyZoom, reloadWindow, resetZoom, toggleDevtools, toggleFullscreen, zoomBy } from "@/features/shell/app-commands";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startShellNotices } from "@/features/notifications/notify";
@@ -28,6 +29,8 @@ export function useAppBootstrap() {
     startChatScope();
     // Split view follows the active chat and the chat list (chat-split-view FR-4, FR-12).
     startSplit();
+    // Plugins' views in the sidebar, the side panel, the composer and the transcript (plugin-ui).
+    startPluginUi();
     // The shell's notices about chats no window shows reach this window's bell.
     if (inTauri) startShellNotices(getCurrentWindow().label);
     // The main window follows app updates and raises their notifications.
@@ -162,8 +165,8 @@ export function useAppHotkeys() {
         const split = useSplitStore.getState();
         split.close(split.focus);
       } else if (!event.shiftKey) {
-        // Tool panels: Ctrl/⌘ + key (see the panel registry).
-        const panel = panels.find((p) => p.shortcut.toLowerCase() === key);
+        // Tool panels: Ctrl/⌘ + key (see the panel registry), plugin panels' too.
+        const panel = allPanels().find((p) => p.shortcut && p.shortcut.toLowerCase() === key);
         if (panel) {
           event.preventDefault();
           ui.openPanel(panel.id);

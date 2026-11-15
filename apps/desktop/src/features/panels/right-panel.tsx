@@ -12,8 +12,9 @@ import { FilesPanel } from "@/features/files";
 import { MemoryPanel } from "@/features/memory";
 import { SideChatPanel } from "@/features/side-chat";
 import { TerminalPanel } from "@/features/terminal";
+import { PluginPanel } from "@/features/plugin-ui";
 import { useUiStore, type PanelId } from "@/stores/ui-store";
-import { panelById, panels, type PanelDefinition } from "./panel-registry";
+import { panelById, usePanels, type PanelDefinition } from "./panel-registry";
 
 /** Tools that lay out and scroll their own content. */
 const FULL_BLEED = new Set<PanelId>(["terminal", "side-chat", "files", "browser", "memory"]);
@@ -34,13 +35,14 @@ function ToolCard({ panel, onOpen }: { panel: PanelDefinition; onOpen(): void })
         <span className="truncate text-[13px] font-medium leading-5">{panel.title}</span>
         <span className="truncate text-xs leading-4 text-muted-foreground">{panel.description}</span>
       </span>
-      <Kbd className="hidden shrink-0 @[18rem]/tools:inline-flex">{shortcutLabel(panel)}</Kbd>
+      {panel.shortcut && <Kbd className="hidden shrink-0 @[18rem]/tools:inline-flex">{shortcutLabel(panel)}</Kbd>}
     </button>
   );
 }
 
 function PanelLauncher() {
   const openPanel = useUiStore((s) => s.openPanel);
+  const panels = usePanels();
   return (
     <div className="@container/tools flex h-full items-center justify-center px-4 py-6">
       <div className="flex w-full max-w-sm flex-col gap-1.5">
@@ -109,7 +111,7 @@ function RailButton({
       </TooltipTrigger>
       <TooltipContent side="left" className="flex items-center gap-2">
         {panel.title}
-        <Kbd>{shortcutLabel(panel)}</Kbd>
+        {panel.shortcut && <Kbd>{shortcutLabel(panel)}</Kbd>}
       </TooltipContent>
     </Tooltip>
   );
@@ -121,7 +123,7 @@ function RailButton({
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={() => openPanel(panel.id)}>
             Show {panel.title}
-            <span className="ml-auto text-xs text-muted-foreground">{shortcutLabel(panel)}</span>
+            {panel.shortcut && <span className="ml-auto text-xs text-muted-foreground">{shortcutLabel(panel)}</span>}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => closeTab(panel.id)}>Close {panel.title}</DropdownMenuItem>
         </DropdownMenuGroup>
@@ -145,6 +147,8 @@ export function ToolRail({ className }: { className?: string }) {
   const expanded = useUiStore((s) => s.rightPanelOpen);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const openPanel = useUiStore((s) => s.openPanel);
+  const panels = usePanels();
+  // Plugin panels come after the built-in tools, past a divider (plugin-ui FR-5).
   const ready = panels.filter((panel) => READY.has(panel.id));
   const later = panels.filter((panel) => !READY.has(panel.id));
   const button = (panel: PanelDefinition) => (
@@ -201,8 +205,9 @@ export function ToolRail({ className }: { className?: string }) {
  */
 export function RightPanel({ variant = "docked" }: { variant?: "docked" | "overlay" }) {
   const activePanel = useUiStore((s) => s.activePanel);
-  const panel = panelById(activePanel);
+  const panel = panelById(activePanel, usePanels());
   const docked = variant === "docked";
+  const pluginPanel = activePanel?.startsWith("plugin:") ? activePanel : null;
 
   return (
     <div
@@ -214,10 +219,12 @@ export function RightPanel({ variant = "docked" }: { variant?: "docked" | "overl
       <div
         className={cn(
           "min-h-0 min-w-0 flex-1",
-          panel && FULL_BLEED.has(panel.id) ? "overflow-hidden" : "overflow-auto",
+          pluginPanel || (panel && FULL_BLEED.has(panel.id)) ? "overflow-hidden" : "overflow-auto",
         )}
       >
-        {panel?.id === "terminal" ? (
+        {pluginPanel ? (
+          <PluginPanel key={pluginPanel} panel={pluginPanel} />
+        ) : panel?.id === "terminal" ? (
           <TerminalPanel />
         ) : panel?.id === "side-chat" ? (
           <SideChatPanel />

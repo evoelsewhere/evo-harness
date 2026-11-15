@@ -139,7 +139,8 @@ function segments(parts: Part[]): Segment[] {
     }
     // A `show_widget` widget is part of the answer: it stands on its own and
     // stays in sight when the turn folds (docs/features/office-v3-parity/spec.md).
-    if (part.kind === "tool" && part.name === "show_widget") {
+    // So does a plugin's card (docs/features/plugin-ui/spec.md, FR-7).
+    if (part.kind === "tool" && (part.name === "show_widget" || part.name === "plugin_show_card")) {
       out.push({ kind: "widget", key: part.key, part });
       continue;
     }

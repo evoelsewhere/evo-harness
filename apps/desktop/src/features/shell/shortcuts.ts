@@ -3,7 +3,7 @@
 // act (`app/use-app-bootstrap.ts`, the composer, the menus); a shortcut
 // added there is added here too.
 
-import { panels } from "@/features/panels/panel-registry";
+import { allPanels } from "@/features/panels/panel-registry";
 import { isMac, modKey } from "@/lib/platform";
 
 export interface Shortcut {
@@ -52,7 +52,7 @@ export function shortcutGroups(): ShortcutGroup[] {
         { label: "Next / previous tab", keys: ["Ctrl", "Tab"] },
         { label: "Terminal", keys: ["Ctrl", "`"] },
         { label: "New terminal", keys: ["Ctrl", "Shift", "`"] },
-        ...panels.filter((panel) => panel.shortcut !== "`").map((panel) => ({ label: panel.title, keys: mod(panel.shortcut.toUpperCase()) })),
+        ...allPanels().filter((panel) => panel.shortcut && panel.shortcut !== "`").map((panel) => ({ label: panel.title, keys: mod(panel.shortcut.toUpperCase()) })),
       ],
     },
     {

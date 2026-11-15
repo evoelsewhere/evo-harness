@@ -38,6 +38,7 @@ import { openLink } from "@/features/shell/app-commands";
 import { TodoList } from "@/features/chat/todo-bar";
 import { SentFiles } from "./sent-files";
 import { WidgetFrame } from "@/components/widget-frame";
+import { PluginCard } from "@/features/plugin-ui";
 import { kinds, type Kind } from "./tool-kinds";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -718,6 +719,17 @@ export function Tool({
       <div className="@container flex flex-col">
         {line}
         <SentFiles files={sent.files} caption={sent.caption} />
+      </div>
+    );
+  }
+  // A plugin's card stays under its line, drawn from the call's result, so a
+  // reopened chat shows it again (docs/features/plugin-ui/spec.md, FR-7).
+  const card = part.name === "plugin_show_card" && !part.details?.externalToolResult?.isError ? part.details?.externalToolResult?.structuredContent : undefined;
+  if (card && typeof card.plugin === "string" && typeof card.card === "string") {
+    return (
+      <div className="flex w-full flex-col gap-2">
+        {line}
+        <PluginCard plugin={card.plugin} card={card.card} title={typeof card.title === "string" ? card.title : undefined} data={card.data} />
       </div>
     );
   }
