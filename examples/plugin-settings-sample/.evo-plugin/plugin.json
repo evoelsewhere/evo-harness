@@ -1,0 +1,56 @@
+{
+  "name": "issue-desk",
+  "version": "1.0.0",
+  "description": "Your GitHub issues beside your chats, summarised by your own AI models, and who you are on Hacker News: settings, a Deno backend, an OAuth sign-in, a web login and plugin AI.",
+  "author": "evo",
+  "license": "MIT",
+  "keywords": ["github", "issues", "sample", "accounts", "ai"],
+  "settings": {
+    "githubClientId": {
+      "kind": "text", "title": "GitHub OAuth app client ID", "group": "GitHub app",
+      "description": "Create an OAuth app at github.com/settings/developers with the callback URL http://127.0.0.1/callback."
+    },
+    "githubClientSecret": {
+      "kind": "secret", "title": "GitHub OAuth app client secret", "group": "GitHub app",
+      "description": "GitHub needs it for every OAuth app; it stays in the plugin's sealed vault."
+    },
+    "defaultRepo": {
+      "kind": "text", "title": "Default repository", "description": "owner/name, used when the agent asks for a repository's issues.",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "pageSize": { "kind": "number", "title": "Issues per list", "default": 20, "min": 1, "max": 100 },
+    "state": { "kind": "select", "title": "Which issues", "options": ["open", "closed", "all"], "default": "open" }
+  },
+  "accounts": [
+    {
+      "id": "github", "service": "GitHub", "kind": "oauth", "reason": "List the issues assigned to you",
+      "oauth": {
+        "authorizeUrl": "https://github.com/login/oauth/authorize",
+        "tokenUrl": "https://github.com/login/oauth/access_token",
+        "userinfoUrl": "https://api.github.com/user",
+        "clientIdSetting": "githubClientId",
+        "clientSecretSetting": "githubClientSecret",
+        "scopes": ["repo"]
+      }
+    },
+    {
+      "id": "hn", "service": "Hacker News", "kind": "web", "optional": true, "reason": "Show who you are logged in as",
+      "web": { "loginUrl": "https://news.ycombinator.com/login", "domains": ["news.ycombinator.com"], "done": { "cookie": "user" } }
+    }
+  ],
+  "runtime": {
+    "server": {
+      "language": "typescript", "entry": "server/main.ts", "startup": "onDemand", "idleStopMinutes": 10,
+      "env": { "PAGE_SIZE": "${user_config.pageSize}", "ISSUE_STATE": "${user_config.state}", "DEFAULT_REPO": "${user_config.defaultRepo}" }
+    }
+  },
+  "ui": {
+    "sidebar": [{ "id": "desk", "title": "Issue desk", "entry": "ui/desk.html", "icon": "ui/icon.svg" }]
+  },
+  "permissions": [
+    { "id": "network:https://api.github.com", "reason": "Read your issues from GitHub" },
+    { "id": "ai", "reason": "Summarise an issue and answer questions about it with your AI models" },
+    { "id": "network:https://news.ycombinator.com", "reason": "Read your Hacker News name" },
+    { "id": "startup", "optional": true, "reason": "Have your issues ready as soon as evo opens" }
+  ]
+}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Chat notes</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="notes-store.js"></script>
+  <script src="notes.js" defer></script>
+</head>
+<body>
+  <h1>Chat notes</h1>
+  <p class="hint" id="chat">Notes for the open chat.</p>
+  <div class="row">
+    <input id="text" class="grow" placeholder="A note for this chat">
+    <button id="add">Add</button>
+  </div>
+  <div class="row" style="margin-top: 6px">
+    <button id="keep">Keep the last reply as a note</button>
+  </div>
+  <div id="list" class="list"></div>
+  <div class="live" id="live">Waiting for the agent…</div>
+</body>
+</html>

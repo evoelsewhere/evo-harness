@@ -1,0 +1,23 @@
+{
+  "name": "sticky-wall",
+  "version": "1.0.0",
+  "description": "Sticky notes beside your chats: a wall page, a notes panel, a card the agent can show, and a composer action.",
+  "author": "evo",
+  "license": "MIT",
+  "keywords": ["notes", "sample", "views"],
+  "ui": {
+    "sidebar": [
+      { "id": "wall", "title": "Sticky Wall", "entry": "ui/wall.html", "icon": "ui/icon.svg", "defaultShown": true }
+    ],
+    "panels": [
+      { "id": "notes", "title": "Chat notes", "entry": "ui/notes.html", "icon": "ui/icon.svg", "shortcut": "K" }
+    ],
+    "cards": [
+      { "id": "board", "title": "Board", "entry": "ui/board.html", "icon": "ui/icon.svg" }
+    ],
+    "composer": [
+      { "id": "insert", "title": "Insert a note", "entry": "ui/insert.html", "icon": "ui/icon.svg" }
+    ]
+  },
+  "permissions": ["chat:read", "storage", "composer:write"]
+}

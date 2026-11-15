@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Issue desk</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="desk.js" defer></script>
+</head>
+<body>
+  <h1>Issue desk</h1>
+  <p class="hint">Your GitHub issues, read by this plugin's backend with the account you signed in to. The page never sees a token.</p>
+  <h2>Accounts</h2>
+  <div id="accounts" class="card"><span class="muted">Loading…</span></div>
+  <h2>Assigned to you</h2>
+  <div class="card">
+    <div class="row">
+      <span class="grow muted" id="summary">Not loaded.</span>
+      <button id="load">Load</button>
+    </div>
+    <div id="issues" class="issues"></div>
+    <div id="error" class="error"></div>
+  </div>
+  <h2>AI summary</h2>
+  <div class="card">
+    <div class="row">
+      <input id="issue-ref" class="grow" placeholder="owner/name#number" spellcheck="false">
+      <button id="summarise" class="primary">Summarise</button>
+    </div>
+    <div id="ai" class="ai" hidden>
+      <div class="muted" id="ai-state"></div>
+      <div id="ai-text" class="ai-text"></div>
+      <div class="row">
+        <input id="ai-question" class="grow" placeholder="Ask about this issue">
+        <button id="ask">Ask</button>
+        <button id="stop" hidden>Stop</button>
+      </div>
+    </div>
+    <p class="muted">Your own AI models summarise it, as you allowed on the plugin's Models tab; each issue keeps its conversation as a thread there.</p>
+  </div>
+</body>
+</html>
