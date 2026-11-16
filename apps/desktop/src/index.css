@@ -215,6 +215,27 @@
   --sidebar-ring: var(--brand);
 }
 
+/* Shimmering text (shadcn's `shimmer`: "Working for…", a live step's title, a
+   busy chat in the sidebar) paints its glyphs transparent and draws them back
+   with a gradient. shadcn derives the gradient's highlight with
+   `oklch(from currentColor …)`; an older WebView2 that lacks relative colours
+   drops the whole gradient, and the text vanished while its row stayed. The
+   same highlight from `color-mix` works on every WebView2 since Chromium 111
+   (an element's own `shimmer-color-*` still wins), and without `color-mix`
+   the text stays plain. */
+:root {
+  --shimmer-color: color-mix(in oklab, currentColor 20%, transparent);
+}
+.dark {
+  --shimmer-color: color-mix(in oklab, currentColor 35%, white);
+}
+@supports not (color: color-mix(in oklab, red, red)) {
+  .shimmer {
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 /* With a system material the window is transparent: only the sidebar shows it,
    every other surface paints its own background. */
 :root[data-material="mica"],
