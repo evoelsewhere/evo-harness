@@ -16,7 +16,7 @@ import { ErrorNote, Section, useBusy } from "./parts";
 
 const MODES: { value: PluginRuntime["startup"]; label: string }[] = [
   { value: "onDemand", label: "When it is needed" },
-  { value: "withApp", label: "When evo opens" },
+  { value: "withApp", label: "When Evo opens" },
   { value: "off", label: "Never" },
 ];
 

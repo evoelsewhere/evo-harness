@@ -1,4 +1,4 @@
-# Plugin UI: plugins with their own views in evo — Spec
+# Plugin UI: plugins with their own views in Evo — Spec
 
 | | |
 | --- | --- |
@@ -12,7 +12,7 @@
 
 ## 1. Summary
 
-evo plugins today bundle skills, commands, subagents, hooks and connectors,
+Evo plugins today bundle skills, commands, subagents, hooks and connectors,
 but they cannot show anything. Every page in the sidebar and every side panel
 tool is fixed in the app's code.
 
@@ -25,17 +25,17 @@ TypeScript or JavaScript. A view appears in four places:
 - an action on the composer.
 
 Each view runs in a native webview of its own, isolated from the app. It
-talks to evo through one permission-checked bridge (`window.evo`): it can
+talks to Evo through one permission-checked bridge (`window.evo`): it can
 read and use chats, call tools through the usual approvals, keep its own
 storage and follow the theme. The person
 approves a plugin's permissions once, when they install it.
 
 This is step 1 of the plugin layer. Its research note covers DeepSeek
-Harness's Creator Mode and evo's two plugin systems. Later features add:
+Harness's Creator Mode and Evo's two plugin systems. Later features add:
 
 - the plugin creator: a built-in skill and `/create-plugin`;
 - plugin backends in Rust, TypeScript, JavaScript and Python, run with the
-  Bun and uv that evo ships;
+  Bun and uv that Evo ships;
 - forwarding the UI of native extensions to the desktop.
 
 ## 2. Scope
@@ -184,7 +184,7 @@ page for notes pinned around a chat.
 | --- | --- | --- |
 | `chat:read` | `chat.active`, `chat.list`, `chat.messages`, `chat.onEvent`, for every chat | Read all your chats |
 | `chat:send` | `chat.send`, in any chat | Send messages in your chats |
-| `tools:call` | `tools.call` for app and connector tools (approvals still apply) | Use evo's app and connector tools, with your approval |
+| `tools:call` | `tools.call` for app and connector tools (approvals still apply) | Use Evo's app and connector tools, with your approval |
 | `composer:write` | `composer.insert` | Put text in the message box |
 | `storage` | `storage.*` | Keep its own data |
 | `network:<origin>` | Fetch from that origin (https only) | Connect to `<origin>` |
@@ -222,7 +222,7 @@ n/a — all answered.
   tool-result renderers wait for plugin backends (FR-7, FR-10).
 - 2026-11-13 — Q5: dev reload → A: an explicit Developer mode switch per
   plugin (FR-14).
-- 2026-11-13 — Later features: Bun and uv ship with evo for plugin
+- 2026-11-13 — Later features: Bun and uv ship with Evo for plugin
   backends, and the plugin creator is a built-in skill with
   `/create-plugin`.
 

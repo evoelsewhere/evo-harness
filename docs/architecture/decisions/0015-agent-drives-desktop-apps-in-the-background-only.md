@@ -31,7 +31,7 @@ off screen. Its accuracy was limited by toolkits that ignore posted input and
 by Chromium windows that stop painting off screen. The 2026-11-09 spikes show
 that both problems are addressable in the background:
 
-- a DevTools pipe into Chromium and Electron apps that evo starts works off
+- a DevTools pipe into Chromium and Electron apps that Evo starts works off
   screen;
 - a one-pixel topmost corner keeps an already-open Chromium window painting.
 
@@ -44,7 +44,7 @@ The shell drives other apps only through background channels, and never moves,
 presses or focuses anything with the person's own input devices. The rules:
 
 - **Allowed channels, in order:**
-  1. a DevTools pipe into a web-based app that evo itself started;
+  1. a DevTools pipe into a web-based app that Evo itself started;
   2. the OS accessibility API (UI Automation and MSAA on Windows, AX on macOS);
   3. messages posted to the app's own windows;
   4. per-process events on macOS.
@@ -57,7 +57,7 @@ presses or focuses anything with the person's own input devices. The rules:
   moved window is journalled and put back.
 - **One gate class for the tool.** The tool gets a gate class of its own. In
   "Ask every time" it asks for every acting call in every approval mode,
-  because it acts outside evo's sandbox on the person's other programs.
+  because it acts outside Evo's sandbox on the person's other programs.
 - **Its own module in the shell.** The code lives in the shell's agent tools
   (ADR 0013) as a platform backend behind one trait. A later backend (an OS
   agent session) can be added without changing the tool.
@@ -71,7 +71,7 @@ presses or focuses anything with the person's own input devices. The rules:
   agent must say so (spec FR-19) instead of working around it with real
   input. This is listed as a known limit in ADD section 12.
 - A DevTools channel into a third-party app is a powerful capability. It is
-  only opened for apps evo starts, only as a pipe (no network port), and is
+  only opened for apps Evo starts, only as a pipe (no network port), and is
   closed with the app.
 - Contributors must not add `SendInput`, cursor or foreground calls to the
   computer app control code. A unit test greps the module for them.

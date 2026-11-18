@@ -198,7 +198,7 @@ function apply(next: UpdateState) {
       source: "updates",
       level: "warning",
       title: "An update could not be verified",
-      body: "It was deleted and not installed. evo will try again later.",
+      body: "It was deleted and not installed. Evo will try again later.",
       key: NOTIFICATION_KEY,
       target: { type: "settings", section: "about" },
     });

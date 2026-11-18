@@ -20,7 +20,7 @@ The tool names and inputs below are what the model sees.
 
 Where these tools sit among everything a full desktop agent offers:
 
-| Capability | evo |
+| Capability | Evo |
 | --- | --- |
 | Files: read, write, edit, find, grep, ls | built in |
 | Shell: bash, PowerShell, background commands | built in |
@@ -161,10 +161,10 @@ None.
 
 ### 6.2 Resolved
 
-- 2026-11-07 — Q: Should evo add plan mode (explore read-only, then present a plan
+- 2026-11-07 — Q: Should Evo add plan mode (explore read-only, then present a plan
   to approve before editing)? → A: Not yet; `plan_mode_start` /
   `plan_mode_complete` stay reserved until it is specified (section 2.2).
-- 2026-11-07 — Q: Should evo add an end-of-turn summary with a next-step question?
+- 2026-11-07 — Q: Should Evo add an end-of-turn summary with a next-step question?
   → A: Not yet; specify it when wanted (section 2.2).
 
 ## 7. History

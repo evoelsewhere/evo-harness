@@ -12,7 +12,7 @@
 [ADR 0006](0006-documentation-follows-add-and-sdd.md) gave each feature one
 "Software Design Document" (`docs/features/<slug>/sdd.md`) mixing
 requirements, design, delivery plan, verification and history in a single
-file. Most of evo is now specified, planned and built by agents working for
+file. Most of Evo is now specified, planned and built by agents working for
 the owner. In that setting a single design document has three problems:
 
 - what the feature must do and how it is built change at different speeds
@@ -22,7 +22,7 @@ the owner. In that setting a single design document has three problems:
 - unknowns are easy to fill with a guess, because nothing in the document
   marks them.
 
-"SDD" in evo means **Spec-Driven Development**: the spec is the source of
+"SDD" in Evo means **Spec-Driven Development**: the spec is the source of
 truth, and the plan, the tasks and the code are derived from it in that
 order.
 

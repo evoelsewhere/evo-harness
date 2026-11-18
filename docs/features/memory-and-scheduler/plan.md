@@ -17,7 +17,7 @@
   [ADD 7](../../architecture/README.md#7-data-view)).
 - The desktop already offers app-implemented agent tools to the engine as
   external tools, with approvals in the composer.
-- Scheduled runs need evo running; the tray icon keeps it running with the
+- Scheduled runs need Evo running; the tray icon keeps it running with the
   window closed, and Keep awake stops the computer from sleeping.
 - Paths are relative to the repository root.
 
@@ -67,7 +67,7 @@ starts the due ones as new chats.
 | desktop UI | `apps/desktop/src/lib/schedule.ts` | Schedule kinds, cron parsing, next run in local time. | FR-11 |
 | desktop UI | `apps/desktop/src/features/scheduler/agent-tools.ts` | The four scheduler tools for top-level chats, with approval. | FR-17 |
 | desktop UI | `apps/desktop/src/features/scheduler/scheduler-page.tsx`, `time-fields.tsx` | **Sidebar → Scheduler** page. | FR-18 |
-| desktop UI | tray and Keep awake (`apps/desktop/src/features/settings/sections/general-settings.tsx`) | Keep evo running with the window closed; stop sleep. The tray and closing the last window are the shell's (`apps/desktop/src-tauri/src/system.rs`): see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) | FR-15 |
+| desktop UI | tray and Keep awake (`apps/desktop/src/features/settings/sections/general-settings.tsx`) | Keep Evo running with the window closed; stop sleep. The tray and closing the last window are the shell's (`apps/desktop/src-tauri/src/system.rs`): see the [shell-hosted engines plan](../shell-hosted-engines/plan.md) | FR-15 |
 
 ### 3.3 Interfaces
 
@@ -151,7 +151,7 @@ Scheduler:
    needed), titled with the task's name, and sends the prompt once the
    engine is ready. The chat shows in the sidebar, unread when done.
 3. A notification says the task started (or could not) and opens the chat.
-4. At launch, a task missed while evo was closed runs once with trigger
+4. At launch, a task missed while Evo was closed runs once with trigger
    "caught up", then continues from now. A one-time task switches itself
    off after it ran.
 5. Every repeating kind is a cron expression underneath; times are local.
@@ -162,7 +162,7 @@ Scheduler:
 - A run that could not start records the error in the run history and says
   so in the notification.
 - A run due while the previous chat works is skipped.
-- evo closed: no runs; one caught-up run at the next launch.
+- Evo closed: no runs; one caught-up run at the next launch.
 
 ### 3.7 Security and trust
 

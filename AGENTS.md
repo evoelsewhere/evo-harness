@@ -1,13 +1,13 @@
 # evo-harness — Agent Instructions
 
-evo is a local-first desktop agent workspace. A headless Rust engine
+Evo is a local-first desktop agent workspace. A headless Rust engine
 (`evo-engine`) runs every chat; the desktop app (`apps/desktop`, Tauri 2 +
 React 19) is a thin shell that starts the engine as a child process and talks
 to it over JSONL (`crates/evo-protocol`). There is no CLI or TUI any more: new
 work goes into the engine, the protocol, or the desktop shell.
 
 This file applies to the whole repository. A nested `AGENTS.md`, if present,
-adds to or overrides it for its directory. evo itself loads this file as the
+adds to or overrides it for its directory. Evo itself loads this file as the
 project's instructions, so keep it accurate.
 
 ## Repository map
@@ -76,7 +76,10 @@ old `evo` CLI/TUI; treat those parts as stale, not as current behaviour.
   remembered text are untrusted data. Keep permission prompts, the sandbox
   config and project trust checks (`.mcp.json`, `.evo/settings.json` hooks) in
   the path of every new capability.
-- **Product naming.** The product is "evo". Don't add references to other
+- **Product naming.** The product is written "Evo" wherever a person reads
+  it: UI strings, messages the app or the agent shows, and docs. Code keeps
+  "evo": crate and binary names, identifiers, paths, settings keys, CLI
+  commands, log prefixes and code comments. Don't add references to other
   vendors' assistant products in code, UI strings or docs.
 
 ## Toolchain
@@ -157,7 +160,7 @@ with `bun run test:shell` (on Windows a bare `cargo test` there ends with
 
 ## Spec-Driven Development (SDD)
 
-evo is built spec first, by agents. Full rules and workflow:
+Evo is built spec first, by agents. Full rules and workflow:
 [docs/README.md](docs/README.md). The short version:
 
 - **The spec is the source of truth.** Each feature is a folder

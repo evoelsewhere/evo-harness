@@ -1,4 +1,4 @@
-# Plugin UI: plugins with their own views in evo — Tasks
+# Plugin UI: plugins with their own views in Evo — Tasks
 
 | | |
 | --- | --- |

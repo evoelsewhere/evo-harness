@@ -54,7 +54,7 @@ export function EngineSettings() {
       <SettingsHeader
         icon={CpuIcon}
         title="Engine"
-        description="The local evo engine runs beside the app and does the agent's work."
+        description="The local Evo engine runs beside the app and does the agent's work."
       />
       <SettingsGroup title="Status">
         <SettingsRow

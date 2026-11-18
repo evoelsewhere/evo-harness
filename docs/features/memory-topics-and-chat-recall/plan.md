@@ -271,7 +271,7 @@ from `evo.db` after a restart.
    pinned, forked or archived; its menu has **End chat**.
 4. A nested chat is created with its parent's flags.
 
-**Ending an incognito chat.** **End chat**, quitting evo, and the next
+**Ending an incognito chat.** **End chat**, quitting Evo, and the next
 start after a crash all do the same: stop the engine, delete the chat's row
 and its nested chats' rows, their transcript files, document versions and
 log entries. At quit this runs after every engine stopped; at start it runs

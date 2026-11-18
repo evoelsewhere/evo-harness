@@ -59,7 +59,7 @@ Measured by v3's `live_bench` (latest three runs):
 3. **Coordinates depend on the model.** Clicking at screenshot coordinates
    only works when the model grounds well and the image is not rescaled. v3
    had to cap images at 1568 px and 1.15 MP because larger ones were scaled
-   again by the model API, and its clicks then landed short. evo lets the
+   again by the model API, and its clicks then landed short. Evo lets the
    person pick models from any provider, so grounding quality cannot be
    assumed.
 4. **A long command path.** The chain of Python tool, WebSocket, chat UI and
@@ -91,7 +91,7 @@ These are candidates for `plan.md`, not decisions yet.
 
 | Order | Channel | Used for | Note |
 | --- | --- | --- | --- |
-| 1 | Page channel: DevTools protocol over a pipe | web-based apps evo starts (Chromium, Electron, WebView2 hosts) | It is the channel evo's agent browser already uses. Input and screenshots work regardless of window visibility. Electron takes `--remote-debugging-pipe`; WebView2 hosts take `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. **To verify:** apps that disable remote debugging (Electron fuses), and whether a pipe is possible for WebView2 or only a loopback port |
+| 1 | Page channel: DevTools protocol over a pipe | web-based apps Evo starts (Chromium, Electron, WebView2 hosts) | It is the channel Evo's agent browser already uses. Input and screenshots work regardless of window visibility. Electron takes `--remote-debugging-pipe`; WebView2 hosts take `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. **To verify:** apps that disable remote debugging (Electron fuses), and whether a pipe is possible for WebView2 or only a loopback port |
 | 2 | UI Automation and MSAA (Windows), AX (macOS) | native apps, WPF, Office, forms, dialogs, already-open web apps | v3 code. WPF supports UIA well even though it drops posted mouse input |
 | 3 | Posted messages | Win32 and WinForms classes known to accept them | v3 code, limited to known-good classes |
 | 4 | Coordinates | canvases and apps with no tree | last resort; the result is flagged |
@@ -216,7 +216,7 @@ Findings:
    and possibly for WebView2 hosts (not measured, see 7).
 4. **The occlusion flag works.** With
    `--disable-features=CalculateNativeWinOcclusion`, Edge kept painting fully
-   off screen. An app evo starts can stay fully off screen.
+   off screen. An app Evo starts can stay fully off screen.
 5. **The DevTools channel works off screen.** Input (a click, Vietnamese text)
    reached the page in every placement, including hidden. `Page.captureScreenshot`
    returned a fresh picture even while the page was hidden, because it forces a
@@ -236,7 +236,7 @@ Not run:
 
 - **WebView2 hosts.** The ones installed were running with the person's
   accounts, and restarting them was out of bounds. The
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` route is documented, and evo's own
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` route is documented, and Evo's own
   end-to-end tests use it.
 - **Electron apps that turn remote debugging off with fuses.** None was at
   hand.

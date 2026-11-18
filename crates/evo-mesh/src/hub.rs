@@ -1000,7 +1000,7 @@ impl<S: MailStore> Hub<S> {
             return Err(Refusal::new(
                 ErrorCode::Unsupported,
                 format!(
-                    "\"{}\" runs in an engine that cannot take mail from other sessions; update evo",
+                    "\"{}\" runs in an engine that cannot take mail from other sessions; update Evo",
                     peer.title
                 ),
             ));
@@ -1449,7 +1449,7 @@ impl<S: MailStore> Hub<S> {
             // Only an engine that resolves roles may send one: anything else
             // was written by the model.
             Some(_) if !roles => {
-                return Err("This engine cannot start sessions with a role; update evo.".into())
+                return Err("This engine cannot start sessions with a role; update Evo.".into())
             }
             Some(value) => Some(
                 serde_json::from_value::<SessionRole>(value.clone())
@@ -1458,7 +1458,7 @@ impl<S: MailStore> Hub<S> {
         };
         if asked && role.is_none() {
             return Err(
-                "This engine cannot start sessions with an agent type, model or thinking level; update evo."
+                "This engine cannot start sessions with an agent type, model or thinking level; update Evo."
                     .into(),
             );
         }
@@ -2426,7 +2426,7 @@ mod tests {
             &old,
             json!({"title": "T", "prompt": "P", "role": reviewer()}),
         );
-        assert!(text.contains("update evo"), "{text}");
+        assert!(text.contains("update Evo"), "{text}");
         assert!(lock(&hub.store().specs).is_empty() && lock(&old.store().specs).is_empty());
         // Without the new arguments a call is what it was.
         let answer = sent(&old.on_line(
@@ -3052,7 +3052,7 @@ mod tests {
         assert!(answer["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("update evo"));
+            .contains("update Evo"));
         assert!(mail.is_empty());
         assert_eq!(hub.store().all().len(), stored, "nothing is stored");
         // A stopped engine is started by this app's own build: it is not refused.

@@ -65,7 +65,7 @@ Phase 1 results (2026-11-10, Windows 11, three monitors):
   - while parked, the app thread's focus is empty after `ctrl+alt+i`.
 
   This is left for the page channel (T24), which is the plan's answer for
-  Electron apps evo starts. It is not a Phase 1 regression of the port.
+  Electron apps Evo starts. It is not a Phase 1 regression of the port.
 
 ### Phase 2 — The tool, the gate and the lifecycle
 
@@ -117,7 +117,7 @@ Done when: FR-14 – FR-20 and FR-23 hold in unit and live tests.
 - [x] T21 [FR-18, FR-19] Channel ladder and honest limits — `computer/mod.rs`, `computer/win/target.rs` — check: T20 passes; live `tells_toolkits_that_drop_posted_input`
 - [x] T22 [P] [FR-14] Set-of-marks: tests, then drawing ref boxes and labels on the screenshot — `computer/marks.rs` — check: `bun run test:shell computer::marks`
 - [x] T23 [P] [FR-20] `zoom`: tests, then crop ×2 and coordinate mapping — `computer/zoom.rs` — check: `bun run test:shell computer::zoom`
-- [x] T24 [FR-16, FR-23, NFR-6] Page channel for web-based apps evo starts:
+- [x] T24 [FR-16, FR-23, NFR-6] Page channel for web-based apps Evo starts:
   - start with `--remote-debugging-pipe` and the occlusion flag, minimized
     without activation;
   - DevTools input and screenshots;
@@ -151,7 +151,7 @@ Phase 3 results (2026-11-10):
     `keeps_a_parked_apps_dialogs_off_screen`.
 - `probes_chromium_pointer` passed once. It failed once because the
   foreground moved from one of the person's windows to another while it ran:
-  the person, not evo, as the window handles showed. Telling these apart is
+  the person, not Evo, as the window handles showed. Telling these apart is
   the input monitor's job (T36).
 - **T25** is built but not ticked: the `picture_may_be_late` flag on actions,
   and the "may be late" line on screenshots. Its unit test passed; the live
@@ -211,7 +211,7 @@ Phase 4 results (2026-11-10):
     releases the card;
   - the transcript showed the tool's `structuredContent` as raw JSON under
     each step. It is no longer sent.
-- **T16** stays open: quitting evo with a hung app (3 s cap) has not run.
+- **T16** stays open: quitting Evo with a hung app (3 s cap) has not run.
 
 ### Phase 5 — Skill
 
@@ -234,7 +234,7 @@ Phase 5 results (2026-11-10):
 - The trigger cases are in
   `crates/evo-engine/tests/fixtures/skill-evals/computer-app-control/trigger-cases.json`
   (14 cases, from v3, Windows-only now). Running them needs a model and an
-  evaluation harness evo does not have yet: **not run**.
+  evaluation harness Evo does not have yet: **not run**.
 
 ### Phase 6 — Benchmark and verification on Windows
 
@@ -272,9 +272,9 @@ Phase 6 results so far (2026-11-09):
   any other window.
 - SC-2 / NFR-2 not met: the monitor saw 8 front-window changes without the
   person's input, all from windows the driven app activated itself in
-  answer to evo's input: Excel's new workbook after `ctrl+n`, Excel's
+  answer to Evo's input: Excel's new workbook after `ctrl+n`, Excel's
   "Create Table" dialog (after its `escape` the front went back to the
-  person's window), and the WinForms probes' dialogs. evo's own code never
+  person's window), and the WinForms probes' dialogs. Evo's own code never
   sets the front window (T1); the apps do. A fix needs a decision (spec
   change), see plan section 5.
 - NFR-4 not met: medians are Snapshot 135 ms, Attach 328 ms, Click 1121 ms,
@@ -283,7 +283,7 @@ Phase 6 results so far (2026-11-09):
 - FR-30 (T45, 2026-11-09): with the foreground lock, smoke run 4 passed
   47 of 52 cases. The monitor now names the window that lost the front and
   counts only the person's: 3 of 13 changes. One came from an action: the
-  person's window lost the front when evo invoked Excel's "Table" button and
+  person's window lost the front when Evo invoked Excel's "Table" button and
   "Create Table" opened, although the lock was held. The other two followed
   the harness starting Word and Excel. The lock alone does not meet SC-2.
   The cases that failed (cell editor, `<select>` popup) fail about 1 in 4
@@ -311,7 +311,7 @@ Phase 6 results so far (2026-11-09):
   Smoke run 5 (before the whole-tree fetch, 1 run): Click 1005, Find 311,
   Invoke 1154, Key 1289, Type 1279 ms medians, 40 of 44 cases. Most of
   it is Excel's own time for the read-back (FR-17), twice per action, so
-  NFR-4 now counts only evo's part (spec History, 2026-11-09). evo's part
+  NFR-4 now counts only Evo's part (spec History, 2026-11-09). Evo's part
   from the step timings: a key about 100 ms (input, the wait for the app,
   the 40 ms look, the walks of the fetched tree), a click about 250 ms
   (mostly the card cursor's 160 ms travel, which the "before" read fills).
@@ -353,7 +353,7 @@ Done when: the same checks pass on macOS 14+.
 
 - [ ] T41 [FR-28, NFR-1] Port the macOS backend without temporary activation; ScreenCaptureKit capture for every window — `computer/mac/*.rs` — check: live `drives_textedit_in_the_background`, `drives_a_parked_chrome_form`
 - [x] T42 [FR-29] Refuse menu commands that need activation — `computer/mac/keyboard.rs`, `computer/mac/menus.rs` — check: live `refuses_menu_commands_that_need_activation` (the frontmost app is unchanged)
-- [ ] T43 [FR-28] macOS permissions card: Allow, Restart evo — `features/settings/sections/computer-apps-settings.tsx`, `computer.rs` — check: on a Mac with permissions revoked
+- [ ] T43 [FR-28] macOS permissions card: Allow, Restart Evo — `features/settings/sections/computer-apps-settings.tsx`, `computer.rs` — check: on a Mac with permissions revoked
 - [ ] T44 [SC-1 – SC-5] The benchmark on macOS — `computer/mac/live_tests.rs` — check: rows recorded
 
 Progress (2026-11-10):
@@ -419,7 +419,7 @@ Progress (2026-11-10):
 | NFR-1 | CI build on Windows, macOS and Linux (T6); macOS phase (T41 – T44) | macOS build and unit tests passed (2026-11-10, local); CI and the macOS live checks not run |
 | NFR-2 | input monitor during the benchmark (T36, T40) | failed (2026-11-09): 8 front-window changes by driven apps |
 | NFR-3 | T10, T24, T25; benchmark freshness column (T40) | not run |
-| NFR-4 | step timings (T46); timing table (T39) | evo's part passed (2026-11-09, step timings): key about 100 ms, click about 250 ms; whole actions in Excel about 1 s, mostly its tree reads; the 10-run table not run |
+| NFR-4 | step timings (T46); timing table (T39) | Evo's part passed (2026-11-09, step timings): key about 100 ms, click about 250 ms; whole actions in Excel about 1 s, mostly its tree reads; the 10-run table not run |
 | NFR-5 | quit with a hung app (T16) | not run |
 | NFR-6 | T24 (pipe only, no network listener: `netstat` during the test); security review | not run |
 | NFR-7 | run at 150 % scaling (T39) | not run |

@@ -287,7 +287,7 @@ pub async fn plugin_runtime_mode(app: AppHandle, id: String, mode: String, idle_
         let store = evo_plugins::Store::in_agent_dir(&crate::mcp::agent_dir());
         let installed = store.installed().into_iter().find(|i| i.id == id).ok_or_else(|| format!("`{id}` is not installed"))?;
         if mode == evo_plugins::runtime::StartMode::WithApp && !installed.approved_permissions.iter().any(|p| p == "startup") {
-            return Err("allow it to start when evo opens first (Permissions)".to_string());
+            return Err("allow it to start when Evo opens first (Permissions)".to_string());
         }
         store.edit(&id, |entry| {
             entry.start_mode = Some(mode);

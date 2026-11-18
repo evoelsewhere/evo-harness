@@ -14,7 +14,7 @@
 
 When the agent changes a file, the project's language server checks it and
 the compiler's errors come back with the `edit` or `write` result: the agent
-sees what it broke without having to ask. evo knows a catalog of language
+sees what it broke without having to ask. Evo knows a catalog of language
 servers, finds the ones already on the computer, installs the others when the
 person asks, and runs one per project. The person manages them on one page
 and is told when a project uses a language that has no server yet. An `lsp`
@@ -100,7 +100,7 @@ Acceptance scenarios:
    intelligence page, **then** the servers for that project are listed first
    with an "Install all" action, then the rest.
 2. **Given** a project that uses three or more files of a language with no
-   server, **when** a chat runs there, **then** evo notifies once for that
+   server, **when** a chat runs there, **then** Evo notifies once for that
    folder with a link to the page.
 
 ### Edge cases
@@ -122,14 +122,14 @@ Acceptance scenarios:
 | FR-2 | A position is given by `line` plus `symbol` (whole word) or `character`. | Given a line and a symbol name, when the tool runs, then it resolves the symbol on word boundaries. |
 | FR-3 | Diagnostics are sorted errors first and wait for the slower check after a quick first report; any request waits while the server is indexing. | Given a fresh server, when diagnostics are asked, then the compiler's errors come back, not an empty list. |
 | FR-4 | Before each request the file is opened (and saved, for servers that check on save) or updated with its current text. | Given an edited file, when diagnostics are asked, then they reflect the edit. |
-| FR-5 | evo ships a catalog of 21 language servers: rust-analyzer (Rust), TypeScript Language Server (TS/JS), Pyright (Python), gopls (Go), clangd (C/C++), csharp-ls (C#), Kotlin Language Server, jdtls (Java, on PATH), Intelephense (PHP), Ruby LSP, HTML / CSS / JSON, YAML, Bash, Dockerfile, Svelte, Lua, Marksman (Markdown), SourceKit-LSP (Swift, with the toolchain), Dart; each with file extensions, root markers, command, how to install and programs it needs. | The server list names every server. |
-| FR-6 | A server is found in this order: evo's own install, then (rust-analyzer) the folder's toolchain, then PATH, then a copy shipped with a code editor's extensions. | Given a server in an editor's extension folder, when evo looks for it, then it is found. |
+| FR-5 | Evo ships a catalog of 21 language servers: rust-analyzer (Rust), TypeScript Language Server (TS/JS), Pyright (Python), gopls (Go), clangd (C/C++), csharp-ls (C#), Kotlin Language Server, jdtls (Java, on PATH), Intelephense (PHP), Ruby LSP, HTML / CSS / JSON, YAML, Bash, Dockerfile, Svelte, Lua, Marksman (Markdown), SourceKit-LSP (Swift, with the toolchain), Dart; each with file extensions, root markers, command, how to install and programs it needs. | The server list names every server. |
+| FR-6 | A server is found in this order: Evo's own install, then (rust-analyzer) the folder's toolchain, then PATH, then a copy shipped with a code editor's extensions. | Given a server in an editor's extension folder, when Evo looks for it, then it is found. |
 | FR-7 | The person can install a server from the app; the install runs in the background with progress in the list, and the output's tail is kept for the app. | Given a missing server, when the person presses Install, then it installs and the list shows progress and the log. |
-| FR-8 | The person can uninstall a server that evo installed. | Given an evo install, when the person presses Uninstall, then it is removed. |
+| FR-8 | The person can uninstall a server that Evo installed. | Given an Evo install, when the person presses Uninstall, then it is removed. |
 | FR-9 | The person can switch a server off and on; the choice is saved. | Given a switched-off server, when the agent calls the tool on its language, then that server is not used. |
 | FR-10 | One server runs per server and project root; the root is the chat's folder when it is itself a project (one server for a whole multi-package workspace), else the nearest folder with a root marker. | Given a file deep in a project, when the tool runs, then the server starts at the nearest marker folder. |
-| FR-11 | evo detects which languages a project uses from file extensions and root markers, four levels deep, skipping dependency and build folders. | Given a mixed project, then each of its languages is detected. |
-| FR-12 | The **Customize → Code intelligence** page lists the chat's project servers first ("Suggested for <folder>", Install all), then the rest; each shows where it comes from, what it needs (missing programs named), the install command, its log or error, a switch, and Uninstall for evo's own installs. | Manual check in the running app. |
+| FR-11 | Evo detects which languages a project uses from file extensions and root markers, four levels deep, skipping dependency and build folders. | Given a mixed project, then each of its languages is detected. |
+| FR-12 | The **Customize → Code intelligence** page lists the chat's project servers first ("Suggested for <folder>", Install all), then the rest; each shows where it comes from, what it needs (missing programs named), the install command, its log or error, a switch, and Uninstall for Evo's own installs. | Manual check in the running app. |
 | FR-13 | Once per folder, a chat whose project uses three or more files of a language without a server notifies with a link to the page. | Manual check in the running app. |
 | FR-14 | Transcript rows describe the call in words, e.g. "Checked for errors · main.rs", "Found references · add". | Manual check in the running app. |
 | FR-15 | After a successful `edit` or `write`, when a server for the file's language is running and switched on, the file is sent to it and the errors it reports (severity error only, at most 20 lines) are added to the tool's result as a separate text part. Warnings are not added. | Given a running server, when an edit breaks a file, then the result ends with the compiler's error. |
@@ -140,8 +140,8 @@ Acceptance scenarios:
 | FR-20 | The setting `editDiagnostics` (on by default, read at each edit) switches the check off; **Customize → Code intelligence** has a switch for it and one for `lspTool`. | Given `editDiagnostics: false`, when the agent edits a file, then nothing is added. |
 | FR-21 | A read-only session never starts language servers (its `edit` and `write` are refused before they run, and `read` does not warm them). | Review: the check runs only after a successful `edit` / `write`; `read` warms only outside read-only sessions. |
 | FR-23 | The result also lists new errors in other files that the same server reports on within the wait, compared per file with that server's reports from before the change (as in FR-16). When the server was busy before the change (say, its first check), there is no settled baseline: every error in other files is listed and the result says some may have been there before. The 20-line cap covers all files, the changed file first. When only other files have errors, the result says so. | Given a Cargo project, when an edit changes a function's return type and a caller in another file breaks, then the result lists the caller's error. |
-| FR-24 | The TypeScript server gets a TypeScript to run on when the project has none: evo installs `typescript@5` beside it (TypeScript 7, the native port, no longer ships `tsserver.js`) and passes it as `tsserver.fallbackPath`; a server from PATH or an editor gets a TypeScript found beside it. | Given a project without `node_modules/typescript`, when the agent edits a `.ts` file, then the server starts and its errors come back. |
-| FR-25 | When an installed server is known not to work as it is (an evo install of the TypeScript server without TypeScript 5 beside it), the page says so on its row ("Needs attention", with why and what fixes it); nothing is downloaded until the person presses Reinstall. | Given the TypeScript server installed with TypeScript 7, when the page opens, then its row says it needs reinstall and nothing is installed. |
+| FR-24 | The TypeScript server gets a TypeScript to run on when the project has none: Evo installs `typescript@5` beside it (TypeScript 7, the native port, no longer ships `tsserver.js`) and passes it as `tsserver.fallbackPath`; a server from PATH or an editor gets a TypeScript found beside it. | Given a project without `node_modules/typescript`, when the agent edits a `.ts` file, then the server starts and its errors come back. |
+| FR-25 | When an installed server is known not to work as it is (an Evo install of the TypeScript server without TypeScript 5 beside it), the page says so on its row ("Needs attention", with why and what fixes it); nothing is downloaded until the person presses Reinstall. | Given the TypeScript server installed with TypeScript 7, when the page opens, then its row says it needs reinstall and nothing is installed. |
 | FR-26 | Settings the servers ask for (`workspace/configuration`) are answered with their defaults: `null`, except `{}` for the CSS server, which checks nothing without settings. | Given a CSS file with an unclosed rule, when the agent edits it, then `} expected` comes back. |
 | FR-27 | A server that gives diagnostics only when asked (pull, `textDocument/diagnostic`; csharp-ls) is asked after each change and after the agent reads a file; a server that refuses the request is not asked again. | Given a C# project, when an edit breaks `Program.cs`, then `CS0029` comes back. |
 | FR-28 | Errors reported twice at one place, with the same code or the same message, are listed once (the longer message kept). | Given Svelte's "Block was left open" as `svelte` and as `js`, then one error is listed. |
@@ -179,7 +179,7 @@ n/a — no open questions.
   its edit caused? → A: No; the errors come with the `edit` / `write`
   result (FR-15–FR-20), and the `lsp` tool is off by default (FR-1), since
   the agent rarely chose to call it.
-- 2026-11-06 — Q: Should evo test installs from npm and GitHub
+- 2026-11-06 — Q: Should Evo test installs from npm and GitHub
   automatically? → A: No; installs download and run code, so they happen
   only when the person presses Install (NFR-1).
 

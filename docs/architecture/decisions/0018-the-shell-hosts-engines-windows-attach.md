@@ -81,5 +81,5 @@ own them.
 | Option | Why not |
 | --- | --- |
 | Keep a hidden main webview alive as the host (today) | Throttled timers, lost in-memory state on reload, and every decision duplicated per window; with the tray off there is no host at all. |
-| A separate background daemon process owning engines | A second long-lived process, its own IPC and lifecycle; the shell already is that process while evo runs. Running with evo quit is a non-goal. |
+| A separate background daemon process owning engines | A second long-lived process, its own IPC and lifecycle; the shell already is that process while Evo runs. Running with Evo quit is a non-goal. |
 | Let engines host each other (a parent starts its children) | Engines would need database, window and tool-setup knowledge, which breaks the engine/shell split (0003, 0013). |

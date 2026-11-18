@@ -65,7 +65,7 @@ errors within the wait, and the `lsp` tool is opt-in.
 | FR-5 | `cargo test -p evo-lsp files_map_to_servers`; `cargo test -p evo-engine the_list_names_every_server` | not run |
 | FR-6 | `cargo test -p evo-lsp binaries_are_found_in_unpacked_folders` | not run |
 | FR-7 | Manual: Install from npm and GitHub in the running app | not run (installs download and run code; done only on the person's press) |
-| FR-8 | Manual: Uninstall an evo install in the running app | not run |
+| FR-8 | Manual: Uninstall an Evo install in the running app | not run |
 | FR-9 | Manual: switch a server off on the page, then call `lsp` | not run |
 | FR-10 | `cargo test -p evo-lsp roots_are_the_nearest_marker_folder` | not run |
 | FR-11 | `cargo test -p evo-lsp a_mixed_project_is_detected` | not run |
@@ -86,7 +86,7 @@ errors within the wait, and the `lsp` tool is opt-in.
 | FR-21 | Review: the check runs only after a successful `edit` / `write` (`EditCheck::execute` returns the inner error first); `WarmOnRead` checks `current_is_read_only()` | passed (2026-11-18) |
 | FR-23 | `cargo test -p evo-lsp edit_check`; example `edit-check` with rust-analyzer on a two-file Cargo project (changing `add` to return `i64` listed `src/main.rs:4:22 … E0308` in 0.7 s; with `READ_FIRST_MS=2500`, a cold server, it was listed in 4.3 s); running app, real model, new chat, "make `add` return i64": the edit came back with the caller's error and the model read and fixed `src/main.rs` on its own (two runs before FR-23 left it broken) | passed (2026-11-18) |
 | FR-24 | Example `edit-check` with the TypeScript server installed by `lsp-try install typescript` into a scratch dir (a project without `node_modules`): `Cannot find name 'missingValue' [typescript 2304]` in 0.7–1.4 s; with `src/main.ts` read, changing `add` to return `string` listed `src/main.ts:3:7 … [typescript 2322]`; clean edits 1.1–1.5 s | passed (2026-11-18) |
-| FR-25 | `cargo test -p evo-lsp a_typescript_server_without_typescript_5_needs_reinstall`; running app (test copy) with a copy of the TypeScript 7 install: the row read "Installed by evo · Needs reinstall" with the reason, and nothing was installed (`installing: false`) | passed (2026-11-18) |
+| FR-25 | `cargo test -p evo-lsp a_typescript_server_without_typescript_5_needs_reinstall`; running app (test copy) with a copy of the TypeScript 7 install: the row read "Installed by Evo · Needs reinstall" with the reason, and nothing was installed (`installing: false`) | passed (2026-11-18) |
 | FR-26 | Example `edit-check`: CSS `} expected [css css-rcurlyexpected]`, HTML `Expression expected. [javascript]` (embedded script), JSON `Trailing comma [json 519]`, each fixed edit "no errors left"; Rust, Python, TypeScript unchanged | passed (2026-11-18) |
 | FR-27 | Example `edit-check`, C# (csharp-ls 0.16.0, .NET 8): `Cannot implicitly convert type 'string' to 'int' [lsp CS0029]`, then "no errors left" | passed (2026-11-18) |
 | FR-28 | `cargo test -p evo-lsp edit_check_reports_one_error_per_place_and_code`; Svelte showed one "Block was left open" | passed (2026-11-18) |

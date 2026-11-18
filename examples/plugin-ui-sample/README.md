@@ -1,6 +1,6 @@
 # Sticky Wall — a plugin with views
 
-A sample evo plugin that uses all four places a plugin view can show
+A sample Evo plugin that uses all four places a plugin view can show
 ([plugin UI spec](../../docs/features/plugin-ui/spec.md)):
 
 | Slot | View | What it does |
@@ -34,7 +34,7 @@ views reload whenever you save a file in this folder.
   permissions they need under `permissions`. Each view is an HTML file in
   the plugin; icons are SVG or PNG.
 - Each view runs in its own webview, served from the plugin folder at an
-  origin of its own. It reaches evo only through `window.evo`, which evo
+  origin of its own. It reaches Evo only through `window.evo`, which Evo
   injects before the page's scripts. Every call is checked against the
   permissions the person approved.
 - Scripts are files (`<script src>`): the page's policy runs no inline

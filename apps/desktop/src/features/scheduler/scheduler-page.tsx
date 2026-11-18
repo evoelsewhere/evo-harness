@@ -386,7 +386,7 @@ function Intro({ onExample }: { onExample(example: TaskInput): void }) {
         <h2 className="text-base font-semibold">Run prompts on a schedule</h2>
         <p className="text-[13px] text-muted-foreground">
           Each run starts a new chat in the folder you pick, with your prompt, and shows up in the sidebar like any other
-          chat. Tasks run while evo is open — with the tray icon on, closing the window keeps them going. Agents can
+          chat. Tasks run while Evo is open — with the tray icon on, closing the window keeps them going. Agents can
           schedule tasks too, after you approve.
         </p>
       </div>

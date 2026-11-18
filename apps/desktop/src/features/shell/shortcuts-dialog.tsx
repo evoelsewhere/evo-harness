@@ -12,7 +12,7 @@ export function ShortcutsDialog() {
       <DialogContent className="max-h-[80vh] gap-4 overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
-          <DialogDescription>What each key does across evo.</DialogDescription>
+          <DialogDescription>What each key does across Evo.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
           {shortcutGroups().map((group) => (

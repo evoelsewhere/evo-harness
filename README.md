@@ -28,7 +28,7 @@
   limits, costs and thinking options come from models.dev, not from code.
 - **Workspace tools beside the chat:** Files with a code editor and Git
   changes, Terminal, a Browser the agent can drive, Memory and a side chat.
-- **Plugins with their own screens, code and AI.** Ask evo to build one with
+- **Plugins with their own screens, code and AI.** Ask Evo to build one with
   you (Creator Mode), or install one: it can add pages and panels, run a
   backend, sign in to services and use your own models, only as you allow.
 - **You stay in control:** approval prompts, a sandbox, project trust, and the
@@ -45,7 +45,7 @@ Shape how the agent works, per person or per project, from **Customize** in
 the sidebar. Changes apply without restarting the app.
 
 - **Skills and slash commands** in the open Agent Skills (`SKILL.md`) format,
-  from evo's folders, `.agents/skills` or plugins. Each skill has a switch, a
+  from Evo's folders, `.agents/skills` or plugins. Each skill has a switch, a
   "who can use it" setting and a usage count; type `/` in the composer to run
   one.
 - **Connectors (MCP servers)** over stdio, streamable HTTP or SSE, with OAuth
@@ -66,28 +66,28 @@ after you trust the folder and approve them.
 
 ### Plugins and Creator Mode
 
-A plugin is a folder evo installs. Besides skills and connectors, it can bring
+A plugin is a folder Evo installs. Besides skills and connectors, it can bring
 its own screens, code and AI, and it gets only what you approve in its consent
 dialog. Each plugin has a page in **Customize → Plugins** with its settings,
 accounts, permissions, runtime, data and models.
 
 - **Creator Mode.** Ask in a chat for the plugin you want. The bundled
   `evo-creator` skill leads the agent through the folder, the manifest, the
-  code and a design that matches evo, then you add it from its folder and turn
+  code and a design that matches Evo, then you add it from its folder and turn
   on Developer mode to see each edit at once.
 - **Views in the app:** a sidebar page, a side panel, chat cards and composer
-  actions. They are native webviews, one origin per plugin, that reach evo
+  actions. They are native webviews, one origin per plugin, that reach Evo
   only through `window.evo`, with every call checked against the permissions
   you approved. Incognito chats are invisible to them.
 - **Its own code and accounts.** A backend runs on demand under Deno, limited
   to the sites and folders you allowed, or with uv for Python. Settings can be
   secret, sealed in a vault whose key is in your OS keychain. Accounts sign in
-  with OAuth, a device code, an API key or a web login, and evo renews tokens.
+  with OAuth, a device code, an API key or a web login, and Evo renews tokens.
   The plugin's pages see an account's state, never its token.
 - **Your AI models, natively.** With `ai`, a plugin streams answers from the
   models you connected, chosen by need (fast, balanced or best) among those
   you allow for it, with one fallback when a provider fails. Its runs can call
-  functions of its own page, tools of its backend, and evo's read, edit,
+  functions of its own page, tools of its backend, and Evo's read, edit,
   command, web, browser and terminal tools under your approval mode. Runs keep
   threads per subject and can attach the open chat or files you allowed. The
   plugin never sees a key; its **Models** tab shows what it spent and its runs,
@@ -139,7 +139,7 @@ document or a chat app. The app's window moves off your screen while the agent
 works in it (it is not minimised or hidden), and a live card shows it with a
 virtual cursor.
 
-- **Never your mouse or keyboard.** evo does not move your pointer, change
+- **Never your mouse or keyboard.** Evo does not move your pointer, change
   your keyboard focus or front window, or use the clipboard.
 - **Every action asks first** by default, even in Approve for me. The prompt
   lists each click and keystroke as it will run.
@@ -152,7 +152,7 @@ virtual cursor.
   it was when control ends.
 
 Turn it on in **Settings → Computer apps** (off by default), where you can
-also allow or block apps. evo itself, system processes, apps running as
+also allow or block apps. Evo itself, system processes, apps running as
 administrator and password fields are never controlled.
 [Spec](docs/features/computer-app-control/spec.md)
 

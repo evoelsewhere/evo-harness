@@ -12,7 +12,7 @@
 
 ## 1. Summary
 
-evo v3 could open, render and edit Word, PowerPoint and Excel files because it
+Evo v3 could open, render and edit Word, PowerPoint and Excel files because it
 shipped an optional, downloadable LibreOffice runtime plus three Office skills.
 v4 has neither. This feature brings that capability to the Rust engine: the
 person opens an Office file in Files, which offers a trimmed LibreOffice runtime
@@ -55,7 +55,7 @@ so and offers the install, nothing else.
 ### US-1 Preview an Office file (priority P1)
 
 A person wants to see a Word, PowerPoint or Excel file in Files as Office lays
-it out, so that they can check a document without leaving evo.
+it out, so that they can check a document without leaving Evo.
 
 Acceptance scenarios:
 
@@ -91,7 +91,7 @@ create, convert and check documents for the person.
 
 Acceptance scenarios:
 
-1. **Given** a fresh install of evo, **when** the person opens Customize,
+1. **Given** a fresh install of Evo, **when** the person opens Customize,
    **then** the docx, pptx and xlsx skills are listed and can be loaded.
 2. **Given** a running chat, **when** the person installs the runtime,
    **then** the next shell command in that chat sees `EVO_SOFFICE` without

@@ -317,10 +317,10 @@ last until that point.
 | App hangs on an action | The action times out (60 s + 20 ms per character), is interrupted where it got to, and only that chat waits; frames keep flowing (FR-26, NFR-5). |
 | Window closes or the process exits | `gone` release; the card closes; the agent is told; the journal row is removed. |
 | Person brings the window back from the taskbar | The next action re-stages it; only **Show the app** hands it back (spec edge case). |
-| evo is killed | Rows stay in `computer_parked`; the next start restores them (FR-8). |
-| evo quits with a hung app | Restores run on their own threads; quitting waits at most 3 s, and the rest stay journalled (NFR-5). |
+| Evo is killed | Rows stay in `computer_parked`; the next start restores them (FR-8). |
+| Evo quits with a hung app | Restores run on their own threads; quitting waits at most 3 s, and the rest stay journalled (NFR-5). |
 | The page channel is refused (the app ignores the flags, or Electron fuses block them) | The app is driven through channel 2, it gets the corner pixel if it is Chromium, and the result says `page channel unavailable`. |
-| A WebView2 host | No page channel: the browser process is not evo's child, so a pipe cannot be inherited, and a port would break NFR-6. It is driven through channel 2, and WebView2 keeps painting off screen (v3). |
+| A WebView2 host | No page channel: the browser process is not Evo's child, so a pipe cannot be inherited, and a port would break NFR-6. It is driven through channel 2, and WebView2 keeps painting off screen (v3). |
 | Elevated, UWP CoreWindow or protected app | Refused at `list_windows` and `attach` (FR-4). |
 | Model without image input | `screenshot`, `zoom` and `marks` return a text note; the tree still works. |
 | Password field | `type` and `set_value` are refused with the reason (FR-21). |
@@ -332,12 +332,12 @@ last until that point.
 - The tool is absent unless the person enabled it. Every acting call passes
   `Class::Control`, and the prompt lists each action as it will run
   (FR-24).
-- Protected processes, elevated processes and evo itself are refused at
+- Protected processes, elevated processes and Evo itself are refused at
   every entry point (`list_windows`, `attach`, `open_app`, `close_app`,
   `kill_app`).
 - `open_app` starts only catalog entries; paths and command lines from the
   agent are refused (FR-23).
-- The page channel is a pipe inherited by the app evo started, never a
+- The page channel is a pipe inherited by the app Evo started, never a
   network port (NFR-6). The agent never gets raw DevTools access. Only the
   tool's actions use it: no script evaluation, cookies, storage or network.
 - Results are untrusted app content (FR-25). The skill repeats that app text
@@ -511,7 +511,7 @@ Phase 3 (2026-11-10):
   - This call keeps the foreground; it never takes it, so ADR 0015 holds and
     T1 does not forbid it.
   - `open_app` also reports `took_foreground` when an app took the front
-    anyway; evo never takes it back.
+    anyway; Evo never takes it back.
 - **Late pictures (NFR-3).** For web content without a page channel, the
   window's picture is fingerprinted before and after each acting action. A
   tree change with an unchanged picture sets `picture_may_be_late`, and
@@ -535,7 +535,7 @@ Phase 4 (2026-11-10):
   - `computer://attached` from the tool after a successful attach;
   - `computer://released` on detach, turn end or engine stop (`turn`),
     Close or Show the app (`close`), a window that went away (`gone`),
-    resume without an app (`resume`), and evo quitting or the feature off
+    resume without an app (`resume`), and Evo quitting or the feature off
     (`chat: null`);
   - `computer://state` on Stop and Allow again.
 - **Close and Show the app.** Both refuse `attach` until the turn ends
@@ -602,7 +602,7 @@ Phase 6 (2026-11-09, in progress):
   working on.
 - **Apps activate their own windows (FR-30).** Driven by background input,
   Excel activates a new workbook and its dialogs, and WinForms activates a
-  modal dialog; the front window then left the person's window. evo makes
+  modal dialog; the front window then left the person's window. Evo makes
   no foreground call for the agent (ADR 0015); instead `win/front.rs` holds
   `LockSetForegroundWindow(LSFW_LOCK)` while an action runs and for 1.5 s
   after. Holds are counted across chats and the page channel's start, so
@@ -652,7 +652,7 @@ Phase 6 (2026-11-09, in progress):
   - the travel is 160 ms, matching the card cursor's 150 ms glide.
 
   Excel still takes about 1 s an action, almost all of it handing out its
-  tree twice; NFR-4 now counts evo's part only, and the whole time is
+  tree twice; NFR-4 now counts Evo's part only, and the whole time is
   reported per app. Reusing one action's "after" as the next "before"
   would halve it, at the risk of counting a late change of the app toward
   the next action; not done.
@@ -687,7 +687,7 @@ Phase 7 (2026-11-10, in progress):
   did on attach and capture); they return which permission is missing.
   `computer_permissions`, `computer_request_permission` and
   `computer_restart` serve Settings → Computer apps, which shows both
-  permissions with Allow, and Restart evo while Screen Recording was asked
+  permissions with Allow, and Restart Evo while Screen Recording was asked
   for in this run but macOS still reports it missing.
 - **Front window (FR-30).** `holds_the_front` is "the attached app is the
   frontmost app".

@@ -51,7 +51,7 @@ Acceptance scenarios:
    sidebar and Usage is listed in the More menu.
 2. **Given** Usage is hidden, **when** they pick Usage in the More menu,
    **then** the Usage page opens, the same as from the sidebar row.
-3. **Given** Usage is hidden, **when** evo restarts, **then** it is still
+3. **Given** Usage is hidden, **when** Evo restarts, **then** it is still
    hidden.
 
 ### US-2 Show an item again (priority P1)
@@ -83,7 +83,7 @@ Acceptance scenarios:
 | FR-2 | Shown items appear as sidebar rows in list order, below New chat, followed by a More row. | Given Scheduler and Customize shown and Usage hidden, then the rows read New chat, Scheduler, Customize, More. |
 | FR-3 | The More row opens a menu listing the hidden items in list order, a separator, and Edit sidebar…. Picking an item does what its row does. | Given Usage hidden, when More › Usage is picked, then the Usage page opens. |
 | FR-4 | Edit sidebar… opens a dialog with one checkbox per item (icon and name). Ticking or unticking takes effect right away. A Done button and the close button close the dialog. | Given the dialog open, when Usage is unticked, then the Usage row disappears before the dialog is closed. |
-| FR-5 | Choices are kept across restarts. An item the person never changed follows its default. | Given Usage hidden and evo restarted, then Usage is hidden. Given an item added later, then it follows its own default. |
+| FR-5 | Choices are kept across restarts. An item the person never changed follows its default. | Given Usage hidden and Evo restarted, then Usage is hidden. Given an item added later, then it follows its own default. |
 | FR-6 | A row shows as active while its page is open. When the open page belongs to a hidden item, the More row shows as active. | Given Usage hidden and the Usage page open, then More is highlighted. |
 
 ### 4.2 Non-functional

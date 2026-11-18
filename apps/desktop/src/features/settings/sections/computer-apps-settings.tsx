@@ -185,7 +185,7 @@ export function ComputerAppsSettings() {
       </SettingsGroup>
 
       {isMac && granted?.required && (
-        <SettingsGroup title="macOS permissions" description="macOS asks you to allow these in System Settings. evo never asks on its own: only these buttons do.">
+        <SettingsGroup title="macOS permissions" description="macOS asks you to allow these in System Settings. Evo never asks on its own: only these buttons do.">
           <PermissionRow
             id="computer-apps-accessibility"
             label="Accessibility"
@@ -198,7 +198,7 @@ export function ComputerAppsSettings() {
             label="Screen Recording"
             description={
               granted.restart_needed
-                ? "macOS applies this after evo restarts."
+                ? "macOS applies this after Evo restarts."
                 : "Takes the pictures of the app the agent and the card see."
             }
             granted={granted.screen_recording}
@@ -320,7 +320,7 @@ function PermissionRow({
           <div className="flex items-center gap-2">
             {restart && (
               <Button variant="outline" size="sm" onClick={restart}>
-                Restart evo
+                Restart Evo
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={onAllow}>

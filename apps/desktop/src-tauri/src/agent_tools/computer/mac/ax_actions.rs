@@ -95,7 +95,7 @@ pub(super) fn ax_error(error: AXError) -> String {
         -25204 => "the app did not answer in time",
         -25205 => "the attribute is not supported",
         -25206 => "the action is not supported",
-        -25211 => "accessibility is not allowed for evo",
+        -25211 => "accessibility is not allowed for Evo",
         _ => "accessibility error",
     };
     format!("{meaning} ({error})")

@@ -65,7 +65,7 @@ when the design was written and the reference behaviour it follows; section
 - **Merging.** A child in its own worktree commits on its own branch; the
   parent merges only when the person says so.
 
-### 1.2 What evo had before (engine)
+### 1.2 What Evo had before (engine)
 
 - **Child agents existed, but only plugins could start them.**
   `crates/evo-engine/src/child_agents.rs` runs plugin-owned children through
@@ -108,7 +108,7 @@ when the design was written and the reference behaviour it follows; section
   desktop did not use it yet. It is exactly the shape of "start a session and
   return its id".
 
-### 1.3 What evo had before (desktop)
+### 1.3 What Evo had before (desktop)
 
 - **Transcript** (`apps/desktop/src/features/chat/transcript.ts`): turns of
   text, reasoning and tool parts; `tool_execution_update` replaces a tool

@@ -14,7 +14,7 @@ parses shell commands and allows only listed reading commands. It has been
 hardened twice, but it is still a parser that must read a command the way
 bash or PowerShell would. Each misreading found so far was a way to write.
 
-evo has no operating-system sandbox. "Sandbox" in evo means one process-wide
+Evo has no operating-system sandbox. "Sandbox" in Evo means one process-wide
 policy that the engine applies itself: timeouts, output size, environment and
 denied file patterns. Shell commands run with the person's full rights. The
 policy is global, so the parent and its read-only children share it.

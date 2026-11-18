@@ -155,7 +155,7 @@ function headline(status: UpdateStatus | undefined, version: string) {
     case "installing":
       return {
         title: `Installing Evo Harness ${version}`,
-        line: "evo will restart in a moment.",
+        line: "Evo will restart in a moment.",
       };
     case "notice":
       return {

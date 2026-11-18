@@ -1,6 +1,6 @@
-# evo documentation
+# Evo documentation
 
-This folder is the single home for evo's design documentation. evo is built
+This folder is the single home for Evo's design documentation. Evo is built
 with **Spec-Driven Development (SDD)**, carried out by agents
 (**agent-driven development**): a feature starts as a written spec, the spec
 is turned into a technical plan and then into small tasks, and agents
@@ -231,7 +231,8 @@ the old one.
   never absolute file paths or machine-specific paths.
 - Code, paths, commands, settings keys, RPC/tool names in backticks; UI names
   in bold (**Settings → Sandbox**).
-- The product is "evo". Do not name other vendors' assistant products in docs;
+- The product is "Evo" in prose; `evo` only in code, paths and commands. Do
+  not name other vendors' assistant products in docs;
   describe a reference behaviour by what it does.
 - Dates as `YYYY-MM-DD`.
 - No secrets, tokens, real user data or personal paths in examples.

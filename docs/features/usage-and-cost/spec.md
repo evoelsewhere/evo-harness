@@ -12,7 +12,7 @@
 
 ## 1. Summary
 
-evo keeps a history of every model response a chat gets — its tokens, how
+Evo keeps a history of every model response a chat gets — its tokens, how
 long it took and what it cost — and shows it on a Usage page (sidebar →
 **Usage**): totals and rates, a stacked chart over time by model (hourly,
 daily or weekly), observations worth acting on, each model's efficiency (cost
@@ -33,7 +33,7 @@ days, or whether a model was worth its price.
   input, output, cache reads and cache writes.
 - Show each model's current models.dev price (per million tokens) next to
   what it cost, and flag models with no price.
-- Keep everything on this computer, in evo's local database.
+- Keep everything on this computer, in Evo's local database.
 
 ### 2.2 Non-goals
 
@@ -50,7 +50,7 @@ days, or whether a model was worth its price.
 
 ### US-1 See where the money went (priority P1)
 
-A person using evo with paid models wants to see what their chats cost over
+A person using Evo with paid models wants to see what their chats cost over
 time, by model, by chat and by source so that they know where the money goes.
 
 Acceptance scenarios:

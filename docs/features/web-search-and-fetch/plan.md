@@ -10,7 +10,7 @@
 
 ## 1. Context and constraints
 
-### 1.1 What evo had before
+### 1.1 What Evo had before
 
 - No web tool was built in. `websearch` and `webfetch` existed as optional
   extensions in the separate `evo-package` repository (`evo install
@@ -25,7 +25,7 @@
   types. A provider's own search (layer 3) returns blocks that must be sent
   back unchanged on the next turn, so it cannot work until `evo-ai` carries
   such blocks through.
-- evo v3 searched through a chain of keyless backends; this design follows
+- Evo v3 searched through a chain of keyless backends; this design follows
   it, except for what section 4 lists as not carried over.
 
 ### 1.2 The model provider searches (server-side tools)
@@ -64,7 +64,7 @@ models that support it.
 
 ### 1.4 External constraints
 
-- DuckDuckGo has no official web-search API; evo reads the page meant for
+- DuckDuckGo has no official web-search API; Evo reads the page meant for
   browsers without JavaScript, with an honest user agent and low volume. It
   can stop working if the page changes or DuckDuckGo limits it. DuckDuckGo
   often answers the first request with 202.
@@ -166,7 +166,7 @@ the start was read.]". `details`: `url`, `finalUrl`, `title`,
 
 **Backends:**
 
-- `search::duckduckgo`: POST `https://html.duckduckgo.com/html/` with evo's
+- `search::duckduckgo`: POST `https://html.duckduckgo.com/html/` with Evo's
   own user agent (no browser impersonation); `site:` / `-site:` for domain
   limits; `df` for recency; ads skipped; redirect links decoded.
 - `search::exa`: Exa's hosted MCP server (`https://mcp.exa.ai/mcp`, tool
@@ -262,7 +262,7 @@ citations as numbered chips.
 | --- | --- |
 | Only the provider's own search | Per provider, different shapes, costs per search, blocks to round-trip, and only for models that support it; kept as layer 3. |
 | Only keyed backends ("no backend configured → the tool is not offered", the original layer 2) | Chats would have no search out of the box; the keyless chain works with nothing configured, and keyed backends stay proposed. |
-| The `ddgs` library v3 used (it impersonates a browser to pass bot checks) | Not carried over: evo uses its own user agent. |
+| The `ddgs` library v3 used (it impersonates a browser to pass bot checks) | Not carried over: Evo uses its own user agent. |
 | v3's `brave` and `mojeek` HTML backends | Not carried over. |
 | Matching the URL text against private ranges | Bypassed by DNS and redirects; addresses are checked after resolution and on every hop. |
 | Optional extensions (`evo-websearch`, `evo-webfetch`) | The desktop installed neither; a built-in tool reaches every chat. |
@@ -279,7 +279,7 @@ citations as numbered chips.
   resolver: the check runs at connection time on every address, so DNS
   rebinding cannot reach a private address.
 - **Layer 2** is a keyless chain (DuckDuckGo, then Exa, then Wikipedia), as
-  evo v3 did, instead of keyed backends; keyed backends and **Settings → Web**
+  Evo v3 did, instead of keyed backends; keyed backends and **Settings → Web**
   are not built.
 - **Layer 3** is not built.
 - Checked with a real model (2026-11-06): it searched, read the official

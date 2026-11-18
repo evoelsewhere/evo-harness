@@ -19,9 +19,9 @@
   [Code intelligence](../code-intelligence/plan.md).
 - ADD rules: the engine owns logic, the shell relays; layers point down;
   tool output and documents are untrusted; real engine in the app.
-- LibreOffice is MPL-2.0; the bundle is downloaded, not redistributed inside evo.
+- LibreOffice is MPL-2.0; the bundle is downloaded, not redistributed inside Evo.
 - The skills are Apache-2.0 (kept, with their LICENSE files). Their scripts run
-  through `uv run --with …` and `bun`, as in v3; evo does not ship Python.
+  through `uv run --with …` and `bun`, as in v3; Evo does not ship Python.
 
 ## 2. Architecture check
 
@@ -98,7 +98,7 @@ Agent shells: `EVO_SOFFICE` and the runtime directory appended to `PATH`
 (FR-8).
 
 Older engines answer unknown request types with their usual error; the UI shows
-it as "update evo".
+it as "update Evo".
 
 ### 3.4 Data and storage
 

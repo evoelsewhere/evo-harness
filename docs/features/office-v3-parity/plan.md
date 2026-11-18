@@ -133,7 +133,7 @@ Renames (the only intended differences in skill and plan text):
 | `<evoflux-annotations>` | `<evo-annotations>` (parser accepts both) |
 | `shell` tool | `bash` / `powershell` |
 | "load the SKILL.md with `read`" | the `skill` tool |
-| "EvoFlux hosts its own preview…" | "evo hosts its own preview…" |
+| "EvoFlux hosts its own preview…" | "Evo hosts its own preview…" |
 
 Older clients ignore the new event; older engines answer the new RPCs with an
 unknown-type error and the viewer falls back to today's pdf.js path.

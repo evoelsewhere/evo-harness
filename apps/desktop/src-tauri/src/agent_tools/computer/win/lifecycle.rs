@@ -77,7 +77,7 @@ pub(super) fn open_app(session_id: &str, params: &Value) -> Result<Value, String
             // it says so instead.
             if foreground == row.hwnd && front_before != row.hwnd {
                 result["took_foreground"] = json!(true);
-                result["note"] = json!("The app brought its window to the front when it started; evo does not take the front back. Tell the person, and do not type until the app is attached and parked.");
+                result["note"] = json!("The app brought its window to the front when it started; Evo does not take the front back. Tell the person, and do not type until the app is attached and parked.");
             }
             return Ok(result);
         }
@@ -243,7 +243,7 @@ pub(super) fn kill_app(session_id: &str, params: &Value) -> Result<Value, String
     let pid = app_process(row.hwnd, row.pid);
     unsafe {
         let process = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid)
-            .map_err(|error| format!("Windows did not let evo end {}: {error}", row.app))?;
+            .map_err(|error| format!("Windows did not let Evo end {}: {error}", row.app))?;
         let ended = TerminateProcess(process, 1);
         if ended.is_ok() {
             let _ = WaitForSingleObject(process, 3_000);

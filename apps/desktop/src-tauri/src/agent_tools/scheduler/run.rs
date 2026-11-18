@@ -206,7 +206,7 @@ pub async fn run<H: RunHost>(host: &H, id: &str, trigger: Trigger, now: i64) -> 
             task: id.to_string(),
             title: format!("Running “{name}”"),
             body: if trigger == Trigger::Missed {
-                "Missed while evo was closed; running now.".to_string()
+                "Missed while Evo was closed; running now.".to_string()
             } else {
                 super::describe_task_schedule(&task)
             },
@@ -489,7 +489,7 @@ mod tests {
         let missed = fake.task("missed");
         assert_eq!(missed["runs"][0]["trigger"], "missed");
         assert!(missed["nextRunAt"].as_i64().unwrap() > NOW, "it goes on from now");
-        assert_eq!(fake.lines("notice"), [format!("notice Running “Task missed” | Missed while evo was closed; running now. | {}", missed["runs"][0]["chatId"].as_str().unwrap())]);
+        assert_eq!(fake.lines("notice"), [format!("notice Running “Task missed” | Missed while Evo was closed; running now. | {}", missed["runs"][0]["chatId"].as_str().unwrap())]);
         // Started again (the next start, a hidden one): nothing more to catch up.
         catch_up(&fake, NOW).await;
         assert_eq!(fake.lines("start").len(), 1);

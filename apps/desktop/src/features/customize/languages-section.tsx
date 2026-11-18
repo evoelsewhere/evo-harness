@@ -52,7 +52,7 @@ export interface LanguagesState {
 }
 
 const SOURCE: Record<string, string> = {
-  managed: "Installed by evo",
+  managed: "Installed by Evo",
   path: "On PATH",
   toolchain: "Rust toolchain",
   editor: "From your editor",
@@ -364,7 +364,7 @@ export function LanguagesSection({ query }: { query: string }) {
           )}
         </section>
         <p className="text-[11px] text-muted-foreground">
-          evo installs servers into <span className="font-mono">{state.lspDir}</span>. Servers already on your PATH, in the
+          Evo installs servers into <span className="font-mono">{state.lspDir}</span>. Servers already on your PATH, in the
           Rust toolchain or bundled with VS Code-style editors are used as they are.
         </p>
       </div>

@@ -107,7 +107,7 @@ export function GeneralSettings() {
         icon={SlidersHorizontalIcon}
         title="General"
         description={
-          inTauri ? "How evo starts and what it keeps doing in the background." : "These settings need the desktop app."
+          inTauri ? "How Evo starts and what it keeps doing in the background." : "These settings need the desktop app."
         }
       />
       <SettingsGroup title="Startup">
@@ -116,8 +116,8 @@ export function GeneralSettings() {
           label="Run on startup"
           description={
             settings && !settings.tray
-              ? `Open evo when you sign in to this computer. With the ${TRAY} icon off, it opens its window.`
-              : `Open evo when you sign in to this computer. It starts in the ${TRAY} without opening a window.`
+              ? `Open Evo when you sign in to this computer. With the ${TRAY} icon off, it opens its window.`
+              : `Open Evo when you sign in to this computer. It starts in the ${TRAY} without opening a window.`
           }
           control={toggle("runOnStartup")}
         />
@@ -126,13 +126,13 @@ export function GeneralSettings() {
         <SettingsRow
           labelId="setting-tray"
           label={`Show in ${TRAY}`}
-          description={`Keep the evo icon in the ${TRAY_AREA}. Closing the window leaves evo running there, so running chats and scheduled tasks carry on. When off, closing the last window quits evo.`}
+          description={`Keep the Evo icon in the ${TRAY_AREA}. Closing the window leaves Evo running there, so running chats and scheduled tasks carry on. When off, closing the last window quits Evo.`}
           control={toggle("tray")}
         />
         <SettingsRow
           labelId="setting-keepAwake"
           label="Keep computer awake"
-          description="Stop this computer from going to sleep while evo is running, so scheduled tasks and long agent runs keep going while you are away. The display can still turn off."
+          description="Stop this computer from going to sleep while Evo is running, so scheduled tasks and long agent runs keep going while you are away. The display can still turn off."
           control={toggle("keepAwake")}
         />
       </SettingsGroup>

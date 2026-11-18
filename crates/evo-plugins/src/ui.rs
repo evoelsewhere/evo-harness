@@ -339,7 +339,7 @@ pub fn parse_permission_info(value: Option<&Value>) -> (Vec<PermissionInfo>, Vec
             }
         } else {
             problems.push(format!(
-                "permissions: `{raw}` is not a permission evo knows"
+                "permissions: `{raw}` is not a permission Evo knows"
             ));
             None
         };
@@ -362,19 +362,19 @@ pub fn describe_permission(permission: &str) -> String {
     match permission {
         "chat:read" => "Read all your chats".into(),
         "chat:send" => "Send messages in your chats".into(),
-        "tools:call" => "Use evo's app and connector tools, with your approval".into(),
+        "tools:call" => "Use Evo's app and connector tools, with your approval".into(),
         "composer:write" => "Put text in the message box".into(),
         "storage" => "Keep its own data".into(),
         "runtime" => "Run its own code on this computer".into(),
         "hooks" => "Run commands while the agent works".into(),
         "secrets" => "Use the keys and accounts you give it".into(),
-        "startup" => "Start when evo opens".into(),
+        "startup" => "Start when Evo opens".into(),
         "ai" => "Use your AI models — this may cost money on your providers".into(),
         "ai.tools:read" => "Let its AI read and search your files".into(),
         "ai.tools:edit" => "Let its AI change your files".into(),
         "ai.tools:command" => "Let its AI run commands on this computer".into(),
         "ai.tools:web" => "Let its AI search and read the web".into(),
-        "ai.tools:apps" => "Let its AI use evo's browser and terminals".into(),
+        "ai.tools:apps" => "Let its AI use Evo's browser and terminals".into(),
         other => {
             if let Some(origin) = other.strip_prefix("network:") {
                 format!("Connect to {origin}")

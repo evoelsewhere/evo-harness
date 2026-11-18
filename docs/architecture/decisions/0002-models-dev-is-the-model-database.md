@@ -18,7 +18,7 @@ needed a release for every new model.
 models.dev (`https://models.dev/api.json`) is the source of model facts. The
 engine caches it in `evo.db` and refreshes it; a bundled snapshot only seeds
 an offline first run. The provider catalog holds connection facts only
-(endpoints, auth, wire API). evo does not send `temperature`.
+(endpoints, auth, wire API). Evo does not send `temperature`.
 
 ## Consequences
 
@@ -26,7 +26,7 @@ an offline first run. The provider catalog holds connection facts only
   catalogs; read `evo_runtime::models_dev`.
 - Provider-specific behaviour is catalog data, not per-model code.
 - A model missing from models.dev is added there or in the user's
-  `models.json`, not in evo's source.
+  `models.json`, not in Evo's source.
 
 ## Alternatives considered
 

@@ -14,7 +14,7 @@ Paths are relative to the repository root.
 
 Open specifications: the Agent Skills specification (agentskills.io) for
 skills, the Model Context Protocol (modelcontextprotocol.io) for connectors.
-Everything else is evo's own and lives in evo's folders (`.evo/`, `~/.evo/`),
+Everything else is Evo's own and lives in Evo's folders (`.evo/`, `~/.evo/`),
 plus the cross-client Agent Skills folder `.agents/skills`.
 
 What existed before phase 1:
@@ -167,7 +167,7 @@ mcp_call_tool    { name, arguments }      runs the named tool through the direct
 
 A folder with `SKILL.md`: `name` (1–64, `a-z0-9-`, no edge or double
 hyphen, equals the folder), `description` (1–1024), optional `license`,
-`compatibility`, `metadata`, `allowed-tools`. evo also reads `when_to_use`,
+`compatibility`, `metadata`, `allowed-tools`. Evo also reads `when_to_use`,
 `argument-hint`, `user-invocable` (default true), `disable-model-invocation`
 (default false), `model`. Command files (`.evo/commands/x.md`) are a
 single-file form of a skill; subfolders become `a:b`. Progressive
@@ -202,7 +202,7 @@ approval, Off. Per-tool permission: Always allow / Needs approval / Blocked
 still speak 2025-11-25, so the client does both
 (`ClientLifecycleMode::Auto`).
 
-#### Plugins format (evo's own)
+#### Plugins format (Evo's own)
 
 A folder with an optional `.evo-plugin/plugin.json` (`name` required;
 version, description, author, homepage, repository, license, keywords,
@@ -228,7 +228,7 @@ names), `github`, `url`/`git`, `git-subdir` (a `sha`/`ref` pins); planned:
 installed in place); installs are cached per version. Planned:
 `enabledPlugins` in user and project settings.
 
-#### Hooks format (evo's own)
+#### Hooks format (Evo's own)
 
 ```jsonc
 { "hooks": { "<Event>": [ { "matcher": "…", "hooks": [ /* handler */ ] } ] } }
@@ -266,7 +266,7 @@ Files read:
 | Plugins | `<agent dir>/plugins` (installed) | — (planned: `.evo/settings.json` `enabledPlugins`) | — |
 | Instructions | `~/.evo/agent/AGENTS.md` | the folder's instruction file | — |
 
-Precedence on name clashes: project over user over plugin, evo's folders
+Precedence on name clashes: project over user over plugin, Evo's folders
 over `.agents`, a skill over a command. Project-level anything follows the
 existing folder trust (`trust.rs`).
 

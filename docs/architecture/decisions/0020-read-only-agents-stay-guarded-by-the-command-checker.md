@@ -25,7 +25,7 @@ Windows. Nothing had been built on top of 0019 yet.
 
 ## Decision
 
-evo adds no operating-system write restriction. Read-only agents (subagents
+Evo adds no operating-system write restriction. Read-only agents (subagents
 and sessions of a read-only type) stay guarded as they are today:
 
 - by the command checker (`read_only.rs`) before any approval prompt and

@@ -114,7 +114,7 @@ output or tool calls. Ollama is read through `/api/tags` + `/api/show`.
 
 **models.dev mapping** (`evo-runtime::models_dev` parses `api.json`): model
 list per provider, context/output limits, pricing and long-context tiers,
-vision input, `reasoning_options` → evo's thinking-level map (efforts, off
+vision input, `reasoning_options` → Evo's thinking-level map (efforts, off
 toggle, token budget), `interleaved` → reasoning replay, per-model
 `provider.npm/api` → wire protocol and endpoint. The provider catalog
 (`evo-runtime/data/provider_catalog.json`) holds connection facts only (wire
@@ -126,7 +126,7 @@ API, endpoint, credential variable, headers, routes, `modelsDevId`).
 
 - File: `~/.evo/agent/evo.db` (`EVO_CODING_AGENT_DIR` relocates the agent
   dir).
-- `PRAGMA application_id = 0x65766F31` ("evo1") marks the file as evo's;
+- `PRAGMA application_id = 0x65766F31` ("evo1") marks the file as Evo's;
   opening a foreign SQLite file is refused.
 - WAL journal, `busy_timeout = 5s`, `foreign_keys = ON`,
   `synchronous = NORMAL`. The engines' transcript connection
@@ -144,7 +144,7 @@ API, endpoint, credential variable, headers, routes, `modelsDevId`).
   listed in `MIGRATIONS`. Versions are contiguous from 1.
 - Opening the database applies pending migrations, each in its own
   `BEGIN IMMEDIATE` transaction, so two engines starting together apply each
-  migration once. When the file is already evo's and every migration is
+  migration once. When the file is already Evo's and every migration is
   applied with a matching checksum, a read settles that and the open takes
   no write lock; anything else goes through the locked path, which reports
   foreign, newer or changed schemas.
@@ -308,7 +308,7 @@ still supplies their metadata.
 
 - No secret in `evo.db` (3.4); `auth.json` is owner-only and written
   atomically.
-- `application_id` stamps (`evo1`, `evoT`) keep evo from writing into a
+- `application_id` stamps (`evo1`, `evoT`) keep Evo from writing into a
   foreign SQLite file, and keep an engine from opening anything but a
   transcript, a new file or `evo.db`.
 - Chat ids are checked before they become file names (no path traversal).

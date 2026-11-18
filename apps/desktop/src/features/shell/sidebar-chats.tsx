@@ -468,7 +468,7 @@ export function WorkspaceGroup({
           open={confirmRemove}
           onOpenChange={setConfirmRemove}
           title={`Remove ${name}?`}
-          description="The workspace and its chats are removed from evo. The folder and its files stay on disk."
+          description="The workspace and its chats are removed from Evo. The folder and its files stay on disk."
           action="Remove"
           onConfirm={() => void removeWorkspace(id).then((ids) => forgetChats(ids))}
         />

@@ -12,8 +12,8 @@
 
 ## 1. Summary
 
-evo finds out by itself that a newer release exists, downloads it in the
-background, checks that it really comes from the evo project, and installs
+Evo finds out by itself that a newer release exists, downloads it in the
+background, checks that it really comes from the Evo project, and installs
 it when the person chooses to restart. Today the app only shows its own
 version: a person learns about a release by visiting the download page, and
 installs it by hand. Releases are frequent, so most people run an old
@@ -29,7 +29,7 @@ interrupts a working chat without asking.
   working meanwhile.
 - Installing takes one deliberate action from the person, and the app
   reopens on the new version with chats and settings intact.
-- Nothing is installed unless it is proven to come from the evo project.
+- Nothing is installed unless it is proven to come from the Evo project.
 - The person can check by hand, see what the app is doing, and turn
   automatic checks off.
 - Every published release can be picked up by the versions already
@@ -58,7 +58,7 @@ interrupts a working chat without asking.
 
 ### US-1 Get the new version without looking for it (priority P1)
 
-A person who uses evo every day wants the app to bring them the new release
+A person who uses Evo every day wants the app to bring them the new release
 so that they do not have to watch the download page.
 
 Acceptance scenarios:
@@ -119,12 +119,12 @@ Acceptance scenarios:
 
 ### US-5 Learn about a release on a Linux package (priority P3)
 
-A person who installed evo from a Linux package wants to know a new version
+A person who installed Evo from a Linux package wants to know a new version
 exists, so that they can install it with their package manager.
 
 Acceptance scenarios:
 
-1. **Given** evo installed from a Linux package and a newer release,
+1. **Given** Evo installed from a Linux package and a newer release,
    **when** a check finds it, **then** a notification names the new version
    and opens the download page; the app downloads and installs nothing.
 
@@ -185,13 +185,13 @@ Acceptance scenarios:
 | FR-3 | **Settings → About** shows the installed version, the update state and the time of the last check, with a **Check for updates** button. The states are: up to date, checking, downloading (with progress), ready to install (with the new version), could not check (with the reason), and not available in this build. | Given the About page, when a check by hand runs against a newer release, then the row moves through checking, downloading and ready to install. |
 | FR-4 | A release is offered only when its version is higher than the installed one. An equal or lower version is never offered or installed. | Given the latest release equals the installed version, when a check runs, then the state is up to date and nothing is downloaded. |
 | FR-5 | A found update is downloaded in the background straight away, without asking the person. Chats, the terminal and the rest of the app keep working during the download. | Given a chat is streaming a reply, when an update downloads, then the reply continues without a pause the person can notice. |
-| FR-6 | A downloaded update is installed only if it is proven to come from the evo project: it must match the project's release signature, checked against a key built into the installed app. An update that fails the check is deleted and reported, and the installed version stays as it is. | Given a release file that was altered after it was signed, when the app downloads it, then verification fails, nothing is installed, and the About row says the update could not be verified. |
+| FR-6 | A downloaded update is installed only if it is proven to come from the Evo project: it must match the project's release signature, checked against a key built into the installed app. An update that fails the check is deleted and reported, and the installed version stays as it is. | Given a release file that was altered after it was signed, when the app downloads it, then verification fails, nothing is installed, and the About row says the update could not be verified. |
 | FR-7 | When an update is ready, the app raises one notification through the [notifications](../notifications/spec.md) pipeline: it names the new version, opens **Settings → About**, and carries a **Restart to update** action. A later check for the same version does not add a second entry. | Given an update became ready, when the person opens the bell, then there is exactly one entry for that version. |
 | FR-8 | The update is installed only when the person chooses **Restart to update** (on the notification or in **Settings → About**). The app never installs or restarts on its own. | Given an update has been ready for 24 hours and the person did nothing, when they look at the app, then it still runs the installed version. |
 | FR-9 | If any chat is working when the person chooses **Restart to update**, the app first asks for confirmation and says how many chats are working. Cancelling leaves everything running and the update ready. The app does not offer to wait for the chats to finish; the person chooses **Restart to update** again later. | Given one working chat, when the person chooses **Restart to update** and then cancels, then the chat is still working and the update is still ready. |
 | FR-10 | On confirmation the app stops every chat's engine cleanly, installs the update and reopens by itself on the new version. Chats, settings, credentials and connectors are kept; a chat that was working is saved as after any other stop and can be continued. | Given an update is ready, when the person confirms the restart, then the app reopens and **Settings → About** shows the new version with the earlier chats in the sidebar. |
 | FR-11 | Wherever the app names a new version (the notification, the About row, the new-version dialog), the person can reach that release's notes: **What's new** in the About row opens the dialog of FR-16, and the dialog links to the release page (or the full comparison with the previous release). | Given an update is ready, when the person clicks **What's new**, then the dialog shows the release's notes. |
-| FR-12 | Where the app cannot install an update itself, it downloads and installs nothing: on a Linux package install, and on macOS when the release was not signed with the project's Apple developer identity. A found release raises a notification that names the version and opens the download page, and the About row says a new version is available with the same link. | Given evo installed from a Linux package and a newer release, when a check runs, then nothing is downloaded and the notification opens the download page. |
+| FR-12 | Where the app cannot install an update itself, it downloads and installs nothing: on a Linux package install, and on macOS when the release was not signed with the project's Apple developer identity. A found release raises a notification that names the version and opens the download page, and the About row says a new version is available with the same link. | Given Evo installed from a Linux package and a newer release, when a check runs, then nothing is downloaded and the notification opens the download page. |
 | FR-13 | A failed automatic check is silent to the person and is recorded in the app's log. A failed check by hand, a failed download and a failed install are shown with the reason and can be retried. After any failure the installed version keeps working. | Given no network, when the person clicks **Check for updates**, then the row says it could not check and why, and the button can be clicked again. |
 | FR-14 | Development builds and the browser preview do not check for updates; the About row says updates are not available in this build. | Given a development build, when the app runs, then no update request is made. |
 | FR-16 | The new-version dialog shows the version found, the installed version, the release date, and the release's notes laid out by kind (breaking changes, features, fixes, performance, other changes) with a count of each; each change shows its area and links to its commit. Notes in another shape are shown as formatted text; a release without notes links to its release page. The dialog offers the action that applies to the update's state: **Restart to update** when ready, the download progress while downloading, **Download** (the download page) where the app cannot install (FR-12). The notes come with the update information every release publishes (FR-15); nothing else is requested. | Given a release whose notes list two features and one fix, when the dialog opens, then it shows a Features group with two entries, a Fixes group with one, and "2 features · 1 fix". |

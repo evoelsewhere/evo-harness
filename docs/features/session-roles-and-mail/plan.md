@@ -431,7 +431,7 @@ output.
 | `branch` exists or is invalid | `create_named` refuses before `git worktree add`; the start fails and nothing is created. |
 | Ask to an archived or closed sibling | Delivered as mail. Archived chats are not woken (hub rule), so the asker times out. |
 | Asker engine restarted while waiting | The reply arrives as a normal mail chip. |
-| Receiver engine lacks the capability | `unsupported`, with "update evo"; nothing is stored. |
+| Receiver engine lacks the capability | `unsupported`, with "update Evo"; nothing is stored. |
 | Protection unavailable | Read-only agents' shell commands are refused (FR-14); `full` agents are unaffected. |
 | Helper cannot start (exe moved, AV block) | Treated as unavailable for that call; refused, logged. |
 

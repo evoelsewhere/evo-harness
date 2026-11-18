@@ -67,7 +67,7 @@ async fn get_json(request: reqwest::RequestBuilder, label: &str) -> Result<Value
     response
         .json()
         .await
-        .map_err(|_| format!("{label} returned usage evo could not read"))
+        .map_err(|_| format!("{label} returned usage Evo could not read"))
 }
 
 fn number(value: Option<&Value>) -> Option<f64> {

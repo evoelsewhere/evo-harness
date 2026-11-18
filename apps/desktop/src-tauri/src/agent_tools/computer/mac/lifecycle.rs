@@ -126,7 +126,7 @@ pub(super) fn close_app(session_id: &str, params: &Value) -> Result<Value, Strin
     refuse_if_stopped(session_id)?;
     let row = lifecycle_target(session_id, params, false)?;
     let app = Ax::application(row.pid).ok_or("The app is gone.")?;
-    let window = reach_window(&app, row.id).ok_or("macOS did not let evo reach the window.")?;
+    let window = reach_window(&app, row.id).ok_or("macOS did not let Evo reach the window.")?;
     let button = window.element("AXCloseButton").ok_or_else(|| {
         format!("\"{}\" has no close button. Use the app's own command instead (find \"Close\" or \"Quit\").", row.title)
     })?;

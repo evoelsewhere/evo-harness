@@ -6,7 +6,7 @@
 | Tasks | [tasks.md](tasks.md) |
 | Updated | 2026-11-14 |
 | ADD sections | [4 Process view](../../architecture/README.md#4-process-view), [7 Data view](../../architecture/README.md#7-data-view), [9 Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts), [10 Deployment view](../../architecture/README.md#10-deployment-view) |
-| ADRs | [0021 Plugin views run in native webviews](../../architecture/decisions/0021-plugin-views-run-in-native-webviews.md) · [0022 Plugin code runs under evo's runtimes, secrets in a keychain-sealed vault](../../architecture/decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) |
+| ADRs | [0021 Plugin views run in native webviews](../../architecture/decisions/0021-plugin-views-run-in-native-webviews.md) · [0022 Plugin code runs under Evo's runtimes, secrets in a keychain-sealed vault](../../architecture/decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) |
 
 ## 1. Context and constraints
 
@@ -80,9 +80,9 @@
     reads outside the plugin, writes to the plugin folder, an undeclared
     environment variable and a subprocess are all refused with
     `NotCapable`. Behind TLS interception (this network) Deno needs
-    `DENO_TLS_CA_STORE=system,mozilla`; evo sets it, and passes
+    `DENO_TLS_CA_STORE=system,mozilla`; Evo sets it, and passes
     `HTTPS_PROXY`/`NO_PROXY` through, for runs and the cache step. The
-    Windows checksum files are `Get-FileHash` text, so evo keeps its own
+    Windows checksum files are `Get-FileHash` text, so Evo keeps its own
     checksum table.
   - S3: an incognito login window followed a portal → SSO (another site)
     → portal flow with a second factor; on the landing page the done
@@ -96,7 +96,7 @@
     after start. A Python backend (the `mcp` package through uv or its
     venv) takes about 2.1 s (6.1 s on the very first run, compiling
     bytecode): over NFR-2's 1.5 s, so NFR-2 is split by language (spec
-    History). Python plugins must ship `uv.lock`; evo runs `uv sync
+    History). Python plugins must ship `uv.lock`; Evo runs `uv sync
     --frozen --compile-bytecode` with uv-managed Python only — an unpinned
     `mcp` resolved to 2.x and broke the 1.x API in the spike.
 
@@ -109,7 +109,7 @@
 | Protocol changes update `evo-protocol`, the engine and the desktop together | ok | One engine command `set_plugin_host` (the host API address and per-plugin hook keys for plugin hooks), added in the protocol, engine and shell together. Older engines ignore it; plugin hooks then get no host access. |
 | Models come from models.dev; no hardcoded model facts | n/a | — |
 | Real engine in the app; settings and credentials reload live | ok | A settings, secret or account change restarts that plugin's processes and reloads hooks (`resources_changed`); no app restart. |
-| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok, with a new trust boundary | Plugin backends reach evo only through a per-process key on the loopback host API; tokens never reach views; tool calls from backends' MCP tools keep connector approvals. ADR 0022. |
+| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok, with a new trust boundary | Plugin backends reach Evo only through a per-process key on the loopback host API; tokens never reach views; tool calls from backends' MCP tools keep connector approvals. ADR 0022. |
 | Desktop UI structure and `DESIGN.md` | ok | A plugin page under Customize; stores call `lib/plugins.ts`; shadcn components. |
 | New store, process, trust boundary or toolchain → ADD + ADR | ADR 0022 | New persistent store (vault), new processes (Deno/uv backends, login windows), new toolchain shipped at run time (Deno, uv). ADD sections 4, 7, 9, 10 change with the feature. |
 
@@ -144,7 +144,7 @@
  views ── bridge: backend.call · auth.status · auth.signIn (no secrets)
 ```
 
-A plugin's code runs only as evo launches it, with what the person
+A plugin's code runs only as Evo launches it, with what the person
 approved. Secrets live in one sealed vault per plugin whose key is in the
 keychain; only the shell opens it. Running code asks the shell for a token
 or cookies with a key that names its plugin, at the moment it needs them,
@@ -301,7 +301,7 @@ their implied permissions show as waiting.
 | Case | What happens |
 | --- | --- |
 | No Secret Service on Linux; keychain locked | Secret fields and sign-in show the reason; the plugin stays "Needs setup"; nothing written in plain form (edge 1). |
-| Keychain entry deleted outside evo | The vault cannot open: accounts and secrets show as not set; "Needs setup" (edge 2). |
+| Keychain entry deleted outside Evo | The vault cannot open: accounts and secrets show as not set; "Needs setup" (edge 2). |
 | Runtime download fails or offline | Runtime tab: "Waiting for Deno (offline)" with Retry (edge 4). |
 | `deno cache`/`uv sync` fails | Runtime tab shows the output; the server does not start. |
 | A refused network call from Deno | Deno's error reaches the plugin; its stderr goes to the plugin log with the host (US-2). |
@@ -326,13 +326,13 @@ their implied permissions show as waiting.
 - **Views** never get secrets (FR-27); `backend.call` reaches only the
   view's own plugin's server.
 - **OAuth:** system browser, PKCE, state, exact loopback redirect; tokens
-  never in URLs evo logs; renewal tokens never leave the shell.
+  never in URLs Evo logs; renewal tokens never leave the shell.
 - **Web login:** incognito profile per sign-in, no IPC, the real address
   shown, only declared domains' cookies kept.
 - **Enforcement labels:** network and file permissions are enforced for
   Deno backends only; everything else says "not enforced".
 - **Approvals:** plugin MCP tools keep connector approvals (Allow / Ask /
-  Block) and approval modes; a backend cannot call evo's tools.
+  Block) and approval modes; a backend cannot call Evo's tools.
 
 ### 3.8 Configuration
 
@@ -351,7 +351,7 @@ their implied permissions show as waiting.
 | One keychain entry per secret | Windows' 2,560-byte limit (cookies, JWTs), and a macOS prompt per entry. |
 | An evo-encrypted file with a key on disk | The key sits next to the data; no better than plain text against copies. |
 | Tokens in the environment at start | Tokens renew; the process would need restarting; environments leak to children. Kept only for old-style servers. |
-| OAuth inside an evo webview | Against native-app practice (RFC 8252); several providers block embedded sign-in; the person's password would pass through evo. |
+| OAuth inside an Evo webview | Against native-app practice (RFC 8252); several providers block embedded sign-in; the person's password would pass through Evo. |
 | Web login in the app's own browser profile | Leaks the person's other sessions to the plugin and the other way round. |
 | Ask tokens over MCP | MCP has no client-to-server credential request; a host API is simpler and serves hooks too. |
 | An HTTP proxy for network rules | Bypassable; Deno enforces for real where we can, and the rest is labelled. |
@@ -492,7 +492,7 @@ Phase 5 (sign-in and sessions), 2026-11-14:
   main window (`features/plugin-ui/device-code-dialog.tsx`) shows it
   wherever the sign-in started and closes on `plugins://accounts`.
 - **Web login:** the spike's window, with the page's real address in the
-  window title (evo draws no separate address bar); done by address prefix
+  window title (Evo draws no separate address bar); done by address prefix
   or cookie; the declared domains' cookies (`name`, `value`, `domain`,
   `path`) are kept. The spike's commands are gone.
 - **Renewal** happens where a token is asked for (`/token`, blocking on the
@@ -535,10 +535,10 @@ Phase 6 (verify), 2026-11-14:
   host API), `accounts.md` (settings and accounts), `views.md`
   (`window.evo`), `view-style.md` (DESIGN.md mapped to the `--evo-*`
   variables), `components.md` (UI pieces in that style), `security.md`,
-  `debugging.md` (where evo shows problems, the usual ones and fixes),
+  `debugging.md` (where Evo shows problems, the usual ones and fixes),
   `publishing.md` (marketplaces, versions), and `design.md`, a verbatim copy
   of the repository's DESIGN.md — and `templates/`: `plugin/` is a complete plugin
-  evo installs as it is (a manifest using every field, a themed view, a Deno
+  Evo installs as it is (a manifest using every field, a themed view, a Deno
   backend, a hook, a README), `python-backend/` replaces its `server/`. A
   test in `office.rs` extracts `templates/plugin/` and loads it: it fails
   when the template stops loading cleanly, when `design.md` differs from

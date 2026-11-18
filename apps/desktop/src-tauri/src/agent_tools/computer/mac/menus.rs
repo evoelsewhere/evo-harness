@@ -160,7 +160,7 @@ pub(super) fn make_main(target: &Target) -> Result<(), String> {
 /// Why a menu command of a background app is refused (FR-29).
 pub(super) fn needs_activation_refusal(app_name: &str, title: &str) -> String {
     format!(
-        "Refused the menu command \"{title}\": macOS runs {app_name}'s menu commands only while it is the active app, and evo never activates an app it drives in the background. Look for a control in the window that does the same (find, then invoke its ref), or ask the person to run the command themselves."
+        "Refused the menu command \"{title}\": macOS runs {app_name}'s menu commands only while it is the active app, and Evo never activates an app it drives in the background. Look for a control in the window that does the same (find, then invoke its ref), or ask the person to run the command themselves."
     )
 }
 

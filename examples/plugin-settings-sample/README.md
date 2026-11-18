@@ -1,14 +1,14 @@
 # Issue desk — a plugin with settings, a backend, accounts and AI
 
-A sample evo plugin that uses what a plugin's running code needs
+A sample Evo plugin that uses what a plugin's running code needs
 ([plugin settings spec](../../docs/features/plugin-settings/spec.md),
 [ADR 0022](../../docs/architecture/decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)):
 
 | Part | Where | What it shows |
 | --- | --- | --- |
 | Settings | `settings` in `.evo-plugin/plugin.json` | a text field with a pattern, a number with limits, a choice, a secret (the GitHub app's client secret) kept in the plugin's sealed vault, grouped fields |
-| A backend | `runtime.server`, `server/main.ts` | a TypeScript MCP server evo runs with Deno, on demand, stopped after 10 idle minutes, allowed only `api.github.com` and `news.ycombinator.com` |
-| An OAuth account | `accounts[github]` | sign-in in your browser with PKCE, your own OAuth app's client ID and secret, renewal by evo |
+| A backend | `runtime.server`, `server/main.ts` | a TypeScript MCP server Evo runs with Deno, on demand, stopped after 10 idle minutes, allowed only `api.github.com` and `news.ycombinator.com` |
+| An OAuth account | `accounts[github]` | sign-in in your browser with PKCE, your own OAuth app's client ID and secret, renewal by Evo |
 | A web login | `accounts[hn]` | a login window of its own; only `news.ycombinator.com`'s cookies are kept |
 | A page | `ui.sidebar[desk]`, `ui/desk.*` | the accounts' states with Sign in buttons (`evo.auth`) and your issues (`evo.backend.call`) |
 | Plugin AI | `ai` permission, `ui/desk.js`, `issue_detail` in `server/main.ts` | an issue summarised by your own models ([plugin AI spec](../../docs/features/plugin-ai/spec.md)): streamed into the page, a thread per issue for follow-up questions, the backend's tool for the model to read the issue, a cost cap per run |
@@ -24,7 +24,7 @@ A sample evo plugin that uses what a plugin's running code needs
 3. The plugin's page → **Settings**: fill in the client ID and secret.
    The secret shows as set, never again in clear.
 4. **Accounts** → GitHub → **Sign in**: your browser opens GitHub; approve,
-   and evo shows your GitHub login. Hacker News → **Log in** opens a login
+   and Evo shows your GitHub login. Hacker News → **Log in** opens a login
    window; when you are in, it closes and only that site's cookies are kept.
 5. Open **Issue desk** in the sidebar and press **Load**, or ask the agent:
    *"What GitHub issues are assigned to me?"* — it calls the plugin's
@@ -41,7 +41,7 @@ A sample evo plugin that uses what a plugin's running code needs
 ## How it is built
 
 - The backend holds no secret. When it needs the GitHub token or the
-  Hacker News cookies it asks evo's host API with the key evo gives it:
+  Hacker News cookies it asks Evo's host API with the key Evo gives it:
 
   ```ts
   const res = await fetch(`${Deno.env.get("EVO_PLUGIN_HOST")}/v1/accounts/github/token`, {
@@ -50,18 +50,18 @@ A sample evo plugin that uses what a plugin's running code needs
   const { accessToken } = await res.json();
   ```
 
-  evo renews the token first when it is about to expire, so the backend
+  Evo renews the token first when it is about to expire, so the backend
   never restarts for a renewal. When GitHub refuses the token, the backend
-  says so (`POST /v1/accounts/github/signed-out`) and evo asks you to sign
+  says so (`POST /v1/accounts/github/signed-out`) and Evo asks you to sign
   in again.
 - Its settings reach it as environment variables
   (`"PAGE_SIZE": "${user_config.pageSize}"`); a secret setting would be
   `${secret.KEY}`, and only in `env`.
-- Deno runs it with `--allow-net` for the approved origins and evo's host
+- Deno runs it with `--allow-net` for the approved origins and Evo's host
   API only, reads in the plugin and its data folder, writes in its data
   folder, no subprocesses. A Python backend would run through uv with the
   same settings, but its network and files are not enforced.
-- The page reaches evo only through `window.evo`; it sees accounts' states
+- The page reaches Evo only through `window.evo`; it sees accounts' states
   and names, never a token or a cookie.
 - The AI summary asks for what it needs, not a model:
 
@@ -76,7 +76,7 @@ A sample evo plugin that uses what a plugin's running code needs
   for await (const event of run) if (event.type === "text") answer.textContent += event.text;
   ```
 
-  evo picks the cheapest connected model that calls tools among those you
+  Evo picks the cheapest connected model that calls tools among those you
   allow, falls back once if it fails, and counts the cost against the
   plugin. `issue_detail` uses your GitHub sign-in when there is one and
   reads public issues without it.
@@ -88,7 +88,7 @@ A sample evo plugin that uses what a plugin's running code needs
 | `GET /v1/accounts` | `[{id, service, state, label}]` |
 | `GET /v1/accounts/{id}/token[?workspace=]` | `{accessToken, expiresAt}` — needs `secrets`; renewed first when due |
 | `GET /v1/accounts/{id}/cookies?url=` | `{header}` — a web login's cookies for that URL, declared domains only |
-| `POST /v1/accounts/{id}/signed-out` | 204 — the service refused it; evo asks the person to sign in again |
+| `POST /v1/accounts/{id}/signed-out` | 204 — the service refused it; Evo asks the person to sign in again |
 | `GET /v1/settings[?workspace=]` | `{values}` — plain settings, no secrets |
 | `POST /v1/log` `{level, message}` | 204 — a line in Settings → Logs, secrets hidden |
 

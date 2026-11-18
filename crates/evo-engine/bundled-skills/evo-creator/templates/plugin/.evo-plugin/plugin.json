@@ -68,6 +68,6 @@
     { "id": "storage", "reason": "Remember what you pinned" },
     { "id": "chat:read", "reason": "Show items mentioned in the open chat" },
     { "id": "composer:write", "reason": "Put an item's link in your message" },
-    { "id": "startup", "optional": true, "reason": "Have your items ready when evo opens" }
+    { "id": "startup", "optional": true, "reason": "Have your items ready when Evo opens" }
   ]
 }

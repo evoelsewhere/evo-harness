@@ -72,7 +72,7 @@ export function PermissionNotes({ permission }: { permission: PermissionRow }) {
       {parts.length > 0 && (
         <span className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
           <ShieldAlertIcon className="size-3" />
-          Not enforced for its {sentence(parts)}: evo cannot hold them to it.
+          Not enforced for its {sentence(parts)}: Evo cannot hold them to it.
         </span>
       )}
     </>

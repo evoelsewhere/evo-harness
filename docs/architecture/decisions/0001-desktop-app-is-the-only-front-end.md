@@ -9,14 +9,14 @@
 
 ## Context
 
-evo started as a terminal CLI with a TUI, then grew a desktop app. Keeping
+Evo started as a terminal CLI with a TUI, then grew a desktop app. Keeping
 both meant every feature had two front ends, CLI concerns leaked into the
 library crates, and the desktop could not rely on features the terminal could
 not show (side panels, browser, approvals as cards).
 
 ## Decision
 
-The CLI and TUI are dropped. evo is a headless engine (`evo-engine`), a wire
+The CLI and TUI are dropped. Evo is a headless engine (`evo-engine`), a wire
 protocol (`evo-protocol`) and a desktop shell (`apps/desktop`). New work goes
 into one of those three.
 

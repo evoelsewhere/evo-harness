@@ -21,7 +21,7 @@ floating card with a virtual cursor, the same way they watch the agent's
 browser pages today. When control ends, the window comes back exactly where
 it was.
 
-evo v3 shipped this feature, but its clicks and typing often missed. There
+Evo v3 shipped this feature, but its clicks and typing often missed. There
 were two main reasons:
 
 - Web-based apps stopped repainting while off screen, so the agent acted on
@@ -43,12 +43,12 @@ person's input. Accuracy has to come from three things:
 - The agent attaches to one app window per chat, observes it and acts in it
   (click, type, press keys, set values, scroll, drag) while the window is
   off the person's screen.
-- evo never uses the person's pointer or keyboard for the agent. The pointer
+- Evo never uses the person's pointer or keyboard for the agent. The pointer
   does not move, the keyboard focus does not change, and the front window
   does not change.
 - The window is never hidden by tricks: not minimized, not made transparent,
   not cloaked. It only moves out of view, and it comes back exactly as it was
-  when control ends, also after a crash of evo.
+  when control ends, also after a crash of Evo.
 - The controlled app shows as a live card over the chat with a virtual
   cursor, using the floating-card model of the agent's browser. The card has
   **Stop**, **Allow again**, **Show the app** and **Close**.
@@ -138,11 +138,11 @@ Acceptance scenarios:
 ### US-4 Accurate work in a web-based app (priority P1)
 
 The agent works in an app built on web technology (a chat app, a code
-editor), either one evo starts or one the person already has open.
+editor), either one Evo starts or one the person already has open.
 
 Acceptance scenarios:
 
-1. **Given** a web-based app started by the agent through evo, **when** the
+1. **Given** a web-based app started by the agent through Evo, **when** the
    agent clicks, types or scrolls, **then** the input reaches the page and
    the next picture shows the result.
 2. **Given** a web-based app the person had already open, **when** the agent
@@ -155,11 +155,11 @@ Acceptance scenarios:
 
 ### US-5 The app comes back after a crash (priority P1)
 
-evo is killed, or crashes, while an app is off screen.
+Evo is killed, or crashes, while an app is off screen.
 
 Acceptance scenarios:
 
-1. **Given** an app off screen and evo killed, **when** evo starts again,
+1. **Given** an app off screen and Evo killed, **when** Evo starts again,
    **then** the window is back where it was, provided it is still open, still
    the same process and still off screen.
 
@@ -205,8 +205,8 @@ Acceptance scenarios:
 - **The person brings the window back** from the taskbar or Dock while the
   agent controls it. The next action moves it out of view again; only
   **Show the app** hands it back for good.
-- **The app hangs.** Only that chat waits. evo stays responsive, and quitting
-  evo waits at most 3 s for it.
+- **The app hangs.** Only that chat waits. Evo stays responsive, and quitting
+  Evo waits at most 3 s for it.
 - **The window closes or the app quits** while attached. The session is
   released, the card closes, and the agent is told.
 - **The same window and two chats.** The second chat cannot attach it. The
@@ -231,19 +231,19 @@ Acceptance scenarios:
 | FR-1 | **Settings → Computer apps** holds: on/off (default off); **Ask every time** (default) or **Allow without asking**; allowed apps; blocked apps (block wins). The app picker lists running and installed apps with their icons, and a typed executable name can be added. | Toggle off: the tool is gone from the next call. Block an app: it disappears from the window list. |
 | FR-2 | The agent gets one tool, `computer_app`, which takes an ordered batch of actions: `list_windows`, `attach`, `detach`, `status`, `screenshot`, `snapshot`, `find`, `zoom`, `click`, `hover`, `scroll`, `drag`, `type`, `key`, `invoke`, `set_value`, `wait`, `search_apps`, `open_app`, `close_app`, `kill_app`. When an action fails, the rest of the batch is skipped and reported as skipped, except `detach`. | A batch `click` (fails), `type`, `detach`: the result shows the click error, `type` skipped, `detach` done. |
 | FR-3 | One attached window per chat, and one chat per window. Attaching another window releases the first. | Attach A then B in one chat: A is back on screen. Attaching A from a second chat is refused with the reason. |
-| FR-4 | These are never listed or attachable: evo's own windows, the OS shell and security processes, processes with higher privileges than evo, and apps the settings forbid. On macOS also system UI, System Settings, password managers, terminals and script or automation tools. While an allow or block list is set, the app is checked again on every acting call. | Block an attached app mid-run: the next action is refused and the app is released. |
-| FR-5 | **No real input.** For the agent, evo never moves the person's pointer, changes keyboard focus or the front window, or sends key or mouse events through the system's shared input stream. | The benchmark's input monitor sees no pointer, focus, front-window or key-state change caused by evo (NFR-2). |
+| FR-4 | These are never listed or attachable: Evo's own windows, the OS shell and security processes, processes with higher privileges than Evo, and apps the settings forbid. On macOS also system UI, System Settings, password managers, terminals and script or automation tools. While an allow or block list is set, the app is checked again on every acting call. | Block an attached app mid-run: the next action is refused and the app is released. |
+| FR-5 | **No real input.** For the agent, Evo never moves the person's pointer, changes keyboard focus or the front window, or sends key or mouse events through the system's shared input stream. | The benchmark's input monitor sees no pointer, focus, front-window or key-state change caused by Evo (NFR-2). |
 | FR-6 | **Off-screen stage.** On attach the window is moved fully out of the person's view. It is not minimized, transparent or cloaked, and keeps its taskbar or Dock entry. A resizable window gets a fixed stage size of 1280×800 (1024×640 logical on displays scaled above 125 %) so the agent always sees the same layout; a fixed-size dialog keeps its own size. Two exceptions keep one pixel (one point on macOS) of the window visible in a screen corner: a web-based app without a page-level channel (FR-16), which is also kept on top so it keeps painting; and every window on macOS, where a window cannot leave the displays. | Attach a maximized editor: it is off screen at the stage size; release: it is maximized again where it was. |
-| FR-7 | Control ends, and the window returns to its exact previous placement without being activated, on any of: `detach`, **Stop**, **Show the app**, **Close**, the end of the agent's turn, the chat being closed, or evo quitting. | Each trigger in turn: the window is back with its previous position, size and state. |
-| FR-8 | Every off-screen window is recorded until it returns. On the next start evo puts back each recorded window that is still open, still the same process and still off screen. | Kill evo with an app off screen, start evo: the window is back. |
+| FR-7 | Control ends, and the window returns to its exact previous placement without being activated, on any of: `detach`, **Stop**, **Show the app**, **Close**, the end of the agent's turn, the chat being closed, or Evo quitting. | Each trigger in turn: the window is back with its previous position, size and state. |
+| FR-8 | Every off-screen window is recorded until it returns. On the next start Evo puts back each recorded window that is still open, still the same process and still off screen. | Kill Evo with an app off screen, start evo: the window is back. |
 | FR-9 | Dialogs, menus, drop-down lists, panes and palettes that the controlled app opens never stay on the person's screen. They are moved next to the window as they appear. They are part of what the agent sees and acts on, and open dialogs are centred back over the window when control ends. | A command that opens a dialog: the dialog never shows on the person's screen; the next snapshot lists its buttons. |
 | FR-10 | **Live card.** An attached app shows as a floating card of its chat, with the same drag, resize, chip and open-in-panel behaviour as browser cards. It shows the window and its open popups as they are now: about 6–10 pictures a second while the agent acts, fewer when idle, none while no card or panel shows it. | Attach: the card appears within 0.5 s; minimise it to a chip: capture stops. |
 | FR-11 | **Virtual cursor and activity.** Before each pointer action lands, the card's cursor moves to the target (FR-17 of floating cards), and the activity line names the action. | Click by ref: the cursor reaches the element before the click lands. |
-| FR-12 | **Card controls.** **Stop** revokes control for the chat and interrupts the running action mid-way; held buttons and modifiers are released. **Allow again** lifts it. **Show the app** hands the window back for good. **Close** releases the app and refuses `attach` until the turn ends. Stop is enforced by evo and the agent cannot lift it. | Stop during a long `type`: input stops within one character; the next `attach` is refused until Allow again. |
+| FR-12 | **Card controls.** **Stop** revokes control for the chat and interrupts the running action mid-way; held buttons and modifiers are released. **Allow again** lifts it. **Show the app** hands the window back for good. **Close** releases the app and refuses `attach` until the turn ends. Stop is enforced by Evo and the agent cannot lift it. | Stop during a long `type`: input stops within one character; the next `attach` is refused until Allow again. |
 | FR-13 | The person's clicks, scrolls and keys inside the card reach the app through the same background channels, so the person can help without the window coming back. | Click a button in the card: the app reacts and the window stays off screen. |
 | FR-14 | **Observe.** `snapshot` and `find` return the element tree. Each line has a role, name, value, states (`[selected]`, `[checked]`, `[disabled]`), a ref and a box in screenshot pixels. Refs are never reused, and a ref into a closed dialog or a removed element is refused with the reason. `screenshot` returns the window at a size the model receives without further scaling (the stage is 1:1). With `marks: true`, visible elements are numbered on the picture with their refs. | A snapshot after a dialog closes: using a ref from inside it is refused with "dialog closed". |
 | FR-15 | **Elements first.** `click`, `type`, `set_value` and `invoke` with a ref act on that element through the app's own structured interface where it offers one. Coordinates are used only when there is no element. Each result says which channel delivered the action. | `click e12` on a toolbar button: the result says it was invoked through the app's interface. |
-| FR-16 | **Web-based apps.** An app built on web technology that evo starts with `open_app` is started with a page-level control channel. That channel is local to evo and closed when the app quits. The agent's input and pictures for it go through that channel, so they work and stay current while the window is off screen. A web-based app the person had already open is driven through its accessibility tree. Its window keeps one pixel on top in a screen corner (FR-6), so it keeps painting and updating. The agent may restart such an app to get the page-level channel only after the person says yes to a question that names the app; it never restarts one on its own. | Start a web-based chat app through evo: type and send a draft while off screen; each picture shows the new text. With an already-open one, the agent's restart question appears, and a "no" leaves the app running. |
+| FR-16 | **Web-based apps.** An app built on web technology that Evo starts with `open_app` is started with a page-level control channel. That channel is local to Evo and closed when the app quits. The agent's input and pictures for it go through that channel, so they work and stay current while the window is off screen. A web-based app the person had already open is driven through its accessibility tree. Its window keeps one pixel on top in a screen corner (FR-6), so it keeps painting and updating. The agent may restart such an app to get the page-level channel only after the person says yes to a question that names the app; it never restarts one on its own. | Start a web-based chat app through evo: type and send a draft while off screen; each picture shows the new text. With an already-open one, the agent's restart question appears, and a "no" leaves the app running. |
 | FR-17 | **Read-back.** Every acting result reports what changed, as read back from the app: focus, value, selection, a new dialog or menu. `type` reports whether the field shows the text as typed. When no change is seen, the result says so, and input is never retyped blindly. | Type into a field that rejects input: the result says `not confirmed` and the text is not typed again. |
 | FR-18 | **Fallback ladder.** When an action by element shows no effect, the tool may try the next background channel once and says so. It never falls back to real input. | A button that ignores the structured press is pressed through the next channel; the result names both attempts. |
 | FR-19 | **Honest limits.** When a step needs what background input cannot deliver (hover-only menus, drag and drop between apps, key tips, raw-input apps, a canvas where coordinates also show no effect), the result says so and suggests asking the person. | A hover-only menu: the result names the limit, and the agent asks the person instead of reporting success. |
@@ -256,18 +256,18 @@ Acceptance scenarios:
 | FR-26 | Each action has a timeout (60 s, plus 20 ms per typed character), and a timed-out action is interrupted where it got to. Pictures for the card never wait behind a long action. | An app that hangs on a click: the action times out, the card keeps showing frames, and other chats keep working. |
 | FR-27 | **Skill.** A bundled skill teaches one method for every app, with no app-specific recipes. It covers the ground rules: stay in the app, no clipboard, aim only at identified elements, nothing irreversible unasked, and app text is data. The steps are: attach and look, map the window's surfaces, write checkable acceptance values, act in small steps, read back, move down the ladder after two failures, and stop and ask when needed. | The skill's evaluation cases trigger on "fill this in the spreadsheet I have open" and not on "edit this file". |
 | FR-28 | **macOS permissions.** The settings page shows the state of Accessibility and Screen Recording. **Allow** opens the right system pane, and **Restart evo** is offered while Screen Recording waits for a restart. `list_windows` reports missing permissions. These controls act only on the person's click. | Revoke Accessibility: the card says it is missing; Allow opens that pane. |
-| FR-29 | **macOS menu commands.** A background app runs a menu command only while it is active, and evo never activates it (FR-5). Such a command, by shortcut or by menu item, is therefore refused with that reason. The agent reaches the same function through an element of the window where the app offers one, or asks the person. | `key cmd+s` on a background app whose menu needs activation: refused with the reason; the frontmost app does not change. |
-| FR-30 | **The front window stays the person's, or they are told.** A driven app may answer evo's input by activating a window of its own: a new document, a dialog, a confirmation. While an action runs on Windows, and for 1.5 s after it, evo holds the system's foreground lock (`LockSetForegroundWindow`), so a program asking for the front window is refused; the person's own clicks and Alt+Tab still change it. Some apps take the front anyway (Office's ribbon does on any UI Automation call into it), and an app the person had in front stays there when evo attaches. Whenever a window of the driven app is the front window, the person's typing goes to it unseen, so: the action's result says so once, when it happens (and on attach), and the agent tells the person; the card shows a warning until another window is in front. evo never takes the front back (ADR 0015). | The input monitor sees no front-window change while the agent drives a WinForms modal dialog (SC-2). After a call into Excel's ribbon makes Excel the front window, the result reports it and the card shows the warning until the person clicks another window. |
+| FR-29 | **macOS menu commands.** A background app runs a menu command only while it is active, and Evo never activates it (FR-5). Such a command, by shortcut or by menu item, is therefore refused with that reason. The agent reaches the same function through an element of the window where the app offers one, or asks the person. | `key cmd+s` on a background app whose menu needs activation: refused with the reason; the frontmost app does not change. |
+| FR-30 | **The front window stays the person's, or they are told.** A driven app may answer Evo's input by activating a window of its own: a new document, a dialog, a confirmation. While an action runs on Windows, and for 1.5 s after it, Evo holds the system's foreground lock (`LockSetForegroundWindow`), so a program asking for the front window is refused; the person's own clicks and Alt+Tab still change it. Some apps take the front anyway (Office's ribbon does on any UI Automation call into it), and an app the person had in front stays there when Evo attaches. Whenever a window of the driven app is the front window, the person's typing goes to it unseen, so: the action's result says so once, when it happens (and on attach), and the agent tells the person; the card shows a warning until another window is in front. Evo never takes the front back (ADR 0015). | The input monitor sees no front-window change while the agent drives a WinForms modal dialog (SC-2). After a call into Excel's ribbon makes Excel the front window, the result reports it and the card shows the warning until the person clicks another window. |
 
 ### 4.2 Non-functional
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | NFR-1 | Platforms: Windows 10 1809+ and Windows 11 (x64 and ARM64) first. macOS 14+ follows in a later phase of this spec, with the same tool and card. On other platforms, and on macOS before that phase, the tool is absent. | Feature matrix run on each platform. |
-| NFR-2 | **Input isolation is measurable.** A monitor samples the person's pointer position, foreground window, keyboard focus and key state every 10 ms during the benchmark. It records no change caused by evo. | Benchmark report: 0 events. |
+| NFR-2 | **Input isolation is measurable.** A monitor samples the person's pointer position, foreground window, keyboard focus and key state every 10 ms during the benchmark. It records no change caused by Evo. | Benchmark report: 0 events. |
 | NFR-3 | **Fresh pictures.** A picture taken after an acting action reflects that action. Where this cannot be confirmed (an already-open web-based app that lags even with its corner pixel, FR-16), the result labels the picture as possibly late. | Benchmark: 100 % of post-action pictures in evo-started web apps show the change. |
-| NFR-4 | Latency: evo's own part of an action by ref on a native app takes at most 300 ms (median). The app's part is not counted: handling the input, and handing out its UI Automation tree for the read-back (FR-17), which an action reads before and after. The whole action's time is reported per app; in Excel one read of the tree takes about 400 ms, so an action with its read-back takes about 1 s. The first card picture appears within 500 ms of attach. | Step timings per action (`EVO_COMPUTER_TRACE`); benchmark timing table. |
-| NFR-5 | A hung app never freezes evo or other chats. Quitting evo waits at most 3 s for windows to return; any left go back on the next start (FR-8). | Live test with a deliberately hung app. |
+| NFR-4 | Latency: Evo's own part of an action by ref on a native app takes at most 300 ms (median). The app's part is not counted: handling the input, and handing out its UI Automation tree for the read-back (FR-17), which an action reads before and after. The whole action's time is reported per app; in Excel one read of the tree takes about 400 ms, so an action with its read-back takes about 1 s. The first card picture appears within 500 ms of attach. | Step timings per action (`EVO_COMPUTER_TRACE`); benchmark timing table. |
+| NFR-5 | A hung app never freezes Evo or other chats. Quitting Evo waits at most 3 s for windows to return; any left go back on the next start (FR-8). | Live test with a deliberately hung app. |
 | NFR-6 | Security: the page-level channel of FR-16 is not reachable from other machines or other users and is closed with the app. Protected apps (FR-4) are refused at every entry point. No clipboard access. Stop is enforced natively. | Security review checklist; port scan while a web app is controlled. |
 | NFR-7 | Positions are correct on displays scaled 100–200 % and for apps unaware of DPI. | Benchmark run at 150 % scaling. |
 | NFR-8 | Capture costs nothing while no card or panel shows the app. | CPU sample with the card minimized to a chip. |
@@ -280,10 +280,10 @@ Acceptance scenarios:
   menus, an evo-started web-based app and an already-open web-based app. In
   v3, failing cases moved between runs; this criterion measures that.
 - SC-2 Across the whole benchmark, there are zero changes to the person's
-  pointer, keyboard focus or front window caused by evo.
+  pointer, keyboard focus or front window caused by Evo.
 - SC-3 A person typing in another app for a 5-minute agent task loses no
   keystroke, and none of their keystrokes lands in the controlled app.
-- SC-4 After evo is killed mid-run, every off-screen window is back on the
+- SC-4 After Evo is killed mid-run, every off-screen window is back on the
   next start.
 - SC-5 For any step it cannot do in the background, the agent says so and
   never reports it as done (checked on the benchmark's "impossible" cases).
@@ -330,7 +330,7 @@ None.
 
 ## 7. History
 
-- 2026-11-09 — Draft. Ports the v3 concept (tag `v3.1.1`) to evo, with the
+- 2026-11-09 — Draft. Ports the v3 concept (tag `v3.1.1`) to Evo, with the
   background-only constraints decided above.
 - 2026-11-09 — The owner took the proposed answers to all seven open
   questions; FR-29 added; FR-6, FR-16, FR-24, NFR-1 and NFR-3 updated.
@@ -344,7 +344,7 @@ None.
   foreground lock while an action runs: FR-30 added.
 - 2026-11-09 — Measured in Excel, one read of its UI Automation tree takes
   about 400 ms inside Excel, and the read-back reads it twice per action.
-  The owner chose to count only evo's own part in NFR-4 and report the
+  The owner chose to count only Evo's own part in NFR-4 and report the
   whole action's time per app.
 - 2026-11-09 — Office's ribbon takes the front on any UI Automation call
   into it, despite the foreground lock. The owner chose to detect it and

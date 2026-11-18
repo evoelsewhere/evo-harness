@@ -12,12 +12,12 @@
 Plugins (views, backends, hooks) need model answers without going through
 a chat: streamed into their own UI, with models chosen by need among the
 person's connected providers, agent runs with tools they define at call
-time, evo's own tools under the approval mode, threads, and per-plugin
+time, Evo's own tools under the approval mode, threads, and per-plugin
 caps. Model calls belong to engines: the shell never talks to providers,
 and credentials, provider settings and usage accounting live with the
 engine (`evo-runtime`, `usage_log`). Chat engines are tied to a chat; the
 memory index process is one-shot and starts in seconds. Plugins are
-untrusted code: this gives them the person's money and, optionally, evo's
+untrusted code: this gives them the person's money and, optionally, Evo's
 tools.
 
 ## Decision
@@ -42,8 +42,8 @@ the agent loop, tools, structured output, fallback, threads and usage rows.
   (migration 0014). Older releases cannot open a database migrated by this
   one.
 - A new trust boundary: untrusted plugins can spend money and act through
-  evo tools. Rules: `ai` and each tool group are consent permissions with
-  reasons; evo tools in plugin runs go through the same gate chain as in
+  Evo tools. Rules: `ai` and each tool group are consent permissions with
+  reasons; Evo tools in plugin runs go through the same gate chain as in
   chats, and approvals name the plugin; tool results and attached context
   are data; no credential reaches a plugin.
 - The shell's settings fan-out sends `reload_providers` to this engine too.

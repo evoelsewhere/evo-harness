@@ -206,7 +206,7 @@ pub(super) fn app_process(hwnd: HWND, pid: u32) -> u32 {
 
 pub(super) fn attach_refusal(row: &WindowRow) -> Option<String> {
     if row.pid == unsafe { GetCurrentProcessId() } {
-        return Some("evo cannot control its own window.".into());
+        return Some("Evo cannot control its own window.".into());
     }
     if row.app.eq_ignore_ascii_case(FRAME_HOST) {
         return Some(format!(
@@ -216,7 +216,7 @@ pub(super) fn attach_refusal(row: &WindowRow) -> Option<String> {
     }
     if row.app.is_empty() {
         return Some(format!(
-            "Windows did not let evo inspect the process behind \"{}\" (it may run as administrator), so it cannot be controlled.",
+            "Windows did not let Evo inspect the process behind \"{}\" (it may run as administrator), so it cannot be controlled.",
             row.title
         ));
     }
@@ -228,7 +228,7 @@ pub(super) fn attach_refusal(row: &WindowRow) -> Option<String> {
     }
     if runs_above_us(row.pid) {
         return Some(format!(
-            "{} runs as administrator (or as the system), and Windows blocks input from a normal evo to it. Ask the user to run it normally, or to do this part themselves.",
+            "{} runs as administrator (or as the system), and Windows blocks input from a normal Evo to it. Ask the user to run it normally, or to do this part themselves.",
             row.app
         ));
     }

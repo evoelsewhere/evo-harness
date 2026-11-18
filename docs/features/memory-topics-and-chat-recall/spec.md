@@ -48,7 +48,7 @@ here stays as it is.
 
 ### 2.2 Non-goals
 
-- Indexing while evo is closed: chats waiting to be indexed are done after
+- Indexing while Evo is closed: chats waiting to be indexed are done after
   the next start.
 - Review before a change applies: indexing changes memory at once; the
   person undoes what they do not want.
@@ -160,7 +160,7 @@ Acceptance scenarios:
 1. **Given** a new chat, **when** the person makes it incognito before the
    first message, **then** it is marked as incognito, gets no memory, saves
    none and cannot search past chats.
-2. **Given** an incognito chat, **when** the person ends it or evo quits,
+2. **Given** an incognito chat, **when** the person ends it or Evo quits,
    **then** its transcript is deleted and it is not listed among chats.
 3. **Given** an incognito chat is open, **when** any chat or the person
    searches chats, **then** it is not found.
@@ -197,7 +197,7 @@ Acceptance scenarios:
 - Deleting a chat deletes its summary; topics learned from it stay.
 - Reset deletes topics and the list of indexing changes; chat summaries stay
   and chats already indexed are not read again.
-- An incognito chat that was open when evo crashed: what is left of it is
+- An incognito chat that was open when Evo crashed: what is left of it is
   deleted at the next start, before any chat is shown.
 - A scheduled task never runs as an incognito chat.
 - Memories saved before this feature: each is a topic as it is; nothing is
@@ -230,7 +230,7 @@ Controls:
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| FR-6 | A new chat has a memory switch, on by default, that can be changed only before the first message. Off: the chat has no Memory section, the `memory` tool and the past-chat tools are not offered, and the chat shows that memory is off. The choice is kept with the chat. | Given a chat started with memory off, when evo restarts and the chat continues, then it still has no memory and no memory tools. |
+| FR-6 | A new chat has a memory switch, on by default, that can be changed only before the first message. Off: the chat has no Memory section, the `memory` tool and the past-chat tools are not offered, and the chat shows that memory is off. The choice is kept with the chat. | Given a chat started with memory off, when Evo restarts and the chat continues, then it still has no memory and no memory tools. |
 | FR-7 | Each project has a **Use personal memory** switch, on by default. Off: chats in that project get no personal topics and the `memory` tool refuses the personal scope there. | Given the switch off, when a chat starts in the project, then its prompt lists only the project's topics. |
 | FR-8 | The existing on/off switch is shown as **Pause memory**: topics are kept, no chat uses or adds any, and the Memory panel still lists and edits them (restates [Memory FR-7](../memory-and-scheduler/spec.md#41-functional)). | Given memory paused, when the panel opens, then topics are listed and can be edited. |
 | FR-9 | **Reset memory** deletes every personal topic and every project's topics after a confirm that states how many topics will be deleted and that it cannot be undone; idle chats reload. | Given topics in two projects and personal ones, when reset is confirmed, then none are left in any scope. |
@@ -254,7 +254,7 @@ Incognito chats:
 | FR-19 | A new chat can be made incognito, only before the first message. It is marked as incognito in the chat and in the sidebar for as long as it is open. It has a fixed title and cannot be renamed, pinned, forked or archived. | Manual check in the running app. |
 | FR-20 | An incognito chat has no Memory section, and the `memory` tool and the past-chat tools are not offered (as a chat with memory off, FR-6). | Given an incognito chat, when it starts, then its prompt has no Memory section and its tool list has none of the three tools. |
 | FR-21 | An incognito chat is never returned by the past-chat tools or by the app's own chat search, while it is open or after. | Given an open incognito chat that mentions a phrase, when another chat or the person searches for it, then the chat is not found. |
-| FR-22 | An incognito chat ends when the person chooses **End chat** or evo quits. Its transcript, and those of its nested chats, are then deleted and it is no longer listed. What is left of one after a crash is deleted at the next start, before any chat is shown. | Given an incognito chat, when it is closed, then no transcript of it is left on the device; given evo was killed while one was open, when evo starts, then none is left. |
+| FR-22 | An incognito chat ends when the person chooses **End chat** or Evo quits. Its transcript, and those of its nested chats, are then deleted and it is no longer listed. What is left of one after a crash is deleted at the next start, before any chat is shown. | Given an incognito chat, when it is closed, then no transcript of it is left on the device; given Evo was killed while one was open, when Evo starts, then none is left. |
 | FR-23 | The tokens and cost of an incognito chat are still counted in Usage, with no title and no link to the chat. | Given a finished incognito chat, when the Usage page opens, then its cost is in the totals and no row opens the chat. |
 
 Automatic indexing:
@@ -263,7 +263,7 @@ Automatic indexing:
 | --- | --- | --- |
 | FR-24 | **Automatic indexing** is a setting, off by default. It can be switched on only once an index model is chosen. Next to the switch, the app says that the text of indexed chats is sent to that model's provider and that indexing uses tokens. | Given no index model, when the person tries to switch indexing on, then the app asks for a model first. |
 | FR-25 | **Index model** is chosen from the models of the connected providers, the same list a chat's model picker shows. A change applies from the next run. When the model cannot be used (no credentials, model gone), indexing stops, chats are not affected, and the setting says why. | Given an index model whose credentials are removed, when a chat goes idle, then nothing is indexed and the setting shows the reason. |
-| FR-26 | A chat with messages not yet indexed is indexed once it has been idle for **Index after idle** (default 5 minutes). **Index now** indexes every such chat at once. Indexing runs only while evo runs; chats left waiting are indexed after the next start. | Given indexing on and a chat with new messages, when it has been idle for the set time, then it is indexed once. |
+| FR-26 | A chat with messages not yet indexed is indexed once it has been idle for **Index after idle** (default 5 minutes). **Index now** indexes every such chat at once. Indexing runs only while Evo runs; chats left waiting are indexed after the next start. | Given indexing on and a chat with new messages, when it has been idle for the set time, then it is indexed once. |
 | FR-27 | A run reads only the part of the chat not yet indexed, with the current topics of the chat's scopes. It adds topics, updates them, merges duplicates and removes what the chat shows to be wrong, and it writes or updates the chat's summary: what was asked, what was done, what was decided and what is left open. | Given a chat where the person states a preference without asking to remember it, when the chat is indexed, then a topic holds it and the chat has a summary. |
 | FR-28 | Indexing changes apply at once and follow the rules of the agent's own saves: the project's **Use personal memory** switch (FR-7) and the sensitive-subject rules (FR-17, FR-18). While memory is paused nothing is indexed. | Given memory paused, when a chat goes idle, then no topic and no summary changes. |
 | FR-29 | The Memory panel lists the changes made by indexing, newest first, at least the last 100: time, topic, what changed, and the chat it came from (selecting it opens the chat). Each can be undone: the topic returns to its earlier text, an added topic is removed, a deleted one comes back. A topic shows who changed it last: the agent in a chat, indexing, or the person. | Given a topic changed by indexing, when the person undoes the change, then the topic's text is what it was before. |
@@ -287,7 +287,7 @@ Sensitive subjects:
 | NFR-1 | Past chats are searched on the device. Their text goes nowhere except the passages returned into the current chat and, when automatic indexing is on, to the index model's provider. | Review: the search makes no network request; with indexing off, no request carries the text of a chat other than the one being answered. |
 | NFR-2 | A search over 1,000 chats returns in under 2 seconds. | Given 1,000 stored chats, when a search runs, then it returns in under 2 s. |
 | NFR-3 | Memory files written before this feature keep working without conversion. | Given an older memory folder, when a chat starts, then its index lists every memory. |
-| NFR-4 | The text of an incognito chat is not written to the app's logs or to the text kept for chat search. | Given an incognito chat with a distinctive phrase, when it has ended, then the phrase is in no file under evo's data folder. |
+| NFR-4 | The text of an incognito chat is not written to the app's logs or to the text kept for chat search. | Given an incognito chat with a distinctive phrase, when it has ended, then the phrase is in no file under Evo's data folder. |
 | NFR-5 | Indexing runs in the background and never delays a chat: a message sent to a chat that is being indexed starts as fast as in any other chat. | Given a chat being indexed, when the person sends a message, then the answer starts without waiting for the run. |
 
 ## 5. Success criteria

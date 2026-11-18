@@ -477,7 +477,7 @@ export function SandboxSettings() {
       </SettingsGroup>
       <SettingsGroup
         title="Managed worktrees"
-        description="Where evo creates isolated Git worktrees for delegated agents. Existing worktrees in either location stay recognised and removable."
+        description="Where Evo creates isolated Git worktrees for delegated agents. Existing worktrees in either location stay recognised and removable."
       >
         <SettingsRow
           label={
@@ -493,7 +493,7 @@ export function SandboxSettings() {
           description={
             value.worktreeLocation === "repository" ? (
               <>
-                New worktrees are stored at <code className="font-mono">{"<repository>/.evo/worktrees"}</code>. evo adds
+                New worktrees are stored at <code className="font-mono">{"<repository>/.evo/worktrees"}</code>. Evo adds
                 this folder to the repository-local Git exclude file, without changing{" "}
                 <code className="font-mono">.gitignore</code>.
               </>

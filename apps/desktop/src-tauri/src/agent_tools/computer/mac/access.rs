@@ -22,8 +22,8 @@ pub(super) fn accessibility_trusted(prompt: bool) -> bool {
     unsafe { AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef()) != 0 }
 }
 
-pub(super) const ACCESSIBILITY_REFUSAL: &str = "macOS has not given evo Accessibility access, which computer app control needs to read and operate apps. Ask the person to press Allow next to Accessibility in evo's Settings → Computer apps, turn evo on in the pane that opens, then try again.";
-pub(super) const SCREEN_RECORDING_REFUSAL: &str = "macOS has not given evo Screen Recording access, so app windows cannot be captured. Ask the person to press Allow next to Screen Recording in evo's Settings → Computer apps, turn evo on in the pane that opens, and restart evo. snapshot, find, invoke and set_value work without it.";
+pub(super) const ACCESSIBILITY_REFUSAL: &str = "macOS has not given Evo Accessibility access, which computer app control needs to read and operate apps. Ask the person to press Allow next to Accessibility in Evo's Settings → Computer apps, turn Evo on in the pane that opens, then try again.";
+pub(super) const SCREEN_RECORDING_REFUSAL: &str = "macOS has not given Evo Screen Recording access, so app windows cannot be captured. Ask the person to press Allow next to Screen Recording in Evo's Settings → Computer apps, turn Evo on in the pane that opens, and restart Evo. snapshot, find, invoke and set_value work without it.";
 
 /// The person asked for Screen Recording in this run. macOS only reports it
 /// granted after evo restarts, so until then Settings offers Restart evo.

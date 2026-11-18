@@ -158,7 +158,7 @@ pub enum DbError {
     #[error("{path} is not an evo database")]
     Foreign { path: PathBuf },
     #[error(
-        "{path} was written by a newer evo (schema {found}, this build knows {known}); update evo"
+        "{path} was written by a newer Evo (schema {found}, this build knows {known}); update Evo"
     )]
     TooNew {
         path: PathBuf,

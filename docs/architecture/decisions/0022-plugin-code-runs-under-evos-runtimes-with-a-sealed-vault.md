@@ -1,4 +1,4 @@
-# 0022. Plugin code runs under evo's runtimes; its secrets live in a keychain-sealed vault and reach it through a loopback host API
+# 0022. Plugin code runs under Evo's runtimes; its secrets live in a keychain-sealed vault and reach it through a loopback host API
 
 | | |
 | --- | --- |
@@ -23,11 +23,11 @@
   user's processes read them; macOS asks per reading executable; Linux needs
   a Secret Service.
 - OAuth for native apps is done in the system browser with PKCE and a
-  loopback redirect (RFC 8252); evo already does this for connectors.
+  loopback redirect (RFC 8252); Evo already does this for connectors.
 
 ## Decision
 
-evo launches every piece of plugin code itself, under permissions the
+Evo launches every piece of plugin code itself, under permissions the
 person approved, and keeps each plugin's secrets in a sealed vault that only
 the shell opens; running code asks the shell for a secret when it needs it.
 
@@ -87,4 +87,4 @@ still to be checked.
 | Secrets in an evo-encrypted file with the key on disk | The key travels with the data. |
 | Secrets and tokens in the process environment | Tokens renew; environments are inherited by children and leak into logs. |
 | OS sandboxes for every plugin now | A different design per platform; deferred, with honest labels meanwhile. |
-| OAuth in an embedded webview | Against native-app practice; blocked by several providers; the password would pass through evo. |
+| OAuth in an embedded webview | Against native-app practice; blocked by several providers; the password would pass through Evo. |

@@ -331,7 +331,7 @@ impl SideQuestions {
             op,
             "start" | "new" | "clear" | "status" | "cancel" | "hide" | "show"
         ) {
-            return Err("unknown side question operation; upgrade evo and evo-btw together".into());
+            return Err("unknown side question operation; upgrade Evo and evo-btw together".into());
         }
         let question = if matches!(op, "start" | "new") {
             Some(

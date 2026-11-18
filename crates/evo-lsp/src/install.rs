@@ -602,7 +602,7 @@ pub fn uninstall(server: &Server, lsp_dir: &Path) -> Result<(), String> {
             Install::Rustup { component } => {
                 format!("installed with rustup: `rustup component remove {component}`")
             }
-            _ => format!("{} was not installed by evo", server.name),
+            _ => format!("{} was not installed by Evo", server.name),
         });
     }
     std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())

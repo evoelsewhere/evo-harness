@@ -44,7 +44,7 @@ multi-session work, such as a team of agents, needs.
 
 ### 2.2 Non-goals
 
-- Running with the app quit, or as a system service. Work needs the evo
+- Running with the app quit, or as a system service. Work needs the Evo
   process, as today (the tray keeps it alive).
 - Answering approvals without the person, or new approval policies. The
   approval mode decides, as before.
@@ -71,14 +71,14 @@ Acceptance scenarios:
 
 ### US-2 Scheduled runs with no window (priority P1)
 
-A task is due while evo runs in the tray with no window.
+A task is due while Evo runs in the tray with no window.
 
 Acceptance scenarios:
 
 1. **Given** a task due in one minute and no window open, **then** its chat
    starts within 20 s of its time, the prompt is sent, the run is recorded,
    and a notification says so.
-2. **Given** evo was quit past a task's time, **when** it starts hidden
+2. **Given** Evo was quit past a task's time, **when** it starts hidden
    (autostart), **then** the missed run runs once.
 
 ### US-3 A question while nobody looks (priority P1)
@@ -135,12 +135,12 @@ Acceptance scenarios:
 | FR-3 | "Work" is a running turn, running subagents, mail or notes waiting for the chat, a prompt waiting to be sent (scheduled run, a started session's brief) or an open question. An engine without work and without viewers is stopped after it settles, beyond an idle limit of 4 engines counted over the whole app, oldest first. | Given five idle engines with no viewers and a limit of 4, then the oldest is stopped; a chat with a running background agent is never stopped. |
 | FR-4 | The hub's requests for a host (mesh FR-21 – FR-24) are answered by the shell, with no window: new nested sessions start, mail and notes are delivered, an exited engine with pending mail is restarted at most 3 times in 2 minutes, and at app start every chat with undelivered mail is hosted. | Given mail for a stopped child and no window, when it is sent, then the child's engine starts and gets it. |
 | FR-5 | Wakes for notes, background reports and mail (subagents FR-19, mesh FR-28) are decided by the shell with the same guard rails: a 2 s window that gathers notes, no wake while a draft is in the chat's composer or a question is open, at most 5 automated wakes in a row, never an archived chat. Windows tell the shell about drafts. | Given an idle parent with no window, when a child finishes a turn, then the parent is woken once. |
-| FR-6 | Each finished turn is recorded by the shell: turn count, cost (subagents included), tokens, preview, model, unread and last activity, whether or not a window watched it. A turn no window showed is unread. | Given a nested session that ran three turns with no window, when the person opens evo, then its row shows three turns, their cost and unread. |
+| FR-6 | Each finished turn is recorded by the shell: turn count, cost (subagents included), tokens, preview, model, unread and last activity, whether or not a window watched it. A turn no window showed is unread. | Given a nested session that ran three turns with no window, when the person opens Evo, then its row shows three turns, their cost and unread. |
 | FR-7 | The Scheduler runs in the shell: due tasks start within 20 s with no window, missed runs run once at launch (also when started hidden), a run whose previous chat still works is skipped, a run's first prompt is kept until sent (it survives a window reload), run records and the next run are written by the shell only. | Given no window, when a task is due, then it starts and its run is recorded; given a window reload right after the start, then the prompt is still sent. |
 | FR-8 | Settings reach every running engine, viewed or not: approval mode, providers and keys, skills, plugins, memory, connectors, and a sandbox change (which restarts idle engines). Settings the shell needs (start sessions without asking, connectors switched off per chat) are kept in the app database, not in a window. | Given an engine with no window, when a provider key is added, then its next run can use it without a restart of the app. |
 | FR-9 | Open questions (engine approvals, `ask_user`, app tools' questions) are kept by the shell per chat. With no window showing the chat: an OS notification ("Approval needed · {chat}") that opens the chat when clicked, a bell entry, and the tray's menu lists chats that wait. A window that attaches shows every open question of the chat. Nothing answers a question for the person, and an open question never times out. | Given a waiting approval in a chat with no window, when the person opens the chat, then the approval shows and answering it continues the run. |
 | FR-10 | Run notifications (reply ready, run failed, engine stopped, engine could not start, scheduled run started) are sent by the shell when no window shows the chat, and recorded in the bell; entries made with no window open are kept until a window shows them. | Given no window, when a run fails, then an OS notification and a bell entry exist. |
-| FR-11 | With the tray on, closing the last window keeps evo running; the main window can be opened again from the tray, the dock or a second launch, also after it was destroyed. Quitting (or closing the last window with the tray off) asks once when chats are working, then stops every engine. | Given the main window closed and destroyed, when the person clicks the tray's Open, then a main window opens with the sidebar as it is. Separate chat windows are viewers of the same engines; moving a chat to a window only changes who shows it. |
+| FR-11 | With the tray on, closing the last window keeps Evo running; the main window can be opened again from the tray, the dock or a second launch, also after it was destroyed. Quitting (or closing the last window with the tray off) asks once when chats are working, then stops every engine. | Given the main window closed and destroyed, when the person clicks the tray's Open, then a main window opens with the sidebar as it is. Separate chat windows are viewers of the same engines; moving a chat to a window only changes who shows it. |
 | FR-12 | The tray shows whether chats are working or waiting for the person. | Given one working and one waiting chat, then the tray says so. |
 
 ### 4.2 Non-functional

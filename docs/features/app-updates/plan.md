@@ -65,7 +65,7 @@ only its docs; 2.10 when this plan was written, see the as-built notes):
   - macOS: replaces the `.app` bundle in place. The app keeps running and
     must restart itself.
   - Linux: can install a `.deb` (through a privilege prompt) or an
-    AppImage. evo does not use this (spec FR-12).
+    AppImage. Evo does not use this (spec FR-12).
 - Its declared minimum Rust version is 1.77.2, below the shell's 1.89.
 - The build creates update files only with `bundle.createUpdaterArtifacts`.
   It then signs them with the key in `TAURI_SIGNING_PRIVATE_KEY` (and

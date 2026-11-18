@@ -237,7 +237,7 @@ pub fn default_system_prompt_with_tool_prompts(
         .join("\n");
 
     format!(
-        "You are an expert coding assistant operating inside evo, a coding agent harness. \
+        "You are an expert coding assistant operating inside Evo, a coding agent harness. \
 You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:

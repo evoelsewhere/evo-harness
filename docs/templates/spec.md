@@ -23,7 +23,7 @@ guessing. Rules: docs/README.md. Delete this comment.
 
 ## 1. Summary
 
-Two to five sentences: what the feature does for the person using evo, and
+Two to five sentences: what the feature does for the person using Evo, and
 why it is needed now.
 
 ## 2. Scope

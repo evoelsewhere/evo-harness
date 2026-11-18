@@ -164,12 +164,12 @@ impl Return {
                 if query.contains_key("error") {
                     ("200 OK", "Sign-in did not finish. You can close this tab.")
                 } else {
-                    ("200 OK", "Signed in to evo. You can close this tab.")
+                    ("200 OK", "Signed in to Evo. You can close this tab.")
                 }
             } else {
-                ("400 Bad Request", "This is not an evo sign-in.")
+                ("400 Bad Request", "This is not an Evo sign-in.")
             };
-            let page = format!("<!doctype html><meta charset=utf-8><title>evo</title><p style=\"font:16px system-ui;margin:3em\">{body}</p>");
+            let page = format!("<!doctype html><meta charset=utf-8><title>Evo</title><p style=\"font:16px system-ui;margin:3em\">{body}</p>");
             let reply = format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}", page.len());
             let _ = stream.write_all(reply.as_bytes()).await;
             let _ = stream.shutdown().await;

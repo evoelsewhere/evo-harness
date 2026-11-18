@@ -300,10 +300,10 @@ pub fn evo_groups(body: &Map<String, Value>, approved: &[String]) -> Result<Vec<
     for group in list {
         let group = group.as_str().unwrap_or_default();
         if !EVO_GROUPS.contains(&group) {
-            return Err(("bad_request", format!("`{group}` is not a group of evo's tools: read, edit, command, web, apps")));
+            return Err(("bad_request", format!("`{group}` is not a group of Evo's tools: read, edit, command, web, apps")));
         }
         if !approved.iter().any(|p| p == &format!("ai.tools:{group}")) {
-            return Err(("no_permission", format!("using evo's {group} tools needs the `ai.tools:{group}` permission")));
+            return Err(("no_permission", format!("using Evo's {group} tools needs the `ai.tools:{group}` permission")));
         }
         if !groups.iter().any(|g| g == group) {
             groups.push(group.to_string());

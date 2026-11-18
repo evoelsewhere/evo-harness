@@ -288,7 +288,7 @@ pub(crate) fn front_text(app: &str) -> String {
     format!(
         "Warning: {app} is now the person's front window, though it is off their screen: whatever they type goes to it. \
          Tell the person right away to click one of their own windows before typing (or to press Show the app to work in it \
-         themselves). evo does not take the front window back."
+         themselves). Evo does not take the front window back."
     )
 }
 

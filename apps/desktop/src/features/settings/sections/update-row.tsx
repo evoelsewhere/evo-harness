@@ -41,8 +41,8 @@ export function UpdateModeRow() {
       label="Check for updates"
       description={
         autoCheck === false
-          ? "Only when you choose Check for updates below. evo makes no update request on its own."
-          : "Shortly after evo starts and every 6 hours, downloading a new version in the background and showing what changed. Nothing is installed until you choose Restart to update."
+          ? "Only when you choose Check for updates below. Evo makes no update request on its own."
+          : "Shortly after Evo starts and every 6 hours, downloading a new version in the background and showing what changed. Nothing is installed until you choose Restart to update."
       }
       control={
         <Segmented
@@ -122,7 +122,7 @@ export function UpdateRow() {
         break;
       }
       case "ready":
-        description = `Evo Harness ${status.version} is ready. Restart evo to finish updating; your chats and settings are kept.`;
+        description = `Evo Harness ${status.version} is ready. Restart Evo to finish updating; your chats and settings are kept.`;
         control = (
           <span className="flex gap-1.5">
             {notesButton(status.version)}
@@ -143,7 +143,7 @@ export function UpdateRow() {
         );
         break;
       case "installing":
-        description = `Installing Evo Harness ${status.version}… evo will restart.`;
+        description = `Installing Evo Harness ${status.version}… Evo will restart.`;
         control = (
           <Button size="sm" disabled>
             <Spinner />
@@ -158,7 +158,7 @@ export function UpdateRow() {
             control = checkButton("Try again");
             break;
           case "download":
-            description = `The download of Evo Harness ${status.version ?? ""} failed: ${status.message}. evo tries again at the next check.`;
+            description = `The download of Evo Harness ${status.version ?? ""} failed: ${status.message}. Evo tries again at the next check.`;
             control = checkButton("Try again");
             break;
           case "verify":

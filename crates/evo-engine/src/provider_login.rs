@@ -310,8 +310,8 @@ async fn codex_exchange(pairs: &[(&str, &str)]) -> Result<Value, String> {
     Ok(body)
 }
 
-const CALLBACK_PAGE: &str = "<!doctype html><meta charset=utf-8><title>evo</title><body style=\"font:16px system-ui;padding:3em\"><h2>Signed in to evo</h2><p>You can close this tab and return to the app.</p><script>setTimeout(()=>window.close(),1500)</script>";
-const CALLBACK_FAILED: &str = "<!doctype html><meta charset=utf-8><title>evo</title><body style=\"font:16px system-ui;padding:3em\"><h2>Sign-in failed</h2><p>Return to evo and try again.</p>";
+const CALLBACK_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Evo</title><body style=\"font:16px system-ui;padding:3em\"><h2>Signed in to Evo</h2><p>You can close this tab and return to the app.</p><script>setTimeout(()=>window.close(),1500)</script>";
+const CALLBACK_FAILED: &str = "<!doctype html><meta charset=utf-8><title>Evo</title><body style=\"font:16px system-ui;padding:3em\"><h2>Sign-in failed</h2><p>Return to Evo and try again.</p>";
 
 async fn codex_begin(
     token: CancellationToken,

@@ -9,7 +9,7 @@
 
 ## Context
 
-People install evo from the project's public GitHub releases and replace it
+People install Evo from the project's public GitHub releases and replace it
 by hand. Releases come every few days, so most installed copies are old.
 The [app updates spec](../../features/app-updates/spec.md) asks the app to
 find, download, verify and install new releases itself, on Windows and

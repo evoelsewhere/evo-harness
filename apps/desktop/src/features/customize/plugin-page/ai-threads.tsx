@@ -121,7 +121,7 @@ export function ThreadsSection({ plugin }: { plugin: InstalledPlugin }) {
           ))}
         </ul>
       )}
-      <p className="text-[11px] text-muted-foreground">Threads stay in evo until you delete them; uninstalling {plugin.name} removes them.</p>
+      <p className="text-[11px] text-muted-foreground">Threads stay in Evo until you delete them; uninstalling {plugin.name} removes them.</p>
     </Section>
   );
 }

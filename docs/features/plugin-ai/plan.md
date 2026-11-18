@@ -6,7 +6,7 @@
 | Tasks | [tasks.md](tasks.md) |
 | Updated | 2026-11-14 |
 | ADD sections | [4. Process view](../../architecture/README.md#4-process-view) · [7. Data view](../../architecture/README.md#7-data-view) · [8. Interfaces](../../architecture/README.md#8-interfaces) · [9. Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts) |
-| ADRs | [0023 Plugin AI runs in one long-lived engine process](../../architecture/decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md) · [0016 Memory indexing in a short-lived engine](../../architecture/decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md) · [0022 Plugin code under evo's runtimes](../../architecture/decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) |
+| ADRs | [0023 Plugin AI runs in one long-lived engine process](../../architecture/decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md) · [0016 Memory indexing in a short-lived engine](../../architecture/decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md) · [0022 Plugin code under Evo's runtimes](../../architecture/decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) |
 
 ## 1. Context and constraints
 
@@ -30,7 +30,7 @@
   (`call_server`); the supervisor and `agent_tools::ask_person` hold
   questions; the settings fan-out sends `reload_providers` to engines.
 - **Constraints:** the engine owns agent logic (NFR-4) — the shell never
-  calls a provider; models from models.dev only; a run may use any evo tool,
+  calls a provider; models from models.dev only; a run may use any Evo tool,
   under the approval mode (spec 6.2); runs outlive views (FR-24); no default
   caps (FR-14); threads live in `evo.db` and show only on the plugin's page.
 - **Schema:** this feature adds migration 0014. A debug build that applies
@@ -73,7 +73,7 @@
 | Protocol changes update `evo-protocol`, the engine and the desktop together | ok, new plane | A new engine mode with its own command set (`ai_*`), typed in `evo-protocol::plugin_ai`, used by the engine and the shell together. Chat engines' protocol is unchanged. |
 | Models come from models.dev; no hardcoded model facts | ok | Tiers and capabilities are computed from `DevModel` fields at run time; the person may pin models. No model id appears in code. |
 | Real engine in the app; settings and credentials reload live | ok | The plugin-AI engine is a real engine; it gets `reload_providers` like chat engines. |
-| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok, with a new trust boundary | Plugins (untrusted) reach models and evo tools. `ai` and each tool group are permissions; evo tools run in the engine's existing gate chain (approval mode, sandbox config, project trust); tool results and attached context are marked as data. ADR 0023. |
+| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok, with a new trust boundary | Plugins (untrusted) reach models and Evo tools. `ai` and each tool group are permissions; Evo tools run in the engine's existing gate chain (approval mode, sandbox config, project trust); tool results and attached context are marked as data. ADR 0023. |
 | Desktop UI structure and `DESIGN.md` | ok | A Models tab in the plugin page, a consent row, an approval dialog, Usage labels; stores and features as the UI map says. |
 
 ## 3. Design
@@ -110,7 +110,7 @@ it (FR-24).
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
 | protocol | `crates/evo-protocol/src/plugin_ai.rs` (new) | Wire types: commands `ai_models`, `ai_run`, `ai_tool_result`, `ai_answer`, `ai_cancel`, `reload_providers`, `stop`; events `ai_event {runId, event}` (`started` with model, `text`, `reasoning`, `tool_call`, `tool_result`, `retry` with the next model, `usage`, `done` with reason, result, usage and cost, `error`), `ai_tool_call {runId, callId, tool, input}`, `ai_question {runId, id, title, detail, options}`. | FR-1 – FR-3, FR-10, FR-11, FR-16 |
-| engine | `crates/evo-engine/src/plugin_ai/{mod,choose,run,tools,threads}.rs` (new), `modes.rs` | The mode's loop; `choose` ranks candidates (pure, tested); `run` builds an `AgentHarness` of its own (in-memory session) with the chosen model, system prompt (with the data marking of FR-22), messages, tools and step limit, streams events, retries on retryable errors with the next candidate, enforces the per-run budget between model calls; `tools` makes remote tools (await `ai_tool_result`, 60 s per call) and evo tools by group with an `ExecutionEnv` in the run's folder and the saved sandbox config, approvals through `ai_question`; `threads` loads and appends a thread's messages. | FR-1 – FR-12, FR-16 – FR-18, FR-22, FR-24, NFR-1, NFR-4 |
+| engine | `crates/evo-engine/src/plugin_ai/{mod,choose,run,tools,threads}.rs` (new), `modes.rs` | The mode's loop; `choose` ranks candidates (pure, tested); `run` builds an `AgentHarness` of its own (in-memory session) with the chosen model, system prompt (with the data marking of FR-22), messages, tools and step limit, streams events, retries on retryable errors with the next candidate, enforces the per-run budget between model calls; `tools` makes remote tools (await `ai_tool_result`, 60 s per call) and Evo tools by group with an `ExecutionEnv` in the run's folder and the saved sandbox config, approvals through `ai_question`; `threads` loads and appends a thread's messages. | FR-1 – FR-12, FR-16 – FR-18, FR-22, FR-24, NFR-1, NFR-4 |
 | engine | `crates/evo-engine/src/usage_log.rs` | `Source::Plugin` rows carry `plugin_id`. | FR-15, NFR-3 |
 | crate | `crates/evo-store/src/{plugin_ai.rs (new),usage.rs}`, `migrations/0014_plugin_ai.sql` | Tables for runs and threads; `usage_events.plugin_id`; queries for spend per plugin (today, month), runs, threads; delete a plugin's rows. | FR-14, FR-15, FR-18, FR-19, FR-24 |
 | crate | `crates/evo-plugins/src/ui.rs` | Permissions `ai` ("Use your AI models (may cost money)") and `ai.tools:read`, `ai.tools:edit`, `ai.tools:command`, `ai.tools:web`, `ai.tools:apps`, with labels and "not optional unless declared". | FR-13, FR-16 |
@@ -225,7 +225,7 @@ and events; never in logs (NFR-2).
   returns the error and the raw text (edge 9).
 - **Tools:** remote view tools go to the follower view that defined them
   (the origin view); if it is gone the result says so (edge 5). Backend tools
-  go through `pool.call_server` (waking the backend). evo tools run in the
+  go through `pool.call_server` (waking the backend). Evo tools run in the
   engine through the same gate chain as a chat's, with approvals as
   `ai_question`: the shell shows them in the main window naming the plugin,
   sends an OS notice when no window is focused, and answers `-1` (deny) if
@@ -262,9 +262,9 @@ and events; never in logs (NFR-2).
 ### 3.7 Security and trust
 
 - **New boundary:** untrusted plugin code can spend the person's money and,
-  with `ai.tools:*`, act through evo's tools. Gates: `ai` and each tool
+  with `ai.tools:*`, act through Evo's tools. Gates: `ai` and each tool
   group are consent permissions with reasons; the consent states the money;
-  caps when set; the approval mode for evo tools (its "auto" mode runs them
+  caps when set; the approval mode for Evo tools (its "auto" mode runs them
   without asking — the consent for `ai.tools:command` says so).
 - **No keys:** provider credentials stay in the engine; models and prices
   are all the plugin learns.
@@ -294,7 +294,7 @@ and events; never in logs (NFR-2).
 | A short-lived engine per run (as indexing) | Seconds of start-up per run (against NFR-1) and no shared state for queues, follows and approvals. |
 | The shell calls providers itself | Breaks "the engine owns agent logic", duplicates provider code and credentials handling. |
 | Store a plugin's id in `usage_events.chat_id` instead of a new column | Mixes two meanings in one column and confuses every chat query; a nullable column is a cheap, additive migration. |
-| Threads in the plugin's data folder | The person chose evo's database (spec 6.2); a folder cannot be queried for the Models tab and is the plugin's to change. |
+| Threads in the plugin's data folder | The person chose Evo's database (spec 6.2); a folder cannot be queried for the Models tab and is the plugin's to change. |
 | One engine per plugin | More processes for little gain; one engine with per-run isolation and shell-side limits is enough. |
 
 ## 5. As-built notes
@@ -334,7 +334,7 @@ Phase 2 (agent runs with the plugin's tools), 2026-11-14:
   each step is one `stream_simple` call; tool calls in a step run in order;
   the budget is checked before every step; a failure after anything was
   streamed or a tool ran is not retried on another model. A harness per
-  run is not needed until evo's tools (Phase 4) want its gate chain.
+  run is not needed until Evo's tools (Phase 4) want its gate chain.
 - **Tools live in `plugin_ai/run.rs`** (no `tools.rs` yet): the engine
   checks the model's input against the tool's schema before the plugin sees
   it, and answers an unknown tool or bad input to the model itself.
@@ -388,7 +388,7 @@ Phase 3 (threads and runs that outlive views), 2026-11-14:
   history before the run returned, so it would have been missing from the
   thread; fixed.
 
-Phase 4 (context and evo's tools), 2026-11-15:
+Phase 4 (context and Evo's tools), 2026-11-15:
 
 - **Context** (`plugin_ai/context.rs` in the engine and in the shell): the
   shell checks each part — `chat:read` for `openChat` (the window's open
@@ -417,13 +417,13 @@ Phase 4 (context and evo's tools), 2026-11-15:
   config before building the tools and gates each call with
   `approval::classify` and the chat's rule (reads never ask; `ask` asks for
   edits and commands, `auto-edits` for commands, `auto` never), and a
-  command that would stop evo always asks (`self_kill`; the shell now
+  command that would stop Evo always asks (`self_kill`; the shell now
   starts the engine with `EVO_HOST_PID` / `EVO_HOST_EXE`). A question is
   `ai_question` → the main window's dialog
   (`features/plugin-ui/ai-question-dialog.tsx`) titled "<plugin>: …" with
   the folder, and an OS notice when no window is in front; options Allow
   once, Allow for this run, Deny (Allow once and Deny for a command that
-  would stop evo). Closing the dialog denies; a run that ends closes its
+  would stop Evo). Closing the dialog denies; a run that ends closes its
   questions; open questions are listed again when the window reloads.
 - **Not yet: the `apps` group.** App tools (browser, terminal and others)
   run in the shell's `agent_tools`, which work per chat; plugin runs have
@@ -482,8 +482,8 @@ T23 as built, 2026-11-15:
 - The engine waits up to 15 minutes for an app tool (`APP_TOOL_WAIT`) and
   turns `{content: [text | image]}` answers into the model's content; a
   thread keeps `[an image was attached]` instead of a screenshot.
-- The consent for `ai.tools:apps` now reads "Let its AI use evo's browser
+- The consent for `ai.tools:apps` now reads "Let its AI use Evo's browser
   and terminals".
-- Found in the running app: loading evo's own UI (the dev server on
+- Found in the running app: loading Evo's own UI (the dev server on
   `localhost:1420`) in a run's tab reset the window's plugin views, as a
   reloaded window does; a release build does not serve its UI there.

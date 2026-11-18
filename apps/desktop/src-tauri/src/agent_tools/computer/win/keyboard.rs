@@ -166,7 +166,7 @@ pub(super) fn with_held_keys(thread: u32, keys: &[VIRTUAL_KEY], post: impl FnOnc
     if thread != me && !attached {
         // Without the shared key state the app would read the keys without
         // their modifiers: ctrl+s would type an "s". Say so instead.
-        return Err("Windows would not let evo hold Ctrl/Shift/Alt for this app, so the shortcut was not sent. Look for the command as a button or menu item (snapshot or find) and invoke it instead.".into());
+        return Err("Windows would not let Evo hold Ctrl/Shift/Alt for this app, so the shortcut was not sent. Look for the command as a button or menu item (snapshot or find) and invoke it instead.".into());
     }
     let mut saved = [0u8; 256];
     let have_state = unsafe { GetKeyboardState(&mut saved) }.is_ok();

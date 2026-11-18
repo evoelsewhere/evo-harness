@@ -72,7 +72,7 @@ commands. The desktop shows the page and a one-time notice.
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
 | crate | `crates/evo-lsp/src/catalog.rs` | 21 servers; each: file extensions → language ids, root markers, command and arguments, how to install, programs it needs. HTML / CSS / JSON come from `vscode-langservers-extracted`. | FR-5 |
-| crate | `crates/evo-lsp/src/install.rs` | Where a server is: evo's own install in `<agent dir>/lsp/<id>`, then (rust-analyzer) the folder's rustup toolchain, then PATH, then a copy shipped with a VS Code-style editor (`.vscode`, `.vscode-insiders`, `.cursor`, `.windsurf` extensions). Installers; no window, 15-minute limit, the output's tail kept for the app. | FR-6, FR-7, FR-8, NFR-1, NFR-2 |
+| crate | `crates/evo-lsp/src/install.rs` | Where a server is: Evo's own install in `<agent dir>/lsp/<id>`, then (rust-analyzer) the folder's rustup toolchain, then PATH, then a copy shipped with a VS Code-style editor (`.vscode`, `.vscode-insiders`, `.cursor`, `.windsurf` extensions). Installers; no window, 15-minute limit, the output's tail kept for the app. | FR-6, FR-7, FR-8, NFR-1, NFR-2 |
 | crate | `crates/evo-lsp/src/detect.rs` | Which languages a project uses: files by extension and root markers, four levels deep, skipping dependency and build folders. | FR-11 |
 | crate | `crates/evo-lsp/src/client.rs` | LSP over stdio: one writer task, requests matched by id, the server's requests answered with defaults (`workspace/configuration`, progress tokens, …), published diagnostics keyed by file whatever the URI spelling, work-done progress and rust-analyzer's `serverStatus` so a request waits for indexing; just after start it gives the server a few seconds to begin. Opens (and saves, for servers that check on save) or updates files with their current text before each request. | FR-3, FR-4 |
 | crate | `crates/evo-lsp/src/pool.rs` | One server per (server, project root); the root is the chat's folder when it is itself a project (one rust-analyzer for a whole Cargo workspace), else the nearest folder with a root marker. | FR-10 |
@@ -111,7 +111,7 @@ RPC commands (engine):
 | --- | --- | --- |
 | `list_language_servers` | — | the chat's folder, detected languages (server and file count), every server with its state (installed, installing, missing programs, install kind, log) |
 | `install_language_server` | `{server}` | installs in the background; progress shows in the list |
-| `uninstall_language_server` | `{server}` | removes evo's own install |
+| `uninstall_language_server` | `{server}` | removes Evo's own install |
 | `set_language_server_enabled` | `{server, enabled}` | writes `disabledLanguageServers` |
 | `set_code_intelligence_options` | `{editDiagnostics?, lspTool?}` | writes those settings; returns the list |
 
@@ -128,7 +128,7 @@ If the change is not finished yet, these may go away with your next edit.
 
 ### 3.4 Data and storage
 
-- evo's installs: `<agent dir>/lsp/<id>`.
+- Evo's installs: `<agent dir>/lsp/<id>`.
 - Settings `disabledLanguageServers`, `editDiagnostics`, `lspTool` in the
   agent settings.
 - The pool's running servers live as long as the chat's engine.
@@ -260,7 +260,7 @@ window, 15-minute limit; the output's tail is kept for the page.
   finishes many small progress items while loading); its first 30 s are
   used instead.
 - 2026-11-18 (all installed servers tried): the TypeScript server never
-  started ("Could not find a valid TypeScript installation"): evo had
+  started ("Could not find a valid TypeScript installation"): Evo had
   installed TypeScript 7, which has no `tsserver.js`, and passed no path.
   Fixed by FR-24; an existing install needs Reinstall on the page. The
   TypeScript server neither republishes an unchanged file nor reports
@@ -276,7 +276,7 @@ window, 15-minute limit; the output's tail is kept for the page.
   silence was learnt per server; Svelte reports one error under two codes
   (FR-28); Bash checks nothing without ShellCheck (FR-29). Kotlin did not
   report: the Kotlin server could not resolve `kotlin-stdlib` with no Gradle
-  or Maven cache on this computer, an environment problem, not evo's. Go's
+  or Maven cache on this computer, an environment problem, not Evo's. Go's
   first edit came before gopls had loaded (more than the 10 s cold wait);
   later edits were checked. `window/logMessage` lines are now kept with the
   server's stderr, which is how the Kotlin and C# cases were understood.

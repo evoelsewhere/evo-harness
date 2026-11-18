@@ -43,7 +43,7 @@ async function github(path: string): Promise<any> {
   if (response.status === 401) {
     // The token was revoked at GitHub: evo marks the account and tells the person.
     await host("/v1/accounts/github/signed-out", "POST").catch(() => undefined);
-    throw new Error("GitHub refused the sign-in; sign in again in evo");
+    throw new Error("GitHub refused the sign-in; sign in again in Evo");
   }
   if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
   return response.json();
@@ -120,7 +120,7 @@ server.tool("hn_whoami", "Who you are logged in as on Hacker News.", {}, async (
     const me = page.match(/<a id="me" href="user\?id=([^"]+)"/)?.[1];
     if (!me) {
       await host("/v1/accounts/hn/signed-out", "POST").catch(() => undefined);
-      return fail("Hacker News no longer knows you; log in again in evo.");
+      return fail("Hacker News no longer knows you; log in again in Evo.");
     }
     return reply({ user: me });
   } catch (error) {

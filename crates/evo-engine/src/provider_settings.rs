@@ -945,7 +945,7 @@ async fn fetch_models(
     }
     let body: Value = response.json().await.map_err(|_| {
         format!(
-            "{} returned a model list evo could not read",
+            "{} returned a model list Evo could not read",
             provider.label
         )
     })?;
@@ -1102,7 +1102,7 @@ async fn discover_ollama(
         .map_err(|_| format!("Could not reach Ollama at {root}"))?
         .json()
         .await
-        .map_err(|_| "Ollama returned a model list evo could not read".to_string())?;
+        .map_err(|_| "Ollama returned a model list Evo could not read".to_string())?;
     let names: Vec<String> = tags
         .get("models")
         .and_then(Value::as_array)

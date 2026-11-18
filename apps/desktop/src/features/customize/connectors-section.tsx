@@ -187,7 +187,7 @@ function ConnectorForm({ editing, onDone }: { editing: Connector | null; onDone(
       <DialogHeader>
         <DialogTitle>{editing ? `Edit ${editing.name}` : "Add connector"}</DialogTitle>
         <DialogDescription>
-          An MCP server: a command evo starts on this computer, or a URL it connects to. Its tools become available in
+          An MCP server: a command Evo starts on this computer, or a URL it connects to. Its tools become available in
           every chat.
         </DialogDescription>
       </DialogHeader>
@@ -330,7 +330,7 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
             <p className="break-words font-mono text-xs text-muted-foreground">{connector.error}</p>
             {connector.status === "needs-auth" && (
               <p className="text-xs text-muted-foreground">
-                Sign in to let evo use it, or add an <code>Authorization: Bearer …</code> header with a token from the
+                Sign in to let Evo use it, or add an <code>Authorization: Bearer …</code> header with a token from the
                 service (Edit).
               </p>
             )}

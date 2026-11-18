@@ -86,7 +86,7 @@ pub(super) fn client_lparam(hwnd: HWND, point: POINT) -> LPARAM {
 pub(super) fn post(hwnd: HWND, message: u32, wparam: usize, lparam: LPARAM) -> Result<(), String> {
     unsafe { PostMessageW(Some(hwnd), message, WPARAM(wparam), lparam) }.map_err(|error| {
         if error.code().0 as u32 == 0x8007_0005 {
-            "Windows blocked input to this app. It probably runs as administrator, which a normal evo cannot drive.".to_string()
+            "Windows blocked input to this app. It probably runs as administrator, which a normal Evo cannot drive.".to_string()
         } else {
             format!("Could not post input to the window: {error}")
         }

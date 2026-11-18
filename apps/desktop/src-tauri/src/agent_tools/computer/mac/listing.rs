@@ -249,11 +249,11 @@ pub(super) fn window_rows() -> Vec<WindowRow> {
 
 pub(super) fn attach_refusal(row: &WindowRow) -> Option<String> {
     if row.pid == std::process::id() as i32 {
-        return Some("evo cannot control its own window.".into());
+        return Some("Evo cannot control its own window.".into());
     }
     if row.app.is_empty() {
         return Some(format!(
-            "macOS did not let evo inspect the process behind \"{}\", so it cannot be controlled.",
+            "macOS did not let Evo inspect the process behind \"{}\", so it cannot be controlled.",
             row.title
         ));
     }

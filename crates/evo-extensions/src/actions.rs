@@ -590,7 +590,7 @@ pub trait RuntimeActionHost: Send + Sync {
         _args: serde_json::Value,
         _sink: SideQuestionSink,
     ) -> Result<serde_json::Value, String> {
-        Err("SideQuestion is not supported by this host; upgrade evo".into())
+        Err("SideQuestion is not supported by this host; upgrade Evo".into())
     }
 
     /// Refresh the host-side model selector after provider packages reload.

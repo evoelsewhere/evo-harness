@@ -127,7 +127,7 @@ The tool schemas below are a contract the model sees.
 | --- | --- | --- |
 | NFR-1 | Fetches are bounded: 20 s timeout, 5 MB body (a larger page is cut and the result says so), no cookies, no proxy. | A slow or huge page ends within the limits. |
 | NFR-2 | Both tools work with every model and need no key, account or server. | A fresh install with any model can search and fetch. |
-| NFR-3 | Free services are used honestly and at low volume: evo's own user agent (no browser impersonation), at least 1.5 s between DuckDuckGo requests, a block page pauses DuckDuckGo for 90 s (searches queued behind it skip it without sending a request), and a rate-limit answer pauses Exa for 60 s. | Given a block page, then the next searches skip that service until the pause ends. |
+| NFR-3 | Free services are used honestly and at low volume: Evo's own user agent (no browser impersonation), at least 1.5 s between DuckDuckGo requests, a block page pauses DuckDuckGo for 90 s (searches queued behind it skip it without sending a request), and a rate-limit answer pauses Exa for 60 s. | Given a block page, then the next searches skip that service until the pause ends. |
 
 ## 5. Success criteria
 

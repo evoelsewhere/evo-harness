@@ -321,11 +321,11 @@ async fn resolve_uncached(
     }
     if section.contains_key("role_arn") {
         return Err(format!(
-            "AWS profile \"{name}\" assumes a role (role_arn), which evo cannot resolve yet; use an SSO, credential_process or key profile"
+            "AWS profile \"{name}\" assumes a role (role_arn), which Evo cannot resolve yet; use an SSO, credential_process or key profile"
         ));
     }
     Err(format!(
-        "AWS profile \"{name}\" has no credentials evo can use"
+        "AWS profile \"{name}\" has no credentials Evo can use"
     ))
 }
 

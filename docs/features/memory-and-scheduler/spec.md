@@ -19,7 +19,7 @@ the person sees, edits and forgets them in the app, and can switch memory
 off.
 
 **The Scheduler** runs prompts on a schedule, each run as a new chat. The
-person, or an agent with the person's approval, creates tasks; evo starts
+person, or an agent with the person's approval, creates tasks; Evo starts
 them when they are due while it is running.
 
 ## 2. Scope
@@ -36,8 +36,8 @@ them when they are due while it is running.
 
 ### 2.2 Non-goals
 
-- Runs while evo is closed: tasks need evo running; a missed task runs once
-  when evo starts again.
+- Runs while Evo is closed: tasks need Evo running; a missed task runs once
+  when Evo starts again.
 - Memories stored in the repository: project memories stay outside it so
   they never end up in a commit.
 
@@ -78,10 +78,10 @@ without them starting it.
 
 Acceptance scenarios:
 
-1. **Given** a daily task at 09:00, **when** 09:00 passes while evo runs,
+1. **Given** a daily task at 09:00, **when** 09:00 passes while Evo runs,
    **then** a new chat titled with the task's name starts in the task's
    folder with the prompt, and a notification opens it.
-2. **Given** evo was closed at 09:00, **when** it starts later, **then** the
+2. **Given** Evo was closed at 09:00, **when** it starts later, **then** the
    task runs once ("caught up") and continues from now.
 3. **Given** the previous run's chat is still working, **when** the next run
    is due, **then** that run is skipped.
@@ -133,7 +133,7 @@ Scheduler:
 | FR-11 | Schedules: manual (only Run now), once (date and time), hourly (at minute), daily, weekdays, weekly (days and time), or a five-field cron expression (`*`, lists, ranges, `/step`; day of month and day of week combine as in cron), in local time. | Given each kind, then the next run shown is correct. |
 | FR-12 | A due task starts a new top-level chat in the task's folder (the folder becomes a workspace if it is not one), titled with the task's name, its prompt sent once the engine is ready; it shows in the sidebar like any chat, unread when done. The shell runs tasks, with or without a window open, and keeps the prompt until it is sent, so a window reload loses nothing. | Manual: a task due now starts its chat. |
 | FR-13 | A run whose previous chat is still working (a run, its agents, mail waiting for it or an open question) is skipped. | Given a running chat from the last run, when the next run is due, then no new chat starts. |
-| FR-14 | At launch, a task missed while evo was closed runs once ("caught up"), then continues from now, also when evo starts hidden into the tray. A one-time task switches itself off after it ran. | Manual: close evo past a run time, start it, and see one caught-up run. |
+| FR-14 | At launch, a task missed while Evo was closed runs once ("caught up"), then continues from now, also when Evo starts hidden into the tray. A one-time task switches itself off after it ran. | Manual: close Evo past a run time, start it, and see one caught-up run. |
 | FR-15 | With the tray icon on, closing every window keeps tasks running and starting; Keep awake stops the computer from sleeping. | Manual check in the running app. |
 | FR-16 | A notification says when a task starts (or could not); it opens the chat. The shell sends it, also with no window open. | Manual check in the running app. |
 | FR-17 | Top-level chats get tools to create, list, update and delete scheduled tasks; creating, changing and deleting show an approval in the composer first; the default folder is the chat's. | Given an agent's create call, then the approval shows before the task exists. |
@@ -144,14 +144,14 @@ Scheduler:
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | NFR-1 | Project memories live outside the repository, so they stay private and never end up in a commit. | Given a project memory, then no file is written inside the project folder. |
-| NFR-2 | A due task starts within 20 seconds of its time while evo runs, with or without a window. | Manual: a task due in a minute starts within 20 s of its time. |
+| NFR-2 | A due task starts within 20 seconds of its time while Evo runs, with or without a window. | Manual: a task due in a minute starts within 20 s of its time. |
 
 ## 5. Success criteria
 
 - SC-1 A preference told to the agent once is followed in a later chat in
   the same project without being repeated.
-- SC-2 A daily task created in the morning runs every day while evo is
-  running, and a missed day runs once when evo starts again.
+- SC-2 A daily task created in the morning runs every day while Evo is
+  running, and a missed day runs once when Evo starts again.
 - SC-3 No memory file ever appears in the project's version control.
 
 ## 6. Clarifications

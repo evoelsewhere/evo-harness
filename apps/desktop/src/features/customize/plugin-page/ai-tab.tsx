@@ -193,7 +193,7 @@ export function AiTab({ plugin }: { plugin: InstalledPlugin }) {
             )}
             <div className="flex flex-wrap items-center gap-3">
               <span className="w-28 text-muted-foreground">Default</span>
-              <ModelSelect value={settings.defaultModel} models={usable} auto="Let evo choose" disabled={busy !== null} onChange={(m) => void save({ ...settings, defaultModel: m })} />
+              <ModelSelect value={settings.defaultModel} models={usable} auto="Let Evo choose" disabled={busy !== null} onChange={(m) => void save({ ...settings, defaultModel: m })} />
             </div>
             {TIERS.map((tier) => (
               <div key={tier.key} className="flex flex-wrap items-center gap-3">
@@ -212,7 +212,7 @@ export function AiTab({ plugin }: { plugin: InstalledPlugin }) {
                 />
               </div>
             ))}
-            <p className="text-[11px] text-muted-foreground">A plugin asks for fast, balanced or best; evo picks among these by price and ability unless you pin one.</p>
+            <p className="text-[11px] text-muted-foreground">A plugin asks for fast, balanced or best; Evo picks among these by price and ability unless you pin one.</p>
           </div>
         )}
       </Section>

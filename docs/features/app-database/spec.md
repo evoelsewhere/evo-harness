@@ -12,7 +12,7 @@
 
 ## 1. Summary
 
-evo keeps the state the app owns — provider settings and model lists, the
+Evo keeps the state the app owns — provider settings and model lists, the
 model database, workspaces and chats, preferences, mail between sessions,
 usage history and the run log — in one on-device SQLite database, `evo.db`,
 and each chat's transcript in a SQLite file of its own. The desktop and every
@@ -100,7 +100,7 @@ Acceptance scenarios:
 
 ### Edge cases
 
-- Opening a SQLite file that is not evo's: refused.
+- Opening a SQLite file that is not Evo's: refused.
 - A migration whose SQL changed after it was applied: refused as tampered;
   a change of line endings only is not a change.
 - A crash between moving a legacy transcript into its file and deleting its
@@ -116,12 +116,12 @@ Acceptance scenarios:
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| FR-1 | Host-owned application state lives in one SQLite file in the agent folder, marked as evo's; opening a foreign SQLite file is refused. Sessions keep their own storage; `evo.db` never holds transcripts written by an engine. | Given a foreign SQLite file at the path, when it is opened, then it is refused. |
+| FR-1 | Host-owned application state lives in one SQLite file in the agent folder, marked as Evo's; opening a foreign SQLite file is refused. Sessions keep their own storage; `evo.db` never holds transcripts written by an engine. | Given a foreign SQLite file at the path, when it is opened, then it is refused. |
 | FR-2 | The desktop and several engines use the database at once: concurrent readers, writes as single transactions, and a read-then-write transaction takes the write lock up front so it cannot fail half-way with "database is locked". | Given two processes writing, then neither fails with "database is locked". |
 | FR-3 | Opening the database applies pending migrations in order, each once even when two processes open it together; versions are contiguous from 1 and each applied migration is recorded with a checksum of its SQL. A migrated database reopens without taking a write lock. | Given a database at version N-1, when opened, then migration N applies once and the data survives. |
 | FR-4 | Migrations are append-only: an applied migration whose SQL changed is refused as tampered, except for a change of line endings; a database at a version this build does not know is refused rather than written by older code. | Given an edited migration or a newer schema, then opening fails with that error. |
 | FR-5 | `evo.db` never holds a secret: API keys, OAuth tokens and Bedrock IAM keys stay in `auth.json` (owner-only file, written atomically). | No table or column holds a key or token. |
-| FR-6 | Each chat's transcript is a file of its own, written only by that chat's engine; the shell opens files only to read them and removes them once the engine has stopped. A transcript file is stamped as evo's transcript and any other SQLite file is refused; a chat id becomes a file name only when it is 1–128 ASCII letters, digits, `-` or `_`. Two chats' files never share a lock. | Given an unsafe id, then no file is made; given two chats, then their writes do not block each other. |
+| FR-6 | Each chat's transcript is a file of its own, written only by that chat's engine; the shell opens files only to read them and removes them once the engine has stopped. A transcript file is stamped as Evo's transcript and any other SQLite file is refused; a chat id becomes a file name only when it is 1–128 ASCII letters, digits, `-` or `_`. Two chats' files never share a lock. | Given an unsafe id, then no file is made; given two chats, then their writes do not block each other. |
 | FR-7 | Forking a chat copies a snapshot of the source's committed transcript into a new file under the new id before the chat row exists; a failed insert removes the file. The source may be running; a streaming turn's progress is not copied. | Given a running chat, when it is forked, then the fork opens with the committed history. |
 | FR-8 | Deleting a chat (or removing a workspace) removes the chat row (its search row with it), stops the chat's engine, then removes the transcript file and its `-wal`, `-shm` and `-journal` companions; a file still open stays for the sweep. | Given a deleted chat, then its file and companions are gone, or swept on the next start. |
 | FR-9 | At startup, before any engine runs: transcripts older builds kept in `evo.db` move into their own files one chat at a time (a crash in between is finished on the next start; a file that disagrees is set aside, not overwritten; rows without a chat are dropped; the space is given back once); then files whose chat no longer exists and partial files a crash left are removed (files in use are reported and retried next time). | Given legacy rows, then each chat gets its file and the rows go; given a disagreeing file, then it is kept beside the adopted one. |

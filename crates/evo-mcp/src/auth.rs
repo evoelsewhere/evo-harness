@@ -137,9 +137,9 @@ pub async fn sign_in(
     Ok(())
 }
 
-const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>evo</title>\
+const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Evo</title>\
 <body style=\"font-family:system-ui;display:grid;place-items:center;height:90vh;color:#444\">\
-<div style=\"text-align:center\"><h2>Signed in</h2><p>You can close this tab and go back to evo.</p></div>";
+<div style=\"text-align:center\"><h2>Signed in</h2><p>You can close this tab and go back to Evo.</p></div>";
 
 /// The first request to `/callback` on `listener`, as a full URL.
 async fn wait_for_callback(listener: tokio::net::TcpListener, port: u16) -> Result<String, String> {

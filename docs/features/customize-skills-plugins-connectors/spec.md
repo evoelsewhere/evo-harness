@@ -18,14 +18,14 @@ and a chat input that reaches them: `/` opens commands and skills, `@`
 mentions files and connector resources, `+` holds files, commands and
 per-chat connector switches. Skills follow the open Agent Skills
 specification and connectors the Model Context Protocol (MCP); plugins and
-hooks are evo's own formats. Everything applies to open chats without
+hooks are Evo's own formats. Everything applies to open chats without
 restarting the app.
 
 ## 2. Scope
 
 ### 2.1 Goals
 
-- Skills and commands the person and the model can run, from evo's folders,
+- Skills and commands the person and the model can run, from Evo's folders,
   the cross-client Agent Skills folders and plugins.
 - Connectors (MCP servers), local or remote, shared by every chat, with
   sign-in, per-tool permissions, prompts and resources, and project servers
@@ -128,7 +128,7 @@ Acceptance scenarios:
 
 ### Edge cases
 
-- Two items with the same name: project wins over user over plugin; evo's
+- Two items with the same name: project wins over user over plugin; Evo's
   folders over the cross-client folder; a skill over a command. A project
   connector loses to the person's own connector of the same name.
 - An untrusted project folder: its skills, hooks and instructions are not
@@ -146,15 +146,15 @@ Skills and commands:
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| FR-1 | Skills load from evo's project and user folders, the cross-client Agent Skills folders (project: the working folder and the repository root; user: the home folder) and enabled plugins. | Given a skill in each place, then each is listed. |
+| FR-1 | Skills load from Evo's project and user folders, the cross-client Agent Skills folders (project: the working folder and the repository root; user: the home folder) and enabled plugins. | Given a skill in each place, then each is listed. |
 | FR-2 | Command files are single-file skills named after their path (`a/b.md` → `a:b`); a skill of the same name wins; the description falls back to the first line. | Given `a/b.md` with no description, then skill `a:b` is listed with the first line. |
-| FR-3 | On name clashes, project wins over user over plugin, evo's folders over the cross-client folder, and a skill over a command; project-level items follow folder trust. | Given two skills of one name, then the project's is used. |
-| FR-4 | Skills follow the Agent Skills specification; evo also reads `when_to_use`, `argument-hint`, `user-invocable` (default true), `disable-model-invocation` (default false) and `model`. Only name and description are always in context; the body loads when invoked and the skill's files on demand. | Given a skill with `disable-model-invocation`, then the model's listing leaves it out. |
+| FR-3 | On name clashes, project wins over user over plugin, Evo's folders over the cross-client folder, and a skill over a command; project-level items follow folder trust. | Given two skills of one name, then the project's is used. |
+| FR-4 | Skills follow the Agent Skills specification; Evo also reads `when_to_use`, `argument-hint`, `user-invocable` (default true), `disable-model-invocation` (default false) and `model`. Only name and description are always in context; the body loads when invoked and the skill's files on demand. | Given a skill with `disable-model-invocation`, then the model's listing leaves it out. |
 | FR-5 | A per-skill override — off, user-invocable only, name only — is applied after loading and set from Customize (the chat then reloads). | Given a skill set to name only, then the model's listing shows its name without the description. |
 | FR-6 | The model has a `skill` tool `{name, arguments?}`; the system prompt keeps the list of available skills. | Given a listed skill, when the model calls `skill`, then the body is loaded with the arguments. |
 | FR-7 | `/name args` expands a known skill or command (a bare name finds a unique `ns:name`), else a prompt template; `/skill:name` still works. | Given `/b` and only `a:b`, then `a:b` runs. |
 | FR-8 | Skill bodies substitute `$ARGUMENTS`, `$ARGUMENTS[N]` (0-based), `${SKILL_DIR}` and `\$`; `$N` only in command files (skill bodies often hold shell snippets). | Given each form, then it is replaced as stated. |
-| FR-9 | Agent files may name tools in PascalCase (`Read` → `read`, `Grep`/`Glob` → `bash`, …); short model family aliases mean the chat's model. | Given an agent file with PascalCase tools, then the subagent gets evo's tools. |
+| FR-9 | Agent files may name tools in PascalCase (`Read` → `read`, `Grep`/`Glob` → `bash`, …); short model family aliases mean the chat's model. | Given an agent file with PascalCase tools, then the subagent gets Evo's tools. |
 | FR-10 | The `/` menu lists built-ins (`/clear`, `/compact`, `/fork`, `/customize`), then skills, commands, templates and connector prompts; word-prefix matching ignores `:_-`; ↑↓ move, Tab completes, Enter runs or inserts when the command takes arguments, Esc closes. | Manual check in the running app. |
 | FR-11 | The composer shows a typed `/name` as an accent token with its argument hint; the user's bubble shows the `/name` token; a saved skill prompt is shown as typed; a skill run shows as a "Skill · name" row. | Manual check in the running app. |
 | FR-12 | **Sidebar → Customize** has sections for Skills (switch, "Who can use it"), Agents, Connectors, Plugins, Hooks, Code intelligence and Instructions, with a scope filter (All / Personal / Project), a search box, rows grouped by source and a detail pane. A change reloads the other idle chats. | Manual check in the running app. |
@@ -167,7 +167,7 @@ Connectors (MCP):
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| FR-17 | The person's connectors are kept in one file in the MCP `mcpServers` form: a command with args, env and folder, or a type with URL and headers; `${VAR}` and `${VAR:-default}` expand; evo adds `disabled` and per-tool permissions; unknown keys are kept. | Given a file with both kinds and unknown keys, then it round-trips. |
+| FR-17 | The person's connectors are kept in one file in the MCP `mcpServers` form: a command with args, env and folder, or a type with URL and headers; `${VAR}` and `${VAR:-default}` expand; Evo adds `disabled` and per-tool permissions; unknown keys are kept. | Given a file with both kinds and unknown keys, then it round-trips. |
 | FR-18 | Each connector has one connection for the whole app, shared by every chat, over stdio, streamable HTTP or SSE, speaking both the stateless 2026-07-28 revision and the `initialize` handshake. Status: Connected, Needs sign-in, Failed to connect, Pending approval, Off. Each keeps a 200-line server log. | Given two chats, then one server process serves both. |
 | FR-19 | Connector tools reach every chat as `mcp__<server>__<tool>` (cut to 64 characters) and are re-sent on every change. | Given a new connector, then open chats get its tools. |
 | FR-20 | Each tool has a permission Allow / Ask / Block; tools annotated read-only default to Allow, others to Ask. A call to an Ask tool shows Allow once / Always allow / Deny in the composer; Always allow saves Allow. | Given an Ask tool, when called, then the approval shows. |
@@ -198,7 +198,7 @@ Plugins and marketplaces:
 | FR-35 | Plugins install (cached per version), install from a folder in place, update (fetch the marketplace again and reinstall, keeping on/off and settings), uninstall, switch on/off and take settings. Git never opens a window or prompts. | Given install, update and uninstall from a folder marketplace, then the store matches. |
 | FR-36 | An enabled plugin adds skills and commands named `plugin:name` (a unique bare `/name` finds them), subagents `plugin:name`, its hooks, its `bin/` first on PATH for the shell tools, and its connectors (tools `mcp__plugin_<plugin>_<server>__<tool>`); every ready chat re-reads its resources after a change. Customize names the plugin of each skill and subagent. | Given an installed plugin, then its skill, command, subagent and hook appear in a chat. |
 | FR-37 | **Customize → Plugins** has Installed (switch, contents, a settings form from the plugin's options, update, uninstall, show in folder), Discover (the marketplaces' plugins with Install / Reinstall), Marketplaces (add, fetch again, remove) and Add from folder. Plugin skills and subagents are grouped as "Plugin · name"; plugin hooks are labelled. | Manual check in the running app. |
-| FR-38 | Plugin parts evo does not support (language servers, output styles, monitors, themes) are listed as unsupported; the rest of the plugin loads. | Given such a plugin, then it loads and lists the unsupported parts. |
+| FR-38 | Plugin parts Evo does not support (language servers, output styles, monitors, themes) are listed as unsupported; the rest of the plugin loads. | Given such a plugin, then it loads and lists the unsupported parts. |
 
 Instructions:
 
@@ -236,7 +236,7 @@ Planned (not built yet):
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| NFR-1 | Formats follow open specifications where one exists (Agent Skills for skills, the Model Context Protocol for connectors); everything else is evo's own and lives in evo's folders, plus the cross-client Agent Skills folder. | Review. |
+| NFR-1 | Formats follow open specifications where one exists (Agent Skills for skills, the Model Context Protocol for connectors); everything else is Evo's own and lives in Evo's folders, plus the cross-client Agent Skills folder. | Review. |
 | NFR-2 | Background processes — stdio servers, hook commands, shell lines, git — open no console window, and git never prompts. | Manual on Windows: no window flashes. |
 | NFR-3 | Text passed to a skill never runs as a shell command: shell lines are taken from the skill file before arguments are filled in. | Given arguments with `` !`…` ``, then nothing runs. |
 | NFR-4 | Project-level customizations stay off until trusted or approved: skills, hooks and instructions follow folder trust; project connectors ask first. | Given an untrusted folder, then its hooks do not run. |

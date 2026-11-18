@@ -142,7 +142,7 @@ function RoleChip() {
 function IncognitoChip() {
   const incognito = useSessionStore((s) => Boolean(s.sessions.find((x) => x.id === s.currentId)?.incognito));
   if (!incognito) return null;
-  const hint = "Incognito chat: it uses no memory, cannot be found by search, and is removed when you end it or quit evo";
+  const hint = "Incognito chat: it uses no memory, cannot be found by search, and is removed when you end it or quit Evo";
   return (
     <span className="flex min-w-0 items-center gap-1.5 px-2 text-sm text-muted-foreground" title={hint} aria-label={hint}>
       <GhostIcon className="size-4" />

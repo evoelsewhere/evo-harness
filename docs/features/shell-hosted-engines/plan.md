@@ -470,7 +470,7 @@ the connector menu in the composer, and **Settings → General** (tray).
 | Option | Why not |
 | --- | --- |
 | Keep the hidden main webview as the host, fix the gaps there | It still depends on a webview's timers and memory, and duplicates every decision per window (NFR-1, NFR-3). See ADR 0018. |
-| A daemon process outside the app | A second lifecycle and IPC for no gain while the app runs; running with evo quit is a non-goal. |
+| A daemon process outside the app | A second lifecycle and IPC for no gain while the app runs; running with Evo quit is a non-goal. |
 | Sum `usage_events` per run in the shell for turn cost | Rows are written by a background thread with no run id, so totals race the `agent_settled` line; the engine already knows its run's usage. |
 | Keep `engine_start` for windows beside `ensure` | Two ways to start an engine bring back two owners; the trim and the restart limiter could not see window-started engines. |
 | A new `evo-store` table for open questions and bell entries | Questions die with their engine and the app; bell entries are a bounded list. A setting key is enough. |

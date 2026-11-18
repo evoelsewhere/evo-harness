@@ -164,7 +164,7 @@ export function ProviderSettings() {
           />
           <ProviderSection
             title="Coming soon"
-            description="These need a sign-in flow or cloud credentials evo does not support yet."
+            description="These need a sign-in flow or cloud credentials Evo does not support yet."
             rows={sections.unavailable}
             {...list}
           />
@@ -744,7 +744,7 @@ function KeySignIn({ row }: { row: ProviderRow }) {
       ) : (
         <div className="flex items-center justify-between gap-3">
           <span className="text-[13px] text-muted-foreground">
-            {row.connected ? "Signed in? Sign in again to create a new key." : "No key yet? Sign in and evo creates one for you."}
+            {row.connected ? "Signed in? Sign in again to create a new key." : "No key yet? Sign in and Evo creates one for you."}
           </span>
           <Button type="button" size="sm" variant="outline" onClick={() => void start()} disabled={Boolean(busy)}>
             {busy === "signing-in" ? <LoaderCircleIcon className="animate-spin" /> : <LogInIcon />}
@@ -887,7 +887,7 @@ function SignInPanel({ row }: { row: ProviderRow }) {
           {state?.userCode ? (
             <>
               <p className="text-[13px] text-muted-foreground">
-                Enter this code on GitHub to let evo use your Copilot subscription. It was copied to your clipboard.
+                Enter this code on GitHub to let Evo use your Copilot subscription. It was copied to your clipboard.
               </p>
               <div className="flex items-center justify-between gap-3">
                 <code className="rounded-md bg-muted px-3 py-1.5 font-mono text-lg tracking-[0.3em]">{state.userCode}</code>

@@ -27,7 +27,7 @@ function Contents({ plugin }: { plugin: InstalledPlugin }) {
     ["Commands on PATH", plugin.bin ? "bin/" : undefined],
   ];
   const any = rows.some(([, v]) => v !== undefined);
-  return any ? <Properties items={rows} /> : <p className="text-xs text-muted-foreground">This plugin adds nothing evo can use.</p>;
+  return any ? <Properties items={rows} /> : <p className="text-xs text-muted-foreground">This plugin adds nothing Evo can use.</p>;
 }
 
 export function OverviewTab({ plugin }: { plugin: InstalledPlugin }) {

@@ -24,13 +24,13 @@
         body: JSON.stringify({ id: ++seq, call: name, args: args || {} }),
       });
     } catch (error) {
-      throw new EvoError("unreachable", "evo did not answer: " + String(error));
+      throw new EvoError("unreachable", "Evo did not answer: " + String(error));
     }
     let reply;
     try {
       reply = await response.json();
     } catch {
-      throw new EvoError("bad_reply", "evo answered " + response.status);
+      throw new EvoError("bad_reply", "Evo answered " + response.status);
     }
     if (reply && reply.ok) return reply.value;
     throw new EvoError((reply && reply.code) || "failed", (reply && reply.message) || "the call failed");

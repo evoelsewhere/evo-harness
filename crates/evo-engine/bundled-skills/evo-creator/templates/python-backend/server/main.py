@@ -21,7 +21,7 @@ def host(path: str, method: str = "GET", body: dict | None = None) -> dict | Non
     response = httpx.request(method, f"{HOST}{path}", headers={"Authorization": f"Bearer {KEY}"}, json=body, timeout=30)
     answer = response.json() if response.content else None
     if response.is_error:
-        raise RuntimeError((answer or {}).get("message", f"evo answered {response.status_code}"))
+        raise RuntimeError((answer or {}).get("message", f"Evo answered {response.status_code}"))
     return answer
 
 
