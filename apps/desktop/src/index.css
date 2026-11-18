@@ -591,3 +591,66 @@
   )[data-open] {
   --tw-ease: var(--ease-spring);
 }
+
+/* A new chat's aurora: soft bands of the Appearance accent drifting behind the
+   greeting and the composer (`features/chat/chat-view.tsx`). */
+.chat-empty-aurora {
+  --aurora: 26%;
+  overflow: hidden;
+}
+.dark .chat-empty-aurora {
+  --aurora: 38%;
+}
+.chat-empty-aurora::before,
+.chat-empty-aurora::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  border-radius: 9999px;
+  filter: blur(64px);
+  will-change: transform;
+}
+.chat-empty-aurora::before {
+  top: 34%;
+  width: 78%;
+  height: 24%;
+  background: linear-gradient(
+    100deg,
+    transparent 5%,
+    color-mix(in oklab, var(--brand) var(--aurora), transparent) 35%,
+    color-mix(in oklab, oklch(from var(--brand) l c calc(h + 55)) var(--aurora), transparent) 70%,
+    transparent 95%
+  );
+  transform: translate(-50%, -50%) rotate(-7deg);
+  animation: chat-aurora-a 16s ease-in-out infinite alternate;
+}
+.chat-empty-aurora::after {
+  top: 56%;
+  width: 62%;
+  height: 18%;
+  background: linear-gradient(
+    80deg,
+    transparent 5%,
+    color-mix(in oklab, oklch(from var(--brand) l c calc(h - 40)) calc(var(--aurora) * 0.8), transparent) 40%,
+    color-mix(in oklab, var(--brand) calc(var(--aurora) * 0.8), transparent) 65%,
+    transparent 95%
+  );
+  transform: translate(-50%, -50%) rotate(6deg);
+  animation: chat-aurora-b 21s ease-in-out infinite alternate;
+}
+@keyframes chat-aurora-a {
+  to {
+    transform: translate(-40%, -62%) rotate(4deg) scaleX(1.12);
+  }
+}
+@keyframes chat-aurora-b {
+  to {
+    transform: translate(-60%, -36%) rotate(-5deg) scaleX(0.9);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-empty-aurora::before,
+  .chat-empty-aurora::after {
+    animation: none;
+  }
+}

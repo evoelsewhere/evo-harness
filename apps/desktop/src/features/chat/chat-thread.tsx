@@ -11,7 +11,6 @@ import { useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-sto
 import { useSessionStore } from "@/stores/session-store";
 import { ChatSkeleton } from "./chat-skeleton";
 import { AssistantMessage, UserMessage } from "./chat-turn";
-import { ChatEmpty } from "./chat-empty";
 import type { Turn } from "./transcript";
 
 /**
@@ -31,11 +30,30 @@ const ThreadTurn = React.memo(function ThreadTurn({ turn }: { turn: Turn }) {
   );
 });
 
+/**
+ * Whether this pane shows a new chat's empty screen: nothing said yet, nothing
+ * loading and no load error. The chat view then centres the composer.
+ */
+export function useThreadEmpty(): boolean {
+  const empty = usePaneEngine((s) => s.transcript.turns.length === 0);
+  const restoring = useRestoring();
+  const activeId = usePaneEngine((s) => s.activeId);
+  const focused = useEngineStore((s) => s.activeId === activeId);
+  const switching = useSessionStore((s) => {
+    if (!focused || !s.currentId || s.currentId === activeId) return false;
+    const target = s.sessions.find((chat) => chat.id === s.currentId) ?? s.archived.find((chat) => chat.id === s.currentId);
+    return Boolean(target && !target.draft);
+  });
+  const failed = usePaneEngine((s) => (s.status === "ready" ? s.error : undefined));
+  return empty && !switching && !restoring && !failed;
+}
+
 /** The thread (shadcn/ui AI Elements · Chat): the person's turn anchors the scroll. */
 export function ChatThread() {
   const turns = usePaneEngine((s) => s.transcript.turns);
   const busy = usePaneEngine((s) => s.transcript.busy);
   const restoring = useRestoring();
+
   // A chat was clicked and is on its way (the sidebar shows it, the thread not yet).
   const activeId = usePaneEngine((s) => s.activeId);
   // Only the focused pane follows the sidebar's pick (split view, FR-4).
@@ -66,7 +84,8 @@ export function ChatThread() {
         </div>
       );
     }
-    return <ChatEmpty />;
+    // The empty screen sits with the composer in the chat view (useThreadEmpty).
+    return null;
   }
 
   return (
