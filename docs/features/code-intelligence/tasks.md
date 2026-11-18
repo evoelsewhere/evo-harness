@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-18 |
 
 ## 1. Phases
 
@@ -38,6 +38,19 @@ transcript rows read in words.
 - [x] T11 [P] [FR-13] Once-per-folder notice — `apps/desktop/src/stores/engine-store.ts` — check: manual in the running app
 - [x] T12 [P] [FR-14] Transcript row labels — `apps/desktop/src/components/ai-elements/tool.tsx` — check: manual in the running app
 
+### Phase 4 — Errors with the edit (2026-11-18)
+
+Done when: an `edit` / `write` that breaks a file returns the server's new
+errors within the wait, and the `lsp` tool is opt-in.
+
+- [x] T13 [FR-16, FR-18, FR-19] Compare errors and word the result, tests first — `crates/evo-lsp/src/edit_check.rs` — check: `cargo test -p evo-lsp edit_check`
+- [x] T14 [FR-15, FR-17] `errors_before` / `check_edit` with the 4 s budget; `Pool::running_for`, `Pool::warm`; `Client::last_diagnostics` — `crates/evo-lsp/src/{edit_check,pool,client}.rs` — check: `cargo run -p evo-lsp --example edit-check` against a scratch Cargo project
+- [x] T15 [FR-15, FR-17, FR-20, FR-21] `EditCheck` wrapper; settings `editDiagnostics`, `lspTool`; `lsp` registered only when switched on — `crates/evo-engine/src/tools/{lsp,mod}.rs`, `crates/evo-engine/src/settings.rs` — check: `cargo test -p evo-engine edit_check`
+- [x] T16 [FR-20] RPC `set_code_intelligence_options`, `options` in the list — `crates/evo-engine/src/{modes,rpc/protocol}.rs` — check: `cargo test -p evo-engine customization_and_mesh_commands_pass_payload_validation`
+- [x] T18 [FR-17, FR-22] Warm the server on `read`; the edit waits for a starting server within its budget — `crates/evo-lsp/src/{edit_check,pool}.rs`, `crates/evo-engine/src/tools/{lsp,mod}.rs` — check: example `edit-check`; real model in the app
+- [x] T19 [FR-17, FR-23] New errors in other files: per-file baseline when the server is idle, compared after the wait, one cap for all — `crates/evo-lsp/src/{edit_check,client}.rs` — check: `cargo test -p evo-lsp edit_check`; example `edit-check` with a two-file Cargo project
+- [x] T17 [FR-20] Two switches on **Customize → Code intelligence** — `apps/desktop/src/features/customize/languages-section.tsx`, `apps/desktop/README.md` — check: `bun run typecheck`; manual in the running app
+
 ## 2. Verification
 
 | Requirement | Test or check | Result |
@@ -60,4 +73,14 @@ transcript rows read in words.
 | NFR-2 | Review of `install.rs`; manual install on Windows | not run |
 | NFR-3 | `cargo test -p evo-lsp positions_find_symbols_on_word_boundaries` | not run |
 | SC-1 | Manual: cold-start diagnostics on a scratch Cargo project | passed (2026-11-06, about 7 s) |
-| SC-2 | Manual: a real model used diagnostics and references in parallel on its own and answered correctly | passed (2026-11-06) |
+| SC-2 | Manual: a real model used diagnostics and references in parallel on its own and answered correctly | passed (2026-11-06); retired 2026-11-18 |
+| FR-15 | Example `edit-check` with real rust-analyzer and Pyright on scratch projects: a breaking change returned the compiler's error with the write (rustc E0308 in 0.9 s; Pyright reportArgumentType in 0.6 s) | passed (2026-11-18) |
+| FR-16 | `cargo test -p evo-lsp edit_check`; example `edit-check` with Pyright (one new error listed, "1 other error was already there") | passed (2026-11-18) |
+| FR-17 | `cargo test -p evo-engine edit_check`; example `edit-check`: with rust-analyzer a clean edit now returns in 0.2–0.7 s (was the whole 4 s); a write with no server waits for the start within 10 s (Pyright: answered within it; rust-analyzer: 4.0 s, nothing added, running after it) | passed (2026-11-18) |
+| FR-18 | `cargo test -p evo-lsp edit_check`; example `edit-check` (fixing the error said "no errors left" with both servers) | passed (2026-11-18) |
+| FR-19 | `cargo test -p evo-lsp edit_check` | passed (2026-11-18) |
+| FR-20 | `cargo test -p evo-engine the_list_names_every_server`, `customization_and_mesh_commands_pass_payload_validation`; `bun run typecheck`; in the running app (test copy, scratch data): both switches shown, "Code navigation tool" flipped on and off at once and `lspTool` saved | passed (2026-11-18) |
+| FR-21 | Review: the check runs only after a successful `edit` / `write` (`EditCheck::execute` returns the inner error first); `WarmOnRead` checks `current_is_read_only()` | passed (2026-11-18) |
+| FR-23 | `cargo test -p evo-lsp edit_check`; example `edit-check` with rust-analyzer on a two-file Cargo project (changing `add` to return `i64` listed `src/main.rs:4:22 … E0308` in 0.7 s; with `READ_FIRST_MS=2500`, a cold server, it was listed in 4.3 s); running app, real model, new chat, "make `add` return i64": the edit came back with the caller's error and the model read and fixed `src/main.rs` on its own (two runs before FR-23 left it broken) | passed (2026-11-18) |
+| FR-22 | Running app, real model (Copilot claude-sonnet-5.5), new chat in a scratch Cargo project: read, then an edit making `sum` return `u64` came back with `src/main.rs:8:22 error: mismatched types … [rustc E0308]` | passed (2026-11-18) |
+| SC-3 | Running app, real model: the error came with the first edit (the server was warmed by the `read` before it); told to change only `sum`, the model quoted the error (line 8, E0308) and offered the fix instead of claiming success. Without the check (earlier build) it could only reason that `main` would break. Unconstrained, it changed both in one edit and nothing was added. | passed (2026-11-18), small trial |

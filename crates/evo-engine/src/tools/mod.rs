@@ -65,17 +65,22 @@ pub fn builtin_tools_in(cwd: &Path) -> Vec<HarnessTool> {
     // Only Windows adds a tool after this.
     #[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
     let mut tools = vec![
-        HarnessTool::new(create_read_tool(
-            &ctx,
-            Some(evo_tools::tools::read::ReadToolOptions {
-                image_processor: Some(Arc::new(evo_tools::image_processing::InlineImageProcessor)),
-                ..Default::default()
-            }),
+        HarnessTool::new(lsp::warm_on_read(
+            create_read_tool(
+                &ctx,
+                Some(evo_tools::tools::read::ReadToolOptions {
+                    image_processor: Some(Arc::new(
+                        evo_tools::image_processing::InlineImageProcessor,
+                    )),
+                    ..Default::default()
+                }),
+            ),
+            cwd.to_path_buf(),
         ))
         .with_replay(ToolReplay::Safe),
         HarnessTool::new(create_bash_tool(&ctx, Some(bash_options()))),
-        HarnessTool::new(create_edit_tool(&ctx)),
-        HarnessTool::new(create_write_tool(&ctx)),
+        HarnessTool::new(lsp::check_edits(create_edit_tool(&ctx), cwd.to_path_buf())),
+        HarnessTool::new(lsp::check_edits(create_write_tool(&ctx), cwd.to_path_buf())),
     ];
     #[cfg(target_os = "windows")]
     tools.push(HarnessTool::new(create_powershell_tool(&ctx)));
@@ -84,9 +89,10 @@ pub fn builtin_tools_in(cwd: &Path) -> Vec<HarnessTool> {
 
 /// Every engine tool, by name, in registration order: the file and shell
 /// tools, then `docs`, the session and agent tools, the mesh, memory, the
-/// person-facing tools, and the optional ones (`web_*` unless switched off in
-/// settings, `powershell` on Windows). The caller applies the person's
-/// selection (`--tools`, `defaultTools`, ...) to the result.
+/// person-facing tools, and the optional ones (`lsp` when switched on,
+/// `web_*` unless switched off in settings, `powershell` on Windows). The
+/// caller applies the person's selection (`--tools`, `defaultTools`, ...) to
+/// the result.
 pub fn register_all(
     ctx: &ExecutionToolContext,
     harness: &agent::HarnessCell,
@@ -102,14 +108,19 @@ pub fn register_all(
     let mut all: Vec<(&'static str, HarnessTool)> = vec![
         (
             "read",
-            HarnessTool::new(create_read_tool(
-                ctx,
-                Some(evo_tools::tools::read::ReadToolOptions {
-                    image_processor: Some(Arc::new(
-                        evo_tools::image_processing::InlineImageProcessor,
-                    )),
-                    ..Default::default()
-                }),
+            // Reading a file starts its language server for the edit check
+            // (`tools/lsp.rs`, docs/features/code-intelligence/spec.md FR-22).
+            HarnessTool::new(lsp::warm_on_read(
+                create_read_tool(
+                    ctx,
+                    Some(evo_tools::tools::read::ReadToolOptions {
+                        image_processor: Some(Arc::new(
+                            evo_tools::image_processing::InlineImageProcessor,
+                        )),
+                        ..Default::default()
+                    }),
+                ),
+                ctx.env().cwd().to_path_buf(),
             ))
             .with_replay(ToolReplay::Safe),
         ),
@@ -117,8 +128,22 @@ pub fn register_all(
             "bash",
             HarnessTool::new(create_bash_tool(ctx, Some(bash_options()))),
         ),
-        ("edit", HarnessTool::new(create_edit_tool(ctx))),
-        ("write", HarnessTool::new(create_write_tool(ctx))),
+        // Both carry the language server's errors for the changed file
+        // (`tools/lsp.rs`, docs/features/code-intelligence/spec.md FR-15).
+        (
+            "edit",
+            HarnessTool::new(lsp::check_edits(
+                create_edit_tool(ctx),
+                ctx.env().cwd().to_path_buf(),
+            )),
+        ),
+        (
+            "write",
+            HarnessTool::new(lsp::check_edits(
+                create_write_tool(ctx),
+                ctx.env().cwd().to_path_buf(),
+            )),
+        ),
         (
             "docs",
             HarnessTool::new(create_docs_tool()).with_replay(ToolReplay::Safe),
@@ -179,12 +204,15 @@ pub fn register_all(
         ))
         .with_replay(ToolReplay::Safe),
     ));
-    // Code intelligence from language servers (`tools/lsp.rs`).
-    all.push((
-        "lsp",
-        HarnessTool::new(lsp::create_lsp_tool(ctx.env().cwd().to_path_buf()))
-            .with_replay(ToolReplay::Safe),
-    ));
+    // Code intelligence from language servers (`tools/lsp.rs`), when
+    // switched on in settings (`lspTool`).
+    if lsp::tool_enabled() {
+        all.push((
+            "lsp",
+            HarnessTool::new(lsp::create_lsp_tool(ctx.env().cwd().to_path_buf()))
+                .with_replay(ToolReplay::Safe),
+        ));
+    }
     // Web search and fetch (`tools/web.rs`), unless switched off in settings.
     if web::enabled() {
         all.push((

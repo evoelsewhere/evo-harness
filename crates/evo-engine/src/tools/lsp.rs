@@ -1,4 +1,6 @@
-//! Code intelligence: the `lsp` tool and the language-server RPCs (`evo-lsp`).
+//! Code intelligence (docs/features/code-intelligence/spec.md): the errors
+//! that come with `edit` / `write` results ([`check_edits`], FR-15–FR-21),
+//! the opt-in `lsp` tool (FR-1) and the language-server RPCs (`evo-lsp`).
 //!
 //! Servers live in `<agent dir>/lsp/<id>` when evo installs them; a server on
 //! PATH, in the Rust toolchain or shipped with a VS Code-style editor is used
@@ -10,7 +12,8 @@
 //! with what is installed, what the project uses, what is running and any
 //! install in progress), `install_language_server {id}` (runs in the
 //! background; progress in the list), `uninstall_language_server {id}`,
-//! `set_language_server_enabled {id, enabled}`.
+//! `set_language_server_enabled {id, enabled}`,
+//! `set_code_intelligence_options {editDiagnostics?, lspTool?}`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -21,7 +24,7 @@ use evo_agent::agent_tool::AgentTool;
 use evo_agent::error::AgentError;
 use evo_agent::types::{AgentToolResult, TextContentOrImage, ToolExecutionMode, ToolResultPartial};
 use evo_ai::types::{Schema, Tool};
-use evo_lsp::{catalog, detect, install, ops, Pool};
+use evo_lsp::{catalog, detect, edit_check, install, ops, Pool};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
@@ -36,6 +39,24 @@ fn disabled() -> Vec<String> {
         .ok()
         .and_then(|s| s.disabled_language_servers)
         .unwrap_or_default()
+}
+
+/// Whether `edit` / `write` results carry the server's errors (FR-20); read
+/// at each edit, so the switch applies at once.
+pub fn edit_diagnostics_enabled() -> bool {
+    crate::settings::load_settings()
+        .ok()
+        .and_then(|s| s.edit_diagnostics)
+        .unwrap_or(true)
+}
+
+/// Whether chats get the `lsp` tool (FR-1); read when a chat's tools are
+/// built.
+pub fn tool_enabled() -> bool {
+    crate::settings::load_settings()
+        .ok()
+        .and_then(|s| s.lsp_tool)
+        .unwrap_or(false)
 }
 
 pub fn pool() -> &'static Pool {
@@ -172,6 +193,149 @@ impl AgentTool for LspTool {
     }
 }
 
+// ── Errors with the edit ─────────────────────────────────────────────────────
+
+/// `inner` (`edit` or `write`) with the language server's errors for the
+/// changed file added to its result (FR-15–FR-21). Everything else — schema,
+/// approval, the result's details — is `inner`'s own.
+pub fn check_edits(inner: Arc<dyn AgentTool>, cwd: PathBuf) -> Arc<dyn AgentTool> {
+    Arc::new(EditCheck { inner, cwd })
+}
+
+struct EditCheck {
+    inner: Arc<dyn AgentTool>,
+    cwd: PathBuf,
+}
+
+impl EditCheck {
+    /// The file a call changes, as `edit` / `write` resolve it.
+    fn file(&self, params: &Value) -> Option<PathBuf> {
+        tool_file(params, &self.cwd)
+    }
+}
+
+/// The file a `read` / `edit` / `write` call names, as those tools resolve it.
+fn tool_file(params: &Value, cwd: &Path) -> Option<PathBuf> {
+    let path = evo_tools::path_utils::normalize_tool_path(text(params, "path")?);
+    let path = match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        Some(rest) => dirs_home()?.join(rest),
+        None => PathBuf::from(&path),
+    };
+    Some(if path.is_absolute() {
+        path
+    } else {
+        cwd.join(path)
+    })
+}
+
+/// `inner` (`read`) that, after reading a file, starts its language server
+/// in the background, so the agent's first edit of it is checked too
+/// (FR-22). Not in a read-only session, whose servers could build the
+/// project, nor with the edit check switched off.
+pub fn warm_on_read(inner: Arc<dyn AgentTool>, cwd: PathBuf) -> Arc<dyn AgentTool> {
+    Arc::new(WarmOnRead { inner, cwd })
+}
+
+struct WarmOnRead {
+    inner: Arc<dyn AgentTool>,
+    cwd: PathBuf,
+}
+
+#[async_trait]
+impl AgentTool for WarmOnRead {
+    fn schema(&self) -> &Tool {
+        self.inner.schema()
+    }
+
+    fn label(&self) -> &str {
+        self.inner.label()
+    }
+
+    fn execution_mode(&self) -> ToolExecutionMode {
+        self.inner.execution_mode()
+    }
+
+    fn prepare_arguments(&self, args: Value) -> Result<Value, AgentError> {
+        self.inner.prepare_arguments(args)
+    }
+
+    async fn execute(
+        &self,
+        tool_call_id: &str,
+        params: Value,
+        signal: CancellationToken,
+        on_update: Arc<dyn Fn(ToolResultPartial) + Send + Sync>,
+    ) -> Result<AgentToolResult, AgentError> {
+        let file = tool_file(&params, &self.cwd);
+        let result = self
+            .inner
+            .execute(tool_call_id, params, signal, on_update)
+            .await?;
+        if let Some(file) = file {
+            if file.is_file()
+                && edit_diagnostics_enabled()
+                && !crate::session_roles::current_is_read_only()
+            {
+                pool().warm(&file, &self.cwd);
+            }
+        }
+        Ok(result)
+    }
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+
+#[async_trait]
+impl AgentTool for EditCheck {
+    fn schema(&self) -> &Tool {
+        self.inner.schema()
+    }
+
+    fn label(&self) -> &str {
+        self.inner.label()
+    }
+
+    fn execution_mode(&self) -> ToolExecutionMode {
+        self.inner.execution_mode()
+    }
+
+    fn prepare_arguments(&self, args: Value) -> Result<Value, AgentError> {
+        self.inner.prepare_arguments(args)
+    }
+
+    async fn execute(
+        &self,
+        tool_call_id: &str,
+        params: Value,
+        signal: CancellationToken,
+        on_update: Arc<dyn Fn(ToolResultPartial) + Send + Sync>,
+    ) -> Result<AgentToolResult, AgentError> {
+        let file = self.file(&params).filter(|_| edit_diagnostics_enabled());
+        let Some(file) = file else {
+            return self
+                .inner
+                .execute(tool_call_id, params, signal, on_update)
+                .await;
+        };
+        let pool = pool();
+        let before = edit_check::before_edit(pool, &file, &self.cwd).await;
+        let mut result = self
+            .inner
+            .execute(tool_call_id, params, signal.clone(), on_update)
+            .await?;
+        let note = tokio::select! {
+            _ = signal.cancelled() => None,
+            note = edit_check::after_edit(pool, &self.cwd, &file, before, edit_check::EDIT_WAIT) => note,
+        };
+        if let Some(note) = note {
+            result.content.push(TextContentOrImage::text(note));
+        }
+        Ok(result)
+    }
+}
+
 // ── Installs and the list ────────────────────────────────────────────────────
 
 #[derive(Default, Clone)]
@@ -251,6 +415,19 @@ pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Save the switches of Customize → Code intelligence (FR-20); a key left
+/// out keeps its value.
+pub fn set_options(edit_diagnostics: Option<bool>, lsp_tool: Option<bool>) -> Result<(), String> {
+    crate::settings::update_settings_value(move |settings| {
+        if let Some(on) = edit_diagnostics {
+            settings.insert("editDiagnostics".into(), json!(on));
+        }
+        if let Some(on) = lsp_tool {
+            settings.insert("lspTool".into(), json!(on));
+        }
+    })
+}
+
 /// Everything Customize → Code intelligence shows, for a chat in `cwd`.
 pub async fn describe(cwd: &Path) -> Value {
     let dir = lsp_dir();
@@ -290,6 +467,10 @@ pub async fn describe(cwd: &Path) -> Value {
     .await
     .unwrap_or_default();
     json!({
+        "options": {
+            "editDiagnostics": edit_diagnostics_enabled(),
+            "lspTool": tool_enabled(),
+        },
         "servers": servers,
         "detected": detected,
         "running": running,
@@ -315,5 +496,53 @@ mod tests {
         );
         assert_eq!(list["detected"][0]["server"], "rust-analyzer");
         assert!(start_install("nope").is_err());
+        assert!(list["options"]["editDiagnostics"].is_boolean());
+        assert!(list["options"]["lspTool"].is_boolean());
+    }
+
+    fn write_tool(cwd: &Path) -> Arc<dyn AgentTool> {
+        let env = Arc::new(evo_tools::OsExecutionEnv::with_cwd(cwd.to_path_buf()));
+        let env_dyn: Arc<dyn evo_tools::ExecutionEnv> = env.clone();
+        let mut_env: Arc<dyn evo_tools::MutatingEnv> = env;
+        let ctx = evo_tools::ExecutionToolContext::new(env_dyn, Some(mut_env));
+        check_edits(evo_tools::create_write_tool(&ctx), cwd.to_path_buf())
+    }
+
+    // docs/features/code-intelligence/spec.md (FR-15, FR-17).
+    #[tokio::test]
+    async fn edit_check_keeps_the_tool_and_adds_nothing_without_a_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = write_tool(dir.path());
+        assert_eq!(tool.schema().name, "write");
+        let started = std::time::Instant::now();
+        let result = tool
+            .execute(
+                "t1",
+                json!({ "path": "notes.unknownext", "content": "hello" }),
+                CancellationToken::new(),
+                Arc::new(|_| {}),
+            )
+            .await
+            .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(result.content.len(), 1, "{:?}", result.content);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("notes.unknownext")).unwrap(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn edit_check_resolves_paths_as_the_tools_do() {
+        let cwd = PathBuf::from(if cfg!(windows) { r"C:\p" } else { "/p" });
+        let check = EditCheck {
+            inner: create_lsp_tool(cwd.clone()),
+            cwd: cwd.clone(),
+        };
+        assert_eq!(
+            check.file(&json!({ "path": "@src/a.rs" })),
+            Some(cwd.join("src/a.rs"))
+        );
+        assert_eq!(check.file(&json!({})), None);
     }
 }

@@ -60,6 +60,9 @@ pub struct Client {
     progress_seen: AtomicBool,
     /// rust-analyzer's `experimental/serverStatus`: idle when `true`.
     quiescent: Mutex<Option<bool>>,
+    /// When a piece of the server's work last ended (a work-done progress,
+    /// or rust-analyzer turning quiescent).
+    work_ended: Mutex<Option<Instant>>,
     started: Instant,
     open: tokio::sync::Mutex<HashMap<String, Open>>,
     alive: AtomicBool,
@@ -108,6 +111,7 @@ impl Client {
             progress_changed: Notify::new(),
             progress_seen: AtomicBool::new(false),
             quiescent: Mutex::new(None),
+            work_ended: Mutex::new(None),
             started: Instant::now(),
             open: tokio::sync::Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
@@ -333,6 +337,21 @@ impl Client {
         !self.progress.lock().unwrap().is_empty() || *self.quiescent.lock().unwrap() == Some(false)
     }
 
+    /// Whether the server is still in its first start (its first half
+    /// minute): servers report many small pieces of work while they load,
+    /// so a time is the plainer sign.
+    pub fn starting(&self) -> bool {
+        self.started.elapsed() < Duration::from_secs(30)
+    }
+
+    /// Whether the server finished some work after `at` and is idle now: what
+    /// it published since then is all it has to say about a change sent at
+    /// `at` (rust-analyzer does not republish a file whose diagnostics stayed
+    /// the same).
+    pub fn work_finished_since(&self, at: Instant) -> bool {
+        !self.indexing() && self.work_ended.lock().unwrap().is_some_and(|t| t >= at)
+    }
+
     /// Wait until no work-done progress is running (indexing), up to `max`.
     /// Just after start, it first gives the server a moment to begin: a
     /// request sent before indexing starts would find nothing.
@@ -394,6 +413,27 @@ impl Client {
             )
             .await;
         }
+    }
+
+    /// The last diagnostics the server reported for `uri`, without waiting;
+    /// `None` when it has not reported on that file.
+    pub fn last_diagnostics(&self, uri: &str) -> Option<Vec<Value>> {
+        self.diagnostics
+            .lock()
+            .unwrap()
+            .get(&uri_key(uri))
+            .map(|(_, list, _, _)| list.clone())
+    }
+
+    /// The last report for every file the server reported on, empty ones
+    /// included, keyed by [`uri_key`]: `(uri as the server spelled it, list)`.
+    pub fn reports(&self) -> HashMap<String, (String, Vec<Value>)> {
+        self.diagnostics
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, (_, list, _, uri))| (key.clone(), (uri.clone(), list.clone())))
+            .collect()
     }
 
     /// The last diagnostics for every file the server reported on.
@@ -496,6 +536,7 @@ impl Client {
                             }
                             Some("end") => {
                                 self.progress.lock().unwrap().remove(&token);
+                                *self.work_ended.lock().unwrap() = Some(Instant::now());
                                 self.progress_changed.notify_waiters();
                             }
                             _ => {}
@@ -505,6 +546,9 @@ impl Client {
                     "experimental/serverStatus" => {
                         let quiescent = params.get("quiescent").and_then(Value::as_bool);
                         *self.quiescent.lock().unwrap() = quiescent;
+                        if quiescent == Some(true) {
+                            *self.work_ended.lock().unwrap() = Some(Instant::now());
+                        }
                         self.progress_changed.notify_waiters();
                     }
                     _ => {}

@@ -13,15 +13,36 @@ const INDEX_WAIT: Duration = Duration::from_secs(60);
 const DIAGNOSTICS_WAIT: Duration = Duration::from_secs(20);
 const MAX_LINES: usize = 150;
 
-/// `path` as shown: relative to `cwd` when inside it, with `/`.
+/// `path` as shown: relative to `cwd` when inside it, with `/`. On Windows
+/// the comparison ignores case, since servers may spell the drive `c:`.
 pub fn show(path: &Path, cwd: &Path) -> String {
-    path.strip_prefix(cwd)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    // Windows' verbatim prefix (`\\?\`, from `canonicalize`) is not part of
+    // the path the person knows.
+    let plain = |p: &Path| {
+        let p = p.to_string_lossy().replace('\\', "/");
+        p.strip_prefix("//?/").map(str::to_string).unwrap_or(p)
+    };
+    let path = plain(path);
+    let cwd = plain(cwd);
+    let cwd = cwd.trim_end_matches('/');
+    let inside = |p: &str| {
+        if cfg!(windows) {
+            p.len() > cwd.len()
+                && p.is_char_boundary(cwd.len())
+                && p[..cwd.len()].eq_ignore_ascii_case(cwd)
+        } else {
+            p.starts_with(cwd)
+        }
+    };
+    match path.get(cwd.len()..) {
+        Some(rest) if !cwd.is_empty() && inside(&path) && rest.starts_with('/') => {
+            rest[1..].to_string()
+        }
+        _ => path,
+    }
 }
 
-fn resolve(path: &str, cwd: &Path) -> PathBuf {
+pub(crate) fn resolve(path: &str, cwd: &Path) -> PathBuf {
     let p = PathBuf::from(path);
     if p.is_absolute() {
         p
@@ -39,7 +60,7 @@ fn severity(n: Option<u64>) -> &'static str {
     }
 }
 
-fn format_diagnostic(file: &str, d: &Value) -> String {
+pub(crate) fn format_diagnostic(file: &str, d: &Value) -> String {
     let line = d
         .pointer("/range/start/line")
         .and_then(Value::as_u64)
@@ -512,6 +533,30 @@ mod tests {
             position("let é😀 = x;", 1, Some("x"), None).unwrap(),
             (0, 10)
         );
+    }
+
+    #[test]
+    fn paths_show_relative_to_the_project() {
+        assert_eq!(show(Path::new("/p/src/a.rs"), Path::new("/p")), "src/a.rs");
+        assert_eq!(show(Path::new("/p/src/a.rs"), Path::new("/p/")), "src/a.rs");
+        assert_eq!(show(Path::new("/pq/a.rs"), Path::new("/p")), "/pq/a.rs");
+        assert_eq!(show(Path::new("/q/a.rs"), Path::new("/p")), "/q/a.rs");
+        if cfg!(windows) {
+            assert_eq!(
+                show(
+                    Path::new("c:/Users/x/proj/src/main.rs"),
+                    Path::new(r"C:\Users\x\proj")
+                ),
+                "src/main.rs"
+            );
+            assert_eq!(
+                show(
+                    Path::new("c:/Users/x/proj/src/main.rs"),
+                    Path::new(r"\\?\C:\Users\x\proj")
+                ),
+                "src/main.rs"
+            );
+        }
     }
 
     #[test]

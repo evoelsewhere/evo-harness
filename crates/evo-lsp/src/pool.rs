@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::catalog::{self, Server};
 use crate::client::Client;
@@ -13,7 +14,13 @@ pub struct Pool {
     pub lsp_dir: PathBuf,
     clients: tokio::sync::Mutex<HashMap<(String, PathBuf), Arc<Client>>>,
     disabled: Mutex<HashSet<String>>,
+    /// When [`Pool::warm`] last tried each server, so edits to files of a
+    /// language whose server is missing do not look for it every time.
+    warmed: Mutex<HashMap<&'static str, Instant>>,
 }
+
+/// How long [`Pool::warm`] leaves a server alone after trying to start it.
+const WARM_AGAIN: Duration = Duration::from_secs(60);
 
 fn marker_in(dir: &Path, marker: &str) -> bool {
     match marker.strip_prefix('*') {
@@ -69,6 +76,7 @@ impl Pool {
             lsp_dir,
             clients: tokio::sync::Mutex::new(HashMap::new()),
             disabled: Mutex::new(HashSet::new()),
+            warmed: Mutex::new(HashMap::new()),
         }
     }
 
@@ -120,6 +128,48 @@ impl Pool {
         let client = Client::start(server, &located.path, env, &root).await?;
         clients.insert(key, client.clone());
         Ok(client)
+    }
+
+    /// The server that handles `file`, unless it is switched off.
+    pub fn server_for(&self, file: &Path) -> Option<&'static Server> {
+        catalog::for_file(file).filter(|server| !self.is_disabled(server.id))
+    }
+
+    /// The running server for `file`, never starting one (and `None` while
+    /// another server is being started, rather than waiting for it).
+    pub fn running_for(&self, file: &Path, cwd: &Path) -> Option<Arc<Client>> {
+        let server = self.server_for(file)?;
+        let root = find_root(file, server.root_markers, cwd);
+        let clients = self.clients.try_lock().ok()?;
+        clients
+            .get(&(server.id.to_string(), root))
+            .filter(|c| c.alive())
+            .cloned()
+    }
+
+    /// Start the server for `file` in the background and open the file in it,
+    /// so later requests find it ready. Does nothing for a file no server
+    /// handles, a server switched off, or one tried in the last minute.
+    pub fn warm(&'static self, file: &Path, cwd: &Path) {
+        let Some(server) = self.server_for(file) else {
+            return;
+        };
+        {
+            let mut warmed = self.warmed.lock().unwrap();
+            if warmed
+                .get(server.id)
+                .is_some_and(|at| at.elapsed() < WARM_AGAIN)
+            {
+                return;
+            }
+            warmed.insert(server.id, Instant::now());
+        }
+        let (file, cwd) = (file.to_path_buf(), cwd.to_path_buf());
+        tokio::spawn(async move {
+            if let Ok(client) = self.client_for(&file, &cwd).await {
+                let _ = client.sync_file(&file).await;
+            }
+        });
     }
 
     /// Every running server.

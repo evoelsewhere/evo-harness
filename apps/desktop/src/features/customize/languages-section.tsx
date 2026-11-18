@@ -8,12 +8,15 @@ import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { Badge } from "./customize-parts";
 
-// Customize → Code intelligence: the language servers behind the agent's
-// `lsp` tool (diagnostics, definitions, references, hover, symbols). The
-// project's languages come first, with an Install button; every server shows
-// where it comes from (installed by evo, on PATH, the Rust toolchain, or an
-// editor extension) and can be switched off. RPC `list_language_servers`,
-// `install_language_server`, … (crates/evo-engine/src/lsp_tool.rs).
+// Customize → Code intelligence: the language servers that check the files
+// the agent changes (their errors come with each edit) and, when switched on,
+// answer the agent's `lsp` tool (definitions, references, hover, symbols).
+// Two switches on top; then the project's languages, with an Install button;
+// every server shows where it comes from (installed by evo, on PATH, the Rust
+// toolchain, or an editor extension) and can be switched off. RPC
+// `list_language_servers`, `set_code_intelligence_options`,
+// `install_language_server`, … (crates/evo-engine/src/tools/lsp.rs;
+// docs/features/code-intelligence/spec.md FR-12, FR-20).
 
 interface ServerInfo {
   id: string;
@@ -37,6 +40,8 @@ interface Detected {
 }
 
 export interface LanguagesState {
+  /** Missing from engines older than the edit check. */
+  options?: { editDiagnostics: boolean; lspTool: boolean };
   servers: ServerInfo[];
   detected: Detected[];
   running: { server: string; root: string; indexing: boolean; alive: boolean }[];
@@ -95,7 +100,15 @@ function useLanguages() {
     const timer = setInterval(() => void request("list_language_servers"), 1500);
     return () => clearInterval(timer);
   }, [installing, request]);
-  return { state, error, ready, request };
+  // A switch flips at once; the list that comes back confirms it.
+  const setOption = React.useCallback(
+    (key: "editDiagnostics" | "lspTool", on: boolean) => {
+      setState((s) => (s?.options ? { ...s, options: { ...s.options, [key]: on } } : s));
+      void request("set_code_intelligence_options", { [key]: on });
+    },
+    [request],
+  );
+  return { state, error, ready, request, setOption };
 }
 
 function InstallButton({ server, onInstall }: { server: ServerInfo; onInstall(): void }) {
@@ -235,8 +248,30 @@ function ServerRow({
   );
 }
 
+function OptionRow({
+  title,
+  description,
+  checked,
+  onChange,
+}: {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange(on: boolean): void;
+}) {
+  return (
+    <label className="flex items-center gap-3 px-3 py-2.5">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[13px] font-medium">{title}</span>
+        <span className="text-xs text-muted-foreground">{description}</span>
+      </span>
+      <Switch aria-label={title} checked={checked} onCheckedChange={onChange} />
+    </label>
+  );
+}
+
 export function LanguagesSection({ query }: { query: string }) {
-  const { state, error, ready, request } = useLanguages();
+  const { state, error, ready, request, setOption } = useLanguages();
   if (!state) {
     return (
       <div className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-muted-foreground">
@@ -261,11 +296,28 @@ export function LanguagesSection({ query }: { query: string }) {
         <div className="flex flex-col gap-1">
           <h2 className="text-base font-semibold">Code intelligence</h2>
           <p className="text-[13px] text-muted-foreground">
-            Language servers let the agent check a file for errors after editing it, jump to definitions, find every real
-            use of a symbol and read types — more precise than searching text. A server starts the first time the agent
-            needs it and runs while the chat is open.
+            Language servers check each file the agent changes: the compiler's errors come back with the edit, so the agent
+            fixes what it broke without being asked. A server starts the first time the agent edits a file of its language
+            and runs while the chat is open.
           </p>
         </div>
+
+        {state.options && (
+          <section className="flex flex-col divide-y divide-border/60 rounded-xl ring-1 ring-border">
+            <OptionRow
+              title="Show errors after edits"
+              description="Add the language server's new errors to the result of each edit."
+              checked={state.options.editDiagnostics}
+              onChange={(on) => setOption("editDiagnostics", on)}
+            />
+            <OptionRow
+              title="Code navigation tool"
+              description="Give the agent an lsp tool for definitions, references, types and outlines. Applies to new chats."
+              checked={state.options.lspTool}
+              onChange={(on) => setOption("lspTool", on)}
+            />
+          </section>
+        )}
 
         {project.length > 0 && (
           <section className="flex flex-col gap-2">

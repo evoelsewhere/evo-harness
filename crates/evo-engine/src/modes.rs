@@ -1359,6 +1359,13 @@ where
                     Err(error) => Err(error),
                 }
             }
+            "set_code_intelligence_options" => {
+                let flag = |key: &str| msg.get(key).and_then(serde_json::Value::as_bool);
+                match crate::tools::lsp::set_options(flag("editDiagnostics"), flag("lspTool")) {
+                    Ok(()) => Ok(crate::tools::lsp::describe(&rpc_cwd(&rpc_providers)).await),
+                    Err(error) => Err(error),
+                }
+            }
             // Settings → Office: the LibreOffice runtime (`office.rs`).
             "office_status"
             | "office_install"

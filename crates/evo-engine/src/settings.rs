@@ -202,6 +202,13 @@ pub struct Settings {
     /// Language servers switched off in Customize → Code intelligence.
     #[serde(default)]
     pub disabled_language_servers: Option<Vec<String>>,
+    /// Errors from the language server come with `edit` / `write` results;
+    /// on unless `false` (docs/features/code-intelligence/spec.md, FR-20).
+    #[serde(default)]
+    pub edit_diagnostics: Option<bool>,
+    /// The agent's `lsp` tool; off unless `true` (same spec, FR-1).
+    #[serde(default)]
+    pub lsp_tool: Option<bool>,
     /// upstream keybinding overrides. Values may be a key string, an array
     /// of key strings, or an empty array to unbind an action.
     #[serde(default)]

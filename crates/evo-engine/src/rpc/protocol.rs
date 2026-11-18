@@ -258,6 +258,15 @@ pub enum Command {
         #[serde(default)]
         enabled: bool,
     },
+    /// The switches of Customize → Code intelligence; a key left out keeps
+    /// its value.
+    #[serde(rename_all = "camelCase")]
+    SetCodeIntelligenceOptions {
+        #[serde(default)]
+        edit_diagnostics: Option<bool>,
+        #[serde(default)]
+        lsp_tool: Option<bool>,
+    },
     /// Memory across chats (`memory.rs`).
     ListMemories,
     SaveMemory {
@@ -436,6 +445,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "install_language_server",
     "uninstall_language_server",
     "set_language_server_enabled",
+    "set_code_intelligence_options",
     "save_memory",
     "delete_memory",
     "set_memory_enabled",
@@ -659,6 +669,8 @@ mod tests {
             json!({"type": "install_language_server", "server": "pyright"}),
             json!({"type": "uninstall_language_server", "server": "pyright"}),
             json!({"type": "set_language_server_enabled", "server": "pyright", "enabled": false}),
+            json!({"type": "set_code_intelligence_options", "editDiagnostics": false}),
+            json!({"type": "set_code_intelligence_options", "lspTool": true}),
             json!({"type": "save_memory", "scope": "project", "name": "a", "kind": "user", "content": "b"}),
             json!({"type": "delete_memory", "scope": "project", "name": "a"}),
             json!({"type": "set_memory_enabled", "enabled": false}),
