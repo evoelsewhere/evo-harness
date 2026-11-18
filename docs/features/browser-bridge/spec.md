@@ -68,7 +68,7 @@ use the sites they are signed in to.
 
 Acceptance scenarios:
 
-1. **Given** **Settings → Webbridge**, **when** the person chooses **Set up
+1. **Given** **Settings → Browser**, **when** the person chooses **Set up
    Chrome**, **then** Evo registers itself with that browser and opens the
    extension's install page (or shows how to load it while the extension is
    not published).
@@ -219,7 +219,7 @@ Acceptance scenarios:
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | FR-1 | One Manifest V3 extension for Chrome and Edge, with only these permissions: the debugging API, tabs (titles and addresses), tab groups, the side panel, native messaging, its own storage, context menus and the active tab (for a screenshot the person asks for). No content scripts declared and no host permissions. | Review of the manifest. |
-| FR-2 | **Settings → Webbridge** sets up each of Chrome and Edge (registers Evo with the browser for the current user), opens the extension's install page or shows how to load it, shows each connected browser and profile, and can remove the set-up. | Set up Chrome, install the extension: "Chrome connected". Remove: the browser can no longer reach Evo. |
+| FR-2 | **Settings → Browser** sets up each of Chrome and Edge (registers Evo with the browser for the current user), opens the extension's install page or shows how to load it, shows each connected browser and profile, and can remove the set-up. | Set up Chrome, install the extension: "Chrome connected". Remove: the browser can no longer reach Evo. |
 | FR-3 | Only the Webbridge extension can reach Evo, and only the person's own processes on this machine: web pages, other extensions, other users and the network cannot. | A web page and another extension cannot connect; another Windows user cannot; `netstat` shows no listener. |
 | FR-4 | Each connected browser profile shows with its browser, a profile name the person can change, the extension's version, and whether the browser allows the debugging API. | Two Chrome profiles show as two entries. |
 | FR-5 | The agent's browser tools take `target` (`builtin`, `chrome`, `edge`, or `chrome:<profile>` / `edge:<profile>`); every tool of the [agent browser](../agent-browser/spec.md) works on a Webbridge tab except the download folder and downloads list. Tab ids say which browser they belong to. | `browser_navigate`, `browser_read_page`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_dialog`, `browser_mock` work on a Chrome tab. |
@@ -229,7 +229,7 @@ Acceptance scenarios:
 | FR-9 | `browser_tabs` lists the chat's tabs; with `action: "choose"` it asks the person to pick one of their other open tabs (title and site only) and adds only the picked tab to the group. | With nothing picked, the agent gets the titles and sites only, never page content. |
 | FR-10 | The side panel lists the person's recent chats, starts a new chat in a workspace set in Settings, sends messages (optionally with the current tab), streams replies and tool activity, stops a turn, and shows and answers the chat's open questions. | US-3 scenarios pass with the app's window closed. |
 | FR-11 | A message sent from the side panel is the person's own prompt in that chat, the same as one typed in the app; the app and the panel show the same chat. | Send from the panel: the app's chat shows the message and reply. |
-| FR-12 | Each site has a permission: **Ask** (default), **Allow** or **Block**, kept by Evo and editable in **Settings → Webbridge** and in the extension. | Set Block in the extension: Settings shows Block. |
+| FR-12 | Each site has a permission: **Ask** (default), **Allow** or **Block**, kept by Evo and editable in **Settings → Browser** and in the extension. | Set Block in the extension: Settings shows Block. |
 | FR-13 | On a Webbridge tab, reads never ask; acts (click, type, key, scroll, navigate) ask once per site and chat in "Ask every time" and "Approve edits" unless the site is **Allow**; uploads, storage and cookie changes, request mocking and scripts ask as a command does in the chat's mode; nothing on a **Block** site runs in any mode. | US-5 scenarios. |
 | FR-14 | A question about a Webbridge act shows in the side panel when it is open on that browser, and in the app; an answer in one place settles it in both. | Answer in the panel: the app's question goes. |
 | FR-15 | While the agent works in a tab, the page shows an indicator naming the chat, with **Stop** and **Take over**. | Visible on every page the agent acts on, also after navigation. |
@@ -246,7 +246,7 @@ Acceptance scenarios:
 | FR-26 | The panel's composer shows the chat's model and thinking effort and changes them, offering the same models (from the person's providers) and the efforts the chosen model supports as the app does; a change applies to the chat, not only to the panel. | Pick a model in the panel: the app's composer shows it; the next turn uses it. |
 | FR-27 | The panel's composer shows the approval mode and switches it among the app's modes; the mode is the app's (every chat follows it, as when it is changed in the app) and the app shows the change. Site permissions keep their rules in every mode (FR-13). | US-8 scenario 3. |
 | FR-28 | **+** in the panel attaches: a screenshot of the visible part of the current tab, files from the computer, images and files pasted or dropped into the panel, and another open tab (which joins the chat's group). Attachments show as removable chips, follow the app's size limits, and go with the next message. | Attach a screenshot and a PDF, send: the agent receives both. |
-| FR-29 | A microphone button dictates into the panel's field; dictated text is editable and is only sent when the person sends it. Voice input is off until the person turns it on in **Settings → Webbridge**, where they are told which service turns speech into text. | Turned off: no microphone button. Turned on: speech becomes text in the field, nothing sent. |
+| FR-29 | A microphone button dictates into the panel's field; dictated text is editable and is only sent when the person sends it. Voice input is off until the person turns it on in **Settings → Browser**, where they are told which service turns speech into text. | Turned off: no microphone button. Turned on: speech becomes text in the field, nothing sent. |
 
 ### 4.2 Non-functional
 
@@ -305,7 +305,7 @@ None.
   - Agent tabs open in the background in the person's last focused window; a
     window of their own only if background screenshots prove unreliable.
   - The side panel offers the recent chats of every workspace; new chats start
-    in the workspace set in **Settings → Webbridge** (default: last used).
+    in the workspace set in **Settings → Browser** (default: last used).
   - Site permissions are one list for all browsers and profiles.
   - Publishing to the Chrome Web Store and Edge Add-ons is this feature's last
     phase; until then the extension loads unpacked with a fixed id.
@@ -326,3 +326,5 @@ None.
   this feature's documents and UI text (identifiers stay lowercase).
 - 2026-11-18 — Accepted (Gates A and B); tasks written.
 - 2026-11-18 — FR-27: the approval mode is the app's, so the panel switches the app's mode.
+- 2026-11-18 — The toolbar button opens the side panel (no popup); the app's
+  settings page is **Settings → Browser**, holding the built-in browser and Webbridge.

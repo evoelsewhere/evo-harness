@@ -103,7 +103,7 @@ function describeTool(name, summary) {
 const OFFLINE = {
   connecting: "Connecting to Evo…",
   "evo-not-running": "Evo is not running. Open Evo, then try again.",
-  "not-set-up": "Evo is not set up for this browser yet. In Evo, open Settings → Webbridge and choose Set up.",
+  "not-set-up": "Evo is not set up for this browser yet. In Evo, open Settings → Browser and choose Set up.",
   refused: "Evo refused the connection.",
   error: "Something went wrong reaching Evo.",
 };
@@ -481,7 +481,7 @@ $("menu").addEventListener("click", async () => {
   const show = list.hidden;
   closeMenus();
   if (!show) return;
-  const info = await chrome.runtime.sendMessage({ type: "popup-info" }).catch(() => null);
+  const info = await chrome.runtime.sendMessage({ type: "site-info" }).catch(() => null);
   $("menu-site").hidden = !info?.site;
   $("menu-site-name").textContent = info?.site || "";
   showPermission(info?.permission || "ask");

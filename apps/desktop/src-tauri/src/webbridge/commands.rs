@@ -1,4 +1,4 @@
-//! What Settings → Webbridge asks of the shell (docs/features/browser-bridge/spec.md
+//! What Settings → Browser (its Webbridge part) asks of the shell (docs/features/browser-bridge/spec.md
 //! FR-2, FR-4, FR-23; plan 3.3 Tauri commands), and the labels people give
 //! their browser profiles (`profiles.json`).
 
@@ -60,7 +60,17 @@ pub fn status(app: &AppHandle) -> Status {
 }
 
 /// Where the unpacked extension is: shipped beside the app's resources, or in the repository during development.
+/// A debug build points at the repository itself, so edits to the extension show after a reload; the copy
+/// Tauri places next to the debug exe is only refreshed by a rebuild.
 fn extension_folder() -> Option<std::path::PathBuf> {
+    if cfg!(debug_assertions) {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../extensions/evo-webbridge");
+        if repo.join("manifest.json").is_file() {
+            let full = repo.canonicalize().unwrap_or(repo);
+            let text = full.to_string_lossy();
+            return Some(std::path::PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text)));
+        }
+    }
     let exe = std::env::current_exe().ok()?;
     let mut dir = exe.parent();
     while let Some(d) = dir {
@@ -167,7 +177,7 @@ pub fn webbridge_set_site(
     Ok(webbridge_sites())
 }
 
-/// Stop all in one profile, or in every connected profile (Settings → Webbridge).
+/// Stop all in one profile, or in every connected profile (Settings → Browser).
 #[tauri::command]
 pub fn webbridge_stop_all(app: AppHandle, profile: Option<String>) -> Status {
     let profiles: Vec<String> = match profile {

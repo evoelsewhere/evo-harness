@@ -9,7 +9,7 @@ import { LogsSettings } from "./sections/logs-settings";
 import { MemorySettings } from "./sections/memory-settings";
 import { SandboxSettings } from "./sections/sandbox-settings";
 import { AboutSettings, EngineSettings } from "./sections/system-settings";
-import { WebbridgeSettings } from "./sections/webbridge-settings";
+import { BrowserSettings } from "./sections/browser-settings";
 
 export interface SettingsPage {
   id: SettingsSection;
@@ -63,12 +63,12 @@ export const settingsPages: SettingsPage[] = [
     component: ComputerAppsSettings,
   },
   {
-    id: "webbridge",
-    title: "Webbridge",
+    id: "browser",
+    title: "Browser",
     icon: GlobeIcon,
     group: "Application",
-    keywords: ["browser", "chrome", "edge", "extension", "side panel", "tab", "tabs", "web", "bridge", "webbridge", "site", "permissions"],
-    component: WebbridgeSettings,
+    keywords: ["browser", "built-in", "in-app", "pages", "recent", "history", "chrome", "edge", "extension", "side panel", "tab", "tabs", "web", "bridge", "webbridge", "site", "permissions"],
+    component: BrowserSettings,
   },
   {
     id: "engine",

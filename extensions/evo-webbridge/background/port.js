@@ -12,7 +12,7 @@ let port = null;
 let backoff = 1000;
 let retryTimer = null;
 
-/** What the popup and the side panel show. */
+/** What the side panel shows. */
 export const status = {
   state: "connecting", // connecting | connected | evo-not-running | not-set-up | refused | error
   reason: "",

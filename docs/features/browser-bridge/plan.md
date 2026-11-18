@@ -102,8 +102,7 @@ commit that accepts this plan (Gate B).
 │   ├ CDP relay (chrome.debugger)       │
 │   ├ tab groups, menus, takeover       │
 │   └ overlay injected through CDP      │
-│  side panel   chat client             │
-│  popup        status, Stop all, site  │
+│  side panel   chat client (toolbar)   │
 └──────────────────┬────────────────────┘
                    │ native messaging (stdio, framed)
 ┌──────────────────┴────────────────────┐
@@ -142,7 +141,6 @@ tools see a `Page` and do not know which browser serves it.
 | extension | `extensions/evo-webbridge/sidepanel/` | Chat client: header (title, **History**, **New chat**, **⋯**, **Close**), empty state, streamed reply and tool activity, questions, Stop. | FR-10, FR-11, FR-14, FR-25 |
 | extension | `extensions/evo-webbridge/sidepanel/composer.js` | Field with **Include this tab**; model and effort picker; approval mode switch; **+** menu (page screenshot through `captureVisibleTab`, file picker, paste and drop, another tab); attachment chips; microphone. | FR-26 – FR-29 |
 | extension | `extensions/evo-webbridge/permission/` | One-time page that asks for the microphone, opened from the panel when voice input is first used. | FR-29 |
-| extension | `extensions/evo-webbridge/popup/` | Connection state, profile name, Stop all, this site's permission. | FR-4, FR-12, FR-18 |
 | extension | `extensions/evo-webbridge/` (whole folder), `scripts/pack-webbridge.ts` | Plain ES modules and CSS with no build step: the folder loads unpacked as it is; the script zips it for the stores. | FR-1 |
 | crate | `crates/evo-bridge-host/` (binary) | stdio framing ↔ pipe; passes the caller origin; checks the pipe server is Evo; starts `evo --hidden` when no pipe answers; splits frames over 1 MB toward the browser. | FR-3, FR-19, NFR-1, NFR-6 |
 | desktop shell | `apps/desktop/src-tauri/src/webbridge/server.rs` | Pipe server (current-user ACL), client process check, `hello`, origin allow-list, protocol version, instance table, log lines. | FR-3, FR-4, FR-23, FR-24, NFR-3 |
@@ -338,7 +336,7 @@ attaches again on the next call (spec clarification 1).
 
 | Case | Agent sees | Person sees |
 | --- | --- | --- |
-| Nothing set up / no profile connected | "No browser is connected to Evo; set one up in Settings → Webbridge." | Settings shows Set up |
+| Nothing set up / no profile connected | "No browser is connected to Evo; set one up in Settings → Browser." | Settings shows Set up |
 | Evo not running when the browser starts | — | Evo starts in the tray; if it fails: extension says "Evo is not running" |
 | Policy turned the debugging API off | "This browser's administrator turned off the debugging API; Webbridge cannot work there." | Extension and Settings say the same |
 | Tab, group or browser closed; extension reloaded | "The tab is gone (closed)." | Browser panel row goes |
@@ -398,8 +396,8 @@ attaches again on the next call (spec clarification 1).
 | `webbridge.voiceInput` | boolean | `false` | app database settings | live: the panel shows or hides the microphone |
 | site permissions | `sites.json` | empty (all Ask) | `~/.evo/agent/webbridge/` | live |
 
-Edited in **Settings → Webbridge**; site permissions also in the extension's
-popup.
+Edited in **Settings → Browser**; site permissions also in the side panel's
+**⋯** menu.
 
 ## 4. Alternatives considered
 

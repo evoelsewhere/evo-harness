@@ -261,7 +261,7 @@ fn pick_profile(profiles: &[Profile], target: Option<&str>) -> Result<Option<Str
     let of_browser: Vec<&Profile> = profiles.iter().filter(|p| p.browser == browser).collect();
     if of_browser.is_empty() {
         return Err(format!(
-            "{label} is not connected to Evo. The person can set it up in Settings → Webbridge."
+            "{label} is not connected to Evo. The person can set it up in Settings → Browser."
         ));
     }
     let matched: Vec<&Profile> = match &name {
@@ -392,7 +392,7 @@ fn sites_message() -> Value {
     json!({ "t": "sites", "sites": sites::all() })
 }
 
-/// Tell a profile's extension which chats work in it now (its popup lists them, FR-18).
+/// Tell a profile's extension which chats work in it now (FR-18).
 pub fn push_working(app: &AppHandle, profile_key: &str) {
     let prefix = format!("{profile_key}:");
     let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
@@ -413,7 +413,7 @@ pub fn push_working(app: &AppHandle, profile_key: &str) {
         .notify(profile_key, json!({ "t": "working", "chats": chats }));
 }
 
-/// A button of the in-page indicator, or the popup (spec FR-16 – FR-18).
+/// A button of the in-page indicator, or the side panel (spec FR-16 – FR-18).
 pub fn control(app: &AppHandle, tab: &str, action: &str) {
     let state = app.state::<Webbridge>();
     let chat = crate::browser::tab_record(app, tab).and_then(|t| t.chat);

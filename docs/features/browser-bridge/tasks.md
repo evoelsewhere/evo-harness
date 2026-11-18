@@ -22,7 +22,7 @@ the plan's as-built notes.
 
 ### Phase 1 — Connect
 
-Done when: **Settings → Webbridge → Set up Chrome** registers the host, the
+Done when: **Settings → Browser → Set up Chrome** registers the host, the
 loaded extension shows "Connected to Evo", and Settings shows the profile.
 
 - [x] T3 [FR-3] Tests, then the wire: frame encode/decode (4-byte LE length), message types, `chunk` split and join — `shell/webbridge/wire.rs` — check: `bun run test:shell -- webbridge::wire`
@@ -31,7 +31,7 @@ loaded extension shows "Connected to Evo", and Settings shows the profile.
 - [x] T6 [FR-3, FR-4, FR-23, NFR-3] Tests, then the pipe server: current-user pipe, client executable check, `hello` (origin allow-list, version, policy), instance table, `bye` on refusal; starts only when set up — `shell/webbridge/{mod,server}.rs`, `shell/lib.rs` — check: `bun run test:shell -- webbridge::server`
 - [x] T7 [FR-2, NFR-4] Tests, then set-up: host manifest, per-user registration for Chrome and Edge (registry on Windows, manifest files on macOS and Linux), remove, status — `shell/webbridge/setup.rs` — check: `bun run test:shell -- webbridge::setup`
 - [x] T8 [FR-1, FR-4, NFR-5] The extension: manifest (permissions of FR-1 only), port with `hello`, reconnect with backoff, profile id and label in storage, popup with connection state — `ext/manifest.json`, `ext/background/*.js`, `ext/popup/*` — check: manual (load unpacked; popup says Connected to Evo)
-- [ ] T9 [FR-2, FR-4, FR-23] Tauri commands and **Settings → Webbridge**: set up / remove per browser, connected profiles with rename, policy state — `shell/webbridge/commands.rs`, `apps/desktop/src/features/settings/sections/webbridge-settings.tsx`, `apps/desktop/src/stores/webbridge-store.ts`, settings navigation — check: `bun run typecheck`; manual
+- [ ] T9 [FR-2, FR-4, FR-23] Tauri commands and **Settings → Browser**: set up / remove per browser, connected profiles with rename, policy state — `shell/webbridge/commands.rs`, `apps/desktop/src/features/settings/sections/webbridge-settings.tsx`, `apps/desktop/src/stores/webbridge-store.ts`, settings navigation — check: `bun run typecheck`; manual
 - [ ] T10 [FR-24] Log lines for connections, set-up, refusals — `shell/webbridge/server.rs` — check: manual (Logs page)
 - [x] T11 [FR-2] Ship the host next to the engine: `externalBin`, a staging script beside `engine:sidecar` — `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/scripts/`, `apps/desktop/package.json` — check: `bun run bridge:sidecar` stages the binary; the dev app finds it
 
@@ -58,7 +58,7 @@ from the page, the popup and the app.
 - [x] T21 [FR-13, FR-22] Tests, then the gate rule for Webbridge tabs: acts ask once per site and chat in "Ask every time" and "Approve edits" unless Allow; Block refuses in every mode; "Allow for this site" saves Allow — `shell/agent_tools/gate.rs`, `shell/agent_tools/mod.rs` — check: `bun run test:shell -- agent_tools::gate`
 - [x] T22 [FR-15, FR-16, FR-17] The indicator: injected per document, chat name, Stop, Take over, Hand back, signals through a binding — `ext/overlay/overlay.js`, `ext/background/control.js`, `shell/webbridge/page.rs` — check: manual
 - [x] T23 [FR-16, FR-17, FR-18] Take over holds a tab's calls; Stop stops the chat's turn; Stop all ends a profile's work and detaches — `shell/webbridge/{groups,mod}.rs`, `shell/supervisor.rs` — check: test of the takeover state; manual
-- [x] T24 [FR-12, FR-18] Popup: this site's permission, chats working now, Open side panel, Stop all — `ext/popup/*` — check: manual
+- [x] T24 [FR-12, FR-18] Popup: this site's permission, chats working now, Open side panel, Stop all — `ext/popup/*` — check: manual (later folded into the side panel: the toolbar button opens the panel, whose ⋯ menu has the site permission and Stop all)
 - [x] T25 [FR-7, FR-8, FR-12] App: the site list in Settings; a chat's Webbridge tabs in the Browser panel with Take back and Stop — `apps/desktop/src/features/settings/sections/webbridge-settings.tsx`, `apps/desktop/src/features/browser/`, `apps/desktop/src/stores/` — check: `bun run typecheck`; manual
 - [ ] T26 [FR-17] Acts on the tab the person used in the last 5 s wait until they stop — `ext/overlay/overlay.js`, `shell/webbridge/page.rs` — check: manual
 
@@ -97,7 +97,7 @@ has a result.
 | FR-9 | `agent_tools::browser` tests; manual: choose | schema tests passed (2026-11-18); choose: not run |
 | FR-10 | Manual: US-3 with the window closed | partly passed (2026-11-18): chats, new chat, history, send reach the engine; a model's reply: not run (no provider on the test profile) |
 | FR-11 | Manual: panel and app show the same chat | not run |
-| FR-12 | `webbridge::sites` tests; manual: Block in popup shows in Settings | tests passed (2026-11-18); manual: not run |
+| FR-12 | `webbridge::sites` tests; manual: Block in the side panel menu shows in Settings | tests passed (2026-11-18); manual: not run |
 | FR-13 | `agent_tools::gate` tests | passed (2026-11-18) |
 | FR-14 | Manual: answer in the panel, the app's question goes | not run |
 | FR-15 | Manual: indicator on every page acted on | passed on Edge (2026-11-18): the indicator is in each new document of an agent tab |

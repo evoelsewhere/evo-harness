@@ -1,6 +1,6 @@
 // Evo Webbridge's service worker (docs/features/browser-bridge/plan.md 3.2).
 // It keeps the port to Evo open (an open native port keeps the worker alive),
-// answers the popup and the side panel, and wires the parts that relay
+// answers the side panel, and wires the parts that relay
 // DevTools commands, keep the tab groups and draw the indicator.
 
 import { connect, status, onStatus, on, send } from "./port.js";
@@ -54,10 +54,10 @@ on("settings", (settings) => {
 chrome.runtime.onStartup.addListener(() => connect({ launch: true }));
 chrome.runtime.onInstalled.addListener(() => connect({ launch: false }));
 
-// The toolbar button opens the popup; the side panel opens from it.
-chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false }).catch(() => {});
+// The toolbar button opens the side panel.
+chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
 
-// The popup and the side panel ask for the connection state and can ask to reconnect.
+// The side panel asks for the connection state and can ask to reconnect.
 chrome.runtime.onMessage.addListener((request, _sender, reply) => {
   switch (request?.type) {
     case "status":
@@ -67,7 +67,7 @@ chrome.runtime.onMessage.addListener((request, _sender, reply) => {
     case "reconnect":
       connect({ launch: Boolean(request.launch) }).then(() => reply({ ...status }));
       return true;
-    case "popup-info":
+    case "site-info":
       chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
         const site = siteOf(tab?.url || "");
         reply({ site, permission: known.sites[site] || "ask", working: known.working });

@@ -1,10 +1,10 @@
-// Settings → Webbridge: set Evo up in Chrome and Edge, see the connected
-// profiles and name them (docs/features/browser-bridge/spec.md FR-2, FR-4,
-// FR-23; plan 3.2).
+// Settings → Browser, Webbridge part: set Evo up in Chrome and Edge, see the
+// connected profiles and name them (docs/features/browser-bridge/spec.md FR-2,
+// FR-4, FR-23; plan 3.2). The page itself is `browser-settings.tsx`.
 
 import * as React from "react";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { CopyIcon, FolderOpenIcon, GlobeIcon, OctagonXIcon, PlusIcon } from "lucide-react";
+import { CopyIcon, FolderOpenIcon, OctagonXIcon, PlusIcon } from "lucide-react";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,8 +13,9 @@ import { db } from "@/lib/db";
 import { useSessionStore } from "@/stores/session-store";
 import { inTauri } from "@/lib/platform";
 import { useWebbridgeStore, type SitePermission, type WebbridgeBrowser, type WebbridgeProfile } from "@/stores/webbridge-store";
-import { Segmented, SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
+import { Segmented, SettingsGroup, SettingsRow } from "../settings-controls";
 
+/** The Webbridge groups of the Browser page. */
 export function WebbridgeSettings() {
   const status = useWebbridgeStore((s) => s.status);
   const error = useWebbridgeStore((s) => s.error);
@@ -26,13 +27,15 @@ export function WebbridgeSettings() {
 
   return (
     <div className="flex flex-col gap-8">
-      <SettingsHeader
-        icon={GlobeIcon}
-        title="Webbridge"
-        description="Let Evo work in your own Chrome or Edge: chat in the browser's side panel, and let the agent work in tabs it keeps in a group you can see and stop."
-      >
+      <header className="flex items-start gap-4 border-t pt-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-semibold tracking-tight">Evo Webbridge</h2>
+          <p className="mt-0.5 max-w-xl text-[13px] text-muted-foreground">
+            Let Evo work in your own Chrome or Edge: chat in the browser's side panel, and let the agent work in tabs it keeps in a group you can see and stop.
+          </p>
+        </div>
         {status && status.profiles.length > 0 && <StopAllButton />}
-      </SettingsHeader>
+      </header>
       {!inTauri && <p className="text-[13px] text-muted-foreground">These settings need the desktop app.</p>}
       {error && <p className="text-[13px] text-destructive">{error}</p>}
       {status?.hostMissing && (

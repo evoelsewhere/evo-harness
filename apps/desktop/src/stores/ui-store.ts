@@ -49,7 +49,7 @@ const legacyShell = (() => {
     return { autoStartSessions: undefined, chatConnectorsOff: undefined };
   }
 })();
-export type SettingsSection = "general" | "appearance" | "providers" | "memory" | "computer-apps" | "webbridge" | "engine" | "sandbox" | "logs" | "about";
+export type SettingsSection = "general" | "appearance" | "providers" | "memory" | "computer-apps" | "browser" | "engine" | "sandbox" | "logs" | "about";
 export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "plugins" | "hooks" | "languages";
 
 /** The side panel's tabs of one chat. */
