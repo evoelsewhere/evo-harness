@@ -18,6 +18,22 @@ use crate::catalog::Server;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// The extension the catalog maps to a language id (`dockerfile` for a
+/// `Dockerfile`).
+fn extension_of(path: &Path) -> String {
+    if path.file_name().is_some_and(|n| {
+        n.to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with("dockerfile")
+    }) {
+        "dockerfile".to_string()
+    } else {
+        path.extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+}
+
 pub fn uri_of(path: &Path) -> String {
     Url::from_file_path(path)
         .map(|u| u.to_string())
@@ -76,6 +92,7 @@ impl Client {
         server: &'static Server,
         binary: &Path,
         env: Vec<(String, String)>,
+        init_options: Value,
         root: &Path,
     ) -> Result<Arc<Client>, String> {
         let mut cmd = tokio::process::Command::new(binary);
@@ -151,10 +168,6 @@ impl Client {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let init_options: Value = server
-            .init_options
-            .and_then(|o| serde_json::from_str(o).ok())
-            .unwrap_or(Value::Null);
         let result = client
             .request(
                 "initialize",
@@ -291,18 +304,10 @@ impl Client {
                 Ok((uri, version))
             }
             None => {
-                let ext = if path.file_name().is_some_and(|n| {
-                    n.to_string_lossy()
-                        .to_ascii_lowercase()
-                        .starts_with("dockerfile")
-                }) {
-                    "dockerfile".to_string()
-                } else {
-                    path.extension()
-                        .map(|e| e.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                };
-                let language = self.server.language_id(&ext).unwrap_or("plaintext");
+                let language = self
+                    .server
+                    .language_id(&extension_of(path))
+                    .unwrap_or("plaintext");
                 open.insert(
                     uri.clone(),
                     Open {
@@ -326,6 +331,40 @@ impl Client {
                 Ok((uri, 1))
             }
         }
+    }
+
+    /// Open `path` in the server when it is not open yet, without saving it
+    /// (a save would set off rust-analyzer's `cargo check` on every read).
+    pub async fn open_file(&self, path: &Path) -> Result<(), String> {
+        if self.open.lock().await.contains_key(&uri_of(path)) {
+            return Ok(());
+        }
+        let text = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+        let uri = uri_of(path);
+        let language = self
+            .server
+            .language_id(&extension_of(path))
+            .unwrap_or("plaintext");
+        {
+            let mut open = self.open.lock().await;
+            if open.contains_key(&uri) {
+                return Ok(());
+            }
+            open.insert(
+                uri.clone(),
+                Open {
+                    version: 1,
+                    text: text.clone(),
+                },
+            );
+        }
+        self.notify(
+            "textDocument/didOpen",
+            json!({ "textDocument": { "uri": uri, "languageId": language, "version": 1, "text": text } }),
+        )
+        .await
     }
 
     /// The text last sent for `uri`.
@@ -423,6 +462,16 @@ impl Client {
             .unwrap()
             .get(&uri_key(uri))
             .map(|(_, list, _, _)| list.clone())
+    }
+
+    /// When the server last published diagnostics for any file.
+    pub fn last_report_at(&self) -> Option<Instant> {
+        self.diagnostics
+            .lock()
+            .unwrap()
+            .values()
+            .map(|(_, _, at, _)| *at)
+            .max()
     }
 
     /// The last report for every file the server reported on, empty ones

@@ -100,7 +100,9 @@ pub static SERVERS: &[Server] = &[
         root_markers: &["tsconfig.json", "jsconfig.json", "package.json"],
         command: "typescript-language-server",
         args: &["--stdio"],
-        install: Install::Npm { packages: &["typescript-language-server", "typescript"] },
+        // TypeScript 7 (the native port) no longer ships the `tsserver.js`
+        // the server runs on.
+        install: Install::Npm { packages: &["typescript-language-server", "typescript@5"] },
         requires: NPM,
         init_options: None,
     },

@@ -35,6 +35,13 @@ async fn main() {
     if let Some(ms) = read_first {
         pool.warm(&file, &cwd);
         tokio::time::sleep(Duration::from_millis(ms)).await;
+        // `READ_ALSO=a,b`: other files the agent read, once the server runs.
+        for other in std::env::var("READ_ALSO").unwrap_or_default().split(',') {
+            if !other.is_empty() {
+                pool.warm(&cwd.join(other), &cwd);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
     for (i, version) in a[3..].iter().enumerate() {
         let text = std::fs::read_to_string(version).expect("version file");

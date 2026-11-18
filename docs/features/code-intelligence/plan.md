@@ -78,7 +78,8 @@ commands. The desktop shows the page and a one-time notice.
 | crate | `crates/evo-lsp/src/pool.rs` | One server per (server, project root); the root is the chat's folder when it is itself a project (one rust-analyzer for a whole Cargo workspace), else the nearest folder with a root marker. | FR-10 |
 | crate | `crates/evo-lsp/src/ops.rs` | Diagnostics (sorted, errors first, waits for the slower check after a quick first report), definition / type definition / implementation / references (with each line's text), hover, document outline, workspace symbols; positions by `line` + `symbol` (whole word) or `character`, converted to UTF-16. | FR-1, FR-2, FR-3, NFR-3 |
 | crate | `crates/evo-lsp/src/edit_check.rs` | The check after an edit: `before_edit` (the file's text, the running server and its errors for that text, and its errors for every other file when it is not busy; no wait, no start), `after_edit` (start or wait for a server, sync, wait within a budget, compare by message / code / source, the text for the model). | FR-15–FR-19, FR-23 |
-| crate | `crates/evo-lsp/src/client.rs` (`last_diagnostics`, `reports`, `work_finished_since`, `starting`) | The last report for one file, or for every file, without waiting; whether the server finished work since a change and is idle; whether it is in its first 30 s. | FR-16, FR-17, FR-23 |
+| crate | `crates/evo-lsp/src/client.rs` (`last_diagnostics`, `reports`, `last_report_at`, `work_finished_since`, `starting`, `open_file`) | The last report for one file, or for every file, and when any came, without waiting; whether the server finished work since a change and is idle; whether it is in its first 30 s; open a file without saving it. | FR-16, FR-17, FR-22, FR-23 |
+| crate | `crates/evo-lsp/src/install.rs` (`init_options_for`), `catalog.rs` | `initializationOptions` by where the server is: `tsserver.fallbackPath` for the TypeScript server; the TypeScript install is pinned to `typescript@5`. | FR-24 |
 | crate | `crates/evo-lsp/src/pool.rs` (`server_for`, `running_for`, `warm`) | The server for a file unless switched off; the running server for a file without starting one; start one in the background (one try per server a minute). | FR-17, FR-22 |
 | crate | `crates/evo-lsp/examples/lsp-try.rs` | Try any of it from a terminal. | — (developer aid) |
 | engine | `crates/evo-engine/src/tools/lsp.rs` | The `lsp` tool, the `EditCheck` wrapper around `edit` / `write`, the `WarmOnRead` wrapper around `read`, the RPC commands; settings `disabledLanguageServers`, `editDiagnostics`, `lspTool`. | FR-1, FR-7, FR-8, FR-9, FR-15–FR-22 |
@@ -170,7 +171,10 @@ Edit check (FR-15–FR-21):
    The wait ends at a report for the new version, or as soon as the server
    finished some work after the change and is idle (`work_finished_since`):
    rust-analyzer does not resend a file whose diagnostics did not change,
-   so the file's last report stands. The budget is 4 s, or 10 s while the
+   so the file's last report stands. A server that reports no work (the
+   TypeScript server) ends it after 1 s of silence while idle (`QUIET`), an
+   answer that never claims what is left. In a server's first 30 s both
+   count only once it has been idle 1 s in a row (`settle`). The budget is 4 s, or 10 s while the
    server is in its first 30 s (`starting`), which covers the usual "read,
    then edit at once" of a chat's first change.
 6. Other files (FR-23): when the server was not busy in step 1, the wrapper
@@ -251,3 +255,12 @@ window, 15-minute limit; the output's tail is kept for the page.
   Telling a cold server by "no work finished yet" failed (rust-analyzer
   finishes many small progress items while loading); its first 30 s are
   used instead.
+- 2026-11-18 (all installed servers tried): the TypeScript server never
+  started ("Could not find a valid TypeScript installation"): evo had
+  installed TypeScript 7, which has no `tsserver.js`, and passed no path.
+  Fixed by FR-24; an existing install needs Reinstall on the page. The
+  TypeScript server neither republishes an unchanged file nor reports
+  progress, so clean edits waited the whole budget: the 1 s quiet rule.
+  rust-analyzer pauses between loading steps, which ended a cold wait early
+  and flakily: the 1 s settle. Opening (not saving) files on `read` keeps
+  `cargo check` from running on every read.

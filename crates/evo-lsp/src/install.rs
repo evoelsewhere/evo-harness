@@ -175,6 +175,43 @@ pub fn env_for(server: &Server, lsp_dir: &Path) -> Vec<(String, String)> {
     }
 }
 
+/// The `initializationOptions` for `server` started from `binary`: the
+/// catalog's, plus what depends on where the server is. The TypeScript
+/// server needs a TypeScript to run; a project without one in its
+/// `node_modules` gets the copy installed beside the server
+/// (`tsserver.fallbackPath`), else it does not start.
+pub fn init_options_for(server: &Server, binary: &Path, lsp_dir: &Path) -> serde_json::Value {
+    let mut options: serde_json::Value = server
+        .init_options
+        .and_then(|o| serde_json::from_str(o).ok())
+        .unwrap_or(serde_json::Value::Null);
+    if server.id == "typescript" {
+        if let Some(lib) = typescript_lib(binary, lsp_dir) {
+            if !options.is_object() {
+                options = serde_json::json!({});
+            }
+            options["tsserver"]["fallbackPath"] =
+                serde_json::Value::String(lib.to_string_lossy().into_owned());
+        }
+    }
+    options
+}
+
+/// The `lib` folder of a TypeScript next to the TypeScript server: evo's own
+/// install, the `node_modules` the server's `.bin` sits in, or a global npm
+/// folder.
+fn typescript_lib(binary: &Path, lsp_dir: &Path) -> Option<PathBuf> {
+    let dir = binary.parent()?;
+    [
+        lsp_dir.join("typescript/node_modules/typescript/lib"),
+        dir.join("../typescript/lib"),
+        dir.join("node_modules/typescript/lib"),
+        dir.join("../lib/node_modules/typescript/lib"),
+    ]
+    .into_iter()
+    .find(|lib| lib.join("tsserver.js").is_file())
+}
+
 /// Which of the programs servers need are present.
 pub fn missing_requirements(server: &Server) -> Vec<&'static str> {
     server

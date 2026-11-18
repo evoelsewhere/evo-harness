@@ -125,7 +125,8 @@ impl Pool {
             clients.remove(&key);
         }
         let env = install::env_for(server, &self.lsp_dir);
-        let client = Client::start(server, &located.path, env, &root).await?;
+        let init = install::init_options_for(server, &located.path, &self.lsp_dir);
+        let client = Client::start(server, &located.path, env, init, &root).await?;
         clients.insert(key, client.clone());
         Ok(client)
     }
@@ -148,12 +149,22 @@ impl Pool {
     }
 
     /// Start the server for `file` in the background and open the file in it,
-    /// so later requests find it ready. Does nothing for a file no server
-    /// handles, a server switched off, or one tried in the last minute.
+    /// so later requests find it ready; with the server already running, just
+    /// open the file, so the server keeps it checked (servers that check only
+    /// open files report a change's effect on it, FR-23). Does nothing for a
+    /// file no server handles, a server switched off, or a start tried in the
+    /// last minute.
     pub fn warm(&'static self, file: &Path, cwd: &Path) {
         let Some(server) = self.server_for(file) else {
             return;
         };
+        if let Some(client) = self.running_for(file, cwd) {
+            let file = file.to_path_buf();
+            tokio::spawn(async move {
+                let _ = client.open_file(&file).await;
+            });
+            return;
+        }
         {
             let mut warmed = self.warmed.lock().unwrap();
             if warmed
@@ -166,6 +177,8 @@ impl Pool {
         }
         let (file, cwd) = (file.to_path_buf(), cwd.to_path_buf());
         tokio::spawn(async move {
+            // Opened and saved: rust-analyzer starts its first `cargo check`
+            // on the save, so the first edit finds it under way.
             if let Ok(client) = self.client_for(&file, &cwd).await {
                 let _ = client.sync_file(&file).await;
             }

@@ -27,6 +27,12 @@ pub const COLD_WAIT: Duration = Duration::from_secs(10);
 const MAX_LISTED: usize = 20;
 /// After a first report, how long to look for a slower check starting.
 const SLOWER_CHECK: Duration = Duration::from_millis(300);
+/// A server that is idle and has published nothing for this long after a
+/// change is taken to have nothing new to say (the TypeScript server neither
+/// republishes an unchanged file nor reports progress).
+const QUIET: Duration = Duration::from_secs(1);
+/// How long a loading server must stay idle before the check trusts it.
+const SETTLE: Duration = Duration::from_secs(1);
 /// How often the check looks for a report or for the server going idle.
 const POLL: Duration = Duration::from_millis(100);
 
@@ -171,6 +177,12 @@ pub async fn after_edit(
     // Wait for a report on the new text, or for the server to finish the work
     // the change set off: a server that does not republish an unchanged file
     // (rust-analyzer) is done then, and the file's last report still holds.
+    // A server that only went quiet has not said the check is over, so its
+    // answer never claims what is left (`finished` stays false).
+    let mut quiet = false;
+    // A loading server pauses between its steps; wait for it to stay idle
+    // before taking its silence or its idleness as an answer.
+    let settled = client.starting() && settle(&client, deadline).await;
     let mut list = loop {
         if let Some(list) = client
             .diagnostics_for(&uri, version, sent_at, Duration::ZERO)
@@ -178,7 +190,14 @@ pub async fn after_edit(
         {
             break list;
         }
-        if client.work_finished_since(sent_at) {
+        if client.work_finished_since(sent_at) && (settled || !client.starting()) {
+            break client.last_diagnostics(&uri).unwrap_or_default();
+        }
+        let last = client
+            .last_report_at()
+            .map_or(sent_at, |at| at.max(sent_at));
+        if (settled || !client.starting()) && !client.indexing() && last.elapsed() >= QUIET {
+            quiet = true;
             break client.last_diagnostics(&uri).unwrap_or_default();
         }
         if left().is_zero() {
@@ -188,7 +207,7 @@ pub async fn after_edit(
     };
     // A quick first report can come before a slower check (`cargo check`):
     // while time is left, wait for it and take the newest report.
-    if !client.work_finished_since(sent_at) {
+    if !quiet && !client.work_finished_since(sent_at) {
         tokio::time::sleep(SLOWER_CHECK.min(left())).await;
         if client.indexing() {
             let _ = tokio::time::timeout(left(), client.wait_idle(left())).await;
@@ -200,7 +219,7 @@ pub async fn after_edit(
     {
         list = newer;
     }
-    let finished = !client.indexing();
+    let finished = !quiet && !client.indexing();
     // Without settled reports from before, every error in other files is
     // listed, said to perhaps predate the change.
     let none = HashMap::new();
@@ -215,6 +234,24 @@ pub async fn after_edit(
         before.others.is_some(),
         finished,
     )
+}
+
+/// Wait until `client` has been idle for [`SETTLE`] in a row, or `deadline`;
+/// whether it settled.
+async fn settle(client: &Client, deadline: Instant) -> bool {
+    let mut idle_from: Option<Instant> = None;
+    loop {
+        if client.indexing() {
+            idle_from = None;
+        } else if idle_from.get_or_insert_with(Instant::now).elapsed() >= SETTLE {
+            return true;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        tokio::time::sleep(POLL.min(left)).await;
+    }
 }
 
 /// New errors in files other than the changed one (`changed`, a
