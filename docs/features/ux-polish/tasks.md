@@ -37,6 +37,7 @@ the composer behave as specified.
 - [x] T11 [FR-11] `--ease-spring` on overlay content — `apps/desktop/src/index.css` — check: running app
 - [x] T12 [FR-12] Focus back to the composer after Send; the running step on the working line — `apps/desktop/src/features/chat/{chat-composer.tsx,chat-turn.tsx}` — check: running app
 - [x] T13 UI map — `apps/desktop/README.md` — check: review
+- [x] T14 [FR-13] Tests and `messagePlainText` / `quoted`; the message menu on prompts and replies; `forkChatAt`; UI map — `apps/desktop/src/features/chat/{message-text.ts,message-text.test.ts,message-menu.tsx,user-message.tsx,chat-turn.tsx}`, `apps/desktop/src/stores/engine-store.ts`, `apps/desktop/README.md` — check: `bun test`; running UI
 
 ## 2. Verification
 
@@ -58,5 +59,6 @@ selected, and no prompt was sent.
 | FR-10 | Running app: sidebar rows, pane headers and past runs have their full text as a title | passed (2026-11-13) |
 | FR-11 | Running app: an open dialog's `--tw-ease` is the spring `linear()` | passed (2026-11-13) |
 | FR-12 | `bun run typecheck` | not run in the app — it needs a prompt sent, and the checks were read-only |
+| FR-13 | `bun test src/features/chat/message-text.test.ts` (6); `bun run typecheck`; the UI on Vite with the README mock IPC (Playwright): the reply menu, the prompt menu (with Edit message) and the selection menu show; Copy message gives plain text, Copy as Markdown the raw reply, Quote puts `> ` lines in the composer. Fork from here not run against a real engine | passed (2026-11-18), fork not run |
 | NFR-1 | Review against DESIGN.md: achromatic tokens, one accent, no new weights | passed (2026-11-13) |
 | NFR-2 | `apps/desktop/package.json` unchanged | passed (2026-11-13) |

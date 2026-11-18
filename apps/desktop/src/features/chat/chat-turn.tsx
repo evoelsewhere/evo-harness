@@ -19,6 +19,7 @@ import {
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { UserPrompt } from "./user-message";
+import { MessageMenu } from "./message-menu";
 import { SentFiles, type SentFile } from "@/components/ai-elements/sent-files";
 import { KeptWorktree, childRun } from "@/components/ai-elements/agent-run";
 import { noteKind, turnReply, type NoteKind, type Part, type ReasoningPart, type ToolPart, type Turn } from "./transcript";
@@ -307,71 +308,73 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
   }, [copied]);
 
   return (
-    <Message>
-      <MessageContent className="gap-4">
-        {running && <RunningStatus startedAt={turn.startedAt} parts={turn.parts} />}
+    <MessageMenu turn={turn} text={reply} markdown>
+      <Message>
+        <MessageContent className="gap-4">
+          {running && <RunningStatus startedAt={turn.startedAt} parts={turn.parts} />}
 
-        {foldable && (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            className="group/fold flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            aria-expanded={expanded}
-          >
-            Completed in {seconds(turn.meta.durationMs ?? (turn.endedAt ?? turn.startedAt) - turn.startedAt)}
-            <ChevronRightIcon className={cn("size-4 transition-transform", expanded && "rotate-90")} />
-          </button>
-        )}
+          {foldable && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="group/fold flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={expanded}
+            >
+              Completed in {seconds(turn.meta.durationMs ?? (turn.endedAt ?? turn.startedAt) - turn.startedAt)}
+              <ChevronRightIcon className={cn("size-4 transition-transform", expanded && "rotate-90")} />
+            </button>
+          )}
 
-        {shown.map((segment, index) =>
-          segment.kind === "text" ? (
-            <Markdown key={segment.key} streaming={segment.streaming}>
-              {segment.text}
-            </Markdown>
-          ) : segment.kind === "widget" ? (
-            <Trace key={segment.key}>
-              <Tool part={segment.part} streaming={running} />
-            </Trace>
-          ) : (
-            <ProcessGroup
-              key={segment.key}
-              parts={segment.parts}
-              running={running}
-              live={running && index === all.length - 1}
-            />
-          ),
-        )}
+          {shown.map((segment, index) =>
+            segment.kind === "text" ? (
+              <Markdown key={segment.key} streaming={segment.streaming}>
+                {segment.text}
+              </Markdown>
+            ) : segment.kind === "widget" ? (
+              <Trace key={segment.key}>
+                <Tool part={segment.part} streaming={running} />
+              </Trace>
+            ) : (
+              <ProcessGroup
+                key={segment.key}
+                parts={segment.parts}
+                running={running}
+                live={running && index === all.length - 1}
+              />
+            ),
+          )}
 
-        {sentFiles.map((sent) => (
-          <div key={sent.key} className="@container -ml-7">
-            <SentFiles files={sent.files} caption={sent.caption} />
-          </div>
-        ))}
+          {sentFiles.map((sent) => (
+            <div key={sent.key} className="@container -ml-7">
+              <SentFiles files={sent.files} caption={sent.caption} />
+            </div>
+          ))}
 
-        {keptWorktrees.map((part) => (
-          <KeptWorktree key={part.key} part={part} />
-        ))}
+          {keptWorktrees.map((part) => (
+            <KeptWorktree key={part.key} part={part} />
+          ))}
 
-        {turn.error && <TurnError error={turn.error} provider={turn.meta.provider} prompt={turn.prompt || undefined} />}
-        {turn.status === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}
+          {turn.error && <TurnError error={turn.error} provider={turn.meta.provider} prompt={turn.prompt || undefined} />}
+          {turn.status === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}
 
-        {!running && (
-          <MessageFooter className="px-0">
-            {reply && (
-              <MessageAction
-                label={copied ? "Copied" : "Copy"}
-                onClick={() => {
-                  void navigator.clipboard.writeText(reply);
-                  setCopied(true);
-                }}
-              >
-                {copied ? <CheckIcon /> : <CopyIcon />}
-              </MessageAction>
-            )}
-            <TurnMeta turn={turn} />
-          </MessageFooter>
-        )}
-      </MessageContent>
-    </Message>
+          {!running && (
+            <MessageFooter className="px-0">
+              {reply && (
+                <MessageAction
+                  label={copied ? "Copied" : "Copy"}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(reply);
+                    setCopied(true);
+                  }}
+                >
+                  {copied ? <CheckIcon /> : <CopyIcon />}
+                </MessageAction>
+              )}
+              <TurnMeta turn={turn} />
+            </MessageFooter>
+          )}
+        </MessageContent>
+      </Message>
+    </MessageMenu>
   );
 }

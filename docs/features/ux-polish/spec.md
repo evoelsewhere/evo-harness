@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | desktop UI |
 | Created | 2026-11-13 |
-| Updated | 2026-11-13 |
+| Updated | 2026-11-18 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Split view](../chat-split-view/spec.md) · [Memory and the Scheduler](../memory-and-scheduler/spec.md) |
@@ -87,6 +87,7 @@ headers.
 | FR-10 | Truncated titles show in full on hover: sidebar rows, pane headers, Scheduler past runs. | Hovering a cut title shows all of it. |
 | FR-11 | Popovers, menus, hover cards and dialogs open with the same spring curve as split view, within their current durations. Reduced motion is respected. | Opening a menu uses the spring easing. |
 | FR-12 | After Send, the focus goes back to the composer. While a turn runs, the "Working for 12s" line names the current step ("· running a command"). | Send leaves the caret in the composer, and a running tool is named. |
+| FR-13 | Right-clicking a message in the chat opens a menu for it: **Copy message** (plain text), **Copy message as Markdown** (a reply), **Quote in composer**, **Edit message** (the person's own, as its Edit button) and **Fork from here** ("Starts a new chat, keeps this one": a copy of the chat up to the end of that turn, shown; the chat stays as it is). With text selected in the message, **Copy** and **Quote selection** come first. An incognito chat or a draft offers no fork; a turn still running cannot be forked. | Right-clicking a reply shows the menu; Fork from here on an earlier turn opens a chat that ends with that turn. |
 
 ### 4.2 Non-functional
 
@@ -145,3 +146,4 @@ n/a — the person asked for every proposed item ("làm hết luôn",
   ("làm hết luôn"), so both gates are passed together.
 - 2026-11-13 — FR-5 also dates runs saved before runs were flagged, when they are still named after their task.
 - 2026-11-18 — FR-8 withdrawn: the new-chat screen was redesigned (composer centred under the greeting, folder and branch over the field, accent aurora bands) and no longer shows suggestions.
+- 2026-11-18 — FR-13 added: a right-click menu on chat messages (copy, quote, edit, fork from here), asked for by the person.

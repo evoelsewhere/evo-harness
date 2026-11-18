@@ -60,6 +60,7 @@ previews, scheduled titles and suggestions.
 | desktop UI | sidebar, pane header, Scheduler | `title` on cut text | FR-10 |
 | desktop UI | `src/index.css` | `--ease-spring` on popover, menu, hover card and dialog content | FR-11 |
 | desktop UI | `chat-composer.tsx`, `chat-turn.tsx` | Focus after Send; the running step on the working line | FR-12 |
+| desktop UI | `src/features/chat/message-menu.tsx` (new), `message-text.ts` (new, tested), `user-message.tsx`, `chat-turn.tsx`; `stores/engine-store.ts` `forkChatAt` | The message menu; plain text and quotes; fork the chat, then move the copy's engine (`navigate`) to the end of the turn | FR-13 |
 
 ### 3.3 Interfaces
 
@@ -117,5 +118,14 @@ n/a — no settings.
   `features/shell`.
 - **FR-8** was withdrawn on 2026-11-18: the redesigned new-chat screen
   has no suggestions, and `suggestions.ts` with its test is gone.
+- **FR-13**: the copy is the whole transcript (`chat_fork`), then its engine
+  `navigate`s to the last entry of the turn (the next prompt's parent), the
+  same move Edit uses. Later turns stay in the copy's session tree as a
+  branch nobody sees and the model does not read. The copy's sidebar
+  preview and turn count are the source's until its next turn. If the copy
+  does not load within 30 s, or the turn is not found in it, the fork
+  keeps the whole chat and a notification says so. Plain text for "Copy
+  message" is `messagePlainText` (line by line), not the one-line
+  `lib/plain-text.ts`.
 - **FR-11** sets tw-animate's `--tw-ease` on overlay content, with no
   change to the generated `components/ui` files.

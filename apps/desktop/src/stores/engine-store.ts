@@ -146,6 +146,11 @@ interface EngineStore extends Mirrored {
   /** Copy a saved chat (whole transcript) into a new chat and show it. */
   forkChat(id: string): Promise<void>;
   /**
+   * Fork chat `id` as far as turn `turnId` (its prompt and reply): the copy
+   * leaves out what followed, and is shown; this chat stays as it is.
+   */
+  forkChatAt(id: string, turnId: string): Promise<void>;
+  /**
    * Move a chat to another workspace (`null`: "This computer"); its engine
    * restarts there. Refused, with a notification, while the chat runs a turn
    * or has subagents working.
@@ -523,6 +528,32 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       });
     }
   };
+
+  /**
+   * Resolves once `chat`'s engine is ready and its saved messages are shown;
+   * `false` when it fails or `ms` pass first.
+   */
+  const untilLoaded = (chat: string, ms = 30_000) =>
+    new Promise<boolean>((resolve) => {
+      const check = (): boolean | undefined => {
+        const rt = runtime(chat);
+        if (rt?.status === "error" || rt?.status === "exited") return false;
+        if (rt?.status === "ready" && !rt.restore) return true;
+        return undefined;
+      };
+      const now = check();
+      if (now !== undefined) return resolve(now);
+      const done = (value: boolean) => {
+        clearTimeout(timer);
+        stop();
+        resolve(value);
+      };
+      const timer = setTimeout(() => done(false), ms);
+      const stop = useEngineStore.subscribe(() => {
+        const value = check();
+        if (value !== undefined) done(value);
+      });
+    });
 
   /**
    * Bumped by every chat selection. A selection awaits (the chat's folder, a
@@ -1329,6 +1360,36 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     async forkChat(id) {
       const copy = await useSessionStore.getState().fork(id, newChatId());
       if (copy) await get().selectSession(copy.id);
+    },
+
+    async forkChatAt(id, turnId) {
+      const turns = runtime(id)?.transcript.turns ?? [];
+      const index = turns.findIndex((turn) => turn.id === turnId);
+      if (index < 0) return;
+      // The prompt is found again in the copy by its text and how many earlier
+      // prompts had the same text (a turn of this window has no entry ids).
+      const prompt = turns[index].prompt;
+      const nth = turns.slice(0, index).filter((turn) => turn.prompt === prompt).length;
+      const last = index === turns.length - 1;
+      const copy = await useSessionStore.getState().fork(id, newChatId());
+      if (!copy) return;
+      await get().selectSession(copy.id);
+      if (last) return;
+      const failed = (body: string) => {
+        notify({ source: "shell", level: "warning", title: "The fork holds the whole chat", body, key: `fork:${copy.id}` });
+      };
+      if (!(await untilLoaded(copy.id)) || !client) return failed("Its messages did not load in time to cut it at that message.");
+      const copied = runtime(copy.id)?.transcript.turns ?? [];
+      const at = copied.map((turn, i) => [turn, i] as const).filter(([turn]) => turn.prompt === prompt)[nth]?.[1];
+      // The next turn's prompt hangs off the last entry of this one.
+      const target = at === undefined ? undefined : copied[at + 1]?.parentId;
+      if (!target) return failed("That message was not found in the copy.");
+      try {
+        await client.request(copy.id, "navigate", { targetId: target });
+        await restoreTranscript(copy.id);
+      } catch (error) {
+        failed(String(error));
+      }
     },
 
     async moveChat(id, workspaceId) {

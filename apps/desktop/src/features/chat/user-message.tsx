@@ -10,6 +10,7 @@ import { parseAnnotatedMessage } from "@/lib/document-annotations";
 import { cn } from "@/lib/utils";
 import { useEngineStore, usePaneEngine } from "@/stores/engine-store";
 import { SentAnnotations } from "./annotation-chips";
+import { MessageMenu } from "./message-menu";
 import { splitPrompt } from "./composer-input";
 import type { Turn } from "./transcript";
 
@@ -133,70 +134,73 @@ export function UserPrompt({ turn }: { turn: Turn }) {
     );
   }
 
+  const copyText = [text, ...pasted.map((block) => block.text)].filter(Boolean).join("\n\n");
   return (
-    <Message align="end" className="group/prompt">
-      <MessageContent className="items-end gap-1.5">
-        {images.length > 0 && (
-          <div className="flex flex-wrap justify-end gap-1.5">
-            {images.map((src, index) => (
-              <a
-                key={index}
-                href={src}
-                target="_blank"
-                rel="noreferrer"
-                className="overflow-hidden rounded-xl border border-border/70 bg-card"
-                title="Open the picture"
-              >
-                <img src={src} alt={`Picture ${index + 1}`} className="max-h-48 max-w-64 object-contain" />
-              </a>
-            ))}
-          </div>
-        )}
-        {text && (
-          <Bubble align="end" variant="muted">
-            <BubbleContent className="whitespace-pre-wrap" data-selectable>
-              <PromptText text={text} />
-            </BubbleContent>
-          </Bubble>
-        )}
-        {pasted.map((block, index) => (
-          <PastedText key={index} lines={block.lines} text={block.text} />
-        ))}
-        {files.length > 0 && (
-          <div className="flex flex-wrap justify-end gap-1.5">
-            {files.map((path) => (
-              <span
-                key={path}
-                title={path}
-                className="flex max-w-64 items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2 py-1 text-xs text-muted-foreground"
-              >
-                <FileIcon className="size-3.5 shrink-0" />
-                <FileLink path={path} label={fileName(path)} className="truncate" />
-              </span>
-            ))}
-          </div>
-        )}
-        {annotated && annotated.annotations.length > 0 && <SentAnnotations annotations={annotated.annotations} />}
-        {problem && <p className="text-xs text-destructive">{problem}</p>}
-        <MessageFooter className="gap-0.5 px-0 opacity-0 transition-opacity group-focus-within/prompt:opacity-100 group-hover/prompt:opacity-100">
-          <MessageAction
-            label={copied ? "Copied" : "Copy"}
-            onClick={() => {
-              void navigator.clipboard.writeText([text, ...pasted.map((block) => block.text)].filter(Boolean).join("\n\n"));
-              setCopied(true);
-            }}
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </MessageAction>
-          <MessageAction
-            label={busy ? "Edit (when the agent is done)" : "Edit"}
-            disabled={busy}
-            onClick={() => setEditing(true)}
-          >
-            <PencilIcon />
-          </MessageAction>
-        </MessageFooter>
-      </MessageContent>
-    </Message>
+    <MessageMenu turn={turn} text={copyText} onEdit={() => setEditing(true)} editDisabled={busy}>
+      <Message align="end" className="group/prompt">
+        <MessageContent className="items-end gap-1.5">
+          {images.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {images.map((src, index) => (
+                <a
+                  key={index}
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="overflow-hidden rounded-xl border border-border/70 bg-card"
+                  title="Open the picture"
+                >
+                  <img src={src} alt={`Picture ${index + 1}`} className="max-h-48 max-w-64 object-contain" />
+                </a>
+              ))}
+            </div>
+          )}
+          {text && (
+            <Bubble align="end" variant="muted">
+              <BubbleContent className="whitespace-pre-wrap" data-selectable>
+                <PromptText text={text} />
+              </BubbleContent>
+            </Bubble>
+          )}
+          {pasted.map((block, index) => (
+            <PastedText key={index} lines={block.lines} text={block.text} />
+          ))}
+          {files.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {files.map((path) => (
+                <span
+                  key={path}
+                  title={path}
+                  className="flex max-w-64 items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2 py-1 text-xs text-muted-foreground"
+                >
+                  <FileIcon className="size-3.5 shrink-0" />
+                  <FileLink path={path} label={fileName(path)} className="truncate" />
+                </span>
+              ))}
+            </div>
+          )}
+          {annotated && annotated.annotations.length > 0 && <SentAnnotations annotations={annotated.annotations} />}
+          {problem && <p className="text-xs text-destructive">{problem}</p>}
+          <MessageFooter className="gap-0.5 px-0 opacity-0 transition-opacity group-focus-within/prompt:opacity-100 group-hover/prompt:opacity-100">
+            <MessageAction
+              label={copied ? "Copied" : "Copy"}
+              onClick={() => {
+                void navigator.clipboard.writeText(copyText);
+                setCopied(true);
+              }}
+            >
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </MessageAction>
+            <MessageAction
+              label={busy ? "Edit (when the agent is done)" : "Edit"}
+              disabled={busy}
+              onClick={() => setEditing(true)}
+            >
+              <PencilIcon />
+            </MessageAction>
+          </MessageFooter>
+        </MessageContent>
+      </Message>
+    </MessageMenu>
   );
 }
