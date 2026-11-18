@@ -215,6 +215,42 @@
   --sidebar-ring: var(--brand);
 }
 
+/* A background picked in Settings → Appearance (`stores/appearance-store.ts`
+   sets `--bg-light` / `--bg-dark` and the matching attribute). The surfaces
+   follow it in the same steps as the neutral design: cards and menus a little
+   lighter, fills and the sidebar a little deeper in light, lifted in dark. */
+:root[data-bg-light]:not(.dark) {
+  --background: var(--bg-light);
+  --card: color-mix(in oklab, var(--bg-light) 30%, #ffffff);
+  --popover: color-mix(in oklab, var(--bg-light) 30%, #ffffff);
+  --secondary: color-mix(in oklab, var(--bg-light) 96%, #000000);
+  --muted: color-mix(in oklab, var(--bg-light) 96%, #000000);
+  --accent: color-mix(in oklab, var(--bg-light) 92%, #000000);
+  --input: color-mix(in oklab, var(--bg-light) 92%, #000000);
+  --chart-5: color-mix(in oklab, var(--bg-light) 92%, #000000);
+  --primary-foreground: var(--bg-light);
+  --sidebar-solid: color-mix(in oklab, var(--bg-light) 96%, #000000);
+  --sidebar-primary-foreground: var(--bg-light);
+}
+:root[data-bg-light]:not(.dark):not([data-material="mica"]):not([data-material="vibrancy"]) {
+  --sidebar: color-mix(in oklab, var(--bg-light) 96%, #000000);
+}
+:root.dark[data-bg-dark] {
+  --background: var(--bg-dark);
+  --card: color-mix(in oklab, var(--bg-dark) 96%, #ffffff);
+  --popover: color-mix(in oklab, var(--bg-dark) 96%, #ffffff);
+  --secondary: color-mix(in oklab, var(--bg-dark) 92%, #ffffff);
+  --muted: color-mix(in oklab, var(--bg-dark) 92%, #ffffff);
+  --accent: color-mix(in oklab, var(--bg-dark) 89%, #ffffff);
+  --chart-5: color-mix(in oklab, var(--bg-dark) 89%, #ffffff);
+  --primary-foreground: var(--bg-dark);
+  --sidebar-solid: color-mix(in oklab, var(--bg-dark) 96%, #ffffff);
+  --sidebar-primary-foreground: var(--bg-dark);
+}
+:root.dark[data-bg-dark]:not([data-material="mica"]):not([data-material="vibrancy"]) {
+  --sidebar: color-mix(in oklab, var(--bg-dark) 96%, #ffffff);
+}
+
 /* Shimmering text (shadcn's `shimmer`: "Working for…", a live step's title, a
    busy chat in the sidebar) paints its glyphs transparent and draws them back
    with a gradient. shadcn derives the gradient's highlight with

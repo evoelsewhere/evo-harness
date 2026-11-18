@@ -1,4 +1,4 @@
-// Appearance preferences: accent, fonts, chat width and motion. The colour
+// Appearance preferences: accent, backgrounds, fonts, chat width and motion. The colour
 // scheme lives in ThemeProvider and the interface size is the window zoom
 // (ui-store); everything here is applied as attributes and CSS variables on
 // <html>, so no component has to subscribe to it.
@@ -30,6 +30,40 @@ export const ACCENTS: Accent[] = [
 ];
 
 export const CUSTOM_ACCENT = "custom";
+
+export interface BackgroundPreset {
+  id: string;
+  label: string;
+  /** The app background; the other surfaces (cards, sidebar, menus) are derived from it. */
+  color: string;
+}
+
+/** Light backgrounds: near-white tints, so text keeps its contrast (ux-polish FR-6). */
+export const LIGHT_BACKGROUNDS: BackgroundPreset[] = [
+  { id: "neutral", label: "Neutral", color: "#fafafa" },
+  { id: "white", label: "White", color: "#ffffff" },
+  { id: "paper", label: "Paper", color: "#faf8f4" },
+  { id: "sand", label: "Sand", color: "#f5f0e6" },
+  { id: "mist", label: "Mist", color: "#f4f6f9" },
+  { id: "sage", label: "Sage", color: "#f2f5f0" },
+  { id: "blush", label: "Blush", color: "#fbf4f4" },
+  { id: "lilac", label: "Lilac", color: "#f6f4fb" },
+];
+
+/** Dark backgrounds: deep tints, so text keeps its contrast (ux-polish FR-6). */
+export const DARK_BACKGROUNDS: BackgroundPreset[] = [
+  { id: "neutral", label: "Neutral", color: "#191919" },
+  { id: "black", label: "Black", color: "#0a0a0a" },
+  { id: "slate", label: "Slate", color: "#181b21" },
+  { id: "midnight", label: "Midnight", color: "#0f1421" },
+  { id: "forest", label: "Forest", color: "#121a16" },
+  { id: "espresso", label: "Espresso", color: "#1c1814" },
+  { id: "plum", label: "Plum", color: "#1a1420" },
+  { id: "ocean", label: "Ocean", color: "#0e1a1f" },
+];
+
+export const CUSTOM_BACKGROUND = "custom";
+export type SchemeMode = "light" | "dark";
 
 export interface FontOption {
   id: string;
@@ -97,12 +131,21 @@ interface AppearanceStore {
   accent: string;
   /** Hex colour used when `accent` is custom. */
   customAccent: string;
+  /** A `LIGHT_BACKGROUNDS` id or `CUSTOM_BACKGROUND`. */
+  backgroundLight: string;
+  /** A `DARK_BACKGROUNDS` id or `CUSTOM_BACKGROUND`. */
+  backgroundDark: string;
+  /** Hex colours used when a mode's background is custom. */
+  customBackgroundLight: string;
+  customBackgroundDark: string;
   interfaceFont: string;
   codeFont: string;
   chatWidth: ChatWidth;
   motion: MotionPreference;
   setAccent(id: string): void;
   setCustomAccent(hex: string): void;
+  setBackground(mode: SchemeMode, id: string): void;
+  setCustomBackground(mode: SchemeMode, hex: string): void;
   setInterfaceFont(id: string): void;
   setCodeFont(id: string): void;
   setChatWidth(width: ChatWidth): void;
@@ -113,6 +156,10 @@ interface AppearanceStore {
 export const APPEARANCE_DEFAULTS = {
   accent: "blue",
   customAccent: "#8b5cf6",
+  backgroundLight: "neutral",
+  backgroundDark: "neutral",
+  customBackgroundLight: "#f7f3ee",
+  customBackgroundDark: "#16191f",
   interfaceFont: "geist",
   codeFont: "geist-mono",
   chatWidth: "default" as ChatWidth,
@@ -125,6 +172,13 @@ export const useAppearanceStore = create<AppearanceStore>()(
       ...APPEARANCE_DEFAULTS,
       setAccent: (accent) => set({ accent }),
       setCustomAccent: (customAccent) => set({ customAccent, accent: CUSTOM_ACCENT }),
+      setBackground: (mode, id) => set(mode === "light" ? { backgroundLight: id } : { backgroundDark: id }),
+      setCustomBackground: (mode, hex) =>
+        set(
+          mode === "light"
+            ? { customBackgroundLight: hex, backgroundLight: CUSTOM_BACKGROUND }
+            : { customBackgroundDark: hex, backgroundDark: CUSTOM_BACKGROUND },
+        ),
       setInterfaceFont: (interfaceFont) => set({ interfaceFont }),
       setCodeFont: (codeFont) => set({ codeFont }),
       setChatWidth: (chatWidth) => set({ chatWidth }),
@@ -133,9 +187,24 @@ export const useAppearanceStore = create<AppearanceStore>()(
     }),
     {
       name: "evo.appearance",
-      partialize: ({ accent, customAccent, interfaceFont, codeFont, chatWidth, motion }) => ({
+      partialize: ({
         accent,
         customAccent,
+        backgroundLight,
+        backgroundDark,
+        customBackgroundLight,
+        customBackgroundDark,
+        interfaceFont,
+        codeFont,
+        chatWidth,
+        motion,
+      }) => ({
+        accent,
+        customAccent,
+        backgroundLight,
+        backgroundDark,
+        customBackgroundLight,
+        customBackgroundDark,
         interfaceFont,
         codeFont,
         chatWidth,
@@ -161,6 +230,25 @@ export function accentColors(state: Pick<AppearanceStore, "accent" | "customAcce
   return { light: accent.light, dark: accent.dark };
 }
 
+type BackgroundState = Pick<
+  AppearanceStore,
+  "backgroundLight" | "backgroundDark" | "customBackgroundLight" | "customBackgroundDark"
+>;
+
+/** A mode's background colour, or null for the built-in neutral one. */
+export function backgroundColor(state: BackgroundState, mode: SchemeMode): string | null {
+  const id = mode === "light" ? state.backgroundLight : state.backgroundDark;
+  if (id === CUSTOM_BACKGROUND) return mode === "light" ? state.customBackgroundLight : state.customBackgroundDark;
+  if (id === "neutral") return null;
+  const presets = mode === "light" ? LIGHT_BACKGROUNDS : DARK_BACKGROUNDS;
+  return presets.find((p) => p.id === id)?.color ?? null;
+}
+
+/** The background a mode shows (neutral when none is picked), for previews. */
+export function shownBackground(state: BackgroundState, mode: SchemeMode): string {
+  return backgroundColor(state, mode) ?? (mode === "light" ? LIGHT_BACKGROUNDS[0].color : DARK_BACKGROUNDS[0].color);
+}
+
 function apply(state: AppearanceStore) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -175,6 +263,18 @@ function apply(state: AppearanceStore) {
   root.style.setProperty("--app-font-mono", mono.stack);
   const width = CHAT_WIDTHS.find((w) => w.id === state.chatWidth) ?? CHAT_WIDTHS[1];
   root.style.setProperty("--chat-width", width.value);
+  // A picked background swaps the surface family in index.css (`[data-bg-light]`, `[data-bg-dark]`);
+  // neutral leaves the design's own tokens untouched.
+  for (const mode of ["light", "dark"] as const) {
+    const color = backgroundColor(state, mode);
+    if (color) {
+      root.style.setProperty(`--bg-${mode}`, color);
+      root.setAttribute(`data-bg-${mode}`, "");
+    } else {
+      root.style.removeProperty(`--bg-${mode}`);
+      root.removeAttribute(`data-bg-${mode}`);
+    }
+  }
   root.setAttribute("data-motion", state.motion);
 }
 
