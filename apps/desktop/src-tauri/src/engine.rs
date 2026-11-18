@@ -600,6 +600,7 @@ pub(crate) async fn start_process(
                 drop(processes);
                 state.working.forget(&chat);
                 crate::supervisor::on_exit(&exit_app, &chat, generation, true);
+                crate::webbridge::on_engine_exit(&exit_app, &chat);
                 // It ended by itself: mail waiting for it restarts it, within limits.
                 crate::mesh::on_exit(&exit_app, &chat, true).await;
                 let code = status.code();

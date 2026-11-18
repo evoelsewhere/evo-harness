@@ -460,6 +460,33 @@ Edited in **Settings → Browser**; site permissions also in the side panel's
   reach new documents.
 - The approval mode is the app's, not a chat's: the side panel's mode switch
   sets the app setting (every chat follows), as Settings does.
+- 2026-11-18 — Second round on Edge:
+  - Leases start on `agent_settled`, on a refused `prompt` response (no
+    model: the engine sends no `agent_settled`) and when the chat's engine
+    exits, so a tab is never held for good. Their length is the app setting
+    `webbridge.leaseSeconds` (Settings → Browser, Side panel group).
+  - Letting go of a tab (lease, Stop all) turns the indicator off first and
+    then detaches: the extension attaches on any command, so an indicator
+    update sent alongside the detach attached the tab again.
+  - The person's own input (FR-17, T26): the indicator reports trusted
+    `keydown`, `pointerdown` and `wheel` through its binding (at most every
+    400 ms); input within 300 ms of the agent's own `Input.*` command is the
+    agent's echo. An `Input.*` command waits until the tab has been left
+    alone for 5 s, and gives up after 30 s with "The person is using this
+    tab". Input inside iframes is not seen.
+  - Pages the browser keeps from extensions (`chrome:`, `edge:`, other
+    extensions, `about:` pages but `about:blank`, the Chrome Web Store and
+    Edge Add-ons) are refused in the shell before anything reaches the
+    browser, with the reason.
+  - A tab that left the chat's group or closed answers "The person took this
+    tab back." or "The tab closed." on the agent's next call (the latest 64
+    are kept).
+  - Each agent call on a Webbridge tab is logged with its chat, tool, site and
+    outcome; never page content or typed text.
+  - A debug build shows the repository's `extensions/evo-webbridge` as the
+    folder to load, so edits show after Reload; the copy beside the debug exe
+    is refreshed only by a build.
+  - Chrome is not checked separately: it runs the same extension and code.
 - The side panel is `sidepanel/sidepanel.js` with the composer in
   `sidepanel/composer.js`; the extension packs with
   `apps/desktop/scripts/pack-webbridge.ts` (`bun run webbridge:pack`), which

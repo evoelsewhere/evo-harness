@@ -64,11 +64,14 @@ pub fn status(app: &AppHandle) -> Status {
 /// Tauri places next to the debug exe is only refreshed by a rebuild.
 fn extension_folder() -> Option<std::path::PathBuf> {
     if cfg!(debug_assertions) {
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../extensions/evo-webbridge");
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../extensions/evo-webbridge");
         if repo.join("manifest.json").is_file() {
             let full = repo.canonicalize().unwrap_or(repo);
             let text = full.to_string_lossy();
-            return Some(std::path::PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text)));
+            return Some(std::path::PathBuf::from(
+                text.strip_prefix(r"\\?\").unwrap_or(&text),
+            ));
         }
     }
     let exe = std::env::current_exe().ok()?;

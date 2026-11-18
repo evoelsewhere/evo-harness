@@ -242,6 +242,11 @@ async fn navigate(ctx: &ToolCtx, args: &Value) -> ToolResult {
     if history && existing.is_none() {
         return Err("No browser tab is open to go back, forward or reload.".into());
     }
+    let webbridge_tab = bridge.is_some() || existing.as_deref().is_some_and(crate::webbridge::groups::is_tab);
+    if !history && webbridge_tab && crate::webbridge::page::forbidden_by_browser(&url) {
+        // Spec FR-22: the browser keeps its own pages from extensions.
+        return Err(crate::webbridge::page::FORBIDDEN.into());
+    }
     let target = if history { None } else { Some(shell::normalize_url(&url)?.to_string()) };
 
     // The gate: the page it acts on is the target, or the tab's own for back, forward and reload.
@@ -259,7 +264,7 @@ async fn navigate(ctx: &ToolCtx, args: &Value) -> ToolResult {
         (_, Some(target)) => (target.clone(), format!("Open {target}")),
         (None, None) => unreachable!("a history action has a tab"),
     };
-    let on_webbridge = bridge.is_some() || existing.as_deref().is_some_and(crate::webbridge::groups::is_tab);
+    let on_webbridge = webbridge_tab;
     ctx.gate_on(on_webbridge, &gate_url, &summary).await.map_err(Stop)?;
 
     if bridge.is_none() {

@@ -85,6 +85,17 @@ pub struct Webbridge {
     prepared: Mutex<HashSet<String>>,
     /// Side panel sessions (`panel.rs`).
     panels: panel::Panels,
+    /// Why recent tabs went (plan 3.6), for the agent's next call on them.
+    pub(crate) gone: Mutex<groups::Gone>,
+}
+
+/// Why a Webbridge tab the agent names is no longer there, if it went lately.
+pub fn gone_reason(app: &AppHandle, tab: &str) -> Option<&'static str> {
+    app.state::<Webbridge>()
+        .gone
+        .lock()
+        .expect("webbridge lock")
+        .reason(tab)
 }
 
 impl Webbridge {
@@ -214,7 +225,23 @@ impl Webbridge {
     }
 }
 
-fn log(app: &AppHandle, level: &str, message: impl Into<String>) {
+/// One agent call on a Webbridge tab, for the logs (FR-24): the chat, the tool and
+/// the site, never the page's content or what was typed.
+pub fn log_act(app: &AppHandle, chat: &str, tool: &str, url: &str, outcome: &str) {
+    let site = sites::site_of(url);
+    let site = if site.is_empty() {
+        "no page"
+    } else {
+        site.as_str()
+    };
+    log(
+        app,
+        "info",
+        format!("chat {chat}: {tool} on {site} ({outcome})"),
+    );
+}
+
+pub(crate) fn log(app: &AppHandle, level: &str, message: impl Into<String>) {
     app.state::<Db>()
         .log(evo_store::logs::NewLog::new(level, "webbridge", message));
 }
@@ -485,10 +512,7 @@ pub fn stop_all(app: &AppHandle, profile_key: &str) {
         state.prepared.lock().expect("webbridge lock").remove(&tab);
     }
     for tab in &tabs {
-        state.prepared.lock().expect("webbridge lock").remove(tab);
-        if let Some((_, number)) = groups::split(tab) {
-            let _ = state.notify(profile_key, json!({ "t": "detach-now", "tab": number }));
-        }
+        page::let_go(app, tab);
     }
     log(app, "info", format!("Stop all in {profile_key}"));
     changed(app);
@@ -527,12 +551,34 @@ pub fn chat_title(app: &AppHandle, chat: &str) -> String {
     }
 }
 
+/// Whether an engine line ends a chat's turn: the run settled, or the prompt was refused
+/// before it ran (no model, say), which sends no `agent_settled`.
+fn ends_turn(message: &Value) -> bool {
+    match message.get("type").and_then(Value::as_str) {
+        Some("agent_settled") => true,
+        Some("response") => {
+            message.get("command").and_then(Value::as_str) == Some("prompt")
+                && message.get("success") == Some(&Value::Bool(false))
+        }
+        _ => false,
+    }
+}
+
 /// An engine line: a chat's turn ended, so its tabs are let go after the lease (spec 6.2).
 pub fn on_engine_line(app: &AppHandle, chat: &str, message: &Value) {
     panel::on_engine_line(app, chat, message);
-    if message.get("type").and_then(Value::as_str) != Some("agent_settled") {
-        return;
+    if ends_turn(message) {
+        turn_ended(app, chat);
     }
+}
+
+/// A chat's engine exited: whatever its turn was doing has ended too.
+pub fn on_engine_exit(app: &AppHandle, chat: &str) {
+    turn_ended(app, chat);
+}
+
+/// Start the lease on the chat's attached tabs.
+fn turn_ended(app: &AppHandle, chat: &str) {
     let tabs: Vec<String> = crate::browser::chat_tabs(app, chat)
         .into_iter()
         .map(|(id, _)| id)
@@ -541,14 +587,36 @@ pub fn on_engine_line(app: &AppHandle, chat: &str, message: &Value) {
     if tabs.is_empty() {
         return;
     }
+    let lease = lease_ms(app);
     app.state::<Webbridge>()
         .holds
         .lock()
         .expect("webbridge lock")
-        .turn_ended(tabs.iter().map(String::as_str), now_ms());
+        .turn_ended(tabs.iter().map(String::as_str), now_ms(), lease);
+    log(
+        app,
+        "debug",
+        format!(
+            "chat {chat}'s turn ended: its tabs are let go in {} s",
+            lease / 1000
+        ),
+    );
 }
 
-fn now_ms() -> u64 {
+/// App setting: how long a chat's tabs keep the debugging API after its turn (plan 3.4).
+pub const LEASE_SECONDS_KEY: &str = "webbridge.leaseSeconds";
+
+fn lease_ms(app: &AppHandle) -> u64 {
+    let seconds = app
+        .state::<Db>()
+        .with(|conn| evo_store::settings::get(conn, LEASE_SECONDS_KEY))
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_f64());
+    groups::lease_ms(seconds)
+}
+
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -786,6 +854,23 @@ fn on_hello(app: &AppHandle, connection: u64, message: &Value) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turn_ends_when_it_settles_or_its_prompt_is_refused() {
+        assert!(ends_turn(
+            &json!({ "type": "agent_settled", "outcome": "completed" })
+        ));
+        assert!(ends_turn(
+            &json!({ "type": "response", "command": "prompt", "success": false, "error": "no model" })
+        ));
+        assert!(!ends_turn(
+            &json!({ "type": "response", "command": "prompt", "success": true })
+        ));
+        assert!(!ends_turn(
+            &json!({ "type": "response", "command": "get_state", "success": false })
+        ));
+        assert!(!ends_turn(&json!({ "type": "agent_end" })));
+    }
 
     #[test]
     fn only_an_introduction_of_an_evo_extension_is_admitted() {

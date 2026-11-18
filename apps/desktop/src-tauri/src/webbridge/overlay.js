@@ -44,6 +44,17 @@
       // The binding is gone (the debugger detached).
     }
   };
+  // The person's own input (FR-17): the agent's next act waits until they stop. The
+  // shell tells it apart from the agent's input, which the browser reports alike.
+  let reported = 0;
+  const used = (event) => {
+    if (!event.isTrusted || event.composedPath().includes(host)) return;
+    const now = Date.now();
+    if (now - reported < 400) return;
+    reported = now;
+    say("input");
+  };
+  for (const type of ["keydown", "pointerdown", "wheel"]) window.addEventListener(type, used, { capture: true, passive: true });
   take.addEventListener("click", () => say("takeover"));
   back.addEventListener("click", () => say("handback"));
   stop.addEventListener("click", () => say("stop"));

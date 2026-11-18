@@ -459,7 +459,9 @@ impl ToolCtx {
     async fn gate_webbridge(&self, url: &str, summary: &str) -> Result<(), ToolOutput> {
         use crate::webbridge::sites::{self, Permission};
         let permission = sites::permission(url);
+        let logged = |outcome: &str| crate::webbridge::log_act(&self.app, &self.chat, self.tool, url, outcome);
         if permission == Permission::Block {
+            logged("blocked site");
             return Err(ToolOutput::error(format!("The person blocked {} for Evo.", sites::site_of(url))));
         }
         let mode = self.approval_mode();
@@ -473,13 +475,20 @@ impl ToolCtx {
         })
         .await;
         match verdict {
-            gate::WebVerdict::Allow => Ok(()),
+            gate::WebVerdict::Allow => {
+                logged("allowed");
+                Ok(())
+            }
             gate::WebVerdict::AllowSite => {
                 let _ = sites::set(url, Permission::Allow);
                 crate::webbridge::sites_changed(&self.app);
+                logged("allowed for the site");
                 Ok(())
             }
-            gate::WebVerdict::Deny => Err(ToolOutput::error(format!("The person declined: {summary}"))),
+            gate::WebVerdict::Deny => {
+                logged("declined");
+                Err(ToolOutput::error(format!("The person declined: {summary}")))
+            }
             gate::WebVerdict::Gone => Err(ToolOutput::text("")),
         }
     }

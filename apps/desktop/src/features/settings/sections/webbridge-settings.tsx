@@ -240,7 +240,7 @@ function SitesGroup() {
 const VOICE_KEY = "webbridge.voiceInput";
 const WORKSPACE_KEY = "webbridge.newChatWorkspace";
 
-/** The browser's side panel: where new chats start, and voice input (spec FR-10, FR-29). */
+/** The browser's side panel: where new chats start and voice input (spec FR-10, FR-29); how long the agent keeps its tabs (plan 3.4). */
 function SidePanelGroup() {
   const workspaces = useSessionStore((s) => s.workspaces);
   const [settings, setSettings] = React.useState<Record<string, unknown>>({});
@@ -279,7 +279,34 @@ function SidePanelGroup() {
         description="Shows a microphone in the side panel. Your browser turns speech into text with its maker's service; only the text reaches Evo, and nothing is sent until you send it."
         control={<Switch aria-labelledby="webbridge-voice" checked={settings[VOICE_KEY] === true} onCheckedChange={(on) => void save(VOICE_KEY, on)} />}
       />
+      <SettingsRow
+        labelId="webbridge-lease"
+        label="Let go of the agent's tabs"
+        description="While Evo works in a tab the browser shows that it is being debugged. After a chat's turn ends, Evo lets go of its tabs after this long, and picks them up again on the next turn."
+        control={
+          <select
+            aria-labelledby="webbridge-lease"
+            className="h-8 rounded-md bg-background px-2 text-sm shadow-[0_0_0_1px_var(--border)]"
+            value={String(typeof settings[LEASE_KEY] === "number" ? settings[LEASE_KEY] : 60)}
+            onChange={(e) => void save(LEASE_KEY, Number(e.target.value))}
+          >
+            {LEASES.map(([seconds, label]) => (
+              <option key={seconds} value={seconds}>
+                {label}
+              </option>
+            ))}
+          </select>
+        }
+      />
     </SettingsGroup>
   );
 }
+
+const LEASE_KEY = "webbridge.leaseSeconds";
+const LEASES: [number, string][] = [
+  [10, "After 10 seconds"],
+  [60, "After 1 minute"],
+  [300, "After 5 minutes"],
+  [900, "After 15 minutes"],
+];
 

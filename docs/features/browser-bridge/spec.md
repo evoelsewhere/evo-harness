@@ -326,5 +326,7 @@ None.
   this feature's documents and UI text (identifiers stay lowercase).
 - 2026-11-18 — Accepted (Gates A and B); tasks written.
 - 2026-11-18 — FR-27: the approval mode is the app's, so the panel switches the app's mode.
+- 2026-11-18 — Checks run on Edge; Chrome runs the same extension and code and
+  is not checked separately.
 - 2026-11-18 — The toolbar button opens the side panel (no popup); the app's
   settings page is **Settings → Browser**, holding the built-in browser and Webbridge.

@@ -26,22 +26,68 @@ fn leaves_page(method: &str) -> bool {
     )
 }
 
+/// What the agent is told for a page the browser keeps from extensions.
+pub(crate) const FORBIDDEN: &str = "The browser does not let extensions use this page.";
+
+/// Pages the browser does not let extensions debug (spec FR-22): its own pages,
+/// other extensions' pages, and the extension stores.
+pub(crate) fn forbidden_by_browser(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    const SCHEMES: [&str; 8] = [
+        "chrome:",
+        "edge:",
+        "chrome-extension:",
+        "extension:",
+        "chrome-search:",
+        "chrome-untrusted:",
+        "devtools:",
+        "view-source:",
+    ];
+    if SCHEMES.iter().any(|scheme| lower.starts_with(scheme)) {
+        return true;
+    }
+    // about:blank is where every new tab starts; the other about: pages are the browser's.
+    if lower.starts_with("about:") && lower != "about:blank" && !lower.starts_with("about:blank#") {
+        return true;
+    }
+    let origin = crate::agent_tools::gate::origin_of(&lower);
+    origin == "https://chromewebstore.google.com"
+        || origin == "https://microsoftedge.microsoft.com"
+            && lower.contains("://microsoftedge.microsoft.com/addons")
+        || origin == "https://chrome.google.com" && lower.contains("://chrome.google.com/webstore")
+}
+
+/// Why the agent may not use a tab showing `url`, if it may not (spec FR-22).
+/// `leaving`: the call takes the tab away from that page, which is always allowed.
+pub(crate) fn refusal(
+    url: &str,
+    permission: super::sites::Permission,
+    leaving: bool,
+) -> Option<String> {
+    if leaving || url.is_empty() {
+        return None;
+    }
+    if forbidden_by_browser(url) {
+        return Some(FORBIDDEN.to_string());
+    }
+    (permission == super::sites::Permission::Block)
+        .then(|| format!("The person blocked {} for Evo.", super::sites::site_of(url)))
+}
+
+/// Why the agent may not open `url` in a Webbridge tab, if it may not.
+fn refusal_to_open(url: &str) -> Option<String> {
+    refusal(url, super::sites::permission(url), false)
+}
+
 /// Where a Webbridge tab's agent work is refused before it reaches the browser.
 fn check(app: &AppHandle, tab: &str, method: &str) -> Result<(String, i64), String> {
     let (profile, number) =
         split(tab).ok_or_else(|| format!("No browser tab {tab}; see browser_tabs."))?;
     let state = app.state::<Webbridge>();
-    // A Block site: nothing but leaving it (spec FR-22).
-    if let Some(url) = crate::browser::tab_record(app, tab)
-        .map(|t| t.url)
-        .filter(|u| !u.is_empty())
-    {
-        if super::sites::permission(&url) == super::sites::Permission::Block && !leaves_page(method)
-        {
-            return Err(format!(
-                "The person blocked {} for Evo.",
-                super::sites::site_of(&url)
-            ));
+    // A page the browser forbids or a Block site: nothing but leaving it (spec FR-22).
+    if let Some(url) = crate::browser::tab_record(app, tab).map(|t| t.url) {
+        if let Some(why) = refusal(&url, super::sites::permission(&url), leaves_page(method)) {
+            return Err(why);
         }
     }
     if state.holds.lock().expect("webbridge lock").is_taken(tab) {
@@ -162,17 +208,12 @@ pub fn show_overlay(app: &AppHandle, tab: &str) {
 }
 
 fn set_overlay(app: &AppHandle, tab: &str, mode: &str) {
+    let Some(expression) = overlay_expression(app, tab, mode) else {
+        return;
+    };
     let Some((profile, number)) = split(tab) else {
         return;
     };
-    let chat = crate::browser::tab_record(app, tab)
-        .and_then(|t| t.chat)
-        .map(|c| super::chat_title(app, &c))
-        .unwrap_or_default();
-    let expression = format!(
-        "window.__evoOverlay && window.__evoOverlay.set({})",
-        json!({ "state": mode, "chat": chat })
-    );
     let (app, profile) = (app.clone(), profile.to_string());
     tauri::async_runtime::spawn(async move {
         let _ = raw(
@@ -184,6 +225,19 @@ fn set_overlay(app: &AppHandle, tab: &str, mode: &str) {
         )
         .await;
     });
+}
+
+/// The page statement that sets `tab`'s indicator to `mode`.
+fn overlay_expression(app: &AppHandle, tab: &str, mode: &str) -> Option<String> {
+    split(tab)?;
+    let chat = crate::browser::tab_record(app, tab)
+        .and_then(|t| t.chat)
+        .map(|c| super::chat_title(app, &c))
+        .unwrap_or_default();
+    Some(format!(
+        "window.__evoOverlay && window.__evoOverlay.set({})",
+        json!({ "state": mode, "chat": chat })
+    ))
 }
 
 async fn raw(
@@ -206,6 +260,22 @@ async fn raw(
 pub async fn cdp(app: &AppHandle, tab: &str, method: &str, params: Value) -> Result<Value, String> {
     let (profile, number) = check(app, tab, method)?;
     prepare(app, tab, &profile, number).await?;
+    if method.starts_with("Input.") {
+        wait_for_person(app, tab).await?;
+        let state = app.state::<Webbridge>();
+        state
+            .holds
+            .lock()
+            .expect("webbridge lock")
+            .agent_input(tab, super::now_ms());
+        let reply = raw(app, &profile, number, method, params).await;
+        state
+            .holds
+            .lock()
+            .expect("webbridge lock")
+            .agent_input(tab, super::now_ms());
+        return reply;
+    }
     if method == "Page.captureScreenshot" {
         // A background tab draws a new frame only when something changes, so a capture may wait for
         // one that never comes: a tiny screencast around it makes the tab draw (measured: every
@@ -223,6 +293,28 @@ pub async fn cdp(app: &AppHandle, tab: &str, method: &str, params: Value) -> Res
         return shot;
     }
     raw(app, &profile, number, method, params).await
+}
+
+/// The person used the tab a moment ago: wait until they have left it alone
+/// for [`groups::QUIET_MS`] (spec FR-17), or give up after [`groups::PATIENCE_MS`].
+async fn wait_for_person(app: &AppHandle, tab: &str) -> Result<(), String> {
+    let started = super::now_ms();
+    loop {
+        let wait = app
+            .state::<Webbridge>()
+            .holds
+            .lock()
+            .expect("webbridge lock")
+            .wait_for_person(tab, super::now_ms());
+        if wait == 0 {
+            return Ok(());
+        }
+        if super::now_ms().saturating_sub(started) + wait > groups::PATIENCE_MS {
+            return Err("The person is using this tab. Wait a moment and try again (browser_wait), or work in another tab.".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(wait.min(1_000))).await;
+        check(app, tab, "Input")?;
+    }
 }
 
 /// Run `script` in the page, as `browser::eval` does for built-in pages: one
@@ -310,12 +402,12 @@ async fn evaluate(app: &AppHandle, tab: &str, body: &str) -> Result<Evaluated, S
 
 /// Navigate the tab (FR-22: the browser refuses its own pages and Block sites are refused before).
 pub async fn navigate(app: &AppHandle, tab: &str, url: &str) -> Result<String, String> {
+    if forbidden_by_browser(url) {
+        return Err(FORBIDDEN.to_string());
+    }
     let target = browser::normalize_url(url)?;
-    if super::sites::permission(target.as_str()) == super::sites::Permission::Block {
-        return Err(format!(
-            "The person blocked {} for Evo.",
-            super::sites::site_of(target.as_str())
-        ));
+    if let Some(why) = refusal_to_open(target.as_str()) {
+        return Err(why);
     }
     let reply = cdp(app, tab, "Page.navigate", json!({ "url": target.as_str() })).await?;
     if let Some(error) = reply.get("errorText").and_then(Value::as_str) {
@@ -385,12 +477,12 @@ pub async fn open(
     profile_key: &str,
     url: &str,
 ) -> Result<String, String> {
+    if forbidden_by_browser(url) {
+        return Err(FORBIDDEN.to_string());
+    }
     let target = browser::normalize_url(url)?;
-    if super::sites::permission(target.as_str()) == super::sites::Permission::Block {
-        return Err(format!(
-            "The person blocked {} for Evo.",
-            super::sites::site_of(target.as_str())
-        ));
+    if let Some(why) = refusal_to_open(target.as_str()) {
+        return Err(why);
     }
     let title = super::chat_title(app, chat);
     // A blank tab first: the page helper, the console capture and the network recording are in place
@@ -450,8 +542,18 @@ pub fn on_event(app: &AppHandle, profile_key: &str, message: &Value) {
                 .as_str()
                 .and_then(|p| serde_json::from_str(p).ok())
                 .unwrap_or(Value::Null);
-            if let Some(action) = payload["action"].as_str() {
-                super::control(app, &tab, action);
+            match payload["action"].as_str() {
+                // The person used the page (FR-17): the agent's next act waits.
+                Some("input") => {
+                    let state = app.state::<Webbridge>();
+                    state
+                        .holds
+                        .lock()
+                        .expect("webbridge lock")
+                        .person_input(&tab, super::now_ms());
+                }
+                Some(action) => super::control(app, &tab, action),
+                None => {}
             }
         }
         _ => browser::external_event(app, &tab, method, params),
@@ -476,6 +578,11 @@ fn on_tab_change(app: &AppHandle, profile_key: &str, message: &Value) {
     match message["change"].as_str().unwrap_or("") {
         "joined" => {
             if let Some(chat) = message["chat"].as_str() {
+                app.state::<Webbridge>()
+                    .gone
+                    .lock()
+                    .expect("webbridge lock")
+                    .clear(&tab);
                 browser::register_external(
                     app,
                     &tab,
@@ -493,7 +600,19 @@ fn on_tab_change(app: &AppHandle, profile_key: &str, message: &Value) {
                 show_overlay(app, &tab);
             }
         }
-        "left" | "closed" => forget(app, &tab),
+        change @ ("left" | "closed") => {
+            let reason = if change == "left" {
+                groups::TAKEN_BACK
+            } else {
+                groups::CLOSED
+            };
+            app.state::<Webbridge>()
+                .gone
+                .lock()
+                .expect("webbridge lock")
+                .note(&tab, reason);
+            forget(app, &tab);
+        }
         _ => {}
     }
 }
@@ -526,24 +645,115 @@ pub fn release_due(app: &AppHandle, now_ms: u64) {
         .expect("webbridge lock")
         .due(now_ms);
     for tab in due {
-        set_overlay(app, &tab, "off");
-        app.state::<Webbridge>()
-            .prepared
-            .lock()
-            .expect("webbridge lock")
-            .remove(&tab);
-        if let Some((profile, number)) = split(&tab) {
-            let (app, profile) = (app.clone(), profile.to_string());
-            tauri::async_runtime::spawn(async move {
-                let _ = app
-                    .state::<Webbridge>()
-                    .request(
-                        &profile,
-                        json!({ "t": "detach", "tab": number }),
-                        REQUEST_TIMEOUT,
-                    )
-                    .await;
-            });
+        super::log(app, "debug", format!("let go of {tab}: its lease ran out"));
+        let_go(app, &tab);
+    }
+}
+
+/// Turn the tab's indicator off, then detach the debugging API (the browser's notice goes).
+/// In that order: a command after the detach would attach the tab again.
+pub fn let_go(app: &AppHandle, tab: &str) {
+    let off = overlay_expression(app, tab, "off");
+    app.state::<Webbridge>()
+        .prepared
+        .lock()
+        .expect("webbridge lock")
+        .remove(tab);
+    let Some((profile, number)) = split(tab) else {
+        return;
+    };
+    let (app, profile) = (app.clone(), profile.to_string());
+    tauri::async_runtime::spawn(async move {
+        if let Some(expression) = off {
+            let _ = raw(
+                &app,
+                &profile,
+                number,
+                "Runtime.evaluate",
+                json!({ "expression": expression }),
+            )
+            .await;
         }
+        let _ = app
+            .state::<Webbridge>()
+            .request(
+                &profile,
+                json!({ "t": "detach", "tab": number }),
+                REQUEST_TIMEOUT,
+            )
+            .await;
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::sites::Permission;
+    use super::*;
+
+    #[test]
+    fn the_browsers_own_pages_and_the_stores_are_forbidden() {
+        for url in [
+            "chrome://settings",
+            "edge://extensions/",
+            "EDGE://settings/privacy",
+            "chrome-extension://abc/page.html",
+            "devtools://devtools/bundled/inspector.html",
+            "view-source:https://example.com",
+            "about:version",
+            "https://chromewebstore.google.com/detail/x",
+            "https://chrome.google.com/webstore/category/extensions",
+            "https://microsoftedge.microsoft.com/addons/detail/x",
+        ] {
+            assert!(forbidden_by_browser(url), "{url} is the browser's");
+        }
+        for url in [
+            "about:blank",
+            "https://example.com/chrome://settings",
+            "https://chrome.google.com/search",
+            "https://microsoftedge.microsoft.com/insider",
+            "http://localhost:5173/",
+            "file:///C:/x.html",
+        ] {
+            assert!(!forbidden_by_browser(url), "{url} is a page");
+        }
+    }
+
+    #[test]
+    fn forbidden_pages_and_block_sites_are_refused_with_the_reason() {
+        assert_eq!(
+            refusal("edge://settings", Permission::Ask, false).as_deref(),
+            Some(FORBIDDEN)
+        );
+        assert_eq!(
+            refusal("https://bank.example/login", Permission::Block, false).as_deref(),
+            Some("The person blocked https://bank.example for Evo.")
+        );
+        assert_eq!(refusal("https://example.com", Permission::Ask, false), None);
+        assert_eq!(
+            refusal("https://example.com", Permission::Allow, false),
+            None
+        );
+        // A tab with no address yet, and a call that leaves the page, are not refused.
+        assert_eq!(refusal("", Permission::Block, false), None);
+        assert_eq!(
+            refusal("https://bank.example/", Permission::Block, true),
+            None
+        );
+        assert_eq!(refusal("chrome://settings", Permission::Ask, true), None);
+        assert!(leaves_page("Page.navigate") && !leaves_page("Runtime.evaluate"));
+    }
+
+    #[test]
+    fn the_browsers_refusals_read_as_reasons() {
+        assert_eq!(
+            super::super::error_text(
+                &json!({ "code": "restricted", "message": "Cannot access a chrome:// URL" })
+            ),
+            FORBIDDEN
+        );
+        assert_eq!(
+            super::super::error_text(&json!({ "code": "gone" })),
+            "The tab is gone."
+        );
     }
 }

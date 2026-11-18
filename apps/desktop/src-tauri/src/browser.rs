@@ -676,7 +676,10 @@ pub fn visible_tab(app: &AppHandle, chat: &str) -> Option<String> {
 pub fn resolve_tab(app: &AppHandle, chat: &str, tab_id: Option<&str>) -> Result<String, String> {
     let state = app.state::<BrowserState>();
     let mut tabs = state.tabs.lock().expect("browser tabs lock");
-    let tab = tabs.resolve(chat, tab_id)?;
+    let tab = tabs.resolve(chat, tab_id).map_err(|error| {
+        // A tab of the person's browser that went lately says why (Webbridge plan 3.6).
+        tab_id.and_then(|id| crate::webbridge::gone_reason(app, id)).map_or(error, str::to_string)
+    })?;
     let first = tabs.mark_driven(&tab, now_ms());
     drop(tabs);
     if first {
