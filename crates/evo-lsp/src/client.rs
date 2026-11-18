@@ -79,6 +79,12 @@ pub struct Client {
     /// When a piece of the server's work last ended (a work-done progress,
     /// or rust-analyzer turning quiescent).
     work_ended: Mutex<Option<Instant>>,
+    /// When the last file text was sent, until the next report arrives.
+    sent_at: Mutex<Option<Instant>>,
+    /// The longest the server took to report after a text was sent.
+    slowest_report: Mutex<Duration>,
+    /// Whether `textDocument/diagnostic` (pull) answers: `None` until tried.
+    pull_works: Mutex<Option<bool>>,
     started: Instant,
     open: tokio::sync::Mutex<HashMap<String, Open>>,
     alive: AtomicBool,
@@ -129,6 +135,9 @@ impl Client {
             progress_seen: AtomicBool::new(false),
             quiescent: Mutex::new(None),
             work_ended: Mutex::new(None),
+            sent_at: Mutex::new(None),
+            slowest_report: Mutex::new(Duration::ZERO),
+            pull_works: Mutex::new(None),
             started: Instant::now(),
             open: tokio::sync::Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
@@ -291,6 +300,7 @@ impl Client {
                 doc.text = text.clone();
                 let version = doc.version;
                 drop(open);
+                *self.sent_at.lock().unwrap() = Some(Instant::now());
                 self.notify(
                     "textDocument/didChange",
                     json!({ "textDocument": { "uri": uri, "version": version }, "contentChanges": [{ "text": text }] }),
@@ -316,6 +326,7 @@ impl Client {
                     },
                 );
                 drop(open);
+                *self.sent_at.lock().unwrap() = Some(Instant::now());
                 self.notify(
                     "textDocument/didOpen",
                     json!({ "textDocument": { "uri": uri, "languageId": language, "version": 1, "text": text } }),
@@ -360,6 +371,7 @@ impl Client {
                 },
             );
         }
+        *self.sent_at.lock().unwrap() = Some(Instant::now());
         self.notify(
             "textDocument/didOpen",
             json!({ "textDocument": { "uri": uri, "languageId": language, "version": 1, "text": text } }),
@@ -464,6 +476,78 @@ impl Client {
             .map(|(_, list, _, _)| list.clone())
     }
 
+    /// Keep a report for `uri` (pushed or pulled), and how long it took
+    /// after the last text sent.
+    fn store_report(&self, uri: &str, version: Option<i64>, list: Vec<Value>) {
+        if let Some(sent) = self.sent_at.lock().unwrap().take() {
+            let mut slowest = self.slowest_report.lock().unwrap();
+            *slowest = (*slowest).max(sent.elapsed()).min(Duration::from_secs(8));
+        }
+        self.diagnostics.lock().unwrap().insert(
+            uri_key(uri),
+            (version, list, Instant::now(), uri.to_string()),
+        );
+        self.diagnostics_changed.notify_waiters();
+    }
+
+    /// The longest this server has taken to report after a text was sent.
+    pub fn slowest_report(&self) -> Duration {
+        *self.slowest_report.lock().unwrap()
+    }
+
+    /// Whether the server answers diagnostics only when asked (pull) as far
+    /// as known: it offers `diagnosticProvider` and has not refused it.
+    pub fn can_pull(&self) -> bool {
+        let offers = self
+            .capabilities
+            .lock()
+            .unwrap()
+            .get("diagnosticProvider")
+            .is_some_and(|p| !p.is_null());
+        offers && *self.pull_works.lock().unwrap() != Some(false)
+    }
+
+    /// Ask the server for `path`'s diagnostics (pull), for the text last
+    /// sent, and keep them as its report. `None` when it does not answer in
+    /// `max` or does not handle pulls (then it is not asked again).
+    pub async fn pull(&self, path: &Path, max: Duration) -> Option<Vec<Value>> {
+        if !self.can_pull() {
+            return None;
+        }
+        let uri = uri_of(path);
+        let version = self.open.lock().await.get(&uri).map(|d| d.version)?;
+        let answer = self
+            .request(
+                "textDocument/diagnostic",
+                json!({ "textDocument": { "uri": uri } }),
+                max,
+            )
+            .await;
+        match answer {
+            Ok(answer) => {
+                *self.pull_works.lock().unwrap() = Some(true);
+                let list = match answer.get("kind").and_then(Value::as_str) {
+                    Some("unchanged") => self.last_diagnostics(&uri).unwrap_or_default(),
+                    _ => answer
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default(),
+                };
+                self.store_report(&uri, Some(version), list.clone());
+                Some(list)
+            }
+            Err(e) => {
+                // A server that offers pulls only to clients that say they
+                // take them (the CSS server) refuses the method.
+                if e.contains("Unhandled method") || e.contains("not found") {
+                    *self.pull_works.lock().unwrap() = Some(false);
+                }
+                None
+            }
+        }
+    }
+
     /// When the server last published diagnostics for any file.
     pub fn last_report_at(&self) -> Option<Instant> {
         self.diagnostics
@@ -540,7 +624,15 @@ impl Client {
                             .get("items")
                             .and_then(Value::as_array)
                             .map_or(1, Vec::len);
-                        Value::Array(vec![Value::Null; n])
+                        // Defaults for every server, but the CSS server
+                        // validates nothing with `null` settings and the HTML
+                        // server stops checking scripts with `{}`.
+                        let settings = if self.server.id == "css" {
+                            json!({})
+                        } else {
+                            Value::Null
+                        };
+                        Value::Array(vec![settings; n])
                     }
                     "workspace/workspaceFolders" => json!([{
                         "uri": uri_of(&self.root),
@@ -566,11 +658,7 @@ impl Client {
                             .and_then(Value::as_array)
                             .cloned()
                             .unwrap_or_default();
-                        self.diagnostics
-                            .lock()
-                            .unwrap()
-                            .insert(uri_key(&uri), (version, list, Instant::now(), uri));
-                        self.diagnostics_changed.notify_waiters();
+                        self.store_report(&uri, version, list);
                     }
                     "$/progress" => {
                         let token = params
@@ -589,6 +677,17 @@ impl Client {
                                 self.progress_changed.notify_waiters();
                             }
                             _ => {}
+                        }
+                    }
+                    // Kept with stderr: many servers log only this way, and
+                    // it tells why one does not work.
+                    "window/logMessage" | "window/showMessage" => {
+                        if let Some(text) = params.get("message").and_then(Value::as_str) {
+                            let mut tail = self.stderr.lock().unwrap();
+                            tail.extend(text.lines().map(|l| format!("[log] {l}")));
+                            while tail.len() > 30 {
+                                tail.pop_front();
+                            }
                         }
                     }
                     // rust-analyzer says when it has nothing left to do.

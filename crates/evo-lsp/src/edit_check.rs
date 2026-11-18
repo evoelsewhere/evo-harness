@@ -88,7 +88,12 @@ fn is_error(d: &Value) -> bool {
 fn errors_only(list: Vec<Value>) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for d in list.into_iter().filter(is_error) {
-        let same = |o: &Value| start_of(o) == start_of(&d) && o.get("code") == d.get("code");
+        // The same place and code, or the same place and message (Svelte
+        // reports a block left open as `svelte` and again as `js`).
+        let same = |o: &Value| {
+            start_of(o) == start_of(&d)
+                && (o.get("code") == d.get("code") || o.get("message") == d.get("message"))
+        };
         match out.iter_mut().find(|o| same(o)) {
             Some(o) if message_len(&d) > message_len(o) => *o = d,
             Some(_) => {}
@@ -174,6 +179,11 @@ pub async fn after_edit(
     };
     let sent_at = Instant::now();
     let (uri, version) = client.sync_file(file).await.ok()?;
+    // A server that answers only when asked (pull) is asked; its answer is
+    // kept as the file's report for the new text.
+    if client.can_pull() {
+        let _ = client.pull(file, left()).await;
+    }
     // Wait for a report on the new text, or for the server to finish the work
     // the change set off: a server that does not republish an unchanged file
     // (rust-analyzer) is done then, and the file's last report still holds.
@@ -196,7 +206,10 @@ pub async fn after_edit(
         let last = client
             .last_report_at()
             .map_or(sent_at, |at| at.max(sent_at));
-        if (settled || !client.starting()) && !client.indexing() && last.elapsed() >= QUIET {
+        // Silence counts once it lasts longer than this server has been
+        // seen to take to report (FR-17).
+        let quiet_after = QUIET.max(client.slowest_report().mul_f32(1.5));
+        if (settled || !client.starting()) && !client.indexing() && last.elapsed() >= quiet_after {
             quiet = true;
             break client.last_diagnostics(&uri).unwrap_or_default();
         }
@@ -603,5 +616,9 @@ Errors in other files (some may have been there before):
         let list = errors_only(vec![short, long.clone(), err(9, "other")]);
         assert_eq!(list.len(), 2);
         assert_eq!(list[0], long);
+        // Svelte: one error, two codes.
+        let svelte = json!({ "range": { "start": { "line": 5, "character": 0 } }, "severity": 1, "message": "Block was left open", "source": "svelte", "code": "unclosed-block" });
+        let js = json!({ "range": { "start": { "line": 5, "character": 0 } }, "severity": 1, "message": "Block was left open", "source": "js", "code": -1 });
+        assert_eq!(errors_only(vec![svelte, js]).len(), 1);
     }
 }

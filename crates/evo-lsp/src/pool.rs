@@ -161,7 +161,11 @@ impl Pool {
         if let Some(client) = self.running_for(file, cwd) {
             let file = file.to_path_buf();
             tokio::spawn(async move {
-                let _ = client.open_file(&file).await;
+                if client.open_file(&file).await.is_ok() {
+                    // A pull server says nothing until asked: ask, so the
+                    // first edit has errors to compare with.
+                    let _ = client.pull(&file, Duration::from_secs(20)).await;
+                }
             });
             return;
         }
@@ -180,7 +184,9 @@ impl Pool {
             // Opened and saved: rust-analyzer starts its first `cargo check`
             // on the save, so the first edit finds it under way.
             if let Ok(client) = self.client_for(&file, &cwd).await {
-                let _ = client.sync_file(&file).await;
+                if client.sync_file(&file).await.is_ok() {
+                    let _ = client.pull(&file, Duration::from_secs(20)).await;
+                }
             }
         });
     }

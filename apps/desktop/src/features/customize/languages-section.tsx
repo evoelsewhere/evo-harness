@@ -31,6 +31,8 @@ interface ServerInfo {
   installing: boolean;
   log: string[];
   error: string | null;
+  /** Why the installed server will not work as it is and what fixes it (Reinstall, a missing program); missing from older engines. */
+  problem?: string | null;
 }
 
 interface Detected {
@@ -147,7 +149,7 @@ function ServerRow({
   request(command: string, args?: Record<string, unknown>): Promise<void>;
 }) {
   const [open, setOpen] = React.useState(false);
-  const showLog = server.installing || server.error;
+  const showLog = server.installing || server.error || server.problem;
   return (
     <div className={cn("rounded-xl ring-1 ring-border transition-colors", open && "bg-muted/30 dark:bg-accent/20")}>
       <div className="flex items-center gap-3 px-3 py-2.5">
@@ -169,7 +171,13 @@ function ServerRow({
             </span>
             <span className="truncate text-xs text-muted-foreground">
               {server.name} ·{" "}
-              {server.installed ? SOURCE[server.installed.source] : server.error ? "Install failed" : "Not installed"}
+              {server.installed
+                ? server.problem
+                  ? `${SOURCE[server.installed.source]} · Needs attention`
+                  : SOURCE[server.installed.source]
+                : server.error
+                  ? "Install failed"
+                  : "Not installed"}
             </span>
           </span>
         </button>
@@ -219,6 +227,12 @@ function ServerRow({
               </>
             )}
           </dl>
+          {server.problem && !server.installing && (
+            <p className="flex items-start gap-1.5 text-destructive">
+              <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{server.problem}</span>
+            </p>
+          )}
           {server.error && (
             <p className="flex items-start gap-1.5 text-destructive">
               <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />

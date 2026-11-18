@@ -197,6 +197,27 @@ pub fn init_options_for(server: &Server, binary: &Path, lsp_dir: &Path) -> serde
     options
 }
 
+/// Why a server found at `binary` will not work as it is, when evo can tell.
+/// The person fixes it (here, with Reinstall); evo never downloads anything
+/// on its own (docs/features/code-intelligence/spec.md, NFR-1, FR-25).
+pub fn problem(server: &Server, binary: &Path, lsp_dir: &Path) -> Option<String> {
+    if server.id == "bash" && which("shellcheck").is_none() {
+        return Some(
+            "Its errors come from ShellCheck, which is not on PATH, so it reports none. \
+             Install ShellCheck (shellcheck.net) to have scripts checked."
+                .into(),
+        );
+    }
+    if server.id == "typescript" && typescript_lib(binary, lsp_dir).is_none() {
+        return Some(
+            "No TypeScript 5 next to it (TypeScript 7 no longer ships the tsserver it runs on), \
+             so it starts only in projects that have their own TypeScript 5. Reinstall to fix."
+                .into(),
+        );
+    }
+    None
+}
+
 /// The `lib` folder of a TypeScript next to the TypeScript server: evo's own
 /// install, the `node_modules` the server's `.bin` sits in, or a global npm
 /// folder.
@@ -521,7 +542,7 @@ pub async fn install(
             cmd.args(["component", "add", component]);
             run(cmd, &format!("rustup component add {component}"), log).await?;
         }
-        Install::Dotnet { tool } => {
+        Install::Dotnet { tool, fallback } => {
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let verb = if managed(server, lsp_dir).is_some() {
                 "update"
@@ -530,7 +551,24 @@ pub async fn install(
             };
             let mut cmd = command("dotnet");
             cmd.args(["tool", verb, tool, "--tool-path"]).arg(&dir);
-            run(cmd, &format!("dotnet tool {verb} {tool}"), log).await?;
+            if let Err(error) = run(cmd, &format!("dotnet tool {verb} {tool}"), log).await {
+                // Still the install the person asked for, one version back.
+                let Some(version) = fallback else {
+                    return Err(error);
+                };
+                log(format!(
+                    "The latest {tool} did not install with this .NET SDK; trying {version}."
+                ));
+                let mut cmd = command("dotnet");
+                cmd.args(["tool", "install", tool, "--version", version, "--tool-path"])
+                    .arg(&dir);
+                run(
+                    cmd,
+                    &format!("dotnet tool install {tool} --version {version}"),
+                    log,
+                )
+                .await?;
+            }
         }
         Install::Gem { gem } => {
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -573,6 +611,32 @@ pub fn uninstall(server: &Server, lsp_dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // docs/features/code-intelligence/spec.md (FR-24, FR-25).
+    #[test]
+    fn a_typescript_server_without_typescript_5_needs_reinstall() {
+        let lsp = tempfile::tempdir().unwrap();
+        let server = crate::catalog::find("typescript").unwrap();
+        let bin = lsp.path().join("typescript/node_modules/.bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let binary = bin.join("typescript-language-server");
+        // TypeScript 7: a `lib` without `tsserver.js`.
+        let lib = lsp.path().join("typescript/node_modules/typescript/lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        assert!(problem(server, &binary, lsp.path()).is_some());
+        assert!(init_options_for(server, &binary, lsp.path()).is_null());
+        // TypeScript 5.
+        std::fs::write(lib.join("tsserver.js"), "").unwrap();
+        assert!(problem(server, &binary, lsp.path()).is_none());
+        let options = init_options_for(server, &binary, lsp.path());
+        assert!(options["tsserver"]["fallbackPath"]
+            .as_str()
+            .unwrap()
+            .ends_with("lib"));
+        // Other servers have nothing to say.
+        let rust = crate::catalog::find("rust-analyzer").unwrap();
+        assert!(problem(rust, &binary, lsp.path()).is_none());
+    }
 
     #[test]
     fn binaries_are_found_in_unpacked_folders() {

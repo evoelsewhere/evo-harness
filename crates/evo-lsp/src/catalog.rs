@@ -14,7 +14,12 @@ pub enum Install {
     /// `rustup component add <component>`.
     Rustup { component: &'static str },
     /// `dotnet tool install <tool> --tool-path <folder>`.
-    Dotnet { tool: &'static str },
+    Dotnet {
+        tool: &'static str,
+        /// A version to install when the latest does not install with the
+        /// computer's .NET SDK (it needs a newer one).
+        fallback: Option<&'static str>,
+    },
     /// `gem install <gem> --install-dir <folder>`.
     Gem { gem: &'static str },
     /// The latest GitHub release: the asset whose name contains every part of
@@ -166,7 +171,9 @@ pub static SERVERS: &[Server] = &[
         root_markers: &["*.sln", "*.csproj", "global.json"],
         command: "csharp-ls",
         args: &[],
-        install: Install::Dotnet { tool: "csharp-ls" },
+        // csharp-ls 0.17 and later are packed for .NET SDK 10; 0.16.0 is
+        // the last that installs with .NET 8.
+        install: Install::Dotnet { tool: "csharp-ls", fallback: Some("0.16.0") },
         requires: &["dotnet"],
         init_options: None,
     },

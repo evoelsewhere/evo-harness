@@ -446,6 +446,9 @@ pub async fn describe(cwd: &Path) -> Value {
             .iter()
             .map(|server| {
                 let located = install::locate(server, &catalog_dir);
+                let problem = located
+                    .as_ref()
+                    .and_then(|l| install::problem(server, &l.path, &catalog_dir));
                 let state = installs.get(server.id).cloned().unwrap_or_default();
                 json!({
                     "id": server.id,
@@ -460,6 +463,7 @@ pub async fn describe(cwd: &Path) -> Value {
                     "installing": state.running,
                     "log": state.log,
                     "error": state.error,
+                    "problem": problem,
                 })
             })
             .collect()

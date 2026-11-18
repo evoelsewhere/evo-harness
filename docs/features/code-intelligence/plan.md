@@ -79,7 +79,8 @@ commands. The desktop shows the page and a one-time notice.
 | crate | `crates/evo-lsp/src/ops.rs` | Diagnostics (sorted, errors first, waits for the slower check after a quick first report), definition / type definition / implementation / references (with each line's text), hover, document outline, workspace symbols; positions by `line` + `symbol` (whole word) or `character`, converted to UTF-16. | FR-1, FR-2, FR-3, NFR-3 |
 | crate | `crates/evo-lsp/src/edit_check.rs` | The check after an edit: `before_edit` (the file's text, the running server and its errors for that text, and its errors for every other file when it is not busy; no wait, no start), `after_edit` (start or wait for a server, sync, wait within a budget, compare by message / code / source, the text for the model). | FR-15–FR-19, FR-23 |
 | crate | `crates/evo-lsp/src/client.rs` (`last_diagnostics`, `reports`, `last_report_at`, `work_finished_since`, `starting`, `open_file`) | The last report for one file, or for every file, and when any came, without waiting; whether the server finished work since a change and is idle; whether it is in its first 30 s; open a file without saving it. | FR-16, FR-17, FR-22, FR-23 |
-| crate | `crates/evo-lsp/src/install.rs` (`init_options_for`), `catalog.rs` | `initializationOptions` by where the server is: `tsserver.fallbackPath` for the TypeScript server; the TypeScript install is pinned to `typescript@5`. | FR-24 |
+| crate | `crates/evo-lsp/src/install.rs` (`init_options_for`, `problem`), `catalog.rs` | `initializationOptions` by where the server is: `tsserver.fallbackPath` for the TypeScript server; the TypeScript install is pinned to `typescript@5`; why an install will not work as it is (shown on the page, fixed by Reinstall only). | FR-24, FR-25 |
+| crate | `crates/evo-lsp/src/client.rs` (`workspace/configuration`) | Settings asked for are answered `null` (defaults), `{}` for the CSS server. | FR-26 |
 | crate | `crates/evo-lsp/src/pool.rs` (`server_for`, `running_for`, `warm`) | The server for a file unless switched off; the running server for a file without starting one; start one in the background (one try per server a minute). | FR-17, FR-22 |
 | crate | `crates/evo-lsp/examples/lsp-try.rs` | Try any of it from a terminal. | — (developer aid) |
 | engine | `crates/evo-engine/src/tools/lsp.rs` | The `lsp` tool, the `EditCheck` wrapper around `edit` / `write`, the `WarmOnRead` wrapper around `read`, the RPC commands; settings `disabledLanguageServers`, `editDiagnostics`, `lspTool`. | FR-1, FR-7, FR-8, FR-9, FR-15–FR-22 |
@@ -172,8 +173,11 @@ Edit check (FR-15–FR-21):
    finished some work after the change and is idle (`work_finished_since`):
    rust-analyzer does not resend a file whose diagnostics did not change,
    so the file's last report stands. A server that reports no work (the
-   TypeScript server) ends it after 1 s of silence while idle (`QUIET`), an
-   answer that never claims what is left. In a server's first 30 s both
+   TypeScript server) ends it after a silence while idle (`QUIET`, 1 s, or
+   1.5 times the longest the server has taken to report: `slowest_report`),
+   an answer that never claims what is left. A server that answers only when
+   asked (`diagnosticProvider` and a working `textDocument/diagnostic`) is
+   asked right after the change (`Client::pull`), and after a read. In a server's first 30 s both
    count only once it has been idle 1 s in a row (`settle`). The budget is 4 s, or 10 s while the
    server is in its first 30 s (`starting`), which covers the usual "read,
    then edit at once" of a chat's first change.
@@ -264,3 +268,23 @@ window, 15-minute limit; the output's tail is kept for the page.
   rust-analyzer pauses between loading steps, which ended a cold wait early
   and flakily: the 1 s settle. Opening (not saving) files on `read` keeps
   `cargo check` from running on every read.
+- 2026-11-18, ten more servers installed into a scratch folder with the
+  person's go-ahead (PHP, YAML, Bash, Dockerfile, Svelte, Go, C#, C/C++,
+  Kotlin, Lua): csharp-ls answers only pulls (FR-27); its latest release
+  needs .NET SDK 10 (FR-29); Intelephense and Svelte report more than 1 s
+  after a change, so a fixed file was reported one edit late until the
+  silence was learnt per server; Svelte reports one error under two codes
+  (FR-28); Bash checks nothing without ShellCheck (FR-29). Kotlin did not
+  report: the Kotlin server could not resolve `kotlin-stdlib` with no Gradle
+  or Maven cache on this computer, an environment problem, not evo's. Go's
+  first edit came before gopls had loaded (more than the 10 s cold wait);
+  later edits were checked. `window/logMessage` lines are now kept with the
+  server's stderr, which is how the Kotlin and C# cases were understood.
+- 2026-11-18, every server on this computer (no downloads): CSS reported
+  nothing because it validates nothing with `null` settings; `{}` fixes it,
+  but `{}` stops the HTML server checking scripts, hence the per-server
+  answer (FR-26). Marksman reports broken links as warnings, which the edit
+  check leaves out by design (FR-15). Servers not on this computer (Go,
+  C/C++, C#, Java, Kotlin, PHP, Ruby, YAML, Bash, Dockerfile, Svelte, Lua,
+  Swift, Dart) were not tried: trying them means downloading them, which
+  waits for the person's go-ahead.
