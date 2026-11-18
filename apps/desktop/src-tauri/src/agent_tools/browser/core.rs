@@ -79,7 +79,7 @@ fn schema(properties: Value, required: &[&str]) -> Value {
     object
 }
 
-const NAVIGATE: &str = "Open a URL in the app's built-in browser, which the user sees in the side panel (for previewing a local dev server, checking a page, reading docs). Also takes \"back\", \"forward\" or \"reload\". Opens a tab when none is open (or with newTab). Waits for the page to load and returns its title, URL and HTTP status, or an error when the page failed to load. Then use browser_read_page or browser_screenshot to see it.";
+const NAVIGATE: &str = "Open a URL in the app's built-in browser, which the user sees in the side panel (for previewing a local dev server, checking a page, reading docs). Also takes \"back\", \"forward\" or \"reload\". Opens a tab when none is open (or with newTab). Waits for the page to load and returns its title, URL and HTTP status, or an error when the page failed to load. Then use browser_read_page or browser_screenshot to see it. With target \"chrome\" or \"edge\" (or \"chrome:<profile>\"), the page opens instead in a background tab of the person's own browser (Evo Webbridge), in this chat's tab group, where their sign-ins apply; those tab ids start with chrome: or edge: and every browser tool takes them.";
 const TABS: &str = "List, select or close the built-in browser's tabs (shared with the user).";
 const SCREENSHOT: &str = "A screenshot of the visible part of the page in the built-in browser.";
 const READ_PAGE: &str = "The page as an outline: URL, title, headings, text, and interactive elements (links, buttons, fields) each with a ref like [ref_12] to use with browser_click, browser_type, browser_form_input and browser_scroll. Links inside text show as [link text](ref_12). filter \"interactive\" lists only headings and elements.";
@@ -98,6 +98,7 @@ fn navigate_schema() -> Value {
         json!({
             "url": { "type": "string", "description": "URL, host (localhost:3000), local file path, or back/forward/reload." },
             "newTab": { "type": "boolean", "description": "Open in a new tab instead of the active one." },
+            "target": { "type": "string", "description": "builtin (default), chrome, edge, or chrome:<profile> / edge:<profile>: open a new tab in the person's own browser." },
         }),
         &["url"],
     )
@@ -230,8 +231,14 @@ async fn navigate(ctx: &ToolCtx, args: &Value) -> ToolResult {
         return Err("browser_navigate needs a url.".into());
     }
     let history = HISTORY_ACTIONS.contains(&url.as_str());
+    // The person's own browser (Evo Webbridge): a new tab there unless a tab id names one.
+    let bridge = crate::webbridge::resolve_target(&ctx.app, str_arg(args, "target"))?;
     // A tab id that is not this chat's page is no page: a new one opens (as it always did).
-    let existing = if flag(args, "newTab") { None } else { shell::find_tab(&ctx.app, &ctx.chat, tab_id_arg(args).as_deref()) };
+    let existing = if flag(args, "newTab") || (bridge.is_some() && tab_id_arg(args).is_none()) {
+        None
+    } else {
+        shell::find_tab(&ctx.app, &ctx.chat, tab_id_arg(args).as_deref())
+    };
     if history && existing.is_none() {
         return Err("No browser tab is open to go back, forward or reload.".into());
     }
@@ -252,9 +259,12 @@ async fn navigate(ctx: &ToolCtx, args: &Value) -> ToolResult {
         (_, Some(target)) => (target.clone(), format!("Open {target}")),
         (None, None) => unreachable!("a history action has a tab"),
     };
-    ctx.gate(&gate_url, &summary).await.map_err(Stop)?;
+    let on_webbridge = bridge.is_some() || existing.as_deref().is_some_and(crate::webbridge::groups::is_tab);
+    ctx.gate_on(on_webbridge, &gate_url, &summary).await.map_err(Stop)?;
 
-    show_browser(ctx, existing.as_deref()).await;
+    if bridge.is_none() {
+        show_browser(ctx, existing.as_deref()).await;
+    }
     let page = if history {
         let tab = existing.expect("checked above");
         shell::mark_driven(&ctx.app, &tab);
@@ -265,12 +275,15 @@ async fn navigate(ctx: &ToolCtx, args: &Value) -> ToolResult {
         page
     } else if let Some(tab) = existing {
         shell::mark_driven(&ctx.app, &tab);
-        shell::navigate_tab(&ctx.app, &tab, &url)?;
+        shell::navigate_for_tool(&ctx.app, &tab, &url).await?;
         let page = Page::for_ctx(ctx, &tab);
         page.wait_for_navigation("", Duration::from_secs(3)).await;
         page
     } else {
-        let id = shell::create_for_chat(&ctx.app, &ctx.window(), &ctx.chat, &url, false)?;
+        let id = match &bridge {
+            Some(profile) => crate::webbridge::page::open(&ctx.app, &ctx.chat, profile, &url).await?,
+            None => shell::create_for_chat(&ctx.app, &ctx.window(), &ctx.chat, &url, false)?,
+        };
         shell::mark_driven(&ctx.app, &id);
         let page = Page::for_ctx(ctx, &id);
         page.wait_for_navigation("", Duration::from_secs(3)).await;

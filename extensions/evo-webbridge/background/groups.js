@@ -161,6 +161,13 @@ on("tabs", async () => {
 // ── Changes the person or the page makes ────────────────────────────────────
 
 chrome.tabs.onCreated.addListener(async (tab) => {
+  // The browser may put a tab a page opens straight into the group (no group change follows).
+  const chatOfNew = await chatOfGroup(tab.groupId);
+  if (chatOfNew) {
+    owners.set(tab.id, chatOfNew);
+    send({ t: "tab", change: "joined", chat: chatOfNew, opener: tab.openerTabId, ...describe(tab) });
+    return;
+  }
   // A tab the page opens from a group's tab joins that group (FR-7).
   if (tab.openerTabId === undefined) return;
   let opener;

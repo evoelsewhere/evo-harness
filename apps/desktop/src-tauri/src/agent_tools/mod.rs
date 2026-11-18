@@ -430,6 +430,15 @@ impl ToolCtx {
     /// (empty when there is none); `summary` is a line for the person.
     /// `Err` holds the result to return: the person declined, or the call ended.
     pub async fn gate(&self, url: &str, summary: &str) -> Result<(), ToolOutput> {
+        self.gate_on(false, url, summary).await
+    }
+
+    /// [`Self::gate`] for a call on a page; `webbridge` when the page is a tab of
+    /// the person's own browser (docs/features/browser-bridge/spec.md FR-13, FR-22).
+    pub async fn gate_on(&self, webbridge: bool, url: &str, summary: &str) -> Result<(), ToolOutput> {
+        if webbridge {
+            return self.gate_webbridge(url, summary).await;
+        }
         let mode = self.approval_mode();
         let ctx = self.clone();
         let verdict = gate::check(self.tool, self.class, &mode, &self.grant_scope(), url, summary, move |title, description, options| {
@@ -444,6 +453,34 @@ impl ToolCtx {
             gate::Verdict::Allow => Ok(()),
             gate::Verdict::Deny => Err(ToolOutput::error(format!("The person declined: {summary}"))),
             gate::Verdict::Gone => Err(ToolOutput::text("")),
+        }
+    }
+
+    async fn gate_webbridge(&self, url: &str, summary: &str) -> Result<(), ToolOutput> {
+        use crate::webbridge::sites::{self, Permission};
+        let permission = sites::permission(url);
+        if permission == Permission::Block {
+            return Err(ToolOutput::error(format!("The person blocked {} for Evo.", sites::site_of(url))));
+        }
+        let mode = self.approval_mode();
+        let ctx = self.clone();
+        let verdict = gate::check_webbridge(self.tool, self.class, &mode, &self.grant_scope(), url, summary, permission == Permission::Allow, move |title, description, options| {
+            let ctx = ctx.clone();
+            async move {
+                let options: Vec<&str> = options.iter().map(String::as_str).collect();
+                ctx.ask(&title, &description, &options).await
+            }
+        })
+        .await;
+        match verdict {
+            gate::WebVerdict::Allow => Ok(()),
+            gate::WebVerdict::AllowSite => {
+                let _ = sites::set(url, Permission::Allow);
+                crate::webbridge::sites_changed(&self.app);
+                Ok(())
+            }
+            gate::WebVerdict::Deny => Err(ToolOutput::error(format!("The person declined: {summary}"))),
+            gate::WebVerdict::Gone => Err(ToolOutput::text("")),
         }
     }
 
@@ -669,6 +706,19 @@ pub async fn call_for_plugin(app: &AppHandle, chat: &str, plugin: &str, name: &s
         Ok(output) => output.fit(1_000_000),
         Err(error) => ToolOutput::error(format!("The tool failed: {error}")),
     }
+}
+
+/// Run an app tool for `chat` as the agent would, without an engine: for
+/// trying tools in a development build (`webbridge_debug_tool`). Not in
+/// release builds.
+#[cfg(debug_assertions)]
+pub async fn call_for_test(app: &AppHandle, chat: &str, name: &str, args: Value) -> ToolOutput {
+    let Some(tool) = find(name) else {
+        return ToolOutput::error(format!("Unknown tool {name}."));
+    };
+    let request_id = format!("test-call-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1);
+    let ctx = ToolCtx { app: app.clone(), chat: chat.to_string(), request_id, cancel: CancellationToken::new(), tool: tool.name, class: tool.class, plugin: None, run: None };
+    (tool.run)(ctx, if args.is_null() { json!({}) } else { args }).await
 }
 
 // ── Dispatch ────────────────────────────────────────────────────────────────

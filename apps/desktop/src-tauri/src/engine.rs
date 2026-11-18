@@ -528,6 +528,8 @@ pub(crate) async fn start_process(
                     crate::agent_tools::on_line(&out_app, &out_chat, &message).await;
                     // Answers to the shell's own requests, set-up on `ready`.
                     crate::supervisor::on_line(&out_app, &out_chat, generation, &message).await;
+                    // Evo Webbridge: a turn's end starts the lease on its tabs (and feeds side panels).
+                    crate::webbridge::on_engine_line(&out_app, &out_chat, &message);
                 }
                 Err(_) => {
                     // An incognito chat's output is not kept: it can quote the chat.

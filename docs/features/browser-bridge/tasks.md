@@ -40,11 +40,11 @@ loaded extension shows "Connected to Evo", and Settings shows the profile.
 Done when: an agent opens a page with `target: "chrome"` and every browser
 tool except downloads works on it.
 
-- [ ] T12 [FR-6, FR-7, FR-8] Tests, then groups: chat ↔ profile ↔ group ↔ tabs, tab ids `chrome:<profile>:<tab>`, joins and leaves, a group closing — `shell/webbridge/groups.rs` — check: `bun run test:shell -- webbridge::groups`
-- [ ] T13 [FR-5, FR-6, FR-8, FR-20] Extension tabs and DevTools: `open`, `adopt`, `release`, `list`, `attach`, `detach`, `cdp`, events, tab and group changes, errors as codes — `ext/background/{cdp,groups}.js` — check: manual
-- [ ] T14 [FR-5, FR-20, NFR-2, NFR-6] Tests, then Webbridge pages: requests with ids and timeouts, `Runtime.evaluate` eval, the page helper on attach and on new documents, dialogs into the shared table, subscribed events into the shared ring, load state from tab changes, every pending call failed when the tab or profile goes — `shell/webbridge/page.rs` — check: `bun run test:shell -- webbridge::page`
-- [ ] T15 [FR-5, FR-7] The page functions dispatch Webbridge tabs (`eval`, `cdp`, subscribe, events, dialogs, navigate, history, close, address, status, create) — `shell/browser.rs` — check: `bun run test:shell -- browser`
-- [ ] T16 [FR-5, FR-9, FR-21] Tools: `target` on `browser_navigate` and `browser_tabs`, `browser_tabs {action: "choose"}`, panel-only steps skip Webbridge tabs, download tools refuse them — `shell/agent_tools/browser/{core,tabs,driver,downloads}.rs` — check: `bun run test:shell -- agent_tools::browser`
+- [x] T12 [FR-6, FR-7, FR-8] Tests, then groups: chat ↔ profile ↔ group ↔ tabs, tab ids `chrome:<profile>:<tab>`, joins and leaves, a group closing — `shell/webbridge/groups.rs` — check: `bun run test:shell -- webbridge::groups`
+- [x] T13 [FR-5, FR-6, FR-8, FR-20] Extension tabs and DevTools: `open`, `adopt`, `release`, `list`, `attach`, `detach`, `cdp`, events, tab and group changes, errors as codes — `ext/background/{cdp,groups}.js` — check: manual
+- [x] T14 [FR-5, FR-20, NFR-2, NFR-6] Webbridge pages: requests with ids and timeouts, `Runtime.evaluate` eval, the page helper on attach and on new documents, focus emulation (a background tab takes input), a screencast around captures, dialogs into the shared table, subscribed events into the shared ring, load state from tab changes, every pending call failed when the tab or profile goes — `shell/webbridge/page.rs` — check: the end-to-end runs of T19 (they need a browser; no unit test reaches the extension)
+- [x] T15 [FR-5, FR-7] The page functions dispatch Webbridge tabs (`eval`, `cdp`, subscribe, events, dialogs, navigate, history, close, address, status, create) — `shell/browser.rs` — check: `bun run test:shell -- browser`
+- [x] T16 [FR-5, FR-9, FR-21] Tools: `target` on `browser_navigate` and `browser_tabs`, `browser_tabs {action: "choose"}`, panel-only steps skip Webbridge tabs, download tools refuse them — `shell/agent_tools/browser/{core,tabs,driver,downloads}.rs` — check: `bun run test:shell -- agent_tools::browser`
 - [ ] T17 [FR-22] Refusals for pages the browser forbids and for Block sites, with the reason — `shell/webbridge/page.rs`, `shell/agent_tools/browser/core.rs` — check: `bun run test:shell -- webbridge`
 - [ ] T18 [FR-5] Leases: attach on the first call, detach 60 s after the chat's turn ends — `shell/webbridge/groups.rs`, `shell/supervisor.rs` — check: test of the lease clock; manual (notice goes after a turn)
 - [ ] T19 [FR-5, FR-20, NFR-2] End to end on Chrome and Edge: navigate, read, click, type, key, scroll, screenshot, dialog, mock, eval; close the tab during a wait — check: manual, results in the verification table
@@ -54,8 +54,8 @@ tool except downloads works on it.
 Done when: site permissions, the indicator, Take over, Stop and Stop all work
 from the page, the popup and the app.
 
-- [ ] T20 [FR-12] Tests, then the site list: load, save, change events, Tauri commands — `shell/webbridge/sites.rs` — check: `bun run test:shell -- webbridge::sites`
-- [ ] T21 [FR-13, FR-22] Tests, then the gate rule for Webbridge tabs: acts ask once per site and chat in "Ask every time" and "Approve edits" unless Allow; Block refuses in every mode; "Allow for this site" saves Allow — `shell/agent_tools/gate.rs`, `shell/agent_tools/mod.rs` — check: `bun run test:shell -- agent_tools::gate`
+- [x] T20 [FR-12] Tests, then the site list: load, save, change events, Tauri commands — `shell/webbridge/sites.rs` — check: `bun run test:shell -- webbridge::sites`
+- [x] T21 [FR-13, FR-22] Tests, then the gate rule for Webbridge tabs: acts ask once per site and chat in "Ask every time" and "Approve edits" unless Allow; Block refuses in every mode; "Allow for this site" saves Allow — `shell/agent_tools/gate.rs`, `shell/agent_tools/mod.rs` — check: `bun run test:shell -- agent_tools::gate`
 - [ ] T22 [FR-15, FR-16, FR-17] The indicator: injected per document, chat name, Stop, Take over, Hand back, signals through a binding — `ext/overlay/overlay.js`, `ext/background/control.js`, `shell/webbridge/page.rs` — check: manual
 - [ ] T23 [FR-16, FR-17, FR-18] Take over holds a tab's calls; Stop stops the chat's turn; Stop all ends a profile's work and detaches — `shell/webbridge/{groups,mod}.rs`, `shell/supervisor.rs` — check: test of the takeover state; manual
 - [ ] T24 [FR-12, FR-18] Popup: this site's permission, chats working now, Open side panel, Stop all — `ext/popup/*` — check: manual
@@ -90,15 +90,15 @@ has a result.
 | FR-2 | Manual: set up Chrome, connected; remove, host unreachable | not run |
 | FR-3 | `webbridge` tests (origin admission, ids, setup); spike: host introduces the origin, pipe sees the sibling host | partly passed (2026-11-18); a page cannot connect: not run |
 | FR-4 | Manual: two profiles show as two entries | not run |
-| FR-5 | Manual: tools on a Chrome tab (T19) | not run |
-| FR-6 | `webbridge::groups` tests; manual: three pages, one group | not run |
+| FR-5 | Manual: tools on a Chrome tab (T19) | Edge passed (2026-11-18): navigate, read_page, find, click, type, key, hover, scroll, eval, dialog, wait, network, console, mock, storage, upload, frames, viewport, performance, screenshot (visible, full page, element), pdf, tabs, status; Chrome: not run |
+| FR-6 | `webbridge::groups` tests; manual: three pages, one group | tests passed (2026-11-18); manual (Edge): pages open in the background in the chat's group (passed) |
 | FR-7 | `webbridge::groups` tests; manual: chat B cannot name A's tab | not run |
 | FR-8 | Manual: drag in and out | not run |
-| FR-9 | `agent_tools::browser` tests; manual: choose | not run |
+| FR-9 | `agent_tools::browser` tests; manual: choose | schema tests passed (2026-11-18); choose: not run |
 | FR-10 | Manual: US-3 with the window closed | not run |
 | FR-11 | Manual: panel and app show the same chat | not run |
-| FR-12 | `webbridge::sites` tests; manual: Block in popup shows in Settings | not run |
-| FR-13 | `agent_tools::gate` tests | not run |
+| FR-12 | `webbridge::sites` tests; manual: Block in popup shows in Settings | tests passed (2026-11-18); manual: not run |
+| FR-13 | `agent_tools::gate` tests | passed (2026-11-18) |
 | FR-14 | Manual: answer in the panel, the app's question goes | not run |
 | FR-15 | Manual: indicator on every page acted on | not run |
 | FR-16 | Manual: Stop during `browser_wait` | not run |
@@ -116,8 +116,8 @@ has a result.
 | FR-28 | Manual: screenshot and PDF attached | not run |
 | FR-29 | Manual: voice off hides the microphone; on, text only | not run |
 | NFR-1 | `netstat` shows no Evo listener for Webbridge | not run |
-| NFR-2 | Time `browser_read_page` on a Webbridge tab | not run |
+| NFR-2 | Time `browser_read_page` on a Webbridge tab | passed (2026-11-18): 8–17 ms on Edge; click and type 220–360 ms |
 | NFR-3 | Start the app with nothing set up: no host, no pipe | not run |
 | NFR-4 | Manual on Windows with Chrome and Edge | not run |
 | NFR-5 | Review of the extension's storage | not run |
-| NFR-6 | `webbridge::wire` chunk tests; full-page screenshot | wire tests passed (2026-11-18); screenshot: not run |
+| NFR-6 | `webbridge::wire` chunk tests; full-page screenshot | passed (2026-11-18): wire tests; full-page screenshot of a 4000 px page on Edge |

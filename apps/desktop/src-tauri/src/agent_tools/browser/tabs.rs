@@ -14,7 +14,7 @@ use super::driver::{finish, resolve_page, show_browser, tab_id_arg, Page, ToolRe
 use crate::agent_tools::{call_tool, BoxFuture, Class, Content, Tool, ToolCtx, ToolOutput};
 use crate::browser as shell;
 
-const TABS: &str = "List, select, close or create the built-in browser's tabs (shared with the user). The list shows each tab's id, title, address and whether it is loading; * marks the visible tab. create opens a new tab (url, default a blank page) and makes it the visible one.";
+const TABS: &str = "List, select, close or create this chat's browser tabs: the built-in browser's (shared with the user) and, with Evo Webbridge, tabs in the person's own Chrome or Edge (ids start with chrome: or edge:). The list shows each tab's id, title, address and whether it is loading; * marks the visible tab. create opens a new tab (url, default a blank page; target chrome or edge for the person's browser) and makes it the visible one. choose (with target) asks the person to pick one of their open tabs in that browser and adds only that one to this chat; you see titles and sites of their tabs, never their content.";
 const STATUS: &str = "Which browser tools work on this platform (real mouse and key input, screenshots, frames, dialogs, uploads, emulation, downloads) and what falls back to page scripts or is unavailable, plus whether the active tab is ready (page helper, loading, open dialog). Needs no tab.";
 
 fn schema(properties: Value) -> Value {
@@ -25,8 +25,9 @@ fn schema(properties: Value) -> Value {
 
 fn tabs_schema() -> Value {
     schema(json!({
-        "action": { "type": "string", "enum": ["list", "select", "close", "create"], "description": "Default list." },
+        "action": { "type": "string", "enum": ["list", "select", "close", "create", "choose"], "description": "Default list." },
         "url": { "type": "string", "description": "With create: the address to open (default a blank page)." },
+        "target": { "type": "string", "description": "With create or choose: builtin (default), chrome, edge, or chrome:<profile> / edge:<profile>." },
     }))
 }
 
@@ -52,7 +53,7 @@ pub fn tools() -> Vec<Tool> {
 
 // ── browser_tabs ────────────────────────────────────────────────────────────
 
-const ACTIONS: [&str; 4] = ["list", "select", "close", "create"];
+const ACTIONS: [&str; 5] = ["list", "select", "close", "create", "choose"];
 
 /// `action`, validated; `list` by default.
 pub fn parse_action(args: &Value) -> Result<&'static str, String> {
@@ -99,15 +100,33 @@ async fn core_tabs(ctx: &ToolCtx, args: Value) -> ToolOutput {
 async fn tabs(ctx: &ToolCtx, args: &Value) -> ToolResult {
     let action = parse_action(args)?;
     let url = create_url(args)?;
+    let target = args.get("target").and_then(Value::as_str).filter(|t| !t.is_empty() && *t != "builtin").map(str::to_string);
+    if action == "choose" {
+        return choose(ctx, target.as_deref()).await;
+    }
     if action != "create" {
         let mut forwarded = args.clone();
+        if let Some(map) = forwarded.as_object_mut() {
+            map.remove("target");
+        }
         forwarded["action"] = json!(action);
         return Ok(core_tabs(ctx, forwarded).await);
     }
     let opened = match url {
         // Opening an address is a navigation: its own tool asks the gate and waits for the load.
         Some(url) => {
-            let result = call_tool(ctx, "browser_navigate", json!({ "url": url, "newTab": true })).await;
+            let mut navigate = json!({ "url": url, "newTab": true });
+            if let Some(target) = &target {
+                navigate["target"] = json!(target);
+            }
+            let result = call_tool(ctx, "browser_navigate", navigate).await;
+            if result.is_error || ctx.cancelled() {
+                return Ok(result);
+            }
+            text_of(&result)
+        }
+        None if target.is_some() => {
+            let result = call_tool(ctx, "browser_navigate", json!({ "url": "about:blank", "newTab": true, "target": target })).await;
             if result.is_error || ctx.cancelled() {
                 return Ok(result);
             }
@@ -122,6 +141,27 @@ async fn tabs(ctx: &ToolCtx, args: &Value) -> ToolResult {
     };
     let listing = core_tabs(ctx, json!({ "action": "list" })).await;
     Ok(ToolOutput::text(format!("{opened}\n{}", text_of(&listing))))
+}
+
+/// `choose`: the person picks one of their open tabs; only that one joins the chat (spec FR-9).
+async fn choose(ctx: &ToolCtx, target: Option<&str>) -> ToolResult {
+    let profile = crate::webbridge::resolve_target(&ctx.app, target)?
+        .ok_or("choose needs target chrome or edge: the person's own browser.")?;
+    let tabs = crate::webbridge::list_tabs(&ctx.app, &profile).await?;
+    if tabs.is_empty() {
+        return Ok(ToolOutput::text("The person has no other web pages open in that browser."));
+    }
+    let options: Vec<String> = tabs.iter().take(8).map(|t| format!("{} — {}", t.title, t.site)).chain(std::iter::once("None".to_string())).collect();
+    let choice = ctx
+        .ask("Let Evo use one of your tabs?", "The agent asks to work in a tab you have open. Only the tab you pick joins this chat's tab group.", &options.iter().map(String::as_str).collect::<Vec<_>>())
+        .await;
+    let Some(picked) = usize::try_from(choice).ok().and_then(|i| tabs.get(i)).filter(|_| (choice as usize) < options.len() - 1) else {
+        return Ok(ToolOutput::text("The person did not pick a tab."));
+    };
+    let id = crate::webbridge::adopt(&ctx.app, &ctx.chat, &profile, picked.tab).await?;
+    shell::mark_driven(&ctx.app, &id);
+    let listing = core_tabs(ctx, json!({ "action": "list" })).await;
+    Ok(ToolOutput::text(format!("The person picked {id}.\n{}", text_of(&listing))))
 }
 
 // ── browser_status ──────────────────────────────────────────────────────────
@@ -265,7 +305,7 @@ mod tests {
         assert_eq!(parse_action(&json!({})), Ok("list"));
         assert_eq!(parse_action(&json!({ "action": "create" })), Ok("create"));
         assert_eq!(parse_action(&json!({ "action": "close" })), Ok("close"));
-        assert!(parse_action(&json!({ "action": "reload" })).unwrap_err().contains("list, select, close, create"));
+        assert!(parse_action(&json!({ "action": "reload" })).unwrap_err().contains("list, select, close, create, choose"));
         assert!(parse_action(&json!({ "action": 2 })).is_err());
     }
 
@@ -349,7 +389,9 @@ mod tests {
             assert_eq!(schema["additionalProperties"], false);
             assert!(schema["properties"]["tabId"].is_object());
         }
-        assert_eq!((tools[0].schema)()["properties"]["action"]["enum"], json!(["list", "select", "close", "create"]));
+        assert_eq!((tools[0].schema)()["properties"]["action"]["enum"], json!(["list", "select", "close", "create", "choose"]));
         assert!((tools[0].schema)()["properties"]["url"].is_object());
+        // Evo Webbridge: the person's own browser (docs/features/browser-bridge, FR-5, FR-9).
+        assert!((tools[0].schema)()["properties"]["target"].is_object());
     }
 }

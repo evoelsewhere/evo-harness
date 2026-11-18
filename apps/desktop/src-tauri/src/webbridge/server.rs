@@ -22,6 +22,7 @@ pub fn start(app: &AppHandle) {
     if state.running.swap(true, Ordering::SeqCst) {
         return;
     }
+    super::start_leases(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = serve(&app).await {

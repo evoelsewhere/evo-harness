@@ -3,6 +3,7 @@
 //! The unpacked extension carries a fixed public key in its manifest, so its id
 //! is stable; store listings get ids of their own, added here when published.
 
+#[cfg_attr(not(test), allow(dead_code))]
 /// The public key in `extensions/evo-webbridge/manifest.json` (`key`).
 pub const EXTENSION_KEY: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3MwA4ZQc11peL1zWPFAl3Nx1QgXcRrx1DAfbRb1+IVkf4CXW2goCrRnWZDU8CW9UPIZH8PeDWaMD4cEDL2qs2+ThoaOsPaBmXjRCmaQzMDvahos1Uq/Log2acRrOYV53gZ8R8MmbqAg8Wl9LB53C3qxKYFkfWeMR0fCKJd6UAqMGWhyW3lCK3nsRWS4mdLgJyavBOOTO9ozNWqOoaX1O2qLZ4h6kjWPBftEnOUreaEv18qh55nQi89T80mHEEqtvmo+j0yH4e77haav4V055OsXYJpgcFxIXC5v1/n+7RPhoWpEqTIwZFOI3EYTRymcdpgb4FswibJ83AL95xRtNxQIDAQAB";
 
@@ -32,6 +33,7 @@ pub fn is_allowed_origin(origin: &str) -> bool {
     allowed_origins().iter().any(|allowed| allowed == origin)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 /// The id a browser gives an extension with this public key: the first 32 hex
 /// digits of its SHA-256, written with the letters a–p.
 pub fn id_from_key(key_base64: &str) -> Option<String> {

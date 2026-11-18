@@ -209,6 +209,65 @@ where
     }
 }
 
+/// What the gate decided for a call on a tab of the person's own browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebVerdict {
+    Allow,
+    /// Allowed, and the person set the site to Allow (save it).
+    AllowSite,
+    Deny,
+    Gone,
+}
+
+/// The gate on an Evo Webbridge tab (docs/features/browser-bridge/spec.md
+/// FR-13): reads never ask; acts ask once per site and chat in "Ask every
+/// time" and "Approve edits" unless the site is Allow; commands ask as on any
+/// page. Block is refused before this runs, in every mode.
+#[allow(clippy::too_many_arguments)]
+pub async fn check_webbridge<F, Fut>(tool: &str, class: Class, mode: &str, chat: &str, url: &str, summary: &str, site_allowed: bool, ask: F) -> WebVerdict
+where
+    F: Fn(String, String, Vec<String>) -> Fut,
+    Fut: Future<Output = i32>,
+{
+    if class == Class::Read || mode == "auto" {
+        return WebVerdict::Allow;
+    }
+    if class != Class::Edit {
+        return match check(tool, Class::Command, mode, chat, url, summary, ask).await {
+            Verdict::Allow => WebVerdict::Allow,
+            Verdict::Deny => WebVerdict::Deny,
+            Verdict::Gone => WebVerdict::Gone,
+        };
+    }
+    if site_allowed {
+        return WebVerdict::Allow;
+    }
+    let origin = match origin_of(url) {
+        origin if origin.is_empty() => url.to_string(),
+        origin => origin,
+    };
+    let key = format!("{chat}|web|{origin}");
+    if granted(&key) {
+        return WebVerdict::Allow;
+    }
+    let site = origin.split("://").nth(1).unwrap_or(&origin).to_string();
+    let answer = ask(
+        format!("Allow Evo to act on {site}?"),
+        format!("{summary}\nThis is your own browser, where you are signed in. Evo asks once per site and chat."),
+        vec!["Allow once".into(), "Allow for this site".into(), "Deny".into()],
+    )
+    .await;
+    match answer {
+        -1 => WebVerdict::Gone,
+        0 => {
+            grant(key);
+            WebVerdict::Allow
+        }
+        1 => WebVerdict::AllowSite,
+        _ => WebVerdict::Deny,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,5 +463,37 @@ mod tests {
     async fn a_dropped_call_is_gone() {
         let person = Person::answering(&[-1]);
         assert_eq!(check_control("computer_app", true, "ask", "ctl-gone", &acts(&["click e1"]), person.ask()).await, Verdict::Gone);
+    }
+    #[tokio::test]
+    async fn webbridge_acts_ask_once_per_site_and_chat_in_ask_and_approve_edits() {
+        for mode in ["ask", "auto-edits"] {
+            let chat = format!("web-{mode}");
+            let person = Person::answering(&[0, 0]);
+            let run = |url: &'static str| check_webbridge("browser_click", Class::Edit, mode, &chat, url, "click", false, person.ask());
+            assert_eq!(run("https://billing.example.com/a").await, WebVerdict::Allow);
+            assert_eq!(run("https://billing.example.com/b").await, WebVerdict::Allow);
+            assert_eq!(person.count(), 1, "{mode}: once per site and chat");
+            // Even a page on this machine asks: it is the person's own signed-in browser.
+            assert_eq!(run("http://localhost:3000/").await, WebVerdict::Allow);
+            assert_eq!(person.count(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn webbridge_acts_on_allowed_sites_and_in_approve_for_me_do_not_ask() {
+        let person = Person::answering(&[]);
+        assert_eq!(check_webbridge("browser_click", Class::Edit, "ask", "web-a", "https://a.example/", "click", true, person.ask()).await, WebVerdict::Allow);
+        assert_eq!(check_webbridge("browser_click", Class::Edit, "auto", "web-a", "https://b.example/", "click", false, person.ask()).await, WebVerdict::Allow);
+        assert_eq!(check_webbridge("browser_read_page", Class::Read, "ask", "web-a", "https://b.example/", "read", false, person.ask()).await, WebVerdict::Allow);
+        assert_eq!(person.count(), 0);
+    }
+
+    #[tokio::test]
+    async fn webbridge_allow_for_this_site_is_reported_and_commands_still_ask() {
+        let person = Person::answering(&[1, 0]);
+        assert_eq!(check_webbridge("browser_click", Class::Edit, "ask", "web-b", "https://c.example/", "click", false, person.ask()).await, WebVerdict::AllowSite);
+        // An upload on an allowed site still asks, as a command does.
+        assert_eq!(check_webbridge("browser_upload", Class::Command, "auto-edits", "web-b", "https://c.example/", "upload", true, person.ask()).await, WebVerdict::Allow);
+        assert_eq!(person.count(), 2);
     }
 }

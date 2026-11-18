@@ -351,7 +351,7 @@ impl Page {
     /// back / forward / reload; a message when there is no page to go to.
     pub async fn go_history(&self, action: &str) -> Result<Option<String>, String> {
         let before = self.native_url();
-        if action != "reload" && cfg!(windows) {
+        if action != "reload" && (cfg!(windows) || crate::webbridge::groups::is_tab(&self.tab)) {
             let history = self.cdp("Page.getNavigationHistory", json!({})).await.ok();
             if let Some(history) = history {
                 let index = history.get("currentIndex").and_then(Value::as_i64).unwrap_or(-1);
@@ -368,7 +368,7 @@ impl Page {
                 }
             }
         }
-        shell::history_tab(&self.app, &self.tab, action)?;
+        shell::history_for_tool(&self.app, &self.tab, action).await?;
         self.wait_for_navigation(&before, Duration::from_secs(3)).await;
         Ok(None)
     }
@@ -505,6 +505,10 @@ pub fn button_mask(button: &str) -> u32 {
 /// bounds. With no page yet (`tab` is `None`) the wait is a fixed 350 ms.
 /// A chat the webview does not show gets its panel opened for later; the wait ends at the limit.
 pub async fn show_browser(ctx: &ToolCtx, tab: Option<&str>) {
+    // A tab of the person's own browser (Evo Webbridge) is not in the app's panel.
+    if tab.is_some_and(crate::webbridge::groups::is_tab) {
+        return;
+    }
     // The agent's pages live on the stage (a card or the panel shows their picture), so there is no
     // panel to wait for: a page already on it, or a page about to be made (which is parked at once).
     if cfg!(windows) && tab.is_none_or(|tab| shell::is_staged(&ctx.app, tab)) {
@@ -552,7 +556,7 @@ pub fn site_of(url: &str) -> String {
 pub async fn gate_page(ctx: &ToolCtx, page: &Page, what: &str) -> Result<(), Stop> {
     let url = page.native_url();
     let summary = if url.is_empty() { what.to_string() } else { format!("{what} on {}", site_of(&url)) };
-    ctx.gate(&url, &summary).await.map_err(Stop)
+    ctx.gate_on(crate::webbridge::groups::is_tab(&page.tab), &url, &summary).await.map_err(Stop)
 }
 
 #[cfg(test)]

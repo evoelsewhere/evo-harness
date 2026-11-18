@@ -576,7 +576,7 @@ async fn ensure(page: &Page, seeded_before: bool) -> Result<bool, String> {
 /// `browser_network` call tries again.
 #[allow(dead_code)]
 pub fn prime(app: &AppHandle, tab: &str) {
-    if !cfg!(windows) {
+    if !cfg!(windows) && !crate::webbridge::groups::is_tab(tab) {
         return;
     }
     let (app, tab) = (app.clone(), tab.to_string());
@@ -590,6 +590,11 @@ pub fn prime(app: &AppHandle, tab: &str) {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
     });
+}
+
+/// [`prime`], awaited: the recording is on when this returns (a Webbridge tab before its first page).
+pub async fn record_from_start(app: &AppHandle, tab: &str) -> Result<(), String> {
+    ensure(&Page::new(app, tab), true).await.map(|_| ())
 }
 
 /// Read the events not yet seen into the tab's table.

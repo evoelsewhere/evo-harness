@@ -9,12 +9,15 @@
 //! browsers; `ids.rs` says which extensions may connect.
 
 pub mod commands;
+pub mod groups;
 pub mod ids;
+pub mod page;
 mod server;
 pub mod setup;
+pub mod sites;
 pub mod wire;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -73,6 +76,10 @@ pub struct Webbridge {
     running: AtomicBool,
     /// Why the last connection was refused, for Settings.
     refused: Mutex<Option<String>>,
+    /// Leases on the debugging API and takeovers (`groups.rs`).
+    holds: Mutex<groups::Holds>,
+    /// Tabs attached with the page helper added (`page.rs`).
+    prepared: Mutex<HashSet<String>>,
 }
 
 impl Webbridge {
@@ -93,6 +100,14 @@ impl Webbridge {
 
     pub fn refused(&self) -> Option<String> {
         self.refused.lock().expect("webbridge lock").clone()
+    }
+
+    fn profile_of(&self, connection: u64) -> Option<String> {
+        self.connections
+            .lock()
+            .expect("webbridge lock")
+            .get(&connection)
+            .and_then(|c| c.profile.as_ref().map(|p| p.key.clone()))
     }
 
     fn connection_of(&self, profile_key: &str) -> Option<u64> {
@@ -220,8 +235,204 @@ pub fn setup(app: &AppHandle) {
     }
 }
 
+/// The browser profile a tool's `target` names: `None` for the built-in
+/// browser (no target, or `builtin`), else the key of a connected profile.
+pub fn resolve_target(app: &AppHandle, target: Option<&str>) -> Result<Option<String>, String> {
+    pick_profile(&app.state::<Webbridge>().profiles(), target)
+}
+
+fn pick_profile(profiles: &[Profile], target: Option<&str>) -> Result<Option<String>, String> {
+    let target = match target.map(str::trim).filter(|t| !t.is_empty()) {
+        None | Some("builtin") => return Ok(None),
+        Some(target) => target.to_lowercase(),
+    };
+    let (browser, name) = match target.split_once(':') {
+        Some((browser, name)) => (browser.to_string(), Some(name.to_string())),
+        None => (target.clone(), None),
+    };
+    let label = setup::Browser::parse(&browser)
+        .map(|b| b.label())
+        .ok_or_else(|| format!("target must be builtin, chrome or edge (got {target})."))?;
+    let of_browser: Vec<&Profile> = profiles.iter().filter(|p| p.browser == browser).collect();
+    if of_browser.is_empty() {
+        return Err(format!(
+            "{label} is not connected to Evo. The person can set it up in Settings → Webbridge."
+        ));
+    }
+    let matched: Vec<&Profile> = match &name {
+        Some(name) => of_browser
+            .iter()
+            .copied()
+            .filter(|p| p.profile.to_lowercase() == *name || p.label.to_lowercase() == *name)
+            .collect(),
+        None => of_browser.clone(),
+    };
+    match matched.as_slice() {
+        [one] => {
+            if !one.debugger {
+                return Err(format!("{label}'s administrator turned off the debugging API, so Evo cannot work in it."));
+            }
+            Ok(Some(one.key.clone()))
+        }
+        [] => Err(format!(
+            "No {label} profile is called {}. Connected: {}.",
+            name.unwrap_or_default(),
+            of_browser
+                .iter()
+                .map(|p| format!("{browser}:{}", p.label))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        _ => Err(format!(
+            "{label} has several profiles connected; name one: {}.",
+            of_browser
+                .iter()
+                .map(|p| format!("{browser}:{}", p.label))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// One of the person's open tabs outside Evo's groups: title and site only (FR-9).
+pub struct OpenTab {
+    pub tab: i64,
+    pub title: String,
+    pub site: String,
+}
+
+pub async fn list_tabs(app: &AppHandle, profile_key: &str) -> Result<Vec<OpenTab>, String> {
+    let reply = app
+        .state::<Webbridge>()
+        .request(profile_key, json!({ "t": "list" }), REQUEST_TIMEOUT)
+        .await?;
+    Ok(reply
+        .as_array()
+        .map(|tabs| {
+            tabs.iter()
+                .filter_map(|t| {
+                    Some(OpenTab {
+                        tab: t["tab"].as_i64()?,
+                        title: t["title"].as_str().unwrap_or("").chars().take(80).collect(),
+                        site: t["site"].as_str().unwrap_or("").to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Hand one of the person's tabs to `chat` (it joins the chat's group).
+pub async fn adopt(
+    app: &AppHandle,
+    chat: &str,
+    profile_key: &str,
+    number: i64,
+) -> Result<String, String> {
+    let reply = app
+        .state::<Webbridge>()
+        .request(
+            profile_key,
+            json!({ "t": "adopt", "tab": number, "chat": chat, "title": chat_title(app, chat) }),
+            REQUEST_TIMEOUT,
+        )
+        .await?;
+    let id = groups::tab_id(profile_key, number);
+    crate::browser::register_external(
+        app,
+        &id,
+        chat,
+        reply["url"].as_str().unwrap_or(""),
+        reply["title"].as_str().unwrap_or(""),
+        reply["loading"].as_bool().unwrap_or(false),
+    );
+    crate::browser::select_tab_for_tool(app, chat, &id);
+    Ok(id)
+}
+
+/// The site list changed: Settings and every connected extension learn it.
+pub fn sites_changed(app: &AppHandle) {
+    let state = app.state::<Webbridge>();
+    let message = sites_message();
+    for profile in state.profiles() {
+        let _ = state.notify(&profile.key, message.clone());
+    }
+    changed(app);
+}
+
+fn sites_message() -> Value {
+    json!({ "t": "sites", "sites": sites::all() })
+}
+
 /// A profile's connection ended: what belonged to it ends too (FR-20).
-fn profile_gone(_app: &AppHandle, _profile_key: &str) {}
+fn profile_gone(app: &AppHandle, profile_key: &str) {
+    let prefix = format!("{profile_key}:");
+    for tab in crate::browser::external_tabs(app) {
+        if tab.starts_with(&prefix) {
+            page::forget(app, &tab);
+        }
+    }
+    app.state::<Webbridge>()
+        .holds
+        .lock()
+        .expect("webbridge lock")
+        .release_profile(profile_key);
+}
+
+/// The chat's title, for its tab group's name.
+pub fn chat_title(app: &AppHandle, chat: &str) -> String {
+    let title = app
+        .state::<Db>()
+        .with(|conn| evo_store::chats::get_chat(conn, chat))
+        .ok()
+        .flatten()
+        .map(|c| c.title)
+        .unwrap_or_default();
+    let title = title.trim();
+    if title.is_empty() {
+        "chat".to_string()
+    } else {
+        title.chars().take(40).collect()
+    }
+}
+
+/// An engine line: a chat's turn ended, so its tabs are let go after the lease (spec 6.2).
+pub fn on_engine_line(app: &AppHandle, chat: &str, message: &Value) {
+    if message.get("type").and_then(Value::as_str) != Some("agent_settled") {
+        return;
+    }
+    let tabs: Vec<String> = crate::browser::chat_tabs(app, chat)
+        .into_iter()
+        .map(|(id, _)| id)
+        .filter(|id| groups::is_tab(id))
+        .collect();
+    if tabs.is_empty() {
+        return;
+    }
+    app.state::<Webbridge>()
+        .holds
+        .lock()
+        .expect("webbridge lock")
+        .turn_ended(tabs.iter().map(String::as_str), now_ms());
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Let go of tabs whose lease ran out, every few seconds while the pipe is served.
+fn start_leases(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            page::release_due(&app, now_ms());
+        }
+    });
+}
 
 /// A frame arrived on `connection`.
 fn on_frame(app: &AppHandle, connection: u64, frame: &[u8]) -> Result<(), String> {
@@ -258,6 +469,34 @@ fn on_frame(app: &AppHandle, connection: u64, frame: &[u8]) -> Result<(), String
                     Err(error_text(&message))
                 };
                 let _ = reply.send(result);
+            }
+            Ok(())
+        }
+        "site" => {
+            let site = message["site"].as_str().unwrap_or("");
+            if let Some(permission) = message["permission"]
+                .as_str()
+                .and_then(sites::Permission::parse)
+            {
+                sites::set(site, permission)?;
+                log(
+                    app,
+                    "info",
+                    format!("{site} set to {permission:?} from the browser"),
+                );
+                sites_changed(app);
+            }
+            Ok(())
+        }
+        "event" | "tab" | "detached" | "group" => {
+            let Some(profile) = state.profile_of(connection) else {
+                return Ok(());
+            };
+            match kind {
+                "event" => page::on_event(app, &profile, &message),
+                "tab" => page::on_tab(app, &profile, &message),
+                "detached" => page::on_detached(app, &profile, &message),
+                _ => {}
             }
             Ok(())
         }
@@ -365,6 +604,7 @@ fn on_hello(app: &AppHandle, connection: u64, message: &Value) -> Result<(), Str
         state.remove_connection(id);
     }
     state.send_to(connection, &json!({ "t": "welcome", "v": wire::VERSION, "app": env!("CARGO_PKG_VERSION"), "label": profile.label }))?;
+    state.send_to(connection, &sites_message())?;
     commands::remember(&profile);
     log(
         app,
@@ -423,6 +663,54 @@ mod tests {
         assert!(parse_hello(&json!({ "browser": "firefox", "profile": "p1" })).is_err());
         assert!(parse_hello(&json!({ "browser": "chrome", "profile": "../../x" })).is_err());
         assert!(parse_hello(&json!({ "browser": "chrome" })).is_err());
+    }
+
+    fn profile(browser: &str, id: &str, label: &str) -> Profile {
+        Profile {
+            key: format!("{browser}:{id}"),
+            browser: browser.into(),
+            profile: id.into(),
+            label: label.into(),
+            version: "0.1.0".into(),
+            debugger: true,
+        }
+    }
+
+    #[test]
+    fn a_target_picks_the_one_connected_profile_or_asks_for_a_name() {
+        let one = [profile("edge", "p1", "Work")];
+        assert_eq!(pick_profile(&one, None).unwrap(), None);
+        assert_eq!(pick_profile(&one, Some("builtin")).unwrap(), None);
+        assert_eq!(
+            pick_profile(&one, Some("edge")).unwrap().as_deref(),
+            Some("edge:p1")
+        );
+        assert!(pick_profile(&one, Some("chrome"))
+            .unwrap_err()
+            .contains("not connected"));
+        assert!(pick_profile(&one, Some("firefox")).is_err());
+        let two = [
+            profile("chrome", "p1", "Work"),
+            profile("chrome", "p2", "Personal"),
+        ];
+        assert!(pick_profile(&two, Some("chrome"))
+            .unwrap_err()
+            .contains("several profiles"));
+        assert_eq!(
+            pick_profile(&two, Some("chrome:personal"))
+                .unwrap()
+                .as_deref(),
+            Some("chrome:p2")
+        );
+        assert_eq!(
+            pick_profile(&two, Some("chrome:p1")).unwrap().as_deref(),
+            Some("chrome:p1")
+        );
+        let mut blocked = profile("edge", "p1", "Work");
+        blocked.debugger = false;
+        assert!(pick_profile(&[blocked], Some("edge"))
+            .unwrap_err()
+            .contains("administrator"));
     }
 
     #[test]

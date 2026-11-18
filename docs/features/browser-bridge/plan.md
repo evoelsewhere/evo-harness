@@ -436,3 +436,25 @@ popup.
 - Webbridge tabs are dispatched by tab id inside `browser.rs` instead of a
   `TabHost` trait (3.2), and the page helper runs in the page's world as in
   the built-in browser.
+- 2026-11-18 — End-to-end on Edge 157 through the app (T19):
+  - A background tab is hidden, and a hidden page takes no input: every
+    `Input.dispatchMouseEvent` waited ~5 s and did nothing.
+    `Emulation.setFocusEmulationEnabled` on attach makes it the focused,
+    visible page; a click or typing then takes 10–20 ms.
+  - A hidden tab draws a new frame only when something changes, so
+    `Page.captureScreenshot` waited for one about half the time and
+    `captureBeyondViewport` never returned. Every capture runs inside a tiny
+    screencast (start, capture, stop), and a full-page shot lays the page out
+    at its full height for the picture, then puts the viewport (and any
+    `browser_viewport` emulation) back.
+  - A new Webbridge tab opens on `about:blank`, gets the page helper and the
+    network recording, then navigates: console messages and requests are kept
+    from the page's first script, as in the built-in browser.
+  - Chrome and Edge refuse `Emulation.setLocaleOverride` and
+    `setTimezoneOverride` from extensions ("only available to trusted
+    clients"): `browser_viewport` skips them and says so.
+  - Tabs a page opens can land in the group at creation (no group change
+    event): the extension reports them as joined from `onCreated`.
+  - Development builds have `webbridge_debug_tool`, which runs a browser tool
+    for a chat without an engine; it answers an error in release builds.
+

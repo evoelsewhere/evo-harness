@@ -356,12 +356,45 @@ struct Located {
 }
 
 async fn capture(page: &Page, options: &Options, plan: &Plan) -> Result<String, String> {
-    let shot = page.cdp("Page.captureScreenshot", plan.params(options.format, options.quality)).await?;
+    let shot = if plan.beyond_viewport && crate::webbridge::groups::is_tab(&page.tab) {
+        beyond_by_layout(page, plan.params(options.format, options.quality)).await?
+    } else {
+        page.cdp("Page.captureScreenshot", plan.params(options.format, options.quality)).await?
+    };
     let data = show(shot.get("data"));
     if data.is_empty() || data == "undefined" {
         return Err("The browser returned no image.".into());
     }
     Ok(data)
+}
+
+/// A tab of the person's own browser is a background tab, and a background tab never finishes a
+/// capture beyond its viewport: lay the page out at its full height for the picture instead, then
+/// put the viewport back as it was (the device emulation of browser_viewport included).
+async fn beyond_by_layout(page: &Page, mut params: Value) -> Result<Value, String> {
+    let layout = page.cdp("Page.getLayoutMetrics", json!({})).await?;
+    let size = layout.get("cssContentSize").or_else(|| layout.get("contentSize"));
+    let width = size.and_then(|s| s["width"].as_f64()).unwrap_or(1280.0).ceil().clamp(1.0, 16_384.0);
+    let height = size.and_then(|s| s["height"].as_f64()).unwrap_or(800.0).ceil().clamp(1.0, 16_384.0);
+    let before = super::viewport::metrics_override(&page.tab);
+    let mut metrics = before.clone().unwrap_or_else(|| json!({ "deviceScaleFactor": 0, "mobile": false }));
+    metrics["height"] = json!(height);
+    if before.is_none() {
+        metrics["width"] = json!(width);
+    }
+    metrics["screenHeight"] = json!(height);
+    page.cdp("Emulation.setDeviceMetricsOverride", metrics).await?;
+    if let Some(map) = params.as_object_mut() {
+        map.remove("captureBeyondViewport");
+    }
+    let shot = page.cdp("Page.captureScreenshot", params).await;
+    let restored = match before {
+        Some(before) => page.cdp("Emulation.setDeviceMetricsOverride", before).await,
+        None => page.cdp("Emulation.clearDeviceMetricsOverride", json!({})).await,
+    };
+    let shot = shot?;
+    restored?;
+    Ok(shot)
 }
 
 fn what_is_shown(subject: &Subject) -> String {
@@ -391,7 +424,7 @@ async fn screenshot(ctx: &ToolCtx, args: &Value) -> ToolResult {
     let options = parse_args(args)?;
     let page = resolve_page(ctx, args)?;
     show_browser(ctx, Some(&page.tab)).await;
-    if !cfg!(windows) {
+    if !cfg!(windows) && !crate::webbridge::groups::is_tab(&page.tab) {
         return Err("Screenshots are not available on this platform yet; use browser_read_page.".into());
     }
     // An element is scrolled into view first; its box is where it sits then.

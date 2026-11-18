@@ -134,6 +134,39 @@ pub fn webbridge_rename(app: AppHandle, profile: String, label: String) -> Resul
     Ok(status(&app))
 }
 
+/// One site with a permission other than Ask.
+#[derive(Serialize)]
+pub struct SiteRow {
+    pub site: String,
+    pub permission: super::sites::Permission,
+}
+
+#[tauri::command]
+pub fn webbridge_sites() -> Vec<SiteRow> {
+    super::sites::all()
+        .into_iter()
+        .map(|(site, permission)| SiteRow { site, permission })
+        .collect()
+}
+
+#[tauri::command]
+pub fn webbridge_set_site(
+    app: AppHandle,
+    site: String,
+    permission: String,
+) -> Result<Vec<SiteRow>, String> {
+    let permission =
+        super::sites::Permission::parse(&permission).ok_or("permission is ask, allow or block")?;
+    super::sites::set(&site, permission)?;
+    log(
+        &app,
+        "info",
+        format!("{} set to {permission:?}", super::sites::site_of(&site)),
+    );
+    super::sites_changed(&app);
+    Ok(webbridge_sites())
+}
+
 // ── profiles.json ───────────────────────────────────────────────────────────
 
 #[derive(Default, Serialize, Deserialize)]
@@ -186,4 +219,35 @@ pub fn remember(profile: &Profile) {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let _ = save(&profiles);
+}
+
+/// Development builds only: run a browser tool for a chat without an engine,
+/// to try Webbridge end to end (docs/features/browser-bridge/tasks.md T19).
+#[tauri::command]
+#[allow(unused_variables)]
+pub async fn webbridge_debug_tool(
+    app: AppHandle,
+    chat: String,
+    name: String,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    #[cfg(debug_assertions)]
+    {
+        let output = crate::agent_tools::call_for_test(&app, &chat, &name, args).await;
+        let parts: Vec<serde_json::Value> = output
+            .content
+            .iter()
+            .map(|part| match part {
+                crate::agent_tools::Content::Text(text) => json!({ "text": text }),
+                crate::agent_tools::Content::Image { data, mime_type } => {
+                    json!({ "image": mime_type, "bytes": data.len() })
+                }
+            })
+            .collect();
+        Ok(json!({ "error": output.is_error, "content": parts }))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        Err("not available in this build".into())
+    }
 }

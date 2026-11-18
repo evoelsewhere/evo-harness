@@ -47,7 +47,7 @@ pub const TAB_PREFIX: &str = "browser-";
 
 /// The script every page gets. Where the shell cannot hold a dialog open (not
 /// Windows), the page script answers dialogs itself: it checks this flag.
-fn page_script() -> String {
+pub(crate) fn page_script() -> String {
     if cfg!(windows) {
         PAGE_SCRIPT.to_string()
     } else {
@@ -56,7 +56,7 @@ fn page_script() -> String {
 }
 
 /// Completes a page dialog held open by the shell (the WebView2 deferral).
-type Completer = Box<dyn FnOnce(dialog::Answer) + Send>;
+pub(crate) type Completer = Box<dyn FnOnce(dialog::Answer) + Send>;
 
 #[derive(Default)]
 pub struct BrowserState {
@@ -474,6 +474,10 @@ fn park(app: &AppHandle, tab: &str) -> Result<(), String> {
 /// An agent tool is about to send a mouse event to `tab`: tell the window where its virtual cursor
 /// goes (`browser://pointer`).
 pub fn emit_pointer(app: &AppHandle, tab: &str, method: &str, params: &Value) {
+    // A Webbridge tab is in the person's browser: no picture in the app to draw on.
+    if crate::webbridge::groups::is_tab(tab) {
+        return;
+    }
     let state = app.state::<BrowserState>();
     let chat = state.tabs.lock().expect("browser tabs lock").chat_of(tab).map(str::to_string);
     if let Some(payload) = stage::pointer_payload(tab, chat.as_deref(), method, params) {
@@ -604,6 +608,9 @@ pub fn browser_history(app: AppHandle, tab: String, action: String) -> Result<()
 
 /// The address the tab's webview shows now.
 pub fn native_url(app: &AppHandle, tab: &str) -> Result<String, String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        return tab_record(app, tab).map(|t| t.url).ok_or_else(|| format!("browser tab {tab} is closed"));
+    }
     webview(app, tab)?.url().map(|u| u.to_string()).map_err(|e| e.to_string())
 }
 
@@ -614,6 +621,9 @@ pub fn browser_url(app: AppHandle, tab: String) -> Result<String, String> {
 
 /// Close the page and forget what is kept for it.
 pub fn close_tab(app: &AppHandle, tab: &str) {
+    if crate::webbridge::groups::is_tab(tab) {
+        crate::webbridge::page::close(app, tab);
+    }
     let state = app.state::<BrowserState>();
     state.tabs.lock().expect("browser tabs lock").remove(tab);
     state.forget(tab);
@@ -728,7 +738,7 @@ const EVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Turns the result into something JSON can carry: elements as a short tag,
 /// errors as their message, Map/Set as arrays, functions as their source.
-const EVAL_SERIALIZE: &str = r#"(v) => {
+pub(crate) const EVAL_SERIALIZE: &str = r#"(v) => {
   const seen = new WeakSet();
   const walk = (x, depth) => {
     if (x === undefined) return null;
@@ -804,6 +814,9 @@ async fn eval_raw(webview: &tauri::Webview, script: String) -> Result<String, St
 /// A returned promise is awaited. With `statements`, a script that is not a
 /// single expression (`a(); b`) runs as a program and yields its last value.
 pub async fn eval(app: &AppHandle, tab: &str, script: &str, statements: bool) -> Result<Value, String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        return crate::webbridge::page::eval(app, tab, script, statements).await;
+    }
     let webview = webview(app, tab)?;
     let key = format!(
         "e{}",
@@ -913,6 +926,9 @@ pub fn browser_list(app: AppHandle, window: Window, state: tauri::State<'_, Brow
 
 /// Call a DevTools Protocol method on the tab (Windows / WebView2 only).
 pub async fn cdp(app: &AppHandle, tab: &str, method: &str, params: Value) -> Result<Value, String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        return crate::webbridge::page::cdp(app, tab, method, params).await;
+    }
     let webview = webview(app, tab)?;
     cdp_on(&webview, method.to_string(), params).await
 }
@@ -981,6 +997,12 @@ pub struct BrowserStatus {
 }
 
 pub fn status(app: &AppHandle, tab: &str) -> Result<BrowserStatus, String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        tab_record(app, tab).ok_or_else(|| format!("browser tab {tab} is closed"))?;
+        // The person's own Chrome or Edge: DevTools, events and dialogs; downloads stay the browser's.
+        let platform = if tab.starts_with("edge:") { "edge" } else { "chrome" };
+        return Ok(BrowserStatus { devtools: true, events: true, dialogs: true, downloads: false, platform });
+    }
     webview(app, tab)?;
     let windows = cfg!(windows);
     Ok(BrowserStatus {
@@ -1007,6 +1029,15 @@ pub fn browser_status(app: AppHandle, tab: String) -> Result<BrowserStatus, Stri
 /// …). Idempotent per tab and event. The caller enables the protocol domains
 /// itself with `cdp`.
 pub async fn cdp_subscribe(app: &AppHandle, tab: &str, events: Vec<String>) -> Result<(), String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        // The extension forwards every event of an attached tab; the shell keeps the subscribed ones.
+        tab_record(app, tab).ok_or_else(|| format!("browser tab {tab} is closed"))?;
+        let state = app.state::<BrowserState>();
+        for event in events {
+            state.mark_subscribed(tab, &event);
+        }
+        return Ok(());
+    }
     let webview = webview(app, tab)?;
     subscribe(app, &webview, tab, events).await
 }
@@ -1107,6 +1138,99 @@ pub fn downloads_of(app: &AppHandle, tab: Option<&str>) -> Vec<downloads::Downlo
 #[tauri::command]
 pub fn browser_downloads(app: AppHandle, tab: Option<String>) -> Vec<downloads::Download> {
     downloads_of(&app, tab.as_deref())
+}
+
+// ── Webbridge tabs (docs/features/browser-bridge, plan 3.2) ─────────────────
+//
+// A tab of the person's own Chrome or Edge lives in the same registry as the
+// built-in pages (owner window "", its chat as usual), so resolving, listing
+// and ownership are one code path. `webbridge/page.rs` reports its load
+// state, dialogs and events here.
+
+/// Navigate a page for an agent tool: a built-in page through its webview, a Webbridge tab through the browser.
+pub async fn navigate_for_tool(app: &AppHandle, tab: &str, url: &str) -> Result<String, String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        return crate::webbridge::page::navigate(app, tab, url).await;
+    }
+    navigate_tab(app, tab, url)
+}
+
+/// back | forward | reload | stop, for an agent tool.
+pub async fn history_for_tool(app: &AppHandle, tab: &str, action: &str) -> Result<(), String> {
+    if crate::webbridge::groups::is_tab(tab) {
+        return crate::webbridge::page::history(app, tab, action).await;
+    }
+    history_tab(app, tab, action)
+}
+
+/// A Webbridge tab joined `chat`.
+pub(crate) fn register_external(app: &AppHandle, tab: &str, chat: &str, url: &str, title: &str, loading: bool) {
+    let state = app.state::<BrowserState>();
+    let mut tabs = state.tabs.lock().expect("browser tabs lock");
+    if tabs.chat_of(tab) != Some(chat) {
+        tabs.insert(tab, "", Some(chat.to_string()), url);
+    }
+    tabs.set_url(tab, url);
+    tabs.set_title(tab, title);
+    // The browser's own state: its load events may have come before this.
+    tabs.set_loading(tab, loading);
+    drop(tabs);
+    let _ = app.emit("browser://external", json!({ "tab": tab, "chat": chat, "url": url, "title": title }));
+}
+
+/// A Webbridge tab's address, title or load state changed.
+pub(crate) fn update_external(app: &AppHandle, tab: &str, url: Option<&str>, title: Option<&str>, loading: Option<bool>) {
+    let state = app.state::<BrowserState>();
+    let mut tabs = state.tabs.lock().expect("browser tabs lock");
+    if !tabs.contains(tab) {
+        return;
+    }
+    if let Some(url) = url.filter(|u| !u.is_empty()) {
+        tabs.set_url(tab, url);
+    }
+    if let Some(title) = title {
+        tabs.set_title(tab, title);
+    }
+    if let Some(loading) = loading {
+        tabs.set_loading(tab, loading);
+    }
+}
+
+pub(crate) fn set_external_loading(app: &AppHandle, tab: &str, url: Option<&str>, loading: bool) {
+    update_external(app, tab, url, None, Some(loading));
+}
+
+/// A Webbridge tab is no longer the chat's: forget it like a closed page.
+pub(crate) fn remove_external(app: &AppHandle, tab: &str) {
+    let state = app.state::<BrowserState>();
+    let chat = state.tabs.lock().expect("browser tabs lock").remove(tab).and_then(|t| t.chat);
+    state.forget(tab);
+    let _ = app.emit("browser://closed", json!({ "tab": tab, "chat": chat }));
+}
+
+/// Every Webbridge tab the registry holds.
+pub(crate) fn external_tabs(app: &AppHandle) -> Vec<String> {
+    app.state::<BrowserState>().tabs.lock().expect("browser tabs lock").of_window("").into_iter().map(|(id, _)| id).collect()
+}
+
+/// A DevTools event of a Webbridge tab: kept when a tool subscribed to it.
+pub(crate) fn external_event(app: &AppHandle, tab: &str, method: &str, params: Value) {
+    let state = app.state::<BrowserState>();
+    let wanted = state.subscribed.lock().expect("browser subscriptions lock").contains(&(tab.to_string(), method.to_string()));
+    if wanted {
+        state.cdp_event(app, tab, method, params);
+    }
+}
+
+/// A page dialog opened in a Webbridge tab; `complete` answers it in the browser.
+pub(crate) fn external_dialog(app: &AppHandle, tab: &str, info: dialog::DialogInfo, complete: Completer) {
+    app.state::<BrowserState>().dialog_opened(app, tab, info, complete);
+}
+
+/// The person answered a Webbridge tab's dialog in the browser.
+pub(crate) fn external_dialog_closed(app: &AppHandle, tab: &str) {
+    // The dialog is gone: drop it without answering again.
+    let _ = app.state::<BrowserState>().dialogs.lock().expect("browser dialogs lock").clear(tab);
 }
 
 #[cfg(test)]

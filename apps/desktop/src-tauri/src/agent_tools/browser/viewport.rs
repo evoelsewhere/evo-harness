@@ -82,6 +82,25 @@ fn state_of(tab: &str) -> ViewportState {
     STATES.lock().expect("viewport states lock").get(tab).cloned().unwrap_or_default()
 }
 
+/// The `Emulation.setDeviceMetricsOverride` parameters browser_viewport set on `tab`, if any.
+pub fn metrics_override(tab: &str) -> Option<Value> {
+    let state = state_of(tab);
+    let (width, height) = (state.width?, state.height?);
+    Some(json!({
+        "width": width,
+        "height": height,
+        "deviceScaleFactor": state.device_scale_factor.unwrap_or(1.0),
+        "mobile": state.mobile.unwrap_or(false),
+        "screenWidth": width,
+        "screenHeight": height,
+    }))
+}
+
+/// Chrome and Edge keep some overrides from extensions ("only available to trusted clients").
+fn kept_from_extensions(error: &str) -> bool {
+    error.contains("trusted clients")
+}
+
 fn remember(tab: &str, state: ViewportState) {
     let mut states = STATES.lock().expect("viewport states lock");
     if state == ViewportState::default() {
@@ -407,14 +426,25 @@ async fn viewport(ctx: &ToolCtx, args: &Value) -> ToolResult {
     }
     let what = if parsed.reset { "Reset the viewport and device emulation".to_string() } else { format!("Emulate: {}", describe(&plan.state)) };
     gate_page(ctx, &page, &what).await?;
+    let mut skipped: Vec<&str> = Vec::new();
     for (method, params) in &plan.commands {
         if let Err(error) = page.cdp(method, params.clone()).await {
+            // In the person's own browser some overrides are not open to extensions: say so, go on.
+            if kept_from_extensions(&error) {
+                skipped.push(method);
+                continue;
+            }
             // Some of it may have been applied: remember the plan so a reset starts from the truth.
             remember(&page.tab, plan.state.clone());
             return Err(format!("{method} failed: {error}. Part of the change may be applied; use reset true to start clean.").into());
         }
     }
     remember(&page.tab, plan.state.clone());
+    let skipped_note = if skipped.is_empty() {
+        String::new()
+    } else {
+        format!("\nNot applied: {} (Chrome and Edge do not let extensions set it).", skipped.join(", ").replace("Emulation.set", "").replace("Override", " override"))
+    };
     let reload = args.get("reload").and_then(Value::as_bool).unwrap_or(false);
     if reload {
         page.cdp("Page.reload", json!({})).await.map_err(|error| Stop::from(format!("Page.reload failed: {error}")))?;
@@ -435,6 +465,7 @@ async fn viewport(ctx: &ToolCtx, args: &Value) -> ToolResult {
         out.push_str("\nThe page reads its viewport meta tag when it loads: pass reload true (or navigate again) to see the mobile layout.");
     }
     out.push_str("\nThe settings stay on this tab until browser_viewport changes them or is called with reset true.");
+    out.push_str(&skipped_note);
     Ok(ToolOutput::text(out))
 }
 
