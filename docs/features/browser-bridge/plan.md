@@ -1,172 +1,413 @@
-# Browser bridge: let an agent work in the person's own Chrome or Edge — Plan
+# Evo Webbridge: Evo in the person's own Chrome or Edge — Plan
 
 | | |
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | not yet (after Gate B) |
-| Updated | 2026-11-07 |
-| ADD sections | [4. Process view](../../architecture/README.md#4-process-view), [5. Building blocks](../../architecture/README.md#5-building-blocks), [8. Interfaces](../../architecture/README.md#8-interfaces), [9. Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts) |
-| ADRs | [0012 A native messaging bridge to the person's own browser](../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md) |
+| Updated | 2026-11-18 |
+| ADD sections | [4. Process view](../../architecture/README.md#4-process-view), [5. Building blocks](../../architecture/README.md#5-building-blocks), [6.3 Hosting an engine](../../architecture/README.md#63-hosting-an-engine), [7. Data view](../../architecture/README.md#7-data-view), [8. Interfaces](../../architecture/README.md#8-interfaces), [9. Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts) |
+| ADRs | [0012 A native messaging bridge to the person's own browser](../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md); [0013 App-side agent tools run in the Rust shell](../../architecture/decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md); [0018 The shell hosts engines, windows attach](../../architecture/decisions/0018-the-shell-hosts-engines-windows-attach.md) |
 
 ## 1. Context and constraints
 
-- The agent browser plan puts every tool behind a transport-neutral page
-  driver; the bridge is a second transport (`BridgeTransport`) that carries
-  DevTools commands to a shared tab and events back.
-- The shell already owns native capabilities and cross-chat coordination
-  (mesh hub); a local channel server fits there (`src-tauri/src/bridge.rs`).
-- A browser starts a native messaging host from a manifest it finds in a
-  fixed place per user (Windows: a registry key under `Software\Google\Chrome\
-  NativeMessagingHosts` / `Software\Microsoft\Edge\NativeMessagingHosts`;
-  macOS and Linux: files under the browser's per-user folder).
-- The extension's debugging API (`chrome.debugger`) speaks DevTools commands
-  for one tab at a time and shows the browser's own "debugging" notice.
+What exists:
+
+- **Browser tools run in the shell** ([ADR 0013](../../architecture/decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md)).
+  The 29 `browser_*` tools live in `apps/desktop/src-tauri/src/agent_tools/browser/`.
+  Each goes through the page driver `driver.rs`: a `Page` whose `eval` and
+  `cdp` call `crate::browser::{eval, cdp}`, plus about 25 other functions of
+  `crate::browser` (`tab_record`, `dialog_pending`, `cdp_subscribe`,
+  `cdp_events`, `navigate_tab`, `chat_tabs`, `resolve_tab`, …). Those are
+  bound to WebView2 today (`browser.rs`, `browser/tabs.rs`,
+  `browser/dialog.rs`, `browser_page.js`). The earlier draft of this plan put
+  the bridge transport in TypeScript; that driver was ported to Rust and the
+  seam is now `Page` and `crate::browser`.
+- **The approval gate** (`agent_tools/gate.rs`, `ToolCtx::gate`) asks by
+  class: reads never, edits only in "Ask every time" on non-local sites, once
+  per site and chat; commands in "Ask every time" and "Approve edits".
+- **The shell hosts engines and keeps open questions** ([ADR 0018](../../architecture/decisions/0018-the-shell-hosts-engines-windows-attach.md)):
+  `supervisor.rs` (`ensure`, `attach`), `supervisor/questions.rs`; windows
+  attach and receive `engine://message`. A side panel can be one more
+  attached client.
+- **The app can start hidden** in the tray (`system.rs`, `--hidden`) and is
+  single-instance (`tauri-plugin-single-instance`).
+- **The engine sidecar** ships as a Tauri `externalBin`
+  (`tauri.conf.json`); the host binary ships the same way.
+- **The app's composer** (`apps/desktop/src/features/chat/chat-composer.tsx`,
+  `stores/engine-store.ts`) changes a chat with the engine commands
+  `set_model {provider, modelId}`, `set_thinking_level {level}` and
+  `set_approval_mode {mode}`, and saves pasted files with `fs_save_paste`
+  (`src-tauri/src/files.rs`) before sending them as attachments
+  (`kind: file | image | text`). The side panel's controls go through the
+  shell to the same commands and the same save.
+
+Browser facts the design relies on:
+
+- `chrome.debugger` speaks the DevTools protocol to one tab (and its child
+  frames through sessions, Chrome and Edge 125+). The browser shows a
+  "started debugging this browser" notice while attached; it cannot be hidden.
+  Policy `DeveloperToolsAvailability = 2` turns the API off.
+- Native messaging: the browser starts the host named in a per-user manifest
+  (Windows: `HKCU\Software\Google\Chrome\NativeMessagingHosts\<name>`,
+  `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\<name>`; macOS and Linux:
+  a JSON file in the browser's per-user folder). Only extension ids in the
+  manifest's `allowed_origins` can start it; the caller's origin is passed to
+  the host as its first argument. Frames are a 4-byte length plus UTF-8 JSON;
+  a frame from the host to the browser is at most 1 MB. One host process runs
+  per `connectNative` port, so one per browser profile here.
+- An open `connectNative` port keeps an MV3 service worker alive (Chrome and
+  Edge 105+). The worker still restarts on extension update or crash.
+- `chrome.tabGroups` and `chrome.sidePanel` exist in Chrome and Edge 114+.
+- `chrome.tabs.captureVisibleTab` works on the current tab with `activeTab`,
+  which the browser grants when the person opens the side panel from the
+  extension's button; no debugger attach is needed for a screenshot the
+  person attaches.
+- A side panel cannot show the browser's microphone prompt itself; the
+  extension opens one of its own pages once to ask, then the panel can record.
+  The browser's speech recognition (`webkitSpeechRecognition`) sends audio to
+  the browser maker's service (spec clarification 7).
+
+To check before tasks (spike, phase 0): `Page.captureScreenshot` on a
+background tab in a normal window, in Chrome and Edge (spec clarification 2).
 
 ## 2. Architecture check
 
 | Rule | Result | Notes |
 | --- | --- | --- |
-| The engine owns agent logic; the shell relays and provides native features | ok | The shell owns the channel and registration; the agent loop is untouched. |
-| Layers point down; library crates stay free of engine/desktop concerns | ok | `evo-bridge-host` depends on nothing of the engine; it only relays framed messages. |
-| Protocol changes update `evo-protocol`, the engine and the desktop together | n/a | The engine protocol is unchanged; the bridge has its own small wire (3.3). |
+| The engine owns agent logic; the shell relays and provides native features | ok | The extension has no model and no agent loop. The side panel is a client attached to a shell-hosted engine, like a window. Tools stay in the shell. |
+| Layers point down; library crates stay free of engine/desktop concerns | ok | `evo-bridge-host` depends on no Evo crate; it frames and relays. |
+| Protocol changes update `evo-protocol`, the engine and the desktop together | n/a | The engine protocol is unchanged. The bridge has its own wire (3.3), versioned on its own. |
 | Models come from models.dev; no hardcoded model facts | n/a | |
-| Real engine in the app; settings and credentials reload live | ok | |
-| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok | New trust boundary: ADR 0012; sharing is per tab and chat, approvals by class, page content marked untrusted. |
-| Desktop UI structure and `DESIGN.md` | ok | A Settings section and a chat prompt use existing components. |
+| Real engine in the app; settings and credentials reload live | ok | Webbridge settings and site permissions apply to running chats at once. |
+| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok | New trust boundary, ADR 0012 (revised). Site permissions add to the gate, never bypass it. Page content is marked untrusted. |
+| Desktop UI structure and `DESIGN.md` | ok | A Settings section and Browser panel rows with existing components. The side panel follows `DESIGN.md` with its own small stylesheet. |
 
-New crate and process: ADD sections 4 and 5 get the host and the extension; ADR
-0012 is the decision record.
+Architecture changes: a new process (the host), a new transport into the
+shell, a new client of hosted engines (the side panel) and a new store (site
+permissions). ADR 0012 records the decision; the ADD's sections 4, 5, 7, 8
+and 9 get the host, the extension, the pipe and `webbridge/sites.json` in the
+commit that accepts this plan (Gate B).
 
 ## 3. Design
 
 ### 3.1 Overview
 
 ```text
- Chrome / Edge                                         Evo app
-┌────────────────────┐   native messaging   ┌─────────────────┐  pipe / socket + token  ┌───────────────┐
-│ evo-bridge extension│◀───────────────────▶│ evo-bridge-host │◀───────────────────────▶│ src-tauri      │
-│  chrome.debugger    │   (stdio, framed)    │  (browser starts │                         │  bridge.rs     │
-│  per shared tab     │                      │   it)            │                         │  → webview     │
-└────────────────────┘                      └─────────────────┘                         │  → BridgeTransport
-                                                                                          └───────────────┘
+ Chrome / Edge (one instance per profile)
+
+┌───────────────────────────────────────┐
+│ Evo Webbridge extension (MV3)         │
+│  service worker                       │
+│   ├ port to the host, reconnect       │
+│   ├ CDP relay (chrome.debugger)       │
+│   ├ tab groups, menus, takeover       │
+│   └ overlay injected through CDP      │
+│  side panel   chat client             │
+│  popup        status, Stop all, site  │
+└──────────────────┬────────────────────┘
+                   │ native messaging (stdio, framed)
+┌──────────────────┴────────────────────┐
+│ evo-bridge-host                       │  started by the browser, one per profile
+└──────────────────┬────────────────────┘
+                   │ named pipe / 0600 socket, process checks
+┌──────────────────┴────────────────────────────────────────────┐
+│ Evo app shell (src-tauri)                                      │
+│  webbridge/  server · setup · groups · sites · panel           │
+│  browser/host.rs  TabHost                                      │
+│    ├ WebviewHost   built-in browser (WebView2, today's code)   │
+│    └ BridgeHost    CDP over webbridge                          │
+│  agent_tools/browser   29 browser tools, one page driver       │
+│  supervisor            hosted engines, open questions          │
+└──────────────────┬────────────────────────────────────────────┘
+                   │ external tool requests · engine://message
+              evo-engine (one per chat)
 ```
+
+The extension is a thin native client in the browser: it relays DevTools
+commands for tabs in Evo's groups, keeps the groups, draws the in-page
+indicator and hosts the side panel. Every decision stays in the shell: which
+chat owns which tab, what the gate allows, which engine runs. The browser
+tools see a `Page` and do not know which browser serves it.
 
 ### 3.2 Components
 
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
-| extension | `extensions/evo-bridge/` (new: `manifest.json`, `background.js`, `popup.html`, `popup.js`) | Share / stop a tab, relay DevTools commands and events, list tabs for the picker, show state. | FR-1, FR-5, FR-8, FR-11 |
-| crate | `crates/evo-bridge-host/` (new, binary) | Native messaging framing on stdio ↔ the app's channel; checks the token; exits when either side closes. | FR-2, FR-4, NFR-1 |
-| desktop shell | `apps/desktop/src-tauri/src/bridge.rs` (new) | The channel server (pipe / socket, token file), per-browser connection state, share table (tab → chat), message routing to the webview, registration commands. | FR-2 – FR-6, FR-8, FR-10, NFR-3 |
-| desktop UI | `apps/desktop/src/features/browser/driver/bridge-transport.ts` (new) | `BridgeTransport`: `send(method, params)` and events for a shared tab. | FR-7 |
-| desktop UI | `apps/desktop/src/features/settings/sections/bridge-settings.tsx` (new) | Setup, connection state, shared tabs, stop. | FR-3, FR-11 |
-| desktop UI | `apps/desktop/src/features/chat/` (approval panel) | The share picker prompt. | FR-5, US-2 |
-| desktop UI | `apps/desktop/src/stores/browser-store.ts` | Shared tabs listed under the chat, marked. | FR-6 |
-| docs | `docs/architecture/README.md` | Process view, building blocks, interfaces, trust. | ADR 0012 |
+| extension | `extensions/evo-webbridge/manifest.json` | MV3 manifest, permissions `debugger tabs tabGroups sidePanel nativeMessaging storage contextMenus activeTab`, fixed `key` for the unpacked id. | FR-1 |
+| extension | `extensions/evo-webbridge/src/background/port.ts` | `connectNative`, `hello`, reconnect with backoff, chunk reassembly, fail pending work on disconnect; keeps only the profile id and label in storage. | FR-4, FR-19, FR-20, NFR-5, NFR-6 |
+| extension | `extensions/evo-webbridge/src/background/cdp.ts` | Attach / detach `chrome.debugger`, relay commands and events, child-frame sessions, map browser errors to codes. | FR-5, FR-20, FR-22 |
+| extension | `extensions/evo-webbridge/src/background/groups.ts` | Create and name groups, add tabs the agent opens and tabs opened from group tabs, report tabs dragged in or out, closed groups. | FR-6 – FR-8, FR-20 |
+| extension | `extensions/evo-webbridge/src/background/control.ts` | Takeover state, Stop, Stop all, context menu items, the overlay's messages. | FR-15 – FR-18 |
+| extension | `extensions/evo-webbridge/src/overlay/overlay.ts` | In-page indicator (closed shadow root) with **Stop** / **Take over** / **Hand back**, injected per frame in an isolated world through CDP; signals through a CDP binding. | FR-15 – FR-17 |
+| extension | `extensions/evo-webbridge/src/sidepanel/` | Chat client: header (title, **History**, **New chat**, **⋯**, **Close**), empty state, streamed reply and tool activity, questions, Stop. | FR-10, FR-11, FR-14, FR-25 |
+| extension | `extensions/evo-webbridge/src/sidepanel/composer/` | Field with **Include this tab**; model and effort picker; approval mode switch; **+** menu (page screenshot through `captureVisibleTab`, file picker, paste and drop, another tab); attachment chips; microphone. | FR-26 – FR-29 |
+| extension | `extensions/evo-webbridge/src/permission/` | One-time page that asks for the microphone, opened from the panel when voice input is first used. | FR-29 |
+| extension | `extensions/evo-webbridge/src/popup/` | Connection state, profile name, Stop all, this site's permission. | FR-4, FR-12, FR-18 |
+| extension | `extensions/evo-webbridge/package.json`, `build.ts` | Build with `bun build` (TypeScript, no framework); output `dist/` loads unpacked and zips for the stores. | FR-1 |
+| crate | `crates/evo-bridge-host/` (binary) | stdio framing ↔ pipe; passes the caller origin; checks the pipe server is Evo; starts `evo --hidden` when no pipe answers; splits frames over 1 MB toward the browser. | FR-3, FR-19, NFR-1, NFR-6 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/server.rs` | Pipe server (current-user ACL), client process check, `hello`, origin allow-list, protocol version, instance table, log lines. | FR-3, FR-4, FR-23, FR-24, NFR-3 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/setup.rs` | Register / remove the host per browser (registry on Windows, manifest files elsewhere), extension install link, status. | FR-2, NFR-4 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/groups.rs` | chat ↔ (profile, group) ↔ tabs; tab ids; attach lease (60 s after the turn); takeover; tab gone. | FR-6 – FR-9, FR-17, FR-20 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/sites.rs` | Site permissions: load, save, change events; `Block` checks. | FR-12, FR-13, FR-22 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/panel.rs` | Side panel sessions: list and search chats, ensure / attach engines through the supervisor, send prompts with attachments, forward a reduced event stream, serve and answer open questions; model, effort and mode changes sent to the engine as the app sends them; **Open in Evo**. | FR-10, FR-11, FR-14, FR-16, FR-25 – FR-27 |
+| desktop shell | `apps/desktop/src-tauri/src/files.rs` | Attachments from the panel saved with the same code as `fs_save_paste`, with the app's size limits. | FR-28 |
+| desktop shell | `apps/desktop/src-tauri/src/browser/host.rs` (new), `browser.rs`, `browser/tabs.rs` | `TabHost` trait over today's free functions; `WebviewHost` wraps the current code; tab records gain `origin: Builtin \| Bridge { profile, tab }`. | FR-5, FR-7 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/bridge_host.rs` | `BridgeHost`: `cdp` relayed with id and timeout; `eval` as `Runtime.evaluate` in the `evo` isolated world; the page helper from `browser_page.js` added on attach and on new documents; dialogs from `Page.javascriptDialogOpening`; event subscriptions. | FR-5, FR-20, NFR-2 |
+| desktop shell | `apps/desktop/src-tauri/src/agent_tools/browser/driver.rs`, `tabs.rs`, `core.rs` | `Page` dispatches to the tab's host; `target` argument; `browser_tabs` `choose`; built-in-only tools refuse Webbridge tabs with a reason; untrusted-content wording kept. | FR-5, FR-9, FR-21 |
+| desktop shell | `apps/desktop/src-tauri/src/agent_tools/gate.rs`, `agent_tools/mod.rs` | Webbridge rule: acts ask in "Ask every time" and "Approve edits" unless the site is Allow; Block refuses in every mode; "Allow for this site" option writes Allow. | FR-13, FR-22 |
+| desktop shell | `apps/desktop/src-tauri/src/supervisor/questions.rs` | Questions of a chat also go to its side panel sessions; first answer wins, the other side is told it is settled. | FR-14 |
+| desktop shell | `apps/desktop/src-tauri/tauri.conf.json`, `scripts/` | Ship `evo-bridge-host` as an `externalBin` next to the engine sidecar. | FR-2 |
+| desktop UI | `apps/desktop/src/features/settings/sections/webbridge-settings.tsx` | Set up / remove per browser, connected profiles (rename), policy state, site permissions list, new-chat workspace, voice input switch with its notice, Stop all. | FR-2, FR-4, FR-12, FR-18, FR-23, FR-29 |
+| desktop UI | `apps/desktop/src/stores/webbridge-store.ts`, `stores/browser-store.ts`, `features/browser/browser-panel.tsx` | Webbridge state from shell events; a chat's Webbridge tabs listed beside its built-in pages, marked with the browser, with **Take back** and **Stop**. | FR-7, FR-8, FR-16 |
+| docs | `docs/architecture/README.md` | Process view, building blocks, data view, interfaces, trust (at Gate B). | ADR 0012 |
 
 ### 3.3 Interfaces
 
-**Extension ↔ host ↔ app** (JSON, one message per frame; native messaging's
-4-byte length prefix on stdio, the same frames on the pipe):
+**Wire: extension ↔ host ↔ app.** JSON objects, one per frame: on stdio the
+native messaging frame (4-byte little-endian length, then UTF-8 JSON); on the
+pipe the same framing. Every message has `t`. Requests carry `id`; their
+answer has the same `id`.
 
 ```jsonc
 // extension → app
-{ "t": "hello", "browser": "chrome", "version": "1.0.0", "extension": "<id>" }
-{ "t": "tabs", "tabs": [{ "id": 12, "title": "…", "url": "https://…", "shared": false }] }
-{ "t": "shared", "tab": 12, "ok": true }            // after the person's choice
-{ "t": "result", "id": 7, "ok": true, "value": {…} } // DevTools command result
-{ "t": "event", "tab": 12, "method": "Page.…", "params": {…} }
-{ "t": "gone", "tab": 12, "reason": "closed" | "detached" | "stopped" }
+{ "t": "hello", "v": 1, "browser": "chrome" | "edge", "profile": "p_4f2a", "label": "Work",
+  "version": "1.0.0", "debugger": true }                      // debugger=false: policy turned it off
+{ "t": "result", "id": 7, "ok": true, "value": { … } }
+{ "t": "result", "id": 7, "ok": false, "code": "gone" | "refused" | "restricted" | "busy" | "failed", "message": "…" }
+{ "t": "event", "tab": 1234, "session": "…"?, "method": "Page.loadEventFired", "params": { … } }
+{ "t": "tab", "tab": 1234, "change": "joined" | "left" | "closed" | "updated", "group": 88, "url": "…", "title": "…", "opener": 1200? }
+{ "t": "group", "group": 88, "change": "closed" }
+{ "t": "control", "tab": 1234, "action": "stop" | "takeover" | "handback" }
+{ "t": "control", "action": "stop_all" }
+{ "t": "panel", "session": "s1", "body": { … } }               // side panel → app (below)
+{ "t": "chunk", "id": 7, "seq": 0, "last": false, "data": "…" } // only app → extension, see below
+
 // app → extension
-{ "t": "list" }
-{ "t": "share", "tab": 12 }                         // attach the debugger
-{ "t": "stop", "tab": 12 }
-{ "t": "cdp", "id": 7, "tab": 12, "method": "Page.captureScreenshot", "params": {…} }
+{ "t": "welcome", "v": 1, "app": "4.8.0" }                     // or { "t": "bye", "reason": "…" }
+{ "t": "open", "id": 1, "group": { "chat": "c_…", "title": "Fix invoices", "color": "blue" }, "url": "https://…", "background": true }
+{ "t": "adopt", "id": 2, "tab": 1234, "chat": "c_…", "title": "…" }   // a tab the person picked or handed over
+{ "t": "release", "id": 3, "tab": 1234 }
+{ "t": "list", "id": 4 }                                       // titles and sites of tabs outside groups
+{ "t": "attach", "id": 5, "tab": 1234 }  { "t": "detach", "id": 6, "tab": 1234 }
+{ "t": "cdp", "id": 7, "tab": 1234, "session": "…"?, "method": "Input.dispatchMouseEvent", "params": { … } }
+{ "t": "overlay", "tab": 1234, "state": "working" | "waiting" | "taken" | "off", "chat": "Fix invoices" }
+{ "t": "panel", "session": "s1", "body": { … } }               // app → side panel
 ```
 
-The token travels in the host's first frame to the app (`{"t":"auth","token":…}`);
-the app answers `ok` or closes the channel.
+Large messages from the app (over 900 KB) go as `chunk` frames with the
+original `id`; the extension joins them before handling. The host never reads
+message bodies beyond framing.
 
-**Tools:** the `target` argument of the `browser_*` tools (agent browser spec
-FR-25); `browser_tabs {target:"chrome"}` lists shared tabs of the chat and asks
-the person to share one when there is none.
+**Side panel bodies** (`panel.body`):
+
+```jsonc
+// panel → app
+{ "op": "chats", "query": "…"? }                  // → { "op": "chats", "items": [{ "chat", "title", "workspace", "updated", "running" }] }
+{ "op": "open", "chat": "c_…" } | { "op": "new", "workspace": "w_…"? }
+{ "op": "send", "chat": "c_…", "text": "…", "tab": 1234?, "attachments": ["a_…"] }
+{ "op": "stop", "chat": "c_…" }
+{ "op": "answer", "chat": "c_…", "question": "q_…", "choice": 1, "text": "…"? }
+{ "op": "models", "chat": "c_…" }                 // → { "op": "models", "items": [{ "provider", "id", "name", "efforts": ["…"] }] }
+{ "op": "set_model", "chat": "c_…", "provider": "…", "modelId": "…" }
+{ "op": "set_effort", "chat": "c_…", "level": "…" }
+{ "op": "set_mode", "chat": "c_…", "mode": "…" }  // the app's approval modes
+{ "op": "attach", "chat": "c_…", "name": "page.png", "kind": "image" | "file" | "text", "data": "<base64>" }
+                                                  // → { "op": "attached", "id": "a_…", "name", "kind", "bytes" }
+{ "op": "detach", "chat": "c_…", "id": "a_…" }
+{ "op": "open_in_app", "chat": "c_…" }
+// app → panel
+{ "op": "chat", "chat": "c_…", "title": "…", "model": { "provider", "id", "name" }, "effort": "…", "mode": "…", "site": "ask" | "allow" | "block" }
+{ "op": "event", "chat": "c_…", "kind": "user" | "text" | "thinking" | "tool" | "settled" | "error", "data": { … } }
+{ "op": "question", "chat": "c_…", "question": "q_…", "title": "…", "description": "…", "options": ["…"] }
+{ "op": "settled_question", "chat": "c_…", "question": "q_…" }
+```
+
+The shell builds `event` from the engine lines it already reads; the panel
+never sees raw engine messages. `chat` is sent on open and whenever the
+model, effort, mode or the current site's permission changes, from the panel
+or the app. The model list comes from the same source as the app's picker
+(models.dev through `evo-runtime`). `set_model`, `set_effort` and `set_mode`
+become the engine's `set_model`, `set_thinking_level` and `set_approval_mode`.
+`attach` data travels in the extension → app direction, so it has no 1 MB
+limit; the shell saves it as `fs_save_paste` does and refuses files over the
+app's limit. Dictated text is plain text in the field: no audio reaches Evo.
+
+**Pipe and process checks.** Pipe `\\.\pipe\evo-webbridge-<user SID>` with a
+DACL for the current user only; on macOS and Linux a socket in the user's
+runtime folder, mode 0600. The host checks the server's process image (via
+`GetNamedPipeServerProcessId`) is Evo's; the app checks the client's image is
+`evo-bridge-host` from its install folder and that the origin it reports is in
+the allow-list (`chrome-extension://<unpacked id>/`, the Chrome Web Store id,
+the Edge Add-ons id).
+
+**Host manifest** (written by Setup, name `dev.evo.webbridge`):
+
+```json
+{ "name": "dev.evo.webbridge", "description": "Evo Webbridge", "path": "<install folder>/evo-bridge-host.exe",
+  "type": "stdio", "allowed_origins": ["chrome-extension://<id>/", "…"] }
+```
+
+**Tools.** Every `browser_*` tool takes `target`:
+`"builtin"` (default) `| "chrome" | "edge" | "chrome:<profile>" | "edge:<profile>"`.
+Tab ids of Webbridge tabs read `chrome:<profile>:<tab>` (for example
+`chrome:work:1234`); a `tabId` alone picks the browser, so `target` is only
+needed to open a page. `browser_tabs` gains `action: "choose"` (FR-9).
+`browser_download_folder` and `browser_downloads` answer "not available in
+Webbridge tabs". Older engines are unaffected: the tools are the shell's.
+
+**Tauri commands and events** (UI ↔ shell): `webbridge_status`,
+`webbridge_setup {browser}`, `webbridge_remove {browser}`,
+`webbridge_rename {profile, label}`, `webbridge_sites`,
+`webbridge_set_site {site, permission}`, `webbridge_stop_all {profile?}`,
+`webbridge_release {tab}`; event `webbridge://changed` with the full status.
 
 ### 3.4 Data and storage
 
-- Token: `<app data>/bridge/token`, mode 0600 (Windows: a file ACL for the
-  person only), created at first setup, replaced by "Reset".
-- Host manifest and registry keys written by Setup; removed by "Remove".
-- Share table (tab → chat) in memory in the shell; shares end with the app.
+- `~/.evo/agent/webbridge/sites.json` — `{ "version": 1, "sites": { "https://example.com": "allow" | "block" } }`;
+  sites not listed are Ask. Written by the shell only.
+- `~/.evo/agent/webbridge/profiles.json` — known profiles: id, browser,
+  label, last seen. No secrets.
+- Host manifests and registry keys written by Setup, removed by Remove.
+- Attachments from the panel: in the app's pasted-files cache, as pasted
+  files from the app's composer are, with the same clean-up.
+- Extension `chrome.storage.local`: its profile id and label only (NFR-5).
+- In memory in the shell: instances, groups, tab records, attach leases,
+  takeover state, panel sessions. They end with the app or the browser.
 
 ### 3.5 Behaviour
 
+**Connect.** The browser starts the extension → `connectNative` → the
+browser starts `evo-bridge-host <origin>` → the host opens the pipe (starts
+`evo --hidden` and retries for 10 s if nobody answers) → `hello` / `welcome`
+→ the shell records the instance and emits `webbridge://changed`.
+
+**The agent opens a page and acts.**
+
 ```mermaid
 sequenceDiagram
-  participant A as Agent (chat)
-  participant U as App UI
-  participant S as Shell (bridge.rs)
+  participant E as Engine (chat C)
+  participant T as Tools (shell)
+  participant B as webbridge (shell)
   participant H as evo-bridge-host
   participant X as Extension
-  A->>U: browser_tabs {target: chrome}
-  U->>S: list
-  S->>H: list
-  H->>X: list
-  X-->>S: tabs
-  S-->>U: tabs (none shared)
-  U->>U: prompt: share a Chrome tab with this chat?
-  U->>S: share tab 12 (chat)
-  S->>X: share 12
-  X->>X: chrome.debugger.attach (browser shows its notice)
-  X-->>S: shared ok
-  A->>U: browser_click {target: chrome, tabId: chrome:12}
-  U->>S: cdp Input.dispatchMouseEvent …
-  S->>X: cdp …
-  X-->>S: result
-  S-->>U: result
+  E->>T: browser_navigate {target: chrome, url}
+  T->>B: site permission? (Block → refuse)
+  B->>X: open {group: C, url, background}
+  X->>X: tabs.create (inactive), tabGroups add / name
+  X-->>B: result {tab: 1234}
+  T->>B: attach 1234 (lease until turn end + 60 s)
+  X->>X: chrome.debugger.attach (browser notice)
+  B->>X: cdp Page.addScriptToEvaluateOnNewDocument (helper, isolated world)
+  B->>X: overlay working
+  T-->>E: page summary (untrusted)
+  E->>T: browser_click {tabId: chrome:work:1234, ref}
+  T->>T: gate (site Ask, mode Approve edits → ask once)
+  T->>B: cdp Input.dispatchMouseEvent …
+  B->>H: frames
+  H->>X: frames
+  X-->>B: result
+  T-->>E: what changed
 ```
+
+**Takeover.** Overlay or panel → `control takeover` → the shell marks the tab
+taken; `Page` calls on it return "the person has control of this tab; wait
+for them to hand it back" and `browser_wait` waits for `handback` (or the
+call's own timeout); overlay shows **Hand back**.
+
+**Stop.** `control stop` → the shell stops the chat's turn through the
+supervisor (as the app's Stop does) → cancellation tokens end pending calls →
+overlay off. Stop all also detaches every tab of the profile.
+
+**Side panel.** `open` → `supervisor.ensure(chat)` and an attach for the
+panel session (it counts as a viewer, so the engine is not stopped as idle) →
+the panel gets the chat's recent messages and then `event`s. `send` with `tab`
+first adopts the tab into the chat's group, then sends the prompt with a line
+naming the tab's title and address. Questions come from
+`supervisor/questions.rs` to every viewer of the chat.
+
+**Leases.** A tab is attached from its first call while the chat's turn runs;
+the shell detaches it 60 s after `agent_settled` with no new call, and
+attaches again on the next call (spec clarification 1).
 
 ### 3.6 Errors and edge cases
 
 | Case | Agent sees | Person sees |
 | --- | --- | --- |
-| No host registered / extension missing | "No browser is connected; set one up in Settings → Browser bridge." | Settings shows setup |
-| App not running when the extension starts | — | Extension popup: "Evo is not running" |
-| Tab closed or share stopped | "The shared tab is gone." | List updates |
-| Another debugger attached | "The browser refused: …" | The browser's message in the prompt |
-| Token wrong | — | Host exits; Settings shows "connection refused" |
+| Nothing set up / no profile connected | "No browser is connected to Evo; set one up in Settings → Webbridge." | Settings shows Set up |
+| Evo not running when the browser starts | — | Evo starts in the tray; if it fails: extension says "Evo is not running" |
+| Policy turned the debugging API off | "This browser's administrator turned off the debugging API; Webbridge cannot work there." | Extension and Settings say the same |
+| Tab, group or browser closed; extension reloaded | "The tab is gone (closed)." | Browser panel row goes |
+| Tab dragged out of the group | "The person took this tab back." | — |
+| Another debugger attached | "The browser refused: another debugger is attached to this tab." | The browser's message in the overlay or panel |
+| Page the browser forbids (`chrome://`, the store) | "The browser does not let extensions use this page." | — |
+| Block site | "The person blocked example.com for Evo." | — |
+| Taken over | "The person has control of this tab." | Overlay shows Hand back |
+| Page dialog open | As in the built-in browser: names it; answer with `browser_dialog` | The dialog |
+| Pipe check or origin check fails | — | Settings: "A connection was refused" with the reason; logged |
+| Host or app version mismatch (`v`) | "Update the Evo Webbridge extension." | Extension asks to update |
+| Command times out (30 s default, tool timeouts win) | "The browser did not answer." | — |
 
 ### 3.7 Security and trust
 
-- Only the extension (id in `allowed_origins`) can start the host; the host only
-  speaks to the app with the token; the channel is a pipe / 0600 socket, not a
-  network port.
-- The extension has `debugger`, `tabs`, `nativeMessaging` only; it attaches only
-  to a tab the person shared and detaches on stop.
-- A shared tab belongs to one chat; other chats cannot name it.
-- Acts and changes ask by class as in the agent browser plan; on a shared tab
-  acts ask even for sites that would count as local.
-- Everything from the page is untrusted data.
+- **Threat model.** Web pages, other extensions, other users of the machine
+  and the network must not reach the bridge. Code already running as the same
+  user is out of scope: it can read the browser's profile anyway.
+- **Reach.** Only listed extension ids can start the host (browser-enforced
+  `allowed_origins`); the host only talks to an evo-owned pipe; the shell only
+  accepts the host from its own install folder with an allowed origin. No
+  port (NFR-1).
+- **Least privilege.** No host permissions and no declared content scripts:
+  the extension sees page content only through the debugging API, and only on
+  tabs in Evo's groups. Listing other tabs returns titles and sites only.
+- **Ownership.** A tab belongs to one chat through its group; the shell
+  checks the chat on every call (same rule as built-in pages).
+- **Approvals.** Site permissions sit inside the gate: Block always refuses;
+  Allow skips the act question only; commands keep the mode's rule; "Approve
+  for me" never overrides Block. The engine's own approval mode still applies
+  to its tools ([ADR 0010](../../architecture/decisions/0010-engine-enforces-approval-mode.md)).
+- **Visibility.** The browser's debugging notice, the group, and the overlay
+  together make agent work visible; the overlay lives in an isolated world so
+  page scripts cannot call Evo's page helper. A page could hide the overlay;
+  the notice and the group still show.
+- **Untrusted content.** Page text, titles, addresses and dialog messages are
+  data in results (FR-21); the side panel renders chat text as Markdown
+  without HTML.
+- **Panel controls.** Changing the mode from the panel is the person's own
+  act in a page only the extension renders; page scripts cannot reach the
+  panel. "Approve for me" never lifts **Block**.
+- **Screenshots and voice.** A page screenshot is taken only when the person
+  picks it in **+** (`activeTab`, no debugger). Voice input is off by default;
+  when on, audio goes to the browser maker's speech service, as the switch in
+  Settings says, and only the resulting text reaches Evo.
+- **No secrets.** The extension keeps no token or transcript. Typed text and
+  page content are never logged (FR-24).
 
 ### 3.8 Configuration
 
 | Key | Type | Default | Where | Applies |
 | --- | --- | --- | --- | --- |
-| `bridge.enabled` | boolean | `false` | app settings | channel server starts when set up |
+| `webbridge.enabled` | boolean | `false` | app database settings | live: the pipe server starts or stops |
+| `webbridge.newChatWorkspace` | string \| null | `null` (last used) | app database settings | live |
+| `webbridge.leaseSeconds` | number | `60` | app database settings | live |
+| `webbridge.voiceInput` | boolean | `false` | app database settings | live: the panel shows or hides the microphone |
+| site permissions | `sites.json` | empty (all Ask) | `~/.evo/agent/webbridge/` | live |
+
+Edited in **Settings → Webbridge**; site permissions also in the extension's
+popup.
 
 ## 4. Alternatives considered
 
-See [ADR 0012](../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md).
+| Option | Why not |
+| --- | --- |
+| Share one tab at a time, the extension only relays (the earlier draft) | Every task starts with a prompt, the agent cannot open the pages it needs, and the person cannot talk to Evo from the browser. |
+| Content scripts on all sites instead of the debugging API | Needs host permissions for every site; cannot send trusted input, set file inputs or mock requests; every page carries Evo's script even when no agent works. |
+| A local WebSocket the extension connects to | A port is open, and any web page can try it; ADR 0012. |
+| The browser's remote debugging port | A browser restart with a flag, every tab and profile exposed. |
+| A separate automated browser profile | No signed-in sessions, which is the point. |
+| The side panel talks to the engine directly | The engine is the shell's child and has no listener; the shell owns engine lifecycles ([ADR 0018](../../architecture/decisions/0018-the-shell-hosts-engines-windows-attach.md)). |
+| The side panel calls a model itself | Agent logic belongs to the engine; it would split chats, credentials and approvals. |
+| A token file to authenticate the host | Readable by any process of the user, so it adds nothing over the pipe's ACL and the process checks. |
 
-## 5. Phases (to become tasks)
-
-1. Protocol and the host: framing, token, channel, unit tests; `evo-bridge-host`.
-2. Shell channel server, share table, registration commands, settings section.
-3. Extension: share / stop, relay, popup; load unpacked; Windows check with
-   Chrome and Edge.
-4. `BridgeTransport` and the `target` argument; the share prompt in the chat.
-5. Approvals for shared tabs; stop all; edge cases; ADD update; macOS and Linux
-   registration code (checked later).
-
-## 6. As-built notes
+## 5. As-built notes
 
 n/a — empty until the status is `In progress`.

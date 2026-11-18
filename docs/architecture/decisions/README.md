@@ -19,7 +19,7 @@ consequences and the alternatives rejected. The
 | [0009](0009-native-office-preview-renderer.md) | Office files render natively in the engine; LibreOffice gives exact pages | Accepted | 2026-11-07 |
 | [0010](0010-engine-enforces-approval-mode.md) | The engine enforces the approval mode on every tool call | Accepted | 2026-11-07 |
 | [0011](0011-features-follow-spec-driven-development.md) | Features follow Spec-Driven Development: spec, plan, tasks | Accepted | 2026-11-07 |
-| [0012](0012-native-messaging-bridge-to-the-persons-browser.md) | A native messaging bridge to the person's own browser | Proposed | 2026-11-07 |
+| [0012](0012-native-messaging-bridge-to-the-persons-browser.md) | A native messaging bridge to the person's own browser | Proposed | 2026-11-18 |
 | [0013](0013-app-side-agent-tools-run-in-the-rust-shell.md) | App-side agent tools run in the Rust shell | Accepted | 2026-11-08 |
 | [0014](0014-agent-tools-by-layer.md) | Where each agent tool lives: engine or shell, never the webview | Accepted | 2026-11-08 |
 | [0015](0015-agent-drives-desktop-apps-in-the-background-only.md) | The shell drives other desktop apps in the background only, never with the person's input | Accepted | 2026-11-09 |
@@ -29,7 +29,7 @@ consequences and the alternatives rejected. The
 | [0019](0019-read-only-agents-run-under-an-os-write-restriction.md) | Read-only agents' shell commands run under an operating-system write restriction | Superseded by [0020](0020-read-only-agents-stay-guarded-by-the-command-checker.md) | 2026-11-11 |
 | [0020](0020-read-only-agents-stay-guarded-by-the-command-checker.md) | Read-only agents stay guarded by the command checker; no operating-system write restriction | Accepted | 2026-11-11 |
 | [0021](0021-plugin-views-run-in-native-webviews.md) | Plugin views run in native child webviews with no IPC; their bridge is their own scheme | Accepted | 2026-11-13 |
-| [0022](0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) | Plugin code runs under evo's runtimes; its secrets live in a keychain-sealed vault and reach it through a loopback host API | Accepted | 2026-11-14 |
+| [0022](0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) | Plugin code runs under Evo's runtimes; its secrets live in a keychain-sealed vault and reach it through a loopback host API | Accepted | 2026-11-14 |
 | [0023](0023-plugin-ai-runs-in-one-long-lived-engine-process.md) | Plugin AI runs in one long-lived engine process (`--mode plugin-ai`); the shell gates it | Accepted | 2026-11-14 |
 
 ## Rules

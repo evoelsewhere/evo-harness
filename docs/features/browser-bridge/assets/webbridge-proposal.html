@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evo Webbridge Proposal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Tokens from DESIGN.md: achromatic, one blue accent. */
+    :root {
+      --paper: #fafafa;
+      --paper-2: #f2f2f2;
+      --white: #ffffff;
+      --ink: #171717;
+      --muted: #4d4d4d;
+      --soft: #666666;
+      --rule: rgba(0,0,0,0.08);
+      --rule-solid: #ebebeb;
+      --accent: #0062d1;
+      --accent-tint: rgba(0,98,209,0.07);
+      --link: #067a6e;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-mono: 'Geist Mono', ui-monospace, Menlo, monospace;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--paper);
+      color: var(--ink);
+      padding: 3rem 1rem 4rem;
+      line-height: 1.55;
+    }
+    .container { max-width: 1312px; margin: 0 auto; }
+    .prose { max-width: 760px; }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--soft);
+      margin-bottom: 0.75rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 3vw + 1rem, 3rem);
+      font-weight: 600;
+      letter-spacing: -0.045em;
+      line-height: 1.05;
+      margin-bottom: 0.75rem;
+    }
+    .subtitle { font-size: 1.05rem; color: var(--muted); max-width: 62ch; }
+    .meta { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .pill {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      background: var(--white);
+      box-shadow: 0 0 0 1px var(--rule);
+      border-radius: 6px;
+      padding: 0.2rem 0.55rem;
+      text-decoration: none;
+    }
+    a.pill:hover { color: var(--accent); }
+    .pill.draft { color: var(--accent); }
+
+    section { margin-top: 4rem; }
+    h2 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+    }
+    h3 { font-size: 0.95rem; font-weight: 600; letter-spacing: -0.01em; }
+    p { color: var(--muted); font-size: 0.95rem; }
+    p + p { margin-top: 0.6rem; }
+    code, .mono { font-family: var(--font-mono); font-size: 0.85em; color: var(--ink); }
+
+    figure { margin-top: 1.5rem; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .diagram-container svg { display: block; width: 100%; }
+    .w1280 { min-width: 1280px; }
+    figcaption { margin-top: 0.75rem; font-size: 0.85rem; color: var(--soft); max-width: 90ch; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      .diagram-container svg { min-width: 0; }
+    }
+
+    /* Summary cards: varied widths, hairline border, no shadow */
+    .cards { display: grid; grid-template-columns: 1.15fr 1fr 0.9fr; gap: 1rem; margin-top: 2rem; }
+    .card {
+      background: var(--white);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+    .card-head {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding-bottom: 0.75rem; margin-bottom: 0.75rem;
+      border-bottom: 1px solid var(--rule);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--ink); }
+    .dot.accent { background: var(--accent); }
+    .dot.soft { background: #8f8f8f; }
+    .card ul { list-style: none; font-size: 0.85rem; color: var(--muted); }
+    .card li { position: relative; padding-left: 0.9rem; margin-bottom: 0.35rem; }
+    .card li::before { content: '—'; position: absolute; left: 0; color: #c7c7c7; }
+
+    /* Numbered keys for the UI mockups */
+    .keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 0.75rem 1.5rem; margin-top: 1.25rem; }
+    .key { display: flex; gap: 0.7rem; font-size: 0.85rem; color: var(--muted); }
+    .key b { color: var(--ink); font-weight: 600; }
+    .num {
+      flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--ink); color: var(--white);
+      font-size: 0.7rem; font-weight: 600; display: grid; place-items: center; margin-top: 1px;
+    }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; margin-top: 1.25rem; }
+    table { border-collapse: collapse; width: 100%; min-width: 720px; background: var(--white); box-shadow: 0 0 0 1px var(--rule); border-radius: 6px; overflow: hidden; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+    th { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--soft); background: var(--paper-2); }
+    td { color: var(--muted); }
+    td:first-child { color: var(--ink); }
+    tr:last-child td { border-bottom: none; }
+    .ask { color: var(--accent); font-weight: 500; }
+    .no { color: var(--ink); font-weight: 500; }
+
+    /* Phases */
+    .phases { counter-reset: phase; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.25rem; }
+    .phase { background: var(--white); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem 1.1rem; }
+    .phase .eyebrow { margin-bottom: 0.4rem; }
+    .phase p { font-size: 0.85rem; margin-top: 0.35rem; }
+
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.25rem; }
+    .list { list-style: none; font-size: 0.88rem; color: var(--muted); }
+    .list li { padding: 0.65rem 0; border-bottom: 1px solid var(--rule); }
+    .list li b { color: var(--ink); font-weight: 600; }
+
+    .footer {
+      margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+      font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.04em; color: var(--soft);
+      display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+    }
+    .footer a { color: var(--soft); }
+
+    @media (max-width: 860px) {
+      .cards, .two { grid-template-columns: 1fr; }
+    }
+
+    /* SVG text roles */
+    svg .n  { font-family: var(--font-sans); font-weight: 600; font-size: 12px; fill: var(--ink); }
+    svg .s  { font-family: var(--font-mono); font-size: 9px; fill: var(--muted); }
+    svg .e  { font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.14em; fill: var(--soft); }
+    svg .al { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; fill: var(--soft); }
+    svg .tg { font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.08em; }
+    svg .ui { font-family: var(--font-sans); }
+    svg .um { font-family: var(--font-mono); }
+    svg .k  { font-family: var(--font-sans); font-weight: 600; font-size: 11px; fill: #ffffff; }
+    svg .co { font-family: var(--font-sans); font-style: italic; font-size: 11px; fill: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <p class="eyebrow">Proposal · Browser extension · 2026-11-18</p>
+    <h1>Evo Webbridge</h1>
+    <p class="subtitle">Evo in the person's own Chrome or Edge: a side panel to chat next to the page, and an agent that opens and works in tabs of its own, in the signed-in profile, with the same browser tools as the built-in browser.</p>
+    <div class="meta">
+      <span class="pill draft">Status · Draft</span>
+      <a class="pill" href="../spec.md">spec.md</a>
+      <a class="pill" href="../plan.md">plan.md</a>
+      <a class="pill" href="../../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md">ADR 0012</a>
+    </div>
+  </header>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-head"><span class="dot accent"></span><h3>What changes for the person</h3></div>
+      <ul>
+        <li>An Evo side panel in Chrome and Edge, on any page.</li>
+        <li>The agent opens background tabs in a tab group named after the chat.</li>
+        <li>Drag a tab into the group to hand it over, out to take it back.</li>
+        <li>Per-site permission: Ask, Allow or Block.</li>
+        <li>Stop and Take over on the page, in the panel and in the app.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="dot"></span><h3>What is new in the code</h3></div>
+      <ul>
+        <li>An MV3 extension, no host permissions.</li>
+        <li><code>evo-bridge-host</code>, started by the browser.</li>
+        <li><code>webbridge/</code> in the shell: pipe, groups, sites, panel.</li>
+        <li>A <code>TabHost</code> seam under the page driver.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-head"><span class="dot soft"></span><h3>What stays the same</h3></div>
+      <ul>
+        <li>The engine and its protocol.</li>
+        <li>The 29 <code>browser_*</code> tools.</li>
+        <li>Approval modes; sites only add rules.</li>
+        <li>No network port.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">01 · What the person sees</p>
+    <h2>The browser while an agent works</h2>
+    <div class="prose">
+      <p>The person asks in the side panel; the agent opens the billing site in a background tab of the chat's group, works in it, and asks once before acting on a site set to Ask. Every sign of agent work comes from three places: the tab group, Evo's in-page indicator and the browser's own debugging notice, which Evo cannot hide.</p>
+    </div>
+
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-ui-title webbridge-ui-desc">
+          <title id="webbridge-ui-title">Webbridge in the browser: tab group, indicator, side panel</title>
+          <desc id="webbridge-ui-desc">Mockup of Chrome with an Evo tab group, the debugging notice, an in-page indicator with Take over and Stop, and the Evo side panel showing a chat, its tool activity, a site permission question and the composer.</desc>
+          <rect width="1280" height="760" fill="#fafafa"/>
+
+          <!-- Window -->
+          <rect x="24" y="24" width="1232" height="712" rx="10" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <!-- Tab strip -->
+          <path d="M24 34 Q24 24 34 24 H1246 Q1256 24 1256 34 V64 H24 Z" fill="#ebebeb"/>
+          <circle cx="48" cy="48" r="5" fill="#8f8f8f"/>
+          <text class="ui" x="60" y="52" font-size="12" fill="#4d4d4d">Inbox · Mail</text>
+          <rect x="216" y="38" width="128" height="20" rx="6" fill="#0062d1"/>
+          <text class="ui" x="280" y="52" font-size="11" font-weight="500" fill="#ffffff" text-anchor="middle">Evo · Fix invoices</text>
+          <rect x="352" y="30" width="200" height="34" rx="8" fill="#ffffff"/>
+          <rect x="364" y="43" width="10" height="10" rx="2" fill="#171717"/>
+          <text class="ui" x="384" y="52" font-size="12" fill="#171717">Billing · Invoices</text>
+          <rect x="580" y="43" width="10" height="10" rx="2" fill="#8f8f8f"/>
+          <text class="ui" x="600" y="52" font-size="12" fill="#4d4d4d">Reports · Q3</text>
+          <line x1="352" y1="63" x2="724" y2="63" stroke="#0062d1" stroke-width="2"/>
+          <path d="M744 42 V54 M738 48 H750" stroke="#4d4d4d" stroke-width="1.2"/>
+          <path d="M1180 44 H1190 M1206 40 H1214 V48 H1206 Z M1230 40 L1238 48 M1238 40 L1230 48" fill="none" stroke="#4d4d4d" stroke-width="1"/>
+
+          <!-- Toolbar -->
+          <polyline points="54,78 48,84 54,90" fill="none" stroke="#4d4d4d" stroke-width="1.4"/>
+          <polyline points="70,78 76,84 70,90" fill="none" stroke="#a8a8a8" stroke-width="1.4"/>
+          <circle cx="100" cy="84" r="6" fill="none" stroke="#4d4d4d" stroke-width="1.4"/>
+          <rect x="124" y="72" width="900" height="24" rx="10" fill="#f2f2f2"/>
+          <rect x="138" y="80" width="8" height="8" rx="2" fill="none" stroke="#666666"/>
+          <text class="ui" x="156" y="88" font-size="12" fill="#4d4d4d">billing.example.com/invoices</text>
+          <!-- Evo logo (app icon) -->
+          <g transform="translate(1180 72) scale(0.0234375)"><rect x="64" y="64" width="896" height="896" rx="200" fill="#171717"/><g transform="translate(512 512) scale(9.739) rotate(-30) scale(1.25)" fill="none" stroke-width="8" stroke-linecap="round"><path d="M8 -17H-9A8 8 0 0 0 -17 -9V5" stroke="#ffffff"/><path d="M8 -17H-9A8 8 0 0 0 -17 -9V5" stroke="#ffffff" transform="rotate(180)"/><path d="M-3 0H3" stroke="#0072F5"/></g></g>
+          <circle cx="1230" cy="84" r="10" fill="#ebebeb"/>
+          <line x1="24" y1="104" x2="1256" y2="104" stroke="rgba(0,0,0,0.08)"/>
+
+          <!-- Browser debugging notice -->
+          <rect x="24" y="104.5" width="1232" height="31" fill="#f2f2f2"/>
+          <text class="ui" x="48" y="124" font-size="12" fill="#4d4d4d">“Evo Webbridge” started debugging this browser</text>
+          <text class="ui" x="1232" y="124" font-size="12" font-weight="500" fill="#171717" text-anchor="end">Cancel</text>
+          <line x1="24" y1="136" x2="1256" y2="136" stroke="rgba(0,0,0,0.08)"/>
+
+          <!-- Page: working frame -->
+          <rect x="29" y="141" width="822" height="590" rx="4" fill="none" stroke="#0062d1" stroke-width="1.5" stroke-opacity="0.55"/>
+          <text class="ui" x="64" y="236" font-size="20" font-weight="600" fill="#171717">Invoices</text>
+          <text class="ui" x="64" y="256" font-size="12" fill="#666666">Billing · all customers</text>
+          <rect x="696" y="212" width="112" height="32" rx="6" fill="#171717"/>
+          <text class="ui" x="752" y="232" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle">Export CSV</text>
+          <rect x="64" y="272" width="56" height="24" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <text class="ui" x="92" y="288" font-size="11" fill="#4d4d4d" text-anchor="middle">All</text>
+          <rect x="128" y="272" width="72" height="24" rx="6" fill="#171717"/>
+          <text class="ui" x="164" y="288" font-size="11" fill="#ffffff" text-anchor="middle">Unpaid</text>
+          <rect x="208" y="272" width="56" height="24" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <text class="ui" x="236" y="288" font-size="11" fill="#4d4d4d" text-anchor="middle">Paid</text>
+          <rect x="64" y="312" width="744" height="32" fill="#f2f2f2"/>
+          <text class="ui" x="80" y="332" font-size="11" font-weight="500" fill="#4d4d4d">Invoice</text>
+          <text class="ui" x="240" y="332" font-size="11" font-weight="500" fill="#4d4d4d">Customer</text>
+          <text class="ui" x="480" y="332" font-size="11" font-weight="500" fill="#4d4d4d">Due</text>
+          <text class="ui" x="640" y="332" font-size="11" font-weight="500" fill="#4d4d4d">Amount</text>
+          <g fill="#ebebeb">
+            <rect x="80" y="360" width="72" height="8" rx="2"/><rect x="240" y="360" width="120" height="8" rx="2"/><rect x="480" y="360" width="64" height="8" rx="2"/><rect x="640" y="360" width="56" height="8" rx="2"/>
+            <rect x="80" y="400" width="72" height="8" rx="2"/><rect x="240" y="400" width="96" height="8" rx="2"/><rect x="480" y="400" width="64" height="8" rx="2"/><rect x="640" y="400" width="72" height="8" rx="2"/>
+            <rect x="80" y="440" width="72" height="8" rx="2"/><rect x="240" y="440" width="136" height="8" rx="2"/><rect x="480" y="440" width="64" height="8" rx="2"/><rect x="640" y="440" width="48" height="8" rx="2"/>
+            <rect x="80" y="480" width="72" height="8" rx="2"/><rect x="240" y="480" width="104" height="8" rx="2"/><rect x="480" y="480" width="64" height="8" rx="2"/><rect x="640" y="480" width="64" height="8" rx="2"/>
+            <rect x="80" y="520" width="72" height="8" rx="2"/><rect x="240" y="520" width="88" height="8" rx="2"/><rect x="480" y="520" width="64" height="8" rx="2"/><rect x="640" y="520" width="56" height="8" rx="2"/>
+          </g>
+          <g stroke="rgba(0,0,0,0.06)">
+            <line x1="64" y1="384" x2="808" y2="384"/><line x1="64" y1="424" x2="808" y2="424"/><line x1="64" y1="464" x2="808" y2="464"/><line x1="64" y1="504" x2="808" y2="504"/><line x1="64" y1="544" x2="808" y2="544"/>
+          </g>
+
+          <!-- evo in-page indicator -->
+          <rect x="248" y="152" width="392" height="40" rx="8" fill="#ffffff" stroke="#0062d1" stroke-width="1.2"/>
+          <circle cx="268" cy="172" r="4" fill="#0062d1"/>
+          <text class="ui" x="282" y="176" font-size="12" font-weight="500" fill="#171717">Evo is working · Fix invoices</text>
+          <rect x="484" y="160" width="76" height="24" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="522" y="176" font-size="11" fill="#171717" text-anchor="middle">Take over</text>
+          <rect x="568" y="160" width="60" height="24" rx="6" fill="#171717"/>
+          <text class="ui" x="598" y="176" font-size="11" fill="#ffffff" text-anchor="middle">Stop</text>
+
+          <!-- Agent pointer -->
+          <path d="M800 236 V256 L805 251 L809 259 L812 258 L808 250 L815 250 Z" fill="#0062d1" stroke="#ffffff" stroke-width="1"/>
+          <rect x="816" y="258" width="32" height="16" rx="4" fill="#0062d1"/>
+          <text class="ui" x="832" y="270" font-size="10" font-weight="600" fill="#ffffff" text-anchor="middle">Evo</text>
+
+          <!-- Side panel -->
+          <rect x="856" y="136.5" width="400" height="598" fill="#fafafa"/>
+          <line x1="856" y1="136" x2="856" y2="736" stroke="rgba(0,0,0,0.10)"/>
+          <text class="ui" x="876" y="166" font-size="14" font-weight="600" fill="#171717">Evo Webbridge</text>
+          <text class="ui" x="986" y="166" font-size="12" fill="#666666">Fix invoices</text>
+          <circle cx="1132" cy="160" r="7" fill="none" stroke="#4d4d4d" stroke-width="1.2"/>
+          <path d="M1132 156 V160 L1135 162" fill="none" stroke="#4d4d4d" stroke-width="1.2"/>
+          <rect x="1153" y="153" width="14" height="14" rx="3" fill="none" stroke="#4d4d4d" stroke-width="1.2"/>
+          <path d="M1160 156 V164 M1156 160 H1164" stroke="#4d4d4d" stroke-width="1.2"/>
+          <circle cx="1186" cy="160" r="1.4" fill="#4d4d4d"/><circle cx="1192" cy="160" r="1.4" fill="#4d4d4d"/><circle cx="1198" cy="160" r="1.4" fill="#4d4d4d"/>
+          <path d="M1222 154 L1234 166 M1234 154 L1222 166" stroke="#4d4d4d" stroke-width="1.2"/>
+          <line x1="856" y1="184" x2="1256" y2="184" stroke="rgba(0,0,0,0.08)"/>
+
+          <rect x="1000" y="200" width="240" height="48" rx="8" fill="#ebebeb"/>
+          <text class="ui" x="1012" y="220" font-size="12" fill="#171717">Export last month's unpaid</text>
+          <text class="ui" x="1012" y="238" font-size="12" fill="#171717">invoices as CSV.</text>
+          <text class="ui" x="876" y="276" font-size="12" fill="#171717">I'll open Billing, filter Unpaid and export.</text>
+          <text class="um" x="876" y="304" font-size="11" fill="#666666">&gt; opened billing.example.com/invoices</text>
+          <text class="um" x="876" y="324" font-size="11" fill="#666666">&gt; read page · 42 rows</text>
+          <text class="um" x="876" y="344" font-size="11" fill="#666666">&gt; clicked “Unpaid”</text>
+
+          <rect x="872" y="372" width="368" height="124" rx="8" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <text class="um" x="888" y="394" font-size="9" letter-spacing="1.2" fill="#666666">SITE PERMISSION</text>
+          <text class="ui" x="888" y="416" font-size="13" font-weight="600" fill="#171717">Allow Evo to act on billing.example.com?</text>
+          <text class="ui" x="888" y="436" font-size="11" fill="#4d4d4d">Click “Export CSV” · asks once per site and chat</text>
+          <rect x="888" y="452" width="56" height="28" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="916" y="470" font-size="11" fill="#171717" text-anchor="middle">Deny</text>
+          <rect x="952" y="452" width="88" height="28" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="996" y="470" font-size="11" fill="#171717" text-anchor="middle">Allow once</text>
+          <rect x="1048" y="452" width="176" height="28" rx="6" fill="#0062d1"/>
+          <text class="ui" x="1136" y="470" font-size="11" font-weight="500" fill="#ffffff" text-anchor="middle">Allow for this site</text>
+
+          <rect x="872" y="592" width="368" height="128" rx="10" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <rect x="884" y="604" width="184" height="22" rx="6" fill="#f2f2f2"/>
+          <circle cx="896" cy="615" r="3.5" fill="#0062d1"/>
+          <text class="ui" x="906" y="619" font-size="11" fill="#171717">Include this tab · Billing</text>
+          <rect x="1076" y="604" width="104" height="22" rx="6" fill="#f2f2f2"/>
+          <rect x="1086" y="610" width="12" height="10" rx="2" fill="none" stroke="#4d4d4d"/>
+          <text class="ui" x="1104" y="619" font-size="11" fill="#171717">page.png</text>
+          <path d="M1162 611 L1170 619 M1170 611 L1162 619" stroke="#666666" stroke-width="1"/>
+          <text class="ui" x="888" y="656" font-size="13" fill="#8f8f8f">Ask Evo about this page…</text>
+          <path d="M896 686 V698 M890 692 H902" stroke="#171717" stroke-width="1.4"/>
+          <rect x="916" y="681" width="108" height="22" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <path d="M925 687 L930 692 L925 697 M931 687 L936 692 L931 697" fill="none" stroke="#171717" stroke-width="1.2"/>
+          <text class="ui" x="942" y="696" font-size="11" fill="#171717">Approve edits</text>
+          <text class="ui" x="1204" y="696" font-size="11" fill="#4d4d4d" text-anchor="end">Default model · Medium</text>
+          <rect x="1218" y="683" width="8" height="12" rx="4" fill="none" stroke="#171717" stroke-width="1.2"/>
+          <path d="M1215 692 Q1215 700 1222 700 Q1229 700 1229 692 M1222 700 V703" fill="none" stroke="#171717" stroke-width="1.2"/>
+
+          <!-- Numbered keys -->
+          <g>
+            <circle cx="280" cy="12" r="10" fill="#171717"/><text class="k" x="280" y="16" text-anchor="middle">1</text>
+            <circle cx="700" cy="120" r="10" fill="#171717"/><text class="k" x="700" y="124" text-anchor="middle">2</text>
+            <circle cx="660" cy="172" r="10" fill="#171717"/><text class="k" x="660" y="176" text-anchor="middle">3</text>
+            <circle cx="838" cy="226" r="10" fill="#171717"/><text class="k" x="838" y="230" text-anchor="middle">4</text>
+            <circle cx="1100" cy="160" r="10" fill="#171717"/><text class="k" x="1100" y="164" text-anchor="middle">5</text>
+            <circle cx="1180" cy="324" r="10" fill="#171717"/><text class="k" x="1180" y="328" text-anchor="middle">6</text>
+            <circle cx="1228" cy="394" r="10" fill="#171717"/><text class="k" x="1228" y="398" text-anchor="middle">7</text>
+            <circle cx="1228" cy="574" r="10" fill="#171717"/><text class="k" x="1228" y="578" text-anchor="middle">8</text>
+            <circle cx="1160" cy="84" r="10" fill="#171717"/><text class="k" x="1160" y="88" text-anchor="middle">9</text>
+          </g>
+        </svg>
+      </div>
+      <div class="keys">
+        <div class="key"><span class="num">1</span><span><b>Tab group per chat.</b> Named after the chat. Tabs the agent opens, and tabs opened from them, join it. Dragging a tab in hands it over; dragging it out takes it back.</span></div>
+        <div class="key"><span class="num">2</span><span><b>Browser's debugging notice.</b> Shown by the browser while Evo holds a tab; Evo cannot hide it. Held from the first call until 60 s after the turn.</span></div>
+        <div class="key"><span class="num">3</span><span><b>In-page indicator.</b> Names the chat. <b>Take over</b> holds the agent's calls on this tab; <b>Stop</b> stops the chat's turn.</span></div>
+        <div class="key"><span class="num">4</span><span><b>Agent pointer.</b> The virtual cursor the built-in browser already shows, drawn on the person's page.</span></div>
+        <div class="key"><span class="num">5</span><span><b>Side panel header.</b> Chat title, History (search by title), New chat, ⋯ (this site's permission, Stop all, Open in Evo, Settings), Close.</span></div>
+        <div class="key"><span class="num">6</span><span><b>Reply and tool activity.</b> Streamed from the same chat the app shows.</span></div>
+        <div class="key"><span class="num">7</span><span><b>Site permission question.</b> Asked once per site and chat; also shown in the app. The first answer settles both.</span></div>
+        <div class="key"><span class="num">8</span><span><b>Composer.</b> Include this tab, <b>+</b> for a page screenshot, files or another tab, the approval mode switch, model and effort, and the microphone (off by default).</span></div>
+        <div class="key"><span class="num">9</span><span><b>Evo button.</b> Opens the side panel; its popup shows the connection, this site's permission and Stop all.</span></div>
+      </div>
+    </figure>
+
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-settings-title webbridge-settings-desc">
+          <title id="webbridge-settings-title">Settings → Webbridge and the extension popup</title>
+          <desc id="webbridge-settings-desc">Mockup of the app's Webbridge settings with connected browsers, site permissions and side panel options, beside the extension's popup with connection state, this site's permission and Stop all.</desc>
+          <rect width="1280" height="520" fill="#fafafa"/>
+
+          <!-- Settings window -->
+          <rect x="24" y="24" width="880" height="472" rx="10" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <path d="M34 24 H224 V496 H34 Q24 496 24 486 V34 Q24 24 34 24 Z" fill="#f2f2f2"/>
+          <text class="ui" x="44" y="60" font-size="12" fill="#4d4d4d">General</text>
+          <text class="ui" x="44" y="92" font-size="12" fill="#4d4d4d">Providers</text>
+          <text class="ui" x="44" y="124" font-size="12" fill="#4d4d4d">Sandbox</text>
+          <text class="ui" x="44" y="156" font-size="12" fill="#4d4d4d">Computer apps</text>
+          <rect x="36" y="170" width="176" height="28" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.08)"/>
+          <text class="ui" x="44" y="188" font-size="12" font-weight="500" fill="#171717">Webbridge</text>
+          <text class="ui" x="44" y="220" font-size="12" fill="#4d4d4d">Logs</text>
+
+          <text class="ui" x="248" y="64" font-size="20" font-weight="600" fill="#171717">Webbridge</text>
+          <text class="ui" x="248" y="84" font-size="12" fill="#666666">Let Evo work in your own Chrome or Edge.</text>
+          <rect x="792" y="48" width="88" height="28" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="836" y="66" font-size="11" fill="#171717" text-anchor="middle">Stop all</text>
+
+          <text class="um" x="248" y="118" font-size="9" letter-spacing="1.2" fill="#666666">BROWSERS</text>
+          <rect x="248" y="128" width="632" height="48" rx="8" fill="#ffffff" stroke="rgba(0,0,0,0.10)"/>
+          <text class="ui" x="264" y="148" font-size="13" font-weight="600" fill="#171717">Chrome</text>
+          <text class="ui" x="264" y="166" font-size="11" fill="#666666">Connected · profiles Work, Personal · extension 1.0.0</text>
+          <rect x="800" y="139" width="64" height="26" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="832" y="156" font-size="11" fill="#171717" text-anchor="middle">Remove</text>
+          <rect x="248" y="184" width="632" height="48" rx="8" fill="#ffffff" stroke="rgba(0,0,0,0.10)"/>
+          <text class="ui" x="264" y="204" font-size="13" font-weight="600" fill="#171717">Edge</text>
+          <text class="ui" x="264" y="222" font-size="11" fill="#666666">Not set up</text>
+          <rect x="768" y="195" width="96" height="26" rx="6" fill="#0062d1"/>
+          <text class="ui" x="816" y="212" font-size="11" font-weight="500" fill="#ffffff" text-anchor="middle">Set up Edge</text>
+
+          <text class="um" x="248" y="266" font-size="9" letter-spacing="1.2" fill="#666666">SITE PERMISSIONS</text>
+          <g>
+            <line x1="248" y1="308" x2="880" y2="308" stroke="rgba(0,0,0,0.06)"/>
+            <line x1="248" y1="340" x2="880" y2="340" stroke="rgba(0,0,0,0.06)"/>
+            <text class="um" x="264" y="296" font-size="11" fill="#171717">billing.example.com</text>
+            <text class="um" x="264" y="328" font-size="11" fill="#171717">bank.example.com</text>
+            <text class="ui" x="264" y="360" font-size="12" fill="#4d4d4d">Every other site</text>
+            <rect x="784" y="280" width="80" height="22" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+            <text class="ui" x="796" y="295" font-size="11" fill="#171717">Allow</text>
+            <rect x="784" y="312" width="80" height="22" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+            <text class="ui" x="796" y="327" font-size="11" fill="#171717">Block</text>
+            <rect x="784" y="344" width="80" height="22" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+            <text class="ui" x="796" y="359" font-size="11" fill="#171717">Ask</text>
+            <path d="M846 288 L850 292 L854 288 M846 320 L850 324 L854 320 M846 352 L850 356 L854 352" fill="none" stroke="#4d4d4d" stroke-width="1.1"/>
+          </g>
+
+          <text class="um" x="248" y="398" font-size="9" letter-spacing="1.2" fill="#666666">SIDE PANEL</text>
+          <text class="ui" x="264" y="428" font-size="12" fill="#171717">New chats start in</text>
+          <rect x="704" y="412" width="160" height="24" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="716" y="428" font-size="11" fill="#171717">Last used workspace</text>
+          <path d="M846 422 L850 426 L854 422" fill="none" stroke="#4d4d4d" stroke-width="1.1"/>
+          <text class="ui" x="264" y="464" font-size="12" fill="#171717">Voice input</text>
+          <text class="ui" x="264" y="480" font-size="11" fill="#666666">When on, speech goes to the browser maker's service; only the text reaches evo.</text>
+          <rect x="832" y="452" width="32" height="18" rx="9" fill="#ebebeb"/>
+          <circle cx="841" cy="461" r="7" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+
+          <!-- Extension popup -->
+          <rect x="944" y="24" width="312" height="312" rx="10" fill="#ffffff" stroke="rgba(0,0,0,0.14)"/>
+          <g transform="translate(960 40) scale(0.0234375)"><rect x="64" y="64" width="896" height="896" rx="200" fill="#171717"/><g transform="translate(512 512) scale(9.739) rotate(-30) scale(1.25)" fill="none" stroke-width="8" stroke-linecap="round"><path d="M8 -17H-9A8 8 0 0 0 -17 -9V5" stroke="#ffffff"/><path d="M8 -17H-9A8 8 0 0 0 -17 -9V5" stroke="#ffffff" transform="rotate(180)"/><path d="M-3 0H3" stroke="#0072F5"/></g></g>
+          <text class="ui" x="996" y="52" font-size="13" font-weight="600" fill="#171717">Evo Webbridge</text>
+          <circle cx="1000" cy="66" r="3" fill="#0062d1"/>
+          <text class="ui" x="1008" y="70" font-size="11" fill="#4d4d4d">Connected to Evo · Chrome · Work</text>
+          <line x1="944" y1="88" x2="1256" y2="88" stroke="rgba(0,0,0,0.08)"/>
+          <text class="um" x="960" y="110" font-size="9" letter-spacing="1.2" fill="#666666">THIS SITE</text>
+          <text class="um" x="960" y="132" font-size="11" fill="#171717">billing.example.com</text>
+          <rect x="1160" y="117" width="80" height="22" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="1172" y="132" font-size="11" fill="#171717">Allow</text>
+          <path d="M1222 125 L1226 129 L1230 125" fill="none" stroke="#4d4d4d" stroke-width="1.1"/>
+          <line x1="944" y1="156" x2="1256" y2="156" stroke="rgba(0,0,0,0.08)"/>
+          <text class="um" x="960" y="178" font-size="9" letter-spacing="1.2" fill="#666666">WORKING NOW</text>
+          <text class="ui" x="960" y="200" font-size="12" fill="#171717">Fix invoices</text>
+          <text class="ui" x="1240" y="200" font-size="11" fill="#666666" text-anchor="end">2 tabs</text>
+          <text class="ui" x="960" y="222" font-size="12" fill="#171717">Q3 report</text>
+          <text class="ui" x="1240" y="222" font-size="11" fill="#666666" text-anchor="end">1 tab</text>
+          <rect x="960" y="248" width="280" height="32" rx="6" fill="#0062d1"/>
+          <text class="ui" x="1100" y="268" font-size="12" font-weight="500" fill="#ffffff" text-anchor="middle">Open side panel</text>
+          <rect x="960" y="288" width="280" height="32" rx="6" fill="#ffffff" stroke="rgba(0,0,0,0.18)"/>
+          <text class="ui" x="1100" y="308" font-size="12" fill="#171717" text-anchor="middle">Stop all in this browser</text>
+
+          <g>
+            <circle cx="236" cy="152" r="10" fill="#171717"/><text class="k" x="236" y="156" text-anchor="middle">10</text>
+            <circle cx="236" cy="296" r="10" fill="#171717"/><text class="k" x="236" y="300" text-anchor="middle">11</text>
+            <circle cx="236" cy="460" r="10" fill="#171717"/><text class="k" x="236" y="464" text-anchor="middle">12</text>
+            <circle cx="932" cy="52" r="10" fill="#171717"/><text class="k" x="932" y="56" text-anchor="middle">13</text>
+          </g>
+        </svg>
+      </div>
+      <div class="keys">
+        <div class="key"><span class="num">10</span><span><b>Browsers.</b> Set up registers Evo with that browser for the current user and opens the extension's page; each connected profile shows by name. Remove undoes it.</span></div>
+        <div class="key"><span class="num">11</span><span><b>Site permissions.</b> One list for all browsers. Ask by default; Allow skips the act question; Block refuses in every mode.</span></div>
+        <div class="key"><span class="num">12</span><span><b>Side panel options.</b> Workspace for new chats, and voice input with a plain notice of where the audio goes.</span></div>
+        <div class="key"><span class="num">13</span><span><b>Extension popup.</b> Connection, this site's permission, chats working in this browser, Open side panel, Stop all.</span></div>
+      </div>
+    </figure>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">02 · How it fits together</p>
+    <h2>Processes and channels</h2>
+    <div class="prose">
+      <p>The extension is a thin client: it relays DevTools commands for tabs in Evo's groups and hosts the side panel. The browser starts <code>evo-bridge-host</code>, which joins the shell over a named pipe. Every decision stays in the shell (<code>webbridge</code>): which chat owns a tab, what the gate allows, which engine runs. The browser tools reach the tab through <code>BridgeHost</code>, a second implementation of the page driver's tab host beside today's WebView2 one.</p>
+    </div>
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 680" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-architecture-title webbridge-architecture-desc">
+          <title id="webbridge-architecture-title">Webbridge processes and channels</title>
+          <desc id="webbridge-architecture-desc">The side panel and the extension's service worker in the browser reach evo-bridge-host over native messaging; the host reaches the shell's webbridge module over a named pipe, which serves the browser tools through BridgeHost and the side panel through the supervisor and the chat's engine.</desc>
+          <defs>
+            <marker id="arch-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon points="0 0, 8 3, 0 6" fill="#4d4d4d"/></marker>
+            <marker id="arch-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto-start-reverse"><polygon points="0 0, 8 3, 0 6" fill="#0062d1"/></marker>
+          </defs>
+          <rect width="1280" height="680" fill="#fafafa"/>
+
+          <!-- Zones -->
+          <rect x="32" y="72" width="360" height="496" rx="8" fill="rgba(23,23,23,0.02)" stroke="rgba(23,23,23,0.10)" stroke-width="0.8"/>
+          <rect x="44" y="76" width="124" height="12" rx="2" fill="#fafafa"/>
+          <text class="e" x="50" y="85">CHROME / EDGE PROFILE</text>
+          <rect x="696" y="72" width="552" height="496" rx="8" fill="rgba(23,23,23,0.02)" stroke="rgba(23,23,23,0.10)" stroke-width="0.8"/>
+          <rect x="708" y="76" width="136" height="12" rx="2" fill="#fafafa"/>
+          <text class="e" x="714" y="85">EVO APP · SHELL + ENGINE</text>
+
+          <!-- Arrows (before nodes) -->
+          <line x1="212" y1="192" x2="212" y2="286" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="220" y="232" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="224" y="241">RUNTIME MSG</text>
+
+          <line x1="212" y1="360" x2="212" y2="454" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="220" y="400" width="28" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="224" y="409">CDP</text>
+
+          <line x1="354" y1="324" x2="446" y2="324" stroke="#4d4d4d" stroke-width="1.2" marker-start="url(#arch-arrow)" marker-end="url(#arch-arrow)"/>
+          <rect x="368" y="304" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="400" y="313" text-anchor="middle">NATIVE MSG</text>
+
+          <line x1="642" y1="324" x2="734" y2="324" stroke="#0062d1" stroke-width="1.4" marker-start="url(#arch-arrow-accent)" marker-end="url(#arch-arrow-accent)"/>
+          <rect x="656" y="304" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="688" y="313" text-anchor="middle" style="fill:#0062d1">NAMED PIPE</text>
+
+          <line x1="848" y1="456" x2="848" y2="362" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="856" y="402" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="860" y="411">CDP FRAMES</text>
+
+          <line x1="1024" y1="492" x2="962" y2="492" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="977" y="472" width="32" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="993" y="481" text-anchor="middle">PAGE</text>
+
+          <line x1="1120" y1="192" x2="1120" y2="454" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="1128" y="316" width="56" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="1132" y="325">TOOL CALL</text>
+
+          <line x1="848" y1="288" x2="848" y2="194" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="856" y="234" width="56" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="860" y="243">PANEL OPS</text>
+
+          <line x1="960" y1="156" x2="1022" y2="156" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <rect x="968" y="136" width="48" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="992" y="145" text-anchor="middle">ENSURE</text>
+
+          <!-- Nodes -->
+          <g>
+            <rect x="72" y="120" width="280" height="72" rx="6" fill="#fafafa"/>
+            <rect x="72" y="120" width="280" height="72" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="80" y="126" width="20" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="90" y="135" text-anchor="middle" fill="#4d4d4d">UI</text>
+            <text class="n" x="212" y="158" text-anchor="middle">Side panel</text>
+            <text class="s" x="212" y="174" text-anchor="middle">chat client · sidePanel API</text>
+          </g>
+          <g>
+            <rect x="72" y="288" width="280" height="72" rx="6" fill="#fafafa"/>
+            <rect x="72" y="288" width="280" height="72" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="80" y="294" width="28" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="94" y="303" text-anchor="middle" fill="#4d4d4d">MV3</text>
+            <text class="n" x="212" y="326" text-anchor="middle">Extension service worker</text>
+            <text class="s" x="212" y="342" text-anchor="middle">chrome.debugger · tabGroups</text>
+          </g>
+          <g>
+            <rect x="72" y="456" width="280" height="72" rx="6" fill="#fafafa"/>
+            <rect x="72" y="456" width="280" height="72" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.20)" stroke-dasharray="4,3"/>
+            <rect x="80" y="462" width="28" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="94" y="471" text-anchor="middle" fill="#4d4d4d">TAB</text>
+            <text class="n" x="212" y="494" text-anchor="middle">Tab in the chat's group</text>
+            <text class="s" x="212" y="510" text-anchor="middle">page · untrusted content</text>
+          </g>
+          <g>
+            <rect x="448" y="288" width="192" height="72" rx="6" fill="#fafafa"/>
+            <rect x="448" y="288" width="192" height="72" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="456" y="294" width="28" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="470" y="303" text-anchor="middle" fill="#4d4d4d">BIN</text>
+            <text class="n" x="544" y="326" text-anchor="middle">evo-bridge-host</text>
+            <text class="s" x="544" y="342" text-anchor="middle">stdio ⇄ pipe · per profile</text>
+          </g>
+          <g>
+            <rect x="736" y="120" width="224" height="72" rx="6" fill="#fafafa"/>
+            <rect x="736" y="120" width="224" height="72" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="744" y="126" width="36" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="762" y="135" text-anchor="middle" fill="#4d4d4d">SHELL</text>
+            <text class="n" x="848" y="158" text-anchor="middle">Supervisor</text>
+            <text class="s" x="848" y="174" text-anchor="middle">hosted engines · open questions</text>
+          </g>
+          <g>
+            <rect x="736" y="288" width="224" height="72" rx="6" fill="#fafafa"/>
+            <rect x="736" y="288" width="224" height="72" rx="6" fill="rgba(0,98,209,0.07)" stroke="#0062d1" stroke-width="1.2"/>
+            <rect x="744" y="294" width="28" height="12" rx="2" fill="none" stroke="rgba(0,98,209,0.5)" stroke-width="0.8"/>
+            <text class="tg" x="758" y="303" text-anchor="middle" fill="#0062d1">NEW</text>
+            <text class="n" x="848" y="326" text-anchor="middle">webbridge</text>
+            <text class="s" x="848" y="342" text-anchor="middle">server · groups · sites · panel</text>
+          </g>
+          <g>
+            <rect x="736" y="456" width="224" height="72" rx="6" fill="#fafafa"/>
+            <rect x="736" y="456" width="224" height="72" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="744" y="462" width="28" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="758" y="471" text-anchor="middle" fill="#4d4d4d">NEW</text>
+            <text class="n" x="848" y="494" text-anchor="middle">BridgeHost</text>
+            <text class="s" x="848" y="510" text-anchor="middle">TabHost · cdp · eval · dialogs</text>
+          </g>
+          <g>
+            <rect x="1024" y="120" width="192" height="72" rx="6" fill="#fafafa"/>
+            <rect x="1024" y="120" width="192" height="72" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="1032" y="126" width="40" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="1052" y="135" text-anchor="middle" fill="#4d4d4d">ENGINE</text>
+            <text class="n" x="1120" y="158" text-anchor="middle">evo-engine</text>
+            <text class="s" x="1120" y="174" text-anchor="middle">agent loop · one per chat</text>
+          </g>
+          <g>
+            <rect x="1024" y="456" width="192" height="72" rx="6" fill="#fafafa"/>
+            <rect x="1024" y="456" width="192" height="72" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <rect x="1032" y="462" width="36" height="12" rx="2" fill="none" stroke="rgba(23,23,23,0.35)" stroke-width="0.8"/>
+            <text class="tg" x="1050" y="471" text-anchor="middle" fill="#4d4d4d">SHELL</text>
+            <text class="n" x="1120" y="494" text-anchor="middle">Browser tools</text>
+            <text class="s" x="1120" y="510" text-anchor="middle">29 browser_* · approval gate</text>
+          </g>
+
+          <!-- Legend -->
+          <line x1="32" y1="600" x2="1248" y2="600" stroke="rgba(23,23,23,0.10)" stroke-width="0.8"/>
+          <text class="e" x="32" y="628">LEGEND</text>
+          <line x1="112" y1="625" x2="148" y2="625" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+          <text class="s" x="156" y="628">call or relay</text>
+          <line x1="272" y1="625" x2="308" y2="625" stroke="#0062d1" stroke-width="1.4" marker-end="url(#arch-arrow-accent)"/>
+          <text class="s" x="316" y="628">new trust channel into the shell</text>
+          <rect x="520" y="618" width="20" height="14" rx="3" fill="rgba(0,98,209,0.07)" stroke="#0062d1"/>
+          <text class="s" x="548" y="628">focal: where every decision is made</text>
+          <rect x="776" y="618" width="20" height="14" rx="3" fill="#f2f2f2" stroke="rgba(23,23,23,0.20)" stroke-dasharray="4,3"/>
+          <text class="s" x="804" y="628">untrusted content</text>
+          <text class="s" x="936" y="628">BridgeHost sits beside WebviewHost (built-in browser)</text>
+        </svg>
+      </div>
+      <figcaption>Two arrowheads mean the channel carries requests one way and answers and events the other. The engine protocol does not change; the side panel is one more client attached to a shell-hosted engine.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">03 · How a call travels</p>
+    <h2>The agent opens a page and clicks</h2>
+    <div class="prose">
+      <p>The browser tools don't know which browser serves the page. A Webbridge tab id (<code>chrome:work:1234</code>) routes the call through <code>BridgeHost</code>; the host process only frames bytes and is left out of this picture.</p>
+    </div>
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-sequence-title webbridge-sequence-desc">
+          <title id="webbridge-sequence-title">Opening a page and clicking in a Webbridge tab</title>
+          <desc id="webbridge-sequence-desc">Sequence in which the engine asks the browser tools to navigate, webbridge has the extension open a tab in the chat's group and attach to it, then a click is checked by the gate, relayed to the tab and its result returned to the engine.</desc>
+          <defs>
+            <marker id="seq-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4d4d4d"/></marker>
+            <marker id="seq-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0062d1"/></marker>
+          </defs>
+          <rect width="1280" height="700" fill="#fafafa"/>
+
+          <!-- Lifelines -->
+          <g stroke="rgba(23,23,23,0.20)" stroke-width="1" stroke-dasharray="3,3">
+            <line x1="160" y1="88" x2="160" y2="632"/>
+            <line x1="420" y1="88" x2="420" y2="632"/>
+            <line x1="680" y1="88" x2="680" y2="632"/>
+            <line x1="940" y1="88" x2="940" y2="632"/>
+            <line x1="1160" y1="88" x2="1160" y2="632"/>
+          </g>
+
+          <!-- opt fragment -->
+          <rect x="316" y="384" width="264" height="72" rx="4" fill="rgba(23,23,23,0.02)" stroke="rgba(23,23,23,0.22)"/>
+          <rect x="316" y="384" width="40" height="16" rx="2" fill="#fafafa" stroke="rgba(23,23,23,0.22)"/>
+          <text class="e" x="336" y="395" text-anchor="middle" style="font-size:8px;letter-spacing:0.12em;fill:#4d4d4d">OPT</text>
+          <text class="al" x="436" y="396" style="fill:#4d4d4d;letter-spacing:0.04em">[site Ask · first act]</text>
+
+          <!-- Activation bars -->
+          <rect x="416" y="128" width="8" height="200" fill="rgba(23,23,23,0.06)" stroke="#4d4d4d" stroke-width="0.8"/>
+          <rect x="416" y="368" width="8" height="232" fill="rgba(23,23,23,0.06)" stroke="#4d4d4d" stroke-width="0.8"/>
+          <rect x="676" y="168" width="8" height="120" fill="rgba(23,23,23,0.06)" stroke="#4d4d4d" stroke-width="0.8"/>
+          <rect x="676" y="480" width="8" height="40" fill="rgba(23,23,23,0.06)" stroke="#4d4d4d" stroke-width="0.8"/>
+
+          <!-- Messages -->
+          <line x1="160" y1="128" x2="414" y2="128" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="250" y="108" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="290" y="117" text-anchor="middle">NAVIGATE</text>
+
+          <line x1="424" y1="168" x2="674" y2="168" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="506" y="148" width="88" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="550" y="157" text-anchor="middle">OPEN · SITE OK</text>
+
+          <line x1="684" y1="208" x2="938" y2="208" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="766" y="188" width="92" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="812" y="197" text-anchor="middle">OPEN GROUP,URL</text>
+
+          <line x1="940" y1="248" x2="1158" y2="248" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="1006" y="228" width="88" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="1050" y="237" text-anchor="middle">CREATE+ATTACH</text>
+
+          <line x1="940" y1="288" x2="686" y2="288" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#seq-arrow)"/>
+          <rect x="784" y="268" width="56" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="812" y="277" text-anchor="middle">TAB 1234</text>
+
+          <line x1="416" y1="328" x2="162" y2="328" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#seq-arrow)"/>
+          <rect x="250" y="308" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="290" y="317" text-anchor="middle">PAGE SUMMARY</text>
+
+          <line x1="160" y1="368" x2="414" y2="368" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="250" y="348" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="290" y="357" text-anchor="middle">CLICK</text>
+
+          <path d="M424 416 H456 Q464 416 464 424 V432 Q464 440 456 440 H426" fill="none" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="474" y="422" width="72" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="478" y="431">ASK PERSON</text>
+
+          <line x1="424" y1="480" x2="674" y2="480" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="510" y="460" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="550" y="469" text-anchor="middle">CDP INPUT.*</text>
+
+          <line x1="684" y1="520" x2="938" y2="520" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="772" y="500" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="812" y="509" text-anchor="middle">RELAY FRAMES</text>
+
+          <line x1="940" y1="560" x2="1158" y2="560" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <rect x="1018" y="540" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="1050" y="549" text-anchor="middle">DISPATCH</text>
+
+          <line x1="416" y1="600" x2="162" y2="600" stroke="#0062d1" stroke-width="1.4" marker-end="url(#seq-arrow-accent)"/>
+          <rect x="250" y="580" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="290" y="589" text-anchor="middle" style="fill:#0062d1">WHAT CHANGED</text>
+
+          <!-- Actors -->
+          <g>
+            <rect x="72" y="40" width="176" height="48" rx="6" fill="#fafafa"/>
+            <rect x="72" y="40" width="176" height="48" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="160" y="62" text-anchor="middle">evo-engine</text>
+            <text class="s" x="160" y="77" text-anchor="middle">agent loop</text>
+          </g>
+          <g>
+            <rect x="332" y="40" width="176" height="48" rx="6" fill="#fafafa"/>
+            <rect x="332" y="40" width="176" height="48" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="420" y="62" text-anchor="middle">Browser tools</text>
+            <text class="s" x="420" y="77" text-anchor="middle">shell · page driver · gate</text>
+          </g>
+          <g>
+            <rect x="592" y="40" width="176" height="48" rx="6" fill="#fafafa"/>
+            <rect x="592" y="40" width="176" height="48" rx="6" fill="rgba(0,98,209,0.07)" stroke="#0062d1" stroke-width="1.2"/>
+            <text class="n" x="680" y="62" text-anchor="middle">webbridge</text>
+            <text class="s" x="680" y="77" text-anchor="middle">shell · BridgeHost</text>
+          </g>
+          <g>
+            <rect x="852" y="40" width="176" height="48" rx="6" fill="#fafafa"/>
+            <rect x="852" y="40" width="176" height="48" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="940" y="62" text-anchor="middle">Extension</text>
+            <text class="s" x="940" y="77" text-anchor="middle">via evo-bridge-host</text>
+          </g>
+          <g>
+            <rect x="1072" y="40" width="176" height="48" rx="6" fill="#fafafa"/>
+            <rect x="1072" y="40" width="176" height="48" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.20)" stroke-dasharray="4,3"/>
+            <text class="n" x="1160" y="62" text-anchor="middle">Tab</text>
+            <text class="s" x="1160" y="77" text-anchor="middle">debugger target</text>
+          </g>
+
+          <!-- Legend -->
+          <line x1="32" y1="652" x2="1248" y2="652" stroke="rgba(23,23,23,0.10)" stroke-width="0.8"/>
+          <text class="e" x="32" y="680">LEGEND</text>
+          <line x1="112" y1="677" x2="148" y2="677" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#seq-arrow)"/>
+          <text class="s" x="156" y="680">call</text>
+          <line x1="224" y1="677" x2="260" y2="677" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#seq-arrow)"/>
+          <text class="s" x="268" y="680">return</text>
+          <line x1="344" y1="677" x2="380" y2="677" stroke="#0062d1" stroke-width="1.4" marker-end="url(#seq-arrow-accent)"/>
+          <text class="s" x="388" y="680">result to the agent, page content marked untrusted</text>
+        </svg>
+      </div>
+      <figcaption>The first act on a site set to Ask asks once for that site and chat (in "Ask every time" and "Approve edits"); "Allow for this site" saves Allow. A Block site is refused before <code>OPEN</code> is sent.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">04 · Who owns a tab</p>
+    <h2>A tab's life in Webbridge</h2>
+    <div class="prose">
+      <p>Ownership is the tab group: a tab belongs to a chat while it sits in that chat's group, and only that chat's agent can name it. The debugger is held only while the agent is using the tab.</p>
+    </div>
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-tab-states-title webbridge-tab-states-desc">
+          <title id="webbridge-tab-states-title">States of a tab in Webbridge</title>
+          <desc id="webbridge-tab-states-desc">A tab moves from the person's own tabs into a chat's group when handed over or opened by the agent, becomes attached on the agent's first call, can be taken over by the person and handed back, is released after the turn, and is gone when it or its browser closes.</desc>
+          <defs>
+            <marker id="st-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4d4d4d"/></marker>
+          </defs>
+          <rect width="1280" height="420" fill="#fafafa"/>
+
+          <!-- Transitions -->
+          <line x1="488" y1="46" x2="488" y2="94" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="496" y="58" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="500" y="67">AGENT OPENS</text>
+
+          <line x1="240" y1="116" x2="382" y2="116" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="280" y="96" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="312" y="105" text-anchor="middle">HAND OVER</text>
+          <line x1="384" y1="140" x2="242" y2="140" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="280" y="148" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="312" y="157" text-anchor="middle">TAKE BACK</text>
+
+          <line x1="592" y1="116" x2="734" y2="116" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="632" y="96" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="664" y="105" text-anchor="middle">FIRST CALL</text>
+          <line x1="736" y1="140" x2="594" y2="140" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#st-arrow)"/>
+          <rect x="624" y="148" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="664" y="157" text-anchor="middle">60 S AFTER TURN</text>
+
+          <line x1="928" y1="116" x2="1038" y2="116" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="952" y="96" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="984" y="105" text-anchor="middle">TAKE OVER</text>
+          <line x1="1040" y1="140" x2="930" y2="140" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="952" y="148" width="64" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="984" y="157" text-anchor="middle">HAND BACK</text>
+
+          <line x1="488" y1="152" x2="488" y2="282" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#st-arrow)"/>
+          <rect x="496" y="212" width="48" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="500" y="221">CLOSED</text>
+
+          <!-- States -->
+          <circle cx="488" cy="40" r="6" fill="#171717"/>
+          <g>
+            <rect x="64" y="96" width="176" height="56" rx="8" fill="#fafafa"/>
+            <rect x="64" y="96" width="176" height="56" rx="8" fill="#f2f2f2" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="152" y="121" text-anchor="middle">Outside Evo</text>
+            <text class="s" x="152" y="137" text-anchor="middle">the person's own tab</text>
+          </g>
+          <g>
+            <rect x="384" y="96" width="208" height="56" rx="8" fill="#fafafa"/>
+            <rect x="384" y="96" width="208" height="56" rx="8" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="488" y="121" text-anchor="middle">In the chat's group</text>
+            <text class="s" x="488" y="137" text-anchor="middle">owned by one chat</text>
+          </g>
+          <g>
+            <rect x="736" y="96" width="192" height="56" rx="8" fill="#fafafa"/>
+            <rect x="736" y="96" width="192" height="56" rx="8" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="832" y="121" text-anchor="middle">Attached</text>
+            <text class="s" x="832" y="137" text-anchor="middle">debugger · indicator on</text>
+          </g>
+          <g>
+            <rect x="1040" y="96" width="176" height="56" rx="8" fill="#fafafa"/>
+            <rect x="1040" y="96" width="176" height="56" rx="8" fill="rgba(0,98,209,0.07)" stroke="#0062d1" stroke-width="1.2"/>
+            <text class="n" x="1128" y="121" text-anchor="middle">Taken over</text>
+            <text class="s" x="1128" y="137" text-anchor="middle">calls wait for the person</text>
+          </g>
+          <circle cx="488" cy="292" r="8" fill="none" stroke="#171717" stroke-width="1.2"/>
+          <circle cx="488" cy="292" r="5" fill="#171717"/>
+          <text class="n" x="508" y="296">Gone</text>
+
+          <text class="co" x="560" y="296">Any state → Gone when the tab, its group, the browser or the extension closes, or Evo quits;</text>
+          <text class="co" x="560" y="312">the agent's next call says why. Stop all also detaches every tab of the profile.</text>
+        </svg>
+      </div>
+    </figure>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">05 · What the agent may do</p>
+    <h2>The gate on a Webbridge tab</h2>
+    <div class="prose">
+      <p>Site permissions sit inside the existing approval gate; they add rules, never remove one. Reads (page text, screenshots, the accessibility tree) never ask, but stop at a Block site like everything else.</p>
+    </div>
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-gate-title webbridge-gate-desc">
+          <title id="webbridge-gate-title">Approval gate for acts on a Webbridge tab</title>
+          <desc id="webbridge-gate-desc">Decision flow: a blocked site is refused in every mode; commands ask as the chat's approval mode says; other acts run when the site is set to Allow or the mode is Approve for me, and otherwise ask once per site and chat.</desc>
+          <defs>
+            <marker id="fl-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4d4d4d"/></marker>
+            <marker id="fl-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0062d1"/></marker>
+          </defs>
+          <rect width="1280" height="620" fill="#fafafa"/>
+
+          <!-- Connectors -->
+          <line x1="192" y1="80" x2="192" y2="114" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+
+          <line x1="272" y1="156" x2="398" y2="156" stroke="#0062d1" stroke-width="1.4" marker-end="url(#fl-arrow-accent)"/>
+          <rect x="316" y="136" width="28" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="330" y="145" text-anchor="middle" style="fill:#0062d1">YES</text>
+          <line x1="192" y1="196" x2="192" y2="242" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+          <rect x="200" y="212" width="20" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="204" y="221">NO</text>
+
+          <line x1="272" y1="284" x2="398" y2="284" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+          <rect x="316" y="264" width="28" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="330" y="273" text-anchor="middle">YES</text>
+          <line x1="192" y1="324" x2="192" y2="362" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+          <rect x="200" y="336" width="20" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="204" y="345">NO</text>
+
+          <line x1="304" y1="412" x2="398" y2="412" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+          <rect x="336" y="392" width="28" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="350" y="401" text-anchor="middle">YES</text>
+          <line x1="192" y1="460" x2="192" y2="498" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+          <rect x="200" y="472" width="20" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="204" y="481">NO</text>
+
+          <path d="M304 520 H512 Q520 520 520 512 V434" fill="none" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#fl-arrow)"/>
+          <rect x="376" y="500" width="56" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="404" y="509" text-anchor="middle">ALLOWED</text>
+
+          <!-- Nodes -->
+          <rect x="80" y="40" width="224" height="40" rx="20" fill="#fafafa"/>
+          <rect x="80" y="40" width="224" height="40" rx="20" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="192" y="64" text-anchor="middle">Act on a Webbridge tab</text>
+
+          <polygon points="192,116 272,156 192,196 112,156" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="192" y="160" text-anchor="middle">Site blocked?</text>
+
+          <polygon points="192,244 272,284 192,324 112,284" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="192" y="288" text-anchor="middle">A command?</text>
+
+          <polygon points="192,364 304,412 192,460 80,412" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="192" y="408" text-anchor="middle">Site Allow, or</text>
+          <text class="n" x="192" y="424" text-anchor="middle">Approve for me?</text>
+
+          <rect x="80" y="500" width="224" height="40" rx="6" fill="#fafafa"/>
+          <rect x="80" y="500" width="224" height="40" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="192" y="524" text-anchor="middle">Ask once · site + chat</text>
+
+          <rect x="400" y="136" width="240" height="40" rx="6" fill="#fafafa"/>
+          <rect x="400" y="136" width="240" height="40" rx="6" fill="rgba(0,98,209,0.07)" stroke="#0062d1" stroke-width="1.2"/>
+          <text class="n" x="520" y="160" text-anchor="middle">Refuse · in every mode</text>
+
+          <rect x="400" y="264" width="240" height="40" rx="6" fill="#fafafa"/>
+          <rect x="400" y="264" width="240" height="40" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="520" y="288" text-anchor="middle">Ask as the chat's mode says</text>
+
+          <rect x="400" y="392" width="240" height="40" rx="6" fill="#fafafa"/>
+          <rect x="400" y="392" width="240" height="40" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+          <text class="n" x="520" y="416" text-anchor="middle">Run</text>
+
+          <text class="co" x="680" y="160">The one rule no mode lifts; the agent is told the person blocked the site.</text>
+          <text class="co" x="680" y="288">Uploads, storage and cookie writes, request mocks, scripts: every time in "Ask every time" and "Approve edits".</text>
+          <text class="co" x="680" y="416">Clicks, typing, keys, scrolling and navigation.</text>
+          <text class="co" x="560" y="524">"Allow for this site" saves Allow, so the next act on it runs without asking.</text>
+        </svg>
+      </div>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>On a Webbridge tab</th><th>Ask every time</th><th>Approve edits</th><th>Approve for me</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Read (page text, screenshot, find)</td><td class="no">runs</td><td class="no">runs</td><td class="no">runs</td></tr>
+          <tr><td>Act (click, type, key, scroll, navigate) · site Ask</td><td class="ask">asks once per site and chat</td><td class="ask">asks once per site and chat</td><td class="no">runs</td></tr>
+          <tr><td>Act · site Allow</td><td class="no">runs</td><td class="no">runs</td><td class="no">runs</td></tr>
+          <tr><td>Command (upload, storage, cookies, mock, script)</td><td class="ask">asks every time</td><td class="ask">asks every time</td><td class="no">runs</td></tr>
+          <tr><td>Anything · site Block</td><td>refused</td><td>refused</td><td>refused</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">06 · Who can reach it</p>
+    <h2>Trust boundaries</h2>
+    <div class="prose">
+      <p>Web pages, other extensions, other users and the network must not reach the bridge. Code already running as the same user is out of scope: it could read the browser profile anyway. Three checks stand in the way, and none of them is a secret the extension keeps.</p>
+    </div>
+    <figure>
+      <div class="diagram-container">
+        <svg class="w1280" viewBox="0 0 1280 580" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="webbridge-trust-title webbridge-trust-desc">
+          <title id="webbridge-trust-title">Who can reach the Webbridge</title>
+          <desc id="webbridge-trust-desc">Only Evo's extension can start the host, the host reaches the shell over a per-user named pipe, and the shell verifies the host process and extension origin before webbridge acts and logs; web pages, other extensions, other users and the network are stopped at the boundary.</desc>
+          <defs>
+            <marker id="tr-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4d4d4d"/></marker>
+            <marker id="tr-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0062d1"/></marker>
+          </defs>
+          <rect width="1280" height="580" fill="#fafafa"/>
+
+          <!-- Zones -->
+          <rect x="32" y="88" width="384" height="392" rx="8" fill="rgba(23,23,23,0.02)" stroke="rgba(23,23,23,0.10)" stroke-width="0.8"/>
+          <rect x="44" y="92" width="100" height="12" rx="2" fill="#fafafa"/>
+          <text class="e" x="50" y="101">BROWSER PROFILE</text>
+          <rect x="480" y="200" width="768" height="280" rx="8" fill="rgba(23,23,23,0.02)" stroke="#171717" stroke-width="1" stroke-dasharray="6,4"/>
+          <rect x="492" y="204" width="148" height="12" rx="2" fill="#fafafa"/>
+          <text class="e" x="498" y="213">SAME USER · THIS MACHINE</text>
+
+          <!-- Forbidden routes (stop before the boundary) -->
+          <path d="M376 168 H592 Q600 168 600 176 V188" fill="none" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="4,3"/>
+          <line x1="588" y1="190" x2="612" y2="190" stroke="#171717" stroke-width="2.4"/>
+          <rect x="452" y="148" width="104" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="504" y="157" text-anchor="middle">NOT IN ORIGINS</text>
+          <line x1="860" y1="152" x2="860" y2="188" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="4,3"/>
+          <line x1="848" y1="190" x2="872" y2="190" stroke="#171717" stroke-width="2.4"/>
+          <rect x="868" y="164" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="872" y="173">NO PORT · ACL</text>
+
+          <!-- Permitted route -->
+          <line x1="376" y1="408" x2="518" y2="408" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#tr-arrow)"/>
+          <rect x="400" y="388" width="80" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="440" y="397" text-anchor="middle">ORIGIN LISTED</text>
+          <line x1="696" y1="408" x2="758" y2="408" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#tr-arrow)"/>
+          <rect x="708" y="388" width="36" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="726" y="397" text-anchor="middle">PIPE</text>
+          <line x1="960" y1="408" x2="1030" y2="408" stroke="#0062d1" stroke-width="1.4" marker-end="url(#tr-arrow-accent)"/>
+          <rect x="964" y="388" width="60" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="994" y="397" text-anchor="middle" style="fill:#0062d1">VERIFIED</text>
+          <line x1="1124" y1="376" x2="1124" y2="290" stroke="#4d4d4d" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#tr-arrow)"/>
+          <rect x="1132" y="328" width="40" height="12" rx="2" fill="#fafafa"/>
+          <text class="al" x="1136" y="337">AUDIT</text>
+
+          <!-- Nodes -->
+          <g>
+            <rect x="72" y="136" width="304" height="64" rx="6" fill="#fafafa"/>
+            <rect x="72" y="136" width="304" height="64" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.25)" stroke-dasharray="4,3"/>
+            <text class="n" x="224" y="164" text-anchor="middle">Web pages · other extensions</text>
+            <text class="s" x="224" y="180" text-anchor="middle">untrusted</text>
+          </g>
+          <g>
+            <rect x="72" y="376" width="304" height="64" rx="6" fill="#fafafa"/>
+            <rect x="72" y="376" width="304" height="64" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="224" y="404" text-anchor="middle">Evo extension</text>
+            <text class="s" x="224" y="420" text-anchor="middle">no host permissions · no secrets</text>
+          </g>
+          <g>
+            <rect x="776" y="96" width="168" height="56" rx="6" fill="#fafafa"/>
+            <rect x="776" y="96" width="168" height="56" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.25)" stroke-dasharray="4,3"/>
+            <text class="n" x="860" y="120" text-anchor="middle">Other users · network</text>
+            <text class="s" x="860" y="136" text-anchor="middle">untrusted</text>
+          </g>
+          <g>
+            <rect x="520" y="376" width="176" height="64" rx="6" fill="#fafafa"/>
+            <rect x="520" y="376" width="176" height="64" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="608" y="404" text-anchor="middle">evo-bridge-host</text>
+            <text class="s" x="608" y="420" text-anchor="middle">checks pipe server is Evo</text>
+          </g>
+          <g>
+            <rect x="760" y="376" width="200" height="64" rx="6" fill="#fafafa"/>
+            <rect x="760" y="376" width="200" height="64" rx="6" fill="rgba(0,98,209,0.07)" stroke="#0062d1" stroke-width="1.2"/>
+            <text class="n" x="860" y="404" text-anchor="middle">Peer and origin check</text>
+            <text class="s" x="860" y="420" text-anchor="middle">host image · allowed ids</text>
+          </g>
+          <g>
+            <rect x="1032" y="376" width="184" height="64" rx="6" fill="#fafafa"/>
+            <rect x="1032" y="376" width="184" height="64" rx="6" fill="#ffffff" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="1124" y="404" text-anchor="middle">webbridge + gate</text>
+            <text class="s" x="1124" y="420" text-anchor="middle">tab ownership · sites</text>
+          </g>
+          <g>
+            <rect x="1032" y="232" width="184" height="56" rx="6" fill="#fafafa"/>
+            <rect x="1032" y="232" width="184" height="56" rx="6" fill="#f2f2f2" stroke="rgba(23,23,23,0.30)"/>
+            <text class="n" x="1124" y="256" text-anchor="middle">Evo logs</text>
+            <text class="s" x="1124" y="272" text-anchor="middle">no page text, no typing</text>
+          </g>
+
+          <!-- Legend -->
+          <line x1="32" y1="512" x2="1248" y2="512" stroke="rgba(23,23,23,0.10)" stroke-width="0.8"/>
+          <text class="e" x="32" y="540">LEGEND</text>
+          <line x1="112" y1="537" x2="148" y2="537" stroke="#4d4d4d" stroke-width="1.2" marker-end="url(#tr-arrow)"/>
+          <text class="s" x="156" y="540">permitted route</text>
+          <line x1="280" y1="537" x2="308" y2="537" stroke="#4d4d4d" stroke-width="1.2" stroke-dasharray="4,3"/>
+          <line x1="310" y1="531" x2="310" y2="543" stroke="#171717" stroke-width="2.4"/>
+          <text class="s" x="320" y="540">blocked before the boundary</text>
+          <rect x="520" y="530" width="20" height="14" rx="3" fill="rgba(0,98,209,0.07)" stroke="#0062d1"/>
+          <text class="s" x="548" y="540">privileged gate</text>
+          <rect x="680" y="530" width="20" height="14" rx="3" fill="none" stroke="#171717" stroke-dasharray="6,4"/>
+          <text class="s" x="708" y="540">trust boundary</text>
+        </svg>
+      </div>
+      <figcaption>The browser enforces the first check (<code>allowed_origins</code> in the host manifest). The pipe's access list admits only the current user, and no port is open. The shell checks the host's executable and the extension origin before anything else.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">07 · The wire</p>
+    <h2>Messages between the extension and the shell</h2>
+    <div class="prose">
+      <p>JSON, one message per native-messaging frame (4-byte length, then UTF-8). The same frames cross the pipe. Large app → extension messages are split into <code>chunk</code> frames, because the browser accepts at most 1 MB per frame from a host.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Message</th><th>Direction</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>hello</code> / <code>welcome</code></td><td>ext → app / app → ext</td><td>Browser, profile id and label, version, whether policy allows the debugging API; protocol version.</td></tr>
+          <tr><td><code>open</code>, <code>adopt</code>, <code>release</code></td><td>app → ext</td><td>Open a tab in a chat's group; take a tab the person picked or handed over; let a tab go.</td></tr>
+          <tr><td><code>attach</code>, <code>detach</code>, <code>cdp</code></td><td>app → ext</td><td>Hold or release the debugger; one DevTools command (with a child-frame session when needed).</td></tr>
+          <tr><td><code>result</code>, <code>event</code></td><td>ext → app</td><td>Answer to a request (<code>gone</code>, <code>refused</code>, <code>restricted</code>, <code>busy</code> on failure); DevTools events.</td></tr>
+          <tr><td><code>tab</code>, <code>group</code></td><td>ext → app</td><td>A tab joined, left, closed or changed; a group closed.</td></tr>
+          <tr><td><code>overlay</code>, <code>control</code></td><td>both</td><td>Indicator state; Stop, Take over, Hand back, Stop all from the page or the popup.</td></tr>
+          <tr><td><code>panel</code></td><td>both</td><td>Side panel ops: <code>chats</code>, <code>open</code>, <code>new</code>, <code>send</code>, <code>stop</code>, <code>answer</code>, <code>models</code>, <code>set_model</code>, <code>set_effort</code>, <code>set_mode</code>, <code>attach</code>, <code>open_in_app</code>; back: <code>chat</code>, <code>event</code>, <code>question</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="two">
+      <div>
+        <h3>Tools the agent sees</h3>
+        <ul class="list">
+          <li><b><code>target</code></b> on every <code>browser_*</code> tool: <code>builtin</code> (default), <code>chrome</code>, <code>edge</code>, or <code>chrome:&lt;profile&gt;</code>.</li>
+          <li><b>Tab ids</b> such as <code>chrome:work:1234</code>; a tab id alone picks the browser.</li>
+          <li><b><code>browser_tabs {action: "choose"}</code></b> asks the person to pick one of their open tabs; the agent sees titles and sites only.</li>
+          <li><b>Not on Webbridge tabs:</b> the download folder and downloads list.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What Evo keeps</h3>
+        <ul class="list">
+          <li><b><code>~/.evo/agent/webbridge/sites.json</code></b>: Allow and Block per site; everything else is Ask.</li>
+          <li><b><code>profiles.json</code></b>: known browser profiles and their labels.</li>
+          <li><b>In memory only:</b> groups, tab owners, leases, takeover state, panel sessions.</li>
+          <li><b>Settings:</b> <code>webbridge.enabled</code>, <code>newChatWorkspace</code>, <code>leaseSeconds</code>, <code>voiceInput</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">08 · Getting there</p>
+    <h2>Proposed phases</h2>
+    <div class="prose"><p>The order the tasks will follow once the spec and plan pass their gates. Each phase ends with something a person can try.</p></div>
+    <div class="phases">
+      <div class="phase"><p class="eyebrow">Phase 0 · Spike</p><h3>Prove the risky parts</h3><p>Screenshots of background tabs in Chrome and Edge; the debugging API under company policy; a minimal extension to host to pipe.</p></div>
+      <div class="phase"><p class="eyebrow">Phase 1</p><h3>Connect</h3><p>Host, pipe, peer checks, host registration from Settings, connection state.</p></div>
+      <div class="phase"><p class="eyebrow">Phase 2</p><h3>Drive a tab</h3><p><code>TabHost</code> refactor and <code>BridgeHost</code>; tab groups; all 29 tools on a Webbridge tab.</p></div>
+      <div class="phase"><p class="eyebrow">Phase 3</p><h3>Stay in control</h3><p>Site permissions in the gate, in-page indicator, Take over, Stop all.</p></div>
+      <div class="phase"><p class="eyebrow">Phase 4</p><h3>Side panel</h3><p>Chat, history, questions; model, effort and mode; attachments; voice input.</p></div>
+      <div class="phase"><p class="eyebrow">Phase 5</p><h3>Ship</h3><p>Chrome Web Store and Edge Add-ons listings; macOS and Linux registration.</p></div>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section>
+    <p class="eyebrow">09 · Still open</p>
+    <h2>Questions before the spec is accepted</h2>
+    <div class="two">
+      <ul class="list">
+        <li><b>How long is a tab held?</b> Proposed: from the first call while the turn runs, released 60 s after it ends.</li>
+        <li><b>Where do agent tabs open?</b> Proposed: background tabs in the last focused window; a window of their own only if background screenshots fail.</li>
+        <li><b>Which chats does the panel offer?</b> Proposed: recent chats of every workspace; new ones in the workspace set in Settings.</li>
+        <li><b>One site list or one per profile?</b> Proposed: one list for all browsers and profiles.</li>
+      </ul>
+      <ul class="list">
+        <li><b>Publish to the stores in this feature?</b> Proposed: yes, as the last phase; unpacked with a fixed id until then.</li>
+        <li><b>Act while the person types in the tab?</b> Proposed: no; wait until they stop for 5 s.</li>
+        <li><b>Which speech-to-text?</b> Proposed: the browser's own, off by default, with a notice that audio goes to the browser maker's service.</li>
+        <li><b>Known risks:</b> policy can turn the debugging API off; a page can hide Evo's indicator (the browser's notice and the group stay); MV3 workers restart on update.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span>Evo · Webbridge proposal · Draft · 2026-11-18</span>
+    <span><a href="../spec.md">spec.md</a> · <a href="../plan.md">plan.md</a> · <a href="../../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md">ADR 0012</a></span>
+  </div>
+
+</div>
+</body>
+</html>
