@@ -2,6 +2,8 @@
 // the + menu (a screenshot of the page, files, another open tab) with chips,
 // the approval mode switch, model and effort, the microphone, Send and Stop.
 
+import { activePage } from "./active.js";
+
 const $ = (id) => document.getElementById(id);
 
 const MODES = [
@@ -27,7 +29,10 @@ export class Composer {
         this.submit();
       }
     });
-    this.input.addEventListener("input", () => this.grow());
+    this.input.addEventListener("input", () => {
+      this.grow();
+      this.updateSend();
+    });
     $("send").addEventListener("click", () => (this.running ? this.onStop() : this.submit()));
     $("plus").addEventListener("click", () => this.toggle("plus-list"));
     $("attach-shot").addEventListener("click", () => this.screenshot());
@@ -57,6 +62,19 @@ export class Composer {
     this.input.focus();
   }
 
+  /** Send a suggestion as if typed. */
+  sendText(text) {
+    this.input.value = text;
+    this.grow();
+    this.submit();
+  }
+
+  updateSend() {
+    const ready = this.input.value.trim().length > 0 || this.attachments.length > 0;
+    $("send").classList.toggle("ready", ready && !this.running);
+    $("send").disabled = !ready && !this.running;
+  }
+
   grow() {
     this.input.style.height = "auto";
     this.input.style.height = `${Math.min(this.input.scrollHeight, 160)}px`;
@@ -73,14 +91,18 @@ export class Composer {
     this.running = running;
     $("send").classList.toggle("stop", running);
     $("send").title = running ? "Stop" : "Send";
+    $("send").setAttribute("aria-label", running ? "Stop" : "Send");
     $("send").innerHTML = running
-      ? `<svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5"/></svg>`
-      : `<svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg>`;
+      ? `<svg viewBox="0 0 16 16"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5" fill="currentColor"/></svg>`
+      : `<svg viewBox="0 0 16 16"><path d="M8 12.5v-9M4.2 7.2L8 3.5l3.8 3.7"/></svg>`;
+    this.updateSend();
   }
 
   showState(view) {
     $("mode-label").textContent = MODES.find((m) => m.id === view.mode)?.label || view.mode;
-    const name = view.model?.provider ? view.model.name || view.model.id || "" : "";
+    $("mode").classList.toggle("auto", view.mode !== "ask");
+    const known = (value) => value && value !== "none";
+    const name = known(view.model?.provider) && known(view.model?.id) ? view.model.name || view.model.id : "";
     $("model-label").textContent = !name ? "Choose a model" : view.effort ? `${name} · ${view.effort}` : name;
   }
 
@@ -204,13 +226,13 @@ export class Composer {
 
   async renderChips() {
     const chips = [];
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const [tab] = await activePage();
     if (this.extraTab) {
       chips.push(this.chip(`Tab · ${this.extraTab.title}`, true, () => ((this.extraTab = null), this.renderChips())));
     } else if (tab && /^https?:/.test(tab.url || "")) {
-      const chip = this.chip(`Include this tab · ${tab.title || tab.url}`, this.includeTab, null);
+      const chip = this.chip(tab.title || tab.url, this.includeTab, null, tab.favIconUrl);
+      chip.classList.add("toggle");
       chip.classList.toggle("off", !this.includeTab);
-      chip.style.cursor = "pointer";
       chip.title = this.includeTab ? "The agent gets this tab; click to leave it out" : "Click to include this tab";
       chip.addEventListener("click", () => ((this.includeTab = !this.includeTab), this.renderChips()));
       chips.push(chip);
@@ -219,13 +241,14 @@ export class Composer {
       chips.push(this.chip(attachment.name, true, () => (this.attachments.splice(index, 1), this.renderChips())));
     });
     $("chips").replaceChildren(...chips);
+    this.updateSend();
   }
 
-  chip(label, on, onRemove) {
+  chip(label, on, onRemove, favicon) {
     const chip = document.createElement("span");
     chip.className = `chip${on ? "" : " off"}`;
-    const dot = document.createElement("i");
-    dot.className = "dot";
+    const dot = favicon && /^https?:|^data:/.test(favicon) ? Object.assign(document.createElement("img"), { src: favicon, alt: "" }) : document.createElement("i");
+    if (dot.tagName === "I") dot.className = "dot";
     const text = document.createElement("span");
     text.textContent = label;
     chip.append(dot, text);
@@ -247,7 +270,7 @@ export class Composer {
     if (!text && this.attachments.length === 0) return;
     let tab = this.extraTab?.id;
     if (tab === undefined && this.includeTab) {
-      const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const [active] = await activePage();
       if (active && /^https?:/.test(active.url || "")) tab = active.id;
     }
     const attachments = this.attachments;

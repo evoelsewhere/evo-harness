@@ -9,56 +9,66 @@
 </head>
 <body>
   <header class="top">
-    <img class="logo" src="../icons/icon-32.png" alt="">
-    <div class="names">
-      <span class="product">Evo Webbridge</span>
-      <span id="chat-title" class="chat-title"></span>
-    </div>
-    <button id="history" class="icon" title="History" aria-label="History"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg></button>
-    <button id="new-chat" class="icon" title="New chat" aria-label="New chat"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M8 5.5v5M5.5 8h5"/></svg></button>
+    <button id="title-button" class="title-button" title="Chats" aria-label="Chats">
+      <img class="logo" src="../icons/icon-32.png" alt="">
+      <span class="names">
+        <span id="chat-title" class="chat-title">Evo</span>
+        <span class="sub"><i id="link-dot" class="link-dot"></i><span id="link-text">Connecting…</span></span>
+      </span>
+      <svg class="caret" viewBox="0 0 16 16"><path d="M5 6.5l3 3 3-3"/></svg>
+    </button>
+    <button id="history" class="icon" title="History" aria-label="History"><svg viewBox="0 0 16 16"><path d="M2.8 8a5.2 5.2 0 1 0 1.5-3.7"/><path d="M2.5 2.8v2.5H5"/><path d="M8 5.3V8l1.8 1.3"/></svg></button>
+    <button id="new-chat" class="icon" title="New chat" aria-label="New chat"><svg viewBox="0 0 16 16"><path d="M13.5 8.8V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4A1.5 1.5 0 0 1 4 2.5h3.2"/><path d="M11.6 2.4l2 2L8.4 9.6l-2.6.6.6-2.6z"/></svg></button>
     <button id="menu" class="icon" title="More" aria-label="More" aria-haspopup="menu"><svg viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></svg></button>
-    <button id="close" class="icon" title="Close" aria-label="Close"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    <button id="close" class="icon" title="Close" aria-label="Close"><svg viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg></button>
     <div id="menu-list" class="menu" role="menu" hidden>
       <div class="menu-site" id="menu-site">
         <span class="eyebrow">This site</span>
         <span id="menu-site-name" class="mono"></span>
-        <select id="menu-site-permission" aria-label="This site's permission"><option value="ask">Ask</option><option value="allow">Allow</option><option value="block">Block</option></select>
+        <div id="menu-site-permission" class="segmented" role="radiogroup" aria-label="This site's permission">
+          <button role="radio" data-value="ask">Ask</button><button role="radio" data-value="allow">Allow</button><button role="radio" data-value="block">Block</button>
+        </div>
       </div>
-      <button role="menuitem" id="menu-stop-all">Stop all in this browser</button>
-      <button role="menuitem" id="menu-open-app">Open in Evo</button>
+      <button role="menuitem" id="menu-open-app"><svg viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5L7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/></svg>Open this chat in Evo</button>
+      <button role="menuitem" id="menu-stop-all" class="danger"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><rect x="6" y="6" width="4" height="4" rx=".6"/></svg>Stop all in this browser</button>
     </div>
   </header>
 
   <section id="history-view" class="history" hidden>
-    <input id="history-search" type="search" placeholder="Search chats" aria-label="Search chats">
+    <div class="search"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2L13.5 13.5"/></svg><input id="history-search" type="search" placeholder="Search chats" aria-label="Search chats"></div>
     <ul id="history-list"></ul>
   </section>
 
   <main id="messages" class="messages" aria-live="polite"></main>
 
   <section id="offline" class="offline" hidden>
-    <p id="offline-text"></p>
-    <button id="retry">Try again</button>
+    <div class="offline-card">
+      <svg viewBox="0 0 16 16"><path d="M5.5 10.5l-1 1a2.1 2.1 0 0 1-3-3l2-2a2.1 2.1 0 0 1 3 0M10.5 5.5l1-1a2.1 2.1 0 0 1 3 3l-2 2a2.1 2.1 0 0 1-3 0M2.5 2.5l11 11"/></svg>
+      <div><p id="offline-text"></p><button id="retry">Try again</button></div>
+    </div>
   </section>
 
-  <footer class="composer">
-    <div id="chips" class="chips"></div>
-    <textarea id="input" rows="2" placeholder="Ask Evo about this page…" aria-label="Message"></textarea>
-    <div class="row">
-      <button id="plus" class="icon" title="Attach" aria-label="Attach" aria-haspopup="menu"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>
-      <div id="plus-list" class="menu up" role="menu" hidden>
-        <button role="menuitem" id="attach-shot">Screenshot of this page</button>
-        <button role="menuitem" id="attach-file">A file from this computer</button>
-        <button role="menuitem" id="attach-tab">Another open tab</button>
+  <footer class="composer-wrap">
+    <div class="composer">
+      <div id="chips" class="chips"></div>
+      <textarea id="input" rows="1" placeholder="Ask Evo about this page…" aria-label="Message"></textarea>
+      <div class="row">
+        <button id="plus" class="icon" title="Attach" aria-label="Attach" aria-haspopup="menu"><svg viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></svg></button>
+        <div id="plus-list" class="menu up" role="menu" hidden>
+          <button role="menuitem" id="attach-shot"><svg viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="9" rx="1.5"/><circle cx="8" cy="8.5" r="2.2"/><path d="M5.5 4l1-1.5h3l1 1.5"/></svg>Screenshot of this page</button>
+          <button role="menuitem" id="attach-file"><svg viewBox="0 0 16 16"><path d="M9 2.5H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V6z"/><path d="M9 2.5V6h3.5"/></svg>A file from this computer</button>
+          <button role="menuitem" id="attach-tab"><svg viewBox="0 0 16 16"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2 6.5h12M5 3.5v3"/></svg>Another open tab</button>
+        </div>
+        <input id="file" type="file" multiple hidden>
+        <button id="mode" class="pill" title="Approval mode"><svg viewBox="0 0 16 16"><path d="M3 4l4 4-4 4M8.5 4l4 4-4 4"/></svg><span id="mode-label">Ask every time</span></button>
+        <span class="spacer"></span>
+        <button id="model" class="model" title="Model and effort"><span id="model-label">Model</span><svg viewBox="0 0 16 16"><path d="M5 6.5l3 3 3-3"/></svg></button>
+        <div id="model-list" class="menu up wide" role="menu" hidden></div>
+        <button id="mic" class="icon" title="Dictate" aria-label="Dictate" hidden><svg viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg></button>
+        <button id="send" class="send" title="Send" aria-label="Send" disabled><svg viewBox="0 0 16 16"><path d="M8 12.5v-9M4.2 7.2L8 3.5l3.8 3.7"/></svg></button>
       </div>
-      <input id="file" type="file" multiple hidden>
-      <button id="mode" class="chip-button" title="Approval mode"><svg viewBox="0 0 16 16"><path d="M3 4l4 4-4 4M8 4l4 4-4 4"/></svg><span id="mode-label">Ask every time</span></button>
-      <span class="spacer"></span>
-      <button id="model" class="model" title="Model and effort"><span id="model-label">Model</span></button>
-      <div id="model-list" class="menu up wide" role="menu" hidden></div>
-      <button id="mic" class="icon" title="Dictate" aria-label="Dictate" hidden><svg viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg></button>
-      <button id="send" class="send" title="Send" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>
     </div>
+    <p class="fine">Evo works in tabs it groups as <b>Evo · chat</b>. You can stop it or take over at any time.</p>
   </footer>
   <script type="module" src="sidepanel.js"></script>
 </body>
