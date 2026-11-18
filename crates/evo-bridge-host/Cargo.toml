@@ -1,0 +1,34 @@
+[package]
+name = "evo-bridge-host"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version = "0.1.0"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Native messaging host for Evo Webbridge: relays frames between the browser and the Evo app"
+publish = false
+
+[[bin]]
+name = "evo-bridge-host"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "io-util", "io-std", "net", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "io-util", "io-std", "net", "time", "macros", "sync"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

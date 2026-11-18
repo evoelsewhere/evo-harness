@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Evo Webbridge",
+  "short_name": "Evo",
+  "version": "0.1.0",
+  "description": "Let Evo work in your own Chrome or Edge: chat in the side panel and let the agent work in tabs you can see and stop.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3MwA4ZQc11peL1zWPFAl3Nx1QgXcRrx1DAfbRb1+IVkf4CXW2goCrRnWZDU8CW9UPIZH8PeDWaMD4cEDL2qs2+ThoaOsPaBmXjRCmaQzMDvahos1Uq/Log2acRrOYV53gZ8R8MmbqAg8Wl9LB53C3qxKYFkfWeMR0fCKJd6UAqMGWhyW3lCK3nsRWS4mdLgJyavBOOTO9ozNWqOoaX1O2qLZ4h6kjWPBftEnOUreaEv18qh55nQi89T80mHEEqtvmo+j0yH4e77haav4V055OsXYJpgcFxIXC5v1/n+7RPhoWpEqTIwZFOI3EYTRymcdpgb4FswibJ83AL95xRtNxQIDAQAB",
+  "minimum_chrome_version": "125",
+  "permissions": ["debugger", "tabs", "tabGroups", "sidePanel", "nativeMessaging", "storage", "contextMenus", "activeTab"],
+  "background": { "service_worker": "background/main.js", "type": "module" },
+  "action": {
+    "default_title": "Evo Webbridge",
+    "default_popup": "popup/popup.html",
+    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" }
+  },
+  "side_panel": { "default_path": "sidepanel/sidepanel.html" },
+  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" }
+}

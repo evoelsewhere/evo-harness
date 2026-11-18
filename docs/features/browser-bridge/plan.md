@@ -170,8 +170,9 @@ answer has the same `id`.
 
 ```jsonc
 // extension → app
-{ "t": "hello", "v": 1, "browser": "chrome" | "edge", "profile": "p_4f2a", "label": "Work",
-  "version": "1.0.0", "debugger": true }                      // debugger=false: policy turned it off
+{ "t": "hello", "v": 1, "browser": "chrome" | "edge", "profile": "p4f2a…", "label": "Work",
+  "version": "1.0.0", "debugger": true, "launch": false }     // debugger=false: policy turned it off;
+                                                              // launch=true only when the browser just started
 { "t": "result", "id": 7, "ok": true, "value": { … } }
 { "t": "result", "id": 7, "ok": false, "code": "gone" | "refused" | "restricted" | "busy" | "failed", "message": "…" }
 { "t": "event", "tab": 1234, "session": "…"?, "method": "Page.loadEventFired", "params": { … } }
@@ -277,9 +278,13 @@ Webbridge tabs". Older engines are unaffected: the tools are the shell's.
 ### 3.5 Behaviour
 
 **Connect.** The browser starts the extension → `connectNative` → the
-browser starts `evo-bridge-host <origin>` → the host opens the pipe (starts
-`evo --hidden` and retries for 10 s if nobody answers) → `hello` / `welcome`
-→ the shell records the instance and emits `webbridge://changed`.
+browser starts `evo-bridge-host <origin>` → the extension sends `hello` →
+the host opens the pipe (when nobody answers and `hello` has `launch: true`,
+it starts Evo with `--hidden` and retries for 10 s) → the host sends its
+introduction (`{"t":"host","origin":…}`), then the `hello` → `welcome` → the
+shell records the profile and emits `webbridge://changed`. The extension asks
+for `launch` only when the browser itself just started, so reconnecting never
+reopens an Evo the person quit.
 
 **The agent opens a page and acts.**
 
@@ -411,4 +416,23 @@ popup.
 
 ## 5. As-built notes
 
-n/a — empty until the status is `In progress`.
+- 2026-11-18 — Spike (T2) on Windows 11 with Edge 157 and Chrome 157:
+  - Edge loads the unpacked extension with `--load-extension` in a scratch
+    profile; its id is the one the manifest key gives (`ids.rs`). Branded
+    Chrome no longer honours that flag, so it is loaded by hand there.
+  - Extension → host → pipe → a stand-in server
+    (`crates/evo-bridge-host/examples/spike_server.rs`) works: the host's
+    introduction names the extension's origin, the pipe sees the host as the
+    app's sibling, `hello` / `welcome`, `open` puts a background tab in the
+    chat's group.
+  - `Page.captureScreenshot` through `chrome.debugger` on a background tab
+    returns the page (921 × 1040 PNG) without bringing it forward: agent tabs
+    stay background tabs in the person's window (spec clarification 2).
+  - `DeveloperToolsAvailability = 2` was not tried: it needs an administrator
+    policy on the machine. The extension reports `debugger` in `hello`; attach
+    errors that name the policy come back as `refused`.
+- The host reads the extension's `hello` before reaching the pipe, so it can
+  honour `launch` (above); it gives up after 10 s when the pipe stays busy.
+- Webbridge tabs are dispatched by tab id inside `browser.rs` instead of a
+  `TabHost` trait (3.2), and the page helper runs in the page's world as in
+  the built-in browser.

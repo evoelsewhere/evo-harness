@@ -34,8 +34,12 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/evo-engine"
+      "binaries/evo-engine",
+      "binaries/evo-bridge-host"
     ],
+    "resources": {
+      "../../../extensions/evo-webbridge/": "evo-webbridge/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

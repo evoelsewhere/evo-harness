@@ -33,6 +33,7 @@ mod system;
 mod updates;
 mod worktrees;
 mod terminal;
+mod webbridge;
 mod window;
 
 use std::sync::Mutex;
@@ -75,6 +76,7 @@ pub fn run() {
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
         .manage(browser::BrowserState::default())
+        .manage(webbridge::Webbridge::default())
         .manage(plugin_ui::PluginUiState::default())
         .manage(plugin_runtime::RuntimeState::default())
         .setup(|app| {
@@ -125,6 +127,8 @@ pub fn run() {
             // The Scheduler: missed runs now, then due tasks every 20 s, with
             // or without a window (shell-hosted-engines FR-7).
             agent_tools::scheduler::run::setup(app.handle());
+            // Evo Webbridge: the pipe the browser extension's host connects to, once set up.
+            webbridge::setup(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -306,6 +310,10 @@ pub fn run() {
             browser::browser_eval,
             browser::browser_cdp,
             browser::browser_status,
+            webbridge::commands::webbridge_status,
+            webbridge::commands::webbridge_setup,
+            webbridge::commands::webbridge_remove,
+            webbridge::commands::webbridge_rename,
             browser::browser_cdp_subscribe,
             browser::browser_cdp_events,
             browser::browser_dialog_pending,

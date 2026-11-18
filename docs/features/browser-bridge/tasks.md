@@ -17,23 +17,23 @@ Done when: a minimal extension, the host and a pipe server exchange `hello` /
 `welcome` on this machine, and the risky browser behaviours are recorded in
 the plan's as-built notes.
 
-- [ ] T1 [FR-3] A fixed extension key and the id it gives; the id is the unpacked origin in the allow-list — `ext/manifest.json`, `shell/webbridge/ids.rs` — check: `cargo test webbridge::ids` (the id computed from the key matches)
-- [ ] T2 [NFR-2] Check in Chrome and Edge: `Page.captureScreenshot` on a background tab, `chrome.debugger` under `DeveloperToolsAvailability = 2`, `--load-extension` for a test profile — notes in `plan.md` §5 — check: recorded with dates
+- [x] T1 [FR-3] A fixed extension key and the id it gives; the id is the unpacked origin in the allow-list — `ext/manifest.json`, `shell/webbridge/ids.rs` — check: `cargo test webbridge::ids` (the id computed from the key matches)
+- [x] T2 [NFR-2] Check in Chrome and Edge: `Page.captureScreenshot` on a background tab, `chrome.debugger` under `DeveloperToolsAvailability = 2`, `--load-extension` for a test profile — notes in `plan.md` §5 — check: recorded with dates
 
 ### Phase 1 — Connect
 
 Done when: **Settings → Webbridge → Set up Chrome** registers the host, the
 loaded extension shows "Connected to Evo", and Settings shows the profile.
 
-- [ ] T3 [FR-3] Tests, then the wire: frame encode/decode (4-byte LE length), message types, `chunk` split and join — `shell/webbridge/wire.rs` — check: `bun run test:shell -- webbridge::wire`
-- [ ] T4 [FR-3, NFR-1] Tests, then `evo-bridge-host`: relay stdin ↔ pipe frames unchanged, check the pipe server's executable sits in the host's folder, exit when either side closes — `crates/evo-bridge-host/` — check: `cargo test -p evo-bridge-host`
+- [x] T3 [FR-3] Tests, then the wire: frame encode/decode (4-byte LE length), message types, `chunk` split and join — `shell/webbridge/wire.rs` — check: `bun run test:shell -- webbridge::wire`
+- [x] T4 [FR-3, NFR-1] Tests, then `evo-bridge-host`: relay stdin ↔ pipe frames unchanged, check the pipe server's executable sits in the host's folder, exit when either side closes — `crates/evo-bridge-host/` — check: `cargo test -p evo-bridge-host`
 - [ ] T5 [FR-19] The host starts Evo hidden when no pipe answers and retries for 10 s — `crates/evo-bridge-host/src/launch.rs` — check: manual (quit Evo, open the browser: Evo starts in the tray)
-- [ ] T6 [FR-3, FR-4, FR-23, NFR-3] Tests, then the pipe server: current-user pipe, client executable check, `hello` (origin allow-list, version, policy), instance table, `bye` on refusal; starts only when set up — `shell/webbridge/{mod,server}.rs`, `shell/lib.rs` — check: `bun run test:shell -- webbridge::server`
-- [ ] T7 [FR-2, NFR-4] Tests, then set-up: host manifest, per-user registration for Chrome and Edge (registry on Windows, manifest files on macOS and Linux), remove, status — `shell/webbridge/setup.rs` — check: `bun run test:shell -- webbridge::setup`
-- [ ] T8 [FR-1, FR-4, NFR-5] The extension: manifest (permissions of FR-1 only), port with `hello`, reconnect with backoff, profile id and label in storage, popup with connection state — `ext/manifest.json`, `ext/background/*.js`, `ext/popup/*` — check: manual (load unpacked; popup says Connected to Evo)
+- [x] T6 [FR-3, FR-4, FR-23, NFR-3] Tests, then the pipe server: current-user pipe, client executable check, `hello` (origin allow-list, version, policy), instance table, `bye` on refusal; starts only when set up — `shell/webbridge/{mod,server}.rs`, `shell/lib.rs` — check: `bun run test:shell -- webbridge::server`
+- [x] T7 [FR-2, NFR-4] Tests, then set-up: host manifest, per-user registration for Chrome and Edge (registry on Windows, manifest files on macOS and Linux), remove, status — `shell/webbridge/setup.rs` — check: `bun run test:shell -- webbridge::setup`
+- [x] T8 [FR-1, FR-4, NFR-5] The extension: manifest (permissions of FR-1 only), port with `hello`, reconnect with backoff, profile id and label in storage, popup with connection state — `ext/manifest.json`, `ext/background/*.js`, `ext/popup/*` — check: manual (load unpacked; popup says Connected to Evo)
 - [ ] T9 [FR-2, FR-4, FR-23] Tauri commands and **Settings → Webbridge**: set up / remove per browser, connected profiles with rename, policy state — `shell/webbridge/commands.rs`, `apps/desktop/src/features/settings/sections/webbridge-settings.tsx`, `apps/desktop/src/stores/webbridge-store.ts`, settings navigation — check: `bun run typecheck`; manual
 - [ ] T10 [FR-24] Log lines for connections, set-up, refusals — `shell/webbridge/server.rs` — check: manual (Logs page)
-- [ ] T11 [FR-2] Ship the host next to the engine: `externalBin`, a staging script beside `engine:sidecar` — `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/scripts/`, `apps/desktop/package.json` — check: `bun run bridge:sidecar` stages the binary; the dev app finds it
+- [x] T11 [FR-2] Ship the host next to the engine: `externalBin`, a staging script beside `engine:sidecar` — `apps/desktop/src-tauri/tauri.conf.json`, `apps/desktop/scripts/`, `apps/desktop/package.json` — check: `bun run bridge:sidecar` stages the binary; the dev app finds it
 
 ### Phase 2 — Drive tabs
 
@@ -86,9 +86,9 @@ has a result.
 
 | Requirement | Test or check | Result |
 | --- | --- | --- |
-| FR-1 | Review of `ext/manifest.json` | not run |
+| FR-1 | Review of `ext/manifest.json` | passed (2026-11-18) |
 | FR-2 | Manual: set up Chrome, connected; remove, host unreachable | not run |
-| FR-3 | `webbridge::server` tests; manual: a page cannot connect | not run |
+| FR-3 | `webbridge` tests (origin admission, ids, setup); spike: host introduces the origin, pipe sees the sibling host | partly passed (2026-11-18); a page cannot connect: not run |
 | FR-4 | Manual: two profiles show as two entries | not run |
 | FR-5 | Manual: tools on a Chrome tab (T19) | not run |
 | FR-6 | `webbridge::groups` tests; manual: three pages, one group | not run |
@@ -120,4 +120,4 @@ has a result.
 | NFR-3 | Start the app with nothing set up: no host, no pipe | not run |
 | NFR-4 | Manual on Windows with Chrome and Edge | not run |
 | NFR-5 | Review of the extension's storage | not run |
-| NFR-6 | `webbridge::wire` chunk tests; full-page screenshot | not run |
+| NFR-6 | `webbridge::wire` chunk tests; full-page screenshot | wire tests passed (2026-11-18); screenshot: not run |

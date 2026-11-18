@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | browser extension, desktop shell, desktop UI, new crate `evo-bridge-host` |
 | Created | 2026-11-07 |
 | Updated | 2026-11-18 |

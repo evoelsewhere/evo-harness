@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { AppWindowIcon, BrainIcon, CpuIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
+import { AppWindowIcon, BrainIcon, CpuIcon, GlobeIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
 import type { SettingsSection } from "@/stores/ui-store";
 import { AppearanceSettings } from "./sections/appearance-settings";
 import { ComputerAppsSettings } from "./sections/computer-apps-settings";
@@ -9,6 +9,7 @@ import { LogsSettings } from "./sections/logs-settings";
 import { MemorySettings } from "./sections/memory-settings";
 import { SandboxSettings } from "./sections/sandbox-settings";
 import { AboutSettings, EngineSettings } from "./sections/system-settings";
+import { WebbridgeSettings } from "./sections/webbridge-settings";
 
 export interface SettingsPage {
   id: SettingsSection;
@@ -60,6 +61,14 @@ export const settingsPages: SettingsPage[] = [
     group: "Application",
     keywords: ["computer", "app", "apps", "control", "desktop", "window", "automation", "excel", "word", "allow", "block", "background"],
     component: ComputerAppsSettings,
+  },
+  {
+    id: "webbridge",
+    title: "Webbridge",
+    icon: GlobeIcon,
+    group: "Application",
+    keywords: ["browser", "chrome", "edge", "extension", "side panel", "tab", "tabs", "web", "bridge", "webbridge", "site", "permissions"],
+    component: WebbridgeSettings,
   },
   {
     id: "engine",

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Evo Webbridge</title>
+  <link rel="stylesheet" href="../shared/tokens.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img class="logo" src="../icons/icon-48.png" alt="">
+    <div>
+      <h1>Evo Webbridge</h1>
+      <p id="status" class="status"><span class="dot"></span><span id="status-text">Connecting…</span></p>
+    </div>
+  </header>
+  <section id="hint" hidden></section>
+  <section id="site" hidden>
+    <p class="eyebrow">This site</p>
+    <div class="row"><span id="site-name" class="mono"></span><select id="site-permission"><option value="ask">Ask</option><option value="allow">Allow</option><option value="block">Block</option></select></div>
+  </section>
+  <section id="working" hidden>
+    <p class="eyebrow">Working now</p>
+    <ul id="chats"></ul>
+  </section>
+  <footer>
+    <button id="open-panel" class="primary">Open side panel</button>
+    <button id="stop-all" hidden>Stop all in this browser</button>
+    <button id="retry" hidden>Try again</button>
+  </footer>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

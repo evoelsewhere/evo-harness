@@ -39,6 +39,7 @@ evo-mesh = { path = "../../../crates/evo-mesh" }
 evo-mcp = { path = "../../../crates/evo-mcp" }
 evo-plugins = { path = "../../../crates/evo-plugins" }
 evo-vault = { path = "../../../crates/evo-vault" }
+evo-bridge-host = { path = "../../../crates/evo-bridge-host" }
 # Plugin runtimes (Deno, uv): download, check, unpack (plugin-settings FR-18).
 reqwest = { version = "0.13", features = ["stream"] }
 sha2 = "0.10"
@@ -100,6 +101,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Ole",
     "Win32_System_Pipes",
     "Win32_System_Power",
+    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_System_Variant",
