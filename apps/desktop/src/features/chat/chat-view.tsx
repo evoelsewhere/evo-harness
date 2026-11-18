@@ -11,7 +11,7 @@ import { EngineBanner } from "./engine-banner";
 
 /**
  * The main column: thread above, composer pinned below. A new chat centres the
- * composer under its greeting, over aurora bands of the accent colour; the composer
+ * composer under its greeting, in a soft glow of the accent colour; the composer
  * stays the same element when the first turn moves it down, so focus and drafts hold.
  */
 export function ChatView() {
@@ -29,7 +29,7 @@ export function ChatView() {
         {empty && (
           <div
             aria-hidden
-            className="chat-empty-aurora pointer-events-none absolute inset-0"
+            className="chat-empty-glow pointer-events-none absolute inset-0"
           />
         )}
         <div className={cn("relative min-h-0", empty ? "shrink-0" : "flex-1")}>
