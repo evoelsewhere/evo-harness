@@ -53,7 +53,7 @@ selected, and no prompt was sent.
 | FR-5 | `bun test src/lib/chat-title.test.ts` (5); running app: the sidebar shows Morning briefing · Nov 13, Nov 12 … Nov 8 | passed (2026-11-13) |
 | FR-6 | Running app: muted text 5.5:1 on the background, 5.13:1 on muted, 4.82:1 on accent (light); dark by calculation: 5.11–6.17:1 | passed (2026-11-13) |
 | FR-7 | Running app: Ctrl+/ opens the dialog with General, Composer, Side panel, Split view and Chat menu | passed (2026-11-13) |
-| FR-8 | `bun test src/features/chat/suggestions.test.ts` (5); running app: This computer → Plan my day…; evo-harness → "Review the 28 changed files" first | passed (2026-11-13) |
+| FR-8 | withdrawn 2026-11-18 (suggestions removed); was: `bun test src/features/chat/suggestions.test.ts` (5); running app: This computer → Plan my day…; evo-harness → "Review the 28 changed files" first | passed (2026-11-13) |
 | FR-9 | `bun test src/lib/plain-text.test.ts` (4); running app: the Scheduler past runs have no markdown marks | passed (2026-11-13) |
 | FR-10 | Running app: sidebar rows, pane headers and past runs have their full text as a title | passed (2026-11-13) |
 | FR-11 | Running app: an open dialog's `--tw-ease` is the spring `linear()` | passed (2026-11-13) |

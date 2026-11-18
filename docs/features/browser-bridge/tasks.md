@@ -56,29 +56,29 @@ from the page, the popup and the app.
 
 - [x] T20 [FR-12] Tests, then the site list: load, save, change events, Tauri commands — `shell/webbridge/sites.rs` — check: `bun run test:shell -- webbridge::sites`
 - [x] T21 [FR-13, FR-22] Tests, then the gate rule for Webbridge tabs: acts ask once per site and chat in "Ask every time" and "Approve edits" unless Allow; Block refuses in every mode; "Allow for this site" saves Allow — `shell/agent_tools/gate.rs`, `shell/agent_tools/mod.rs` — check: `bun run test:shell -- agent_tools::gate`
-- [ ] T22 [FR-15, FR-16, FR-17] The indicator: injected per document, chat name, Stop, Take over, Hand back, signals through a binding — `ext/overlay/overlay.js`, `ext/background/control.js`, `shell/webbridge/page.rs` — check: manual
-- [ ] T23 [FR-16, FR-17, FR-18] Take over holds a tab's calls; Stop stops the chat's turn; Stop all ends a profile's work and detaches — `shell/webbridge/{groups,mod}.rs`, `shell/supervisor.rs` — check: test of the takeover state; manual
-- [ ] T24 [FR-12, FR-18] Popup: this site's permission, chats working now, Open side panel, Stop all — `ext/popup/*` — check: manual
-- [ ] T25 [FR-7, FR-8, FR-12] App: the site list in Settings; a chat's Webbridge tabs in the Browser panel with Take back and Stop — `apps/desktop/src/features/settings/sections/webbridge-settings.tsx`, `apps/desktop/src/features/browser/`, `apps/desktop/src/stores/` — check: `bun run typecheck`; manual
+- [x] T22 [FR-15, FR-16, FR-17] The indicator: injected per document, chat name, Stop, Take over, Hand back, signals through a binding — `ext/overlay/overlay.js`, `ext/background/control.js`, `shell/webbridge/page.rs` — check: manual
+- [x] T23 [FR-16, FR-17, FR-18] Take over holds a tab's calls; Stop stops the chat's turn; Stop all ends a profile's work and detaches — `shell/webbridge/{groups,mod}.rs`, `shell/supervisor.rs` — check: test of the takeover state; manual
+- [x] T24 [FR-12, FR-18] Popup: this site's permission, chats working now, Open side panel, Stop all — `ext/popup/*` — check: manual
+- [x] T25 [FR-7, FR-8, FR-12] App: the site list in Settings; a chat's Webbridge tabs in the Browser panel with Take back and Stop — `apps/desktop/src/features/settings/sections/webbridge-settings.tsx`, `apps/desktop/src/features/browser/`, `apps/desktop/src/stores/` — check: `bun run typecheck`; manual
 - [ ] T26 [FR-17] Acts on the tab the person used in the last 5 s wait until they stop — `ext/overlay/overlay.js`, `shell/webbridge/page.rs` — check: manual
 
 ### Phase 4 — Side panel
 
 Done when: US-3 and US-8 pass with the app's window closed.
 
-- [ ] T27 [FR-10, FR-11] Tests, then panel sessions: `chats`, `open`, `new`, `send`, `stop`, the reduced event stream from engine lines — `shell/webbridge/panel.rs` — check: `bun run test:shell -- webbridge::panel`
-- [ ] T28 [FR-14] Questions of a chat reach its panel sessions; the first answer settles both — `shell/supervisor/questions.rs`, `shell/webbridge/panel.rs` — check: test; manual
-- [ ] T29 [FR-26, FR-27] `models`, `set_model`, `set_effort`, `set_mode` as the app sends them; `chat` state pushed on change — `shell/webbridge/panel.rs` — check: test; manual
-- [ ] T30 [FR-28] `attach` saved as the app saves pasted files, with its limits; page screenshot in the extension — `shell/webbridge/panel.rs`, `shell/files.rs`, `ext/sidepanel/composer.js` — check: test; manual
-- [ ] T31 [FR-10, FR-25] Side panel: header, History with search, New chat, ⋯ menu, empty state, messages, tool activity, questions, Stop — `ext/sidepanel/*` — check: manual
-- [ ] T32 [FR-26 – FR-29] Composer: Include this tab, **+** menu and chips, mode switch, model and effort, microphone with the permission page and the Settings switch — `ext/sidepanel/composer.js`, `ext/permission/*`, settings — check: manual
+- [x] T27 [FR-10, FR-11] Tests, then panel sessions: `chats`, `open`, `new`, `send`, `stop`, the reduced event stream from engine lines — `shell/webbridge/panel.rs` — check: `bun run test:shell -- webbridge::panel`
+- [x] T28 [FR-14] Questions of a chat reach its panel sessions; the first answer settles both — `shell/supervisor/questions.rs`, `shell/webbridge/panel.rs` — check: test; manual
+- [x] T29 [FR-26, FR-27] `models`, `set_model`, `set_effort`, `set_mode` as the app sends them; `chat` state pushed on change — `shell/webbridge/panel.rs` — check: test; manual
+- [x] T30 [FR-28] `attach` saved as the app saves pasted files, with its limits; page screenshot in the extension — `shell/webbridge/panel.rs`, `shell/files.rs`, `ext/sidepanel/composer.js` — check: test; manual
+- [x] T31 [FR-10, FR-25] Side panel: header, History with search, New chat, ⋯ menu, empty state, messages, tool activity, questions, Stop — `ext/sidepanel/*` — check: manual
+- [x] T32 [FR-26 – FR-29] Composer: Include this tab, **+** menu and chips, mode switch, model and effort, microphone with the permission page and the Settings switch — `ext/sidepanel/composer.js`, `ext/permission/*`, settings — check: manual
 
 ### Phase 5 — Ship
 
 Done when: the extension packs for the stores and every verification row
 has a result.
 
-- [ ] T33 [FR-1] `scripts/pack-webbridge.ts` zips the extension; store ids join the allow-list when published — `scripts/`, `shell/webbridge/ids.rs` — check: the zip loads in a browser
+- [x] T33 [FR-1] `scripts/pack-webbridge.ts` zips the extension; store ids join the allow-list when published — `scripts/`, `shell/webbridge/ids.rs` — check: the zip loads in a browser
 - [ ] T34 [NFR-4] macOS and Linux registration paths and the 0600 socket — `shell/webbridge/{setup,server}.rs`, `crates/evo-bridge-host` — check: `cargo check` for those targets where possible; manual later
 - [ ] T35 UI map and docs: `apps/desktop/README.md`, plan as-built notes, verification table — check: review
 
@@ -87,30 +87,30 @@ has a result.
 | Requirement | Test or check | Result |
 | --- | --- | --- |
 | FR-1 | Review of `ext/manifest.json` | passed (2026-11-18) |
-| FR-2 | Manual: set up Chrome, connected; remove, host unreachable | not run |
+| FR-2 | Manual: set up Chrome, connected; remove, host unreachable | passed with Edge (2026-11-18): Set up registers, the extension connects, Remove deletes the key; Chrome: not run |
 | FR-3 | `webbridge` tests (origin admission, ids, setup); spike: host introduces the origin, pipe sees the sibling host | partly passed (2026-11-18); a page cannot connect: not run |
-| FR-4 | Manual: two profiles show as two entries | not run |
+| FR-4 | Manual: two profiles show as two entries | one profile shown with its name (2026-11-18); two profiles: not run |
 | FR-5 | Manual: tools on a Chrome tab (T19) | Edge passed (2026-11-18): navigate, read_page, find, click, type, key, hover, scroll, eval, dialog, wait, network, console, mock, storage, upload, frames, viewport, performance, screenshot (visible, full page, element), pdf, tabs, status; Chrome: not run |
 | FR-6 | `webbridge::groups` tests; manual: three pages, one group | tests passed (2026-11-18); manual (Edge): pages open in the background in the chat's group (passed) |
 | FR-7 | `webbridge::groups` tests; manual: chat B cannot name A's tab | not run |
 | FR-8 | Manual: drag in and out | not run |
 | FR-9 | `agent_tools::browser` tests; manual: choose | schema tests passed (2026-11-18); choose: not run |
-| FR-10 | Manual: US-3 with the window closed | not run |
+| FR-10 | Manual: US-3 with the window closed | partly passed (2026-11-18): chats, new chat, history, send reach the engine; a model's reply: not run (no provider on the test profile) |
 | FR-11 | Manual: panel and app show the same chat | not run |
 | FR-12 | `webbridge::sites` tests; manual: Block in popup shows in Settings | tests passed (2026-11-18); manual: not run |
 | FR-13 | `agent_tools::gate` tests | passed (2026-11-18) |
 | FR-14 | Manual: answer in the panel, the app's question goes | not run |
-| FR-15 | Manual: indicator on every page acted on | not run |
+| FR-15 | Manual: indicator on every page acted on | passed on Edge (2026-11-18): the indicator is in each new document of an agent tab |
 | FR-16 | Manual: Stop during `browser_wait` | not run |
-| FR-17 | Manual: Take over, then a click is held | not run |
+| FR-17 | Manual: Take over, then a click is held | passed on Edge (2026-11-18): Take over through the indicator's binding; the next tool call says the person has control |
 | FR-18 | Manual: Stop all, the notices go | not run |
-| FR-19 | Manual: Evo starts in the tray | not run |
+| FR-19 | Manual: Evo starts in the tray | reconnect after a browser restart passed (2026-11-18); starting Evo from the browser: not run |
 | FR-20 | Manual: close the tab during a wait | not run |
 | FR-21 | Review of result wording | not run |
 | FR-22 | `webbridge` tests; manual: browser settings page refused | not run |
 | FR-23 | Manual on a test machine with the policy | not run |
 | FR-24 | Manual: Logs page | not run |
-| FR-25 | Manual: US-8 scenarios 1 and 6 | not run |
+| FR-25 | Manual: US-8 scenarios 1 and 6 | passed on Edge (2026-11-18): header, history, new chat, menu, empty state |
 | FR-26 | Manual: model picked in the panel shows in the app | not run |
 | FR-27 | Manual: US-8 scenario 3 | not run |
 | FR-28 | Manual: screenshot and PDF attached | not run |

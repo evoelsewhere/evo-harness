@@ -245,6 +245,8 @@ impl Page {
         let ready = match self.eval("typeof window.__evo === 'object'", false).await {
             Ok(value) => value.as_bool().unwrap_or(false),
             Err(error) if is_dialog_error(&error) => return Err(error),
+            // The person took the tab over or blocked its site (Evo Webbridge): say that, not "cannot be read".
+            Err(error) if error.starts_with("The person ") => return Err(error),
             Err(_) => false,
         };
         if !ready {

@@ -12,6 +12,7 @@ pub mod commands;
 pub mod groups;
 pub mod ids;
 pub mod page;
+pub mod panel;
 mod server;
 pub mod setup;
 pub mod sites;
@@ -32,6 +33,8 @@ use crate::db::Db;
 
 /// App setting: Webbridge was set up, so the pipe is served (NFR-3).
 pub const ENABLED_KEY: &str = "webbridge.enabled";
+/// App setting: the workspace new side panel chats start in (`null`: the last used one).
+pub const NEW_CHAT_WORKSPACE_KEY: &str = "webbridge.newChatWorkspace";
 /// Event: something in [`commands::Status`] changed.
 pub const CHANGED: &str = "webbridge://changed";
 /// How long a request to the extension may take.
@@ -80,6 +83,8 @@ pub struct Webbridge {
     holds: Mutex<groups::Holds>,
     /// Tabs attached with the page helper added (`page.rs`).
     prepared: Mutex<HashSet<String>>,
+    /// Side panel sessions (`panel.rs`).
+    panels: panel::Panels,
 }
 
 impl Webbridge {
@@ -360,8 +365,133 @@ pub fn sites_changed(app: &AppHandle) {
     changed(app);
 }
 
+/// Webbridge settings changed: every connected extension learns them (voice input, FR-29).
+pub fn settings_changed(app: &AppHandle) {
+    let state = app.state::<Webbridge>();
+    let message = settings_message(app);
+    for profile in state.profiles() {
+        let _ = state.notify(&profile.key, message.clone());
+    }
+}
+
+/// App setting: the side panel shows a microphone (FR-29).
+pub const VOICE_INPUT_KEY: &str = "webbridge.voiceInput";
+
+fn settings_message(app: &AppHandle) -> Value {
+    let voice = app
+        .state::<Db>()
+        .with(|conn| evo_store::settings::get(conn, VOICE_INPUT_KEY))
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    json!({ "t": "settings", "voiceInput": voice })
+}
+
 fn sites_message() -> Value {
     json!({ "t": "sites", "sites": sites::all() })
+}
+
+/// Tell a profile's extension which chats work in it now (its popup lists them, FR-18).
+pub fn push_working(app: &AppHandle, profile_key: &str) {
+    let prefix = format!("{profile_key}:");
+    let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+    for tab in crate::browser::external_tabs(app)
+        .into_iter()
+        .filter(|t| t.starts_with(&prefix))
+    {
+        if let Some(chat) = crate::browser::tab_record(app, &tab).and_then(|r| r.chat) {
+            *counts.entry(chat).or_default() += 1;
+        }
+    }
+    let chats: Vec<Value> = counts
+        .into_iter()
+        .map(|(chat, tabs)| json!({ "chat": chat, "title": chat_title(app, &chat), "tabs": tabs }))
+        .collect();
+    let _ = app
+        .state::<Webbridge>()
+        .notify(profile_key, json!({ "t": "working", "chats": chats }));
+}
+
+/// A button of the in-page indicator, or the popup (spec FR-16 – FR-18).
+pub fn control(app: &AppHandle, tab: &str, action: &str) {
+    let state = app.state::<Webbridge>();
+    let chat = crate::browser::tab_record(app, tab).and_then(|t| t.chat);
+    match action {
+        "takeover" => {
+            state
+                .holds
+                .lock()
+                .expect("webbridge lock")
+                .set_taken(tab, true);
+            log(app, "info", format!("the person took over {tab}"));
+        }
+        "handback" => {
+            state
+                .holds
+                .lock()
+                .expect("webbridge lock")
+                .set_taken(tab, false);
+            log(app, "info", format!("the person handed {tab} back"));
+        }
+        "stop" => {
+            if let Some(chat) = &chat {
+                stop_chat(app, chat);
+            }
+        }
+        _ => return,
+    }
+    page::show_overlay(app, tab);
+    changed(app);
+}
+
+/// Stop a chat's turn, as the app's Stop does.
+pub fn stop_chat(app: &AppHandle, chat: &str) {
+    log(app, "info", format!("stopped chat {chat} from the browser"));
+    let (app, chat) = (app.clone(), chat.to_string());
+    tauri::async_runtime::spawn(async move {
+        let id = format!("webbridge-stop-{}", now_ms());
+        let _ = app
+            .state::<crate::engine::EngineState>()
+            .write(&chat, &json!({ "type": "abort", "id": id }))
+            .await;
+    });
+}
+
+/// Stop all in one browser profile: every chat working there stops, and the debugging API is
+/// let go of on every tab (the browser's notices go) (FR-18).
+pub fn stop_all(app: &AppHandle, profile_key: &str) {
+    let prefix = format!("{profile_key}:");
+    let tabs: Vec<String> = crate::browser::external_tabs(app)
+        .into_iter()
+        .filter(|t| t.starts_with(&prefix))
+        .collect();
+    let mut chats: Vec<String> = tabs
+        .iter()
+        .filter_map(|t| crate::browser::tab_record(app, t).and_then(|r| r.chat))
+        .collect();
+    chats.sort();
+    chats.dedup();
+    for chat in &chats {
+        stop_chat(app, chat);
+    }
+    let state = app.state::<Webbridge>();
+    for tab in state
+        .holds
+        .lock()
+        .expect("webbridge lock")
+        .release_profile(profile_key)
+    {
+        state.prepared.lock().expect("webbridge lock").remove(&tab);
+    }
+    for tab in &tabs {
+        state.prepared.lock().expect("webbridge lock").remove(tab);
+        if let Some((_, number)) = groups::split(tab) {
+            let _ = state.notify(profile_key, json!({ "t": "detach-now", "tab": number }));
+        }
+    }
+    log(app, "info", format!("Stop all in {profile_key}"));
+    changed(app);
 }
 
 /// A profile's connection ended: what belonged to it ends too (FR-20).
@@ -377,6 +507,7 @@ fn profile_gone(app: &AppHandle, profile_key: &str) {
         .lock()
         .expect("webbridge lock")
         .release_profile(profile_key);
+    panel::profile_gone(app, profile_key);
 }
 
 /// The chat's title, for its tab group's name.
@@ -390,7 +521,7 @@ pub fn chat_title(app: &AppHandle, chat: &str) -> String {
         .unwrap_or_default();
     let title = title.trim();
     if title.is_empty() {
-        "chat".to_string()
+        "New chat".to_string()
     } else {
         title.chars().take(40).collect()
     }
@@ -398,6 +529,7 @@ pub fn chat_title(app: &AppHandle, chat: &str) -> String {
 
 /// An engine line: a chat's turn ended, so its tabs are let go after the lease (spec 6.2).
 pub fn on_engine_line(app: &AppHandle, chat: &str, message: &Value) {
+    panel::on_engine_line(app, chat, message);
     if message.get("type").and_then(Value::as_str) != Some("agent_settled") {
         return;
     }
@@ -469,6 +601,26 @@ fn on_frame(app: &AppHandle, connection: u64, frame: &[u8]) -> Result<(), String
                     Err(error_text(&message))
                 };
                 let _ = reply.send(result);
+            }
+            Ok(())
+        }
+        "control" => {
+            if let Some(profile) = state.profile_of(connection) {
+                match message["action"].as_str() {
+                    Some("stop_all") => stop_all(app, &profile),
+                    Some(action) => {
+                        if let Some(number) = message["tab"].as_i64() {
+                            control(app, &groups::tab_id(&profile, number), action);
+                        }
+                    }
+                    None => {}
+                }
+            }
+            Ok(())
+        }
+        "panel" => {
+            if let Some(profile) = state.profile_of(connection) {
+                panel::on_message(app, &profile, &message);
             }
             Ok(())
         }
@@ -605,6 +757,7 @@ fn on_hello(app: &AppHandle, connection: u64, message: &Value) -> Result<(), Str
     }
     state.send_to(connection, &json!({ "t": "welcome", "v": wire::VERSION, "app": env!("CARGO_PKG_VERSION"), "label": profile.label }))?;
     state.send_to(connection, &sites_message())?;
+    state.send_to(connection, &settings_message(app))?;
     commands::remember(&profile);
     log(
         app,

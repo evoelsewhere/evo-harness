@@ -453,6 +453,10 @@ pub fn settings_set(app: AppHandle, db: State<'_, Db>, key: String, value: Value
         let _ = app.emit(crate::computer::TOOLS_CHANGED, json!({ "reason": key }));
         crate::supervisor::tools_changed(&app);
     }
+    // Evo Webbridge: the browser extensions follow (docs/features/browser-bridge FR-29).
+    if key.starts_with("webbridge.") {
+        crate::webbridge::settings_changed(&app);
+    }
     if key == crate::updates::AUTO_CHECK_KEY {
         crate::updates::settings_changed(&app, &key, &value);
     }

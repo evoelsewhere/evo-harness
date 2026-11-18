@@ -4,13 +4,16 @@
 
 import * as React from "react";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { CopyIcon, FolderOpenIcon, GlobeIcon } from "lucide-react";
+import { CopyIcon, FolderOpenIcon, GlobeIcon, OctagonXIcon, PlusIcon } from "lucide-react";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { db } from "@/lib/db";
+import { useSessionStore } from "@/stores/session-store";
 import { inTauri } from "@/lib/platform";
-import { useWebbridgeStore, type WebbridgeBrowser, type WebbridgeProfile } from "@/stores/webbridge-store";
-import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
+import { useWebbridgeStore, type SitePermission, type WebbridgeBrowser, type WebbridgeProfile } from "@/stores/webbridge-store";
+import { Segmented, SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
 export function WebbridgeSettings() {
   const status = useWebbridgeStore((s) => s.status);
@@ -27,7 +30,9 @@ export function WebbridgeSettings() {
         icon={GlobeIcon}
         title="Webbridge"
         description="Let Evo work in your own Chrome or Edge: chat in the browser's side panel, and let the agent work in tabs it keeps in a group you can see and stop."
-      />
+      >
+        {status && status.profiles.length > 0 && <StopAllButton />}
+      </SettingsHeader>
       {!inTauri && <p className="text-[13px] text-muted-foreground">These settings need the desktop app.</p>}
       {error && <p className="text-[13px] text-destructive">{error}</p>}
       {status?.hostMissing && (
@@ -49,6 +54,8 @@ export function WebbridgeSettings() {
           ))}
         </SettingsGroup>
       )}
+      {status && <SitesGroup />}
+      {status && <SidePanelGroup />}
       {status?.refused && (
         <SettingsGroup title="Refused connections">
           <p className="py-3 text-[13px] text-muted-foreground">{status.refused}</p>
@@ -162,3 +169,114 @@ function ProfileRow({ profile }: { profile: WebbridgeProfile }) {
     />
   );
 }
+
+function StopAllButton() {
+  const busy = useWebbridgeStore((s) => s.busy);
+  const stopAll = useWebbridgeStore((s) => s.stopAll);
+  return (
+    <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void stopAll()}>
+      <OctagonXIcon /> Stop all
+    </Button>
+  );
+}
+
+const PERMISSIONS: { value: SitePermission; label: string }[] = [
+  { value: "ask", label: "Ask" },
+  { value: "allow", label: "Allow" },
+  { value: "block", label: "Block" },
+];
+
+/** Site permissions (FR-12): Ask by default; Allow skips the act question; Block refuses in every mode. */
+function SitesGroup() {
+  const sites = useWebbridgeStore((s) => s.sites);
+  const setSite = useWebbridgeStore((s) => s.setSite);
+  const [draft, setDraft] = React.useState("");
+  const [permission, setPermission] = React.useState<SitePermission>("block");
+
+  function add() {
+    const value = draft.trim();
+    if (!value) return;
+    const site = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+    void setSite(site, permission);
+    setDraft("");
+  }
+
+  return (
+    <SettingsGroup
+      title="Site permissions"
+      description="One list for every browser and profile. Every other site is Ask: the agent asks once per site and chat before it clicks or types there. Allow skips that question; Block keeps Evo off the site in every mode."
+    >
+      {sites.length === 0 && <p className="py-3 text-[13px] text-muted-foreground">No site has a permission yet.</p>}
+      {sites.map((row) => (
+        <SettingsRow
+          key={row.site}
+          label={<span className="font-mono text-[13px]">{row.site}</span>}
+          control={<Segmented value={row.permission} onValueChange={(next) => void setSite(row.site, next)} options={PERMISSIONS} />}
+        />
+      ))}
+      <div className="flex items-center gap-2 py-3.5">
+        <Input
+          aria-label="Site"
+          placeholder="example.com"
+          className="h-8 flex-1"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") add();
+          }}
+        />
+        <Segmented value={permission} onValueChange={(next) => setPermission(next as SitePermission)} options={PERMISSIONS.filter((p) => p.value !== "ask")} />
+        <Button size="sm" variant="outline" disabled={!draft.trim()} onClick={add}>
+          <PlusIcon /> Add
+        </Button>
+      </div>
+    </SettingsGroup>
+  );
+}
+
+const VOICE_KEY = "webbridge.voiceInput";
+const WORKSPACE_KEY = "webbridge.newChatWorkspace";
+
+/** The browser's side panel: where new chats start, and voice input (spec FR-10, FR-29). */
+function SidePanelGroup() {
+  const workspaces = useSessionStore((s) => s.workspaces);
+  const [settings, setSettings] = React.useState<Record<string, unknown>>({});
+  React.useEffect(() => {
+    void db.settings().then(setSettings).catch(() => undefined);
+  }, []);
+  async function save(key: string, value: unknown) {
+    setSettings((current) => ({ ...current, [key]: value }));
+    await db.setSetting(key, value);
+  }
+  const workspace = typeof settings[WORKSPACE_KEY] === "string" ? (settings[WORKSPACE_KEY] as string) : "";
+  return (
+    <SettingsGroup title="Side panel" description="Chat with Evo next to any page from the browser's side panel. It shows the same chats as this app.">
+      <SettingsRow
+        labelId="webbridge-workspace"
+        label="New chats start in"
+        control={
+          <select
+            aria-labelledby="webbridge-workspace"
+            className="h-8 rounded-md bg-background px-2 text-sm shadow-[0_0_0_1px_var(--border)]"
+            value={workspace}
+            onChange={(e) => void save(WORKSPACE_KEY, e.target.value || null)}
+          >
+            <option value="">The last used workspace</option>
+            {workspaces.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+        }
+      />
+      <SettingsRow
+        labelId="webbridge-voice"
+        label="Voice input"
+        description="Shows a microphone in the side panel. Your browser turns speech into text with its maker's service; only the text reaches Evo, and nothing is sent until you send it."
+        control={<Switch aria-labelledby="webbridge-voice" checked={settings[VOICE_KEY] === true} onCheckedChange={(on) => void save(VOICE_KEY, on)} />}
+      />
+    </SettingsGroup>
+  );
+}
+

@@ -15,7 +15,6 @@ use super::groups::{self, split};
 use super::{Webbridge, REQUEST_TIMEOUT};
 use crate::browser::{self, dialog};
 
-/// Where a Webbridge tab's agent work is refused before it reaches the browser.
 /// Commands that take a tab away from the page it shows.
 fn leaves_page(method: &str) -> bool {
     matches!(
@@ -27,6 +26,7 @@ fn leaves_page(method: &str) -> bool {
     )
 }
 
+/// Where a Webbridge tab's agent work is refused before it reaches the browser.
 fn check(app: &AppHandle, tab: &str, method: &str) -> Result<(String, i64), String> {
     let (profile, number) =
         split(tab).ok_or_else(|| format!("No browser tab {tab}; see browser_tabs."))?;
@@ -99,12 +99,40 @@ async fn prepare(app: &AppHandle, tab: &str, profile: &str, number: i64) -> Resu
             json!({ "expression": script }),
         )
         .await;
+        // The indicator (FR-15): on every document, its buttons reach the shell through a binding.
+        // Bindings reach new documents only with the Runtime domain on.
+        raw(app, profile, number, "Runtime.enable", json!({})).await?;
+        raw(
+            app,
+            profile,
+            number,
+            "Runtime.addBinding",
+            json!({ "name": BINDING }),
+        )
+        .await?;
+        raw(
+            app,
+            profile,
+            number,
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": OVERLAY }),
+        )
+        .await?;
+        let _ = raw(
+            app,
+            profile,
+            number,
+            "Runtime.evaluate",
+            json!({ "expression": OVERLAY }),
+        )
+        .await;
         Ok::<(), String>(())
     }
     .await;
     match result {
         Ok(()) => {
             state.holds.lock().expect("webbridge lock").touch(tab);
+            show_overlay(app, tab);
             Ok(())
         }
         Err(error) => {
@@ -112,6 +140,50 @@ async fn prepare(app: &AppHandle, tab: &str, profile: &str, number: i64) -> Resu
             Err(error)
         }
     }
+}
+
+/// The indicator's script and the binding its buttons call.
+const OVERLAY: &str = include_str!("overlay.js");
+const BINDING: &str = "__evoWebbridge";
+
+/// Set the indicator of `tab` to what the shell knows: working, taken over, or off.
+pub fn show_overlay(app: &AppHandle, tab: &str) {
+    let state = app.state::<Webbridge>();
+    let attached = state.prepared.lock().expect("webbridge lock").contains(tab);
+    let taken = state.holds.lock().expect("webbridge lock").is_taken(tab);
+    let mode = if !attached {
+        "off"
+    } else if taken {
+        "taken"
+    } else {
+        "working"
+    };
+    set_overlay(app, tab, mode);
+}
+
+fn set_overlay(app: &AppHandle, tab: &str, mode: &str) {
+    let Some((profile, number)) = split(tab) else {
+        return;
+    };
+    let chat = crate::browser::tab_record(app, tab)
+        .and_then(|t| t.chat)
+        .map(|c| super::chat_title(app, &c))
+        .unwrap_or_default();
+    let expression = format!(
+        "window.__evoOverlay && window.__evoOverlay.set({})",
+        json!({ "state": mode, "chat": chat })
+    );
+    let (app, profile) = (app.clone(), profile.to_string());
+    tauri::async_runtime::spawn(async move {
+        let _ = raw(
+            &app,
+            &profile,
+            number,
+            "Runtime.evaluate",
+            json!({ "expression": expression }),
+        )
+        .await;
+    });
 }
 
 async fn raw(
@@ -334,6 +406,7 @@ pub async fn open(
     browser::register_external(app, &id, chat, "about:blank", "", false);
     browser::select_tab_for_tool(app, chat, &id);
     let _ = crate::agent_tools::browser::network::record_from_start(app, &id).await;
+    super::push_working(app, profile_key);
     if target.as_str() != "about:blank" {
         navigate(app, &id, target.as_str()).await?;
     }
@@ -372,12 +445,28 @@ pub fn on_event(app: &AppHandle, profile_key: &str, message: &Value) {
             browser::external_dialog(app, &tab, info, complete);
         }
         "Page.javascriptDialogClosed" => browser::external_dialog_closed(app, &tab),
+        "Runtime.bindingCalled" if params["name"].as_str() == Some(BINDING) => {
+            let payload: Value = params["payload"]
+                .as_str()
+                .and_then(|p| serde_json::from_str(p).ok())
+                .unwrap_or(Value::Null);
+            if let Some(action) = payload["action"].as_str() {
+                super::control(app, &tab, action);
+            }
+        }
         _ => browser::external_event(app, &tab, method, params),
     }
 }
 
 /// A tab joined, left, changed or closed.
 pub fn on_tab(app: &AppHandle, profile_key: &str, message: &Value) {
+    on_tab_change(app, profile_key, message);
+    if message["change"].as_str() != Some("updated") {
+        super::push_working(app, profile_key);
+    }
+}
+
+fn on_tab_change(app: &AppHandle, profile_key: &str, message: &Value) {
     let Some(number) = message["tab"].as_i64() else {
         return;
     };
@@ -397,7 +486,13 @@ pub fn on_tab(app: &AppHandle, profile_key: &str, message: &Value) {
                 );
             }
         }
-        "updated" => browser::update_external(app, &tab, url, title, message["loading"].as_bool()),
+        "updated" => {
+            browser::update_external(app, &tab, url, title, message["loading"].as_bool());
+            // A new document has the indicator off until it is told.
+            if message["loading"].as_bool() == Some(false) {
+                show_overlay(app, &tab);
+            }
+        }
         "left" | "closed" => forget(app, &tab),
         _ => {}
     }
@@ -431,6 +526,7 @@ pub fn release_due(app: &AppHandle, now_ms: u64) {
         .expect("webbridge lock")
         .due(now_ms);
     for tab in due {
+        set_overlay(app, &tab, "off");
         app.state::<Webbridge>()
             .prepared
             .lock()

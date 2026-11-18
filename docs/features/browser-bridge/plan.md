@@ -138,7 +138,7 @@ tools see a `Page` and do not know which browser serves it.
 | extension | `extensions/evo-webbridge/background/cdp.js` | Attach / detach `chrome.debugger`, relay commands and events, child-frame sessions, map browser errors to codes. | FR-5, FR-20, FR-22 |
 | extension | `extensions/evo-webbridge/background/groups.js` | Create and name groups, add tabs the agent opens and tabs opened from group tabs, report tabs dragged in or out, closed groups. | FR-6 – FR-8, FR-20 |
 | extension | `extensions/evo-webbridge/background/control.js` | Takeover state, Stop, Stop all, context menu items, the overlay's messages. | FR-15 – FR-18 |
-| extension | `extensions/evo-webbridge/overlay/overlay.js` | In-page indicator (closed shadow root) with **Stop** / **Take over** / **Hand back**, injected into each document through CDP; signals through a CDP binding. | FR-15 – FR-17 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/overlay.js` | In-page indicator (closed shadow root) with **Stop** / **Take over** / **Hand back**, added to each document through CDP by the shell (which owns its state); its buttons call the `__evoWebbridge` binding. | FR-15 – FR-17 |
 | extension | `extensions/evo-webbridge/sidepanel/` | Chat client: header (title, **History**, **New chat**, **⋯**, **Close**), empty state, streamed reply and tool activity, questions, Stop. | FR-10, FR-11, FR-14, FR-25 |
 | extension | `extensions/evo-webbridge/sidepanel/composer.js` | Field with **Include this tab**; model and effort picker; approval mode switch; **+** menu (page screenshot through `captureVisibleTab`, file picker, paste and drop, another tab); attachment chips; microphone. | FR-26 – FR-29 |
 | extension | `extensions/evo-webbridge/permission/` | One-time page that asks for the microphone, opened from the panel when voice input is first used. | FR-29 |
@@ -457,4 +457,13 @@ popup.
     event): the extension reports them as joined from `onCreated`.
   - Development builds have `webbridge_debug_tool`, which runs a browser tool
     for a chat without an engine; it answers an error in release builds.
+- The in-page indicator lives in the shell (`webbridge/overlay.js`), which
+  injects it and sets its state; the binding needs the Runtime domain on to
+  reach new documents.
+- The approval mode is the app's, not a chat's: the side panel's mode switch
+  sets the app setting (every chat follows), as Settings does.
+- The side panel is `sidepanel/sidepanel.js` with the composer in
+  `sidepanel/composer.js`; the extension packs with
+  `apps/desktop/scripts/pack-webbridge.ts` (`bun run webbridge:pack`), which
+  leaves `key` out for the stores.
 

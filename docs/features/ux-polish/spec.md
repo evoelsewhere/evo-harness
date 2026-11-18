@@ -82,7 +82,7 @@ headers.
 | FR-5 | A scheduled run's chat shows its run date after the task name ("Morning briefing · Nov 12") in the sidebar, the pane header and the window title, unless the person renamed it. | Two runs of one task read differently. |
 | FR-6 | Secondary text (`muted-foreground`) reaches at least 4.5:1 on the background, card and sidebar surfaces, in light and dark. | Measured contrast ≥ 4.5:1. |
 | FR-7 | Ctrl/⌘+/ opens a list of keyboard shortcuts, grouped by area, from one registry. The command palette offers it too. | Ctrl+/ shows the list. |
-| FR-8 | The new-chat suggestions fit where the chat works. In a repository with changes, the first suggestion reviews them ("Review the 35 changed files"). Outside a project, the suggestions are general tasks, not code tasks. | "This computer" shows no "Explain this project". |
+| FR-8 | *Withdrawn 2026-11-18 (see History).* The new-chat suggestions fit where the chat works. In a repository with changes, the first suggestion reviews them ("Review the 35 changed files"). Outside a project, the suggestions are general tasks, not code tasks. | "This computer" shows no "Explain this project". |
 | FR-9 | Previews of chat text (Scheduler past runs, sidebar tooltips) show plain text, without markdown marks. | A past run reads "Needs your attention…", not "**Needs…". |
 | FR-10 | Truncated titles show in full on hover: sidebar rows, pane headers, Scheduler past runs. | Hovering a cut title shows all of it. |
 | FR-11 | Popovers, menus, hover cards and dialogs open with the same spring curve as split view, within their current durations. Reduced motion is respected. | Opening a menu uses the spring easing. |
@@ -144,3 +144,4 @@ n/a — the person asked for every proposed item ("làm hết luôn",
 - 2026-11-13 — Draft from the audit; every item accepted by the person
   ("làm hết luôn"), so both gates are passed together.
 - 2026-11-13 — FR-5 also dates runs saved before runs were flagged, when they are still named after their task.
+- 2026-11-18 — FR-8 withdrawn: the new-chat screen was redesigned (composer centred under the greeting, folder and branch over the field, accent aurora bands) and no longer shows suggestions.

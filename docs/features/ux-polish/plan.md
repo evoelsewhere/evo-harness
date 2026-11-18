@@ -115,5 +115,7 @@ n/a — no settings.
 - **FR-7**: the dialog's open state is `ui-store.shortcutsOpen`, so the
   command palette (`features/sessions`) does not reach into
   `features/shell`.
+- **FR-8** was withdrawn on 2026-11-18: the redesigned new-chat screen
+  has no suggestions, and `suggestions.ts` with its test is gone.
 - **FR-11** sets tw-animate's `--tw-ease` on overlay content, with no
   change to the generated `components/ui` files.

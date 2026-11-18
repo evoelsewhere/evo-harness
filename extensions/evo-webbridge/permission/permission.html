@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Evo Webbridge · Microphone</title>
+  <link rel="stylesheet" href="../shared/tokens.css">
+  <style>
+    body { display: grid; place-items: center; min-height: 100vh; }
+    main { max-width: 420px; padding: 24px; display: grid; gap: 12px; text-align: center; }
+    h1 { font-size: 16px; margin: 0; }
+    p { color: var(--text-2); margin: 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <img class="logo" src="../icons/icon-48.png" alt="" style="width:48px;height:48px;margin:0 auto">
+    <h1>Let the side panel hear you</h1>
+    <p>Voice input types what you say into the side panel. Your browser turns speech into text with its maker's service; only the text reaches Evo.</p>
+    <p id="state">Allow the microphone when your browser asks.</p>
+    <button id="allow" class="primary">Allow the microphone</button>
+  </main>
+  <script type="module" src="permission.js"></script>
+</body>
+</html>

@@ -184,9 +184,9 @@ Acceptance scenarios:
    the composer shows the chat's model, thinking effort and approval mode.
 2. **Given** the composer, **when** the person picks another model or effort,
    **then** the chat uses it from its next turn, and the app shows the same.
-3. **Given** the chat in "Ask every time", **when** the person switches the
-   panel's mode control to "Approve for me", **then** the chat's mode changes
-   in the panel and the app, and **Block** sites stay blocked.
+3. **Given** "Ask every time", **when** the person switches the panel's mode
+   control to "Approve for me", **then** the mode changes in the panel and the
+   app (it is the app's mode), and **Block** sites stay blocked.
 4. **Given** **+**, **when** the person adds a screenshot of the page, a file,
    a pasted image or another open tab, **then** each shows as a chip above the
    field and goes with the next message.
@@ -244,7 +244,7 @@ Acceptance scenarios:
 | FR-24 | Webbridge activity is written to Evo's logs: connections, set-up, refused connections, and each act with its chat and site (never page content or typed text). | Logs show the connection and the acts. |
 | FR-25 | The side panel has a header with the chat's title, **History** (recent chats, searchable by title), **New chat**, a **⋯** menu (this site's permission, **Stop all**, **Open in Evo**, **Settings**) and **Close**; a new or empty chat shows an empty state with the field focused. | US-8 scenarios 1 and 6; **Open in Evo** shows the chat in the app. |
 | FR-26 | The panel's composer shows the chat's model and thinking effort and changes them, offering the same models (from the person's providers) and the efforts the chosen model supports as the app does; a change applies to the chat, not only to the panel. | Pick a model in the panel: the app's composer shows it; the next turn uses it. |
-| FR-27 | The panel's composer shows the chat's approval mode and switches it among the app's modes; the switch is the chat's own mode, shown in the app too. Site permissions keep their rules in every mode (FR-13). | US-8 scenario 3. |
+| FR-27 | The panel's composer shows the approval mode and switches it among the app's modes; the mode is the app's (every chat follows it, as when it is changed in the app) and the app shows the change. Site permissions keep their rules in every mode (FR-13). | US-8 scenario 3. |
 | FR-28 | **+** in the panel attaches: a screenshot of the visible part of the current tab, files from the computer, images and files pasted or dropped into the panel, and another open tab (which joins the chat's group). Attachments show as removable chips, follow the app's size limits, and go with the next message. | Attach a screenshot and a PDF, send: the agent receives both. |
 | FR-29 | A microphone button dictates into the panel's field; dictated text is editable and is only sent when the person sends it. Voice input is off until the person turns it on in **Settings → Webbridge**, where they are told which service turns speech into text. | Turned off: no microphone button. Turned on: speech becomes text in the field, nothing sent. |
 
@@ -325,3 +325,4 @@ None.
 - 2026-11-18 — Renamed Evo Webbridge; the product name is written "Evo" in
   this feature's documents and UI text (identifiers stay lowercase).
 - 2026-11-18 — Accepted (Gates A and B); tasks written.
+- 2026-11-18 — FR-27: the approval mode is the app's, so the panel switches the app's mode.

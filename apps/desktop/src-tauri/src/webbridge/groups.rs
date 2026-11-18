@@ -49,6 +49,7 @@ impl Holds {
         self.leases.insert(tab.to_string(), None);
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn is_attached(&self, tab: &str) -> bool {
         self.leases.contains_key(tab)
     }

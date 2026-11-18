@@ -30,6 +30,7 @@ import { isWindows } from "@/lib/platform";
 import { useBrowserStore, type BrowserTab } from "@/stores/browser-store";
 import { useCardsStore } from "@/stores/cards-store";
 import { useUiStore } from "@/stores/ui-store";
+import { WebbridgeTabs } from "./webbridge-tabs";
 
 const QUICK = ["localhost:3000", "localhost:5173", "localhost:8080"];
 
@@ -328,6 +329,7 @@ export function BrowserPanel() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <WebbridgeTabs />
       {error && <p className="shrink-0 border-b border-border/60 px-3 py-1.5 text-xs text-destructive">{error}</p>}
       <div className="relative min-h-0 flex-1 bg-background">{tab ? staged ? <BrowserCanvas key={tab.id} tab={tab.id} /> : <PageArea /> : <StartPage />}</div>
     </div>

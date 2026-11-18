@@ -1174,6 +1174,8 @@ impl Host for AppHost {
                 let _ = self.0.emit("engine://question-closed", json!({ "chat": chat, "requestId": request_id }));
             }
         }
+        // Evo Webbridge side panels showing the chat follow too (docs/features/browser-bridge FR-14).
+        crate::webbridge::panel::question(&self.0, chat, change);
         crate::system::work_changed(&self.0);
     }
 

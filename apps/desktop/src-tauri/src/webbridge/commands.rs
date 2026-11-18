@@ -167,6 +167,74 @@ pub fn webbridge_set_site(
     Ok(webbridge_sites())
 }
 
+/// Stop all in one profile, or in every connected profile (Settings → Webbridge).
+#[tauri::command]
+pub fn webbridge_stop_all(app: AppHandle, profile: Option<String>) -> Status {
+    let profiles: Vec<String> = match profile {
+        Some(profile) => vec![profile],
+        None => app
+            .state::<Webbridge>()
+            .profiles()
+            .into_iter()
+            .map(|p| p.key)
+            .collect(),
+    };
+    for profile in profiles {
+        super::stop_all(&app, &profile);
+    }
+    status(&app)
+}
+
+/// The person takes a tab back from the app's Browser panel (FR-8).
+#[tauri::command]
+pub async fn webbridge_release(app: AppHandle, tab: String) -> Result<(), String> {
+    let (profile, number) = super::groups::split(&tab).ok_or("not a Webbridge tab")?;
+    let profile = profile.to_string();
+    super::page::forget(&app, &tab);
+    app.state::<Webbridge>()
+        .request(
+            &profile,
+            json!({ "t": "release", "tab": number }),
+            super::REQUEST_TIMEOUT,
+        )
+        .await
+        .map(|_| ())
+}
+
+/// One Webbridge tab of a chat, for the app's Browser panel (FR-7, FR-8).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTab {
+    pub id: String,
+    pub browser: String,
+    pub title: String,
+    pub url: String,
+    pub loading: bool,
+    /// The person took it over (FR-17).
+    pub taken: bool,
+}
+
+#[tauri::command]
+pub fn webbridge_chat_tabs(app: AppHandle, chat: String) -> Vec<ChatTab> {
+    let state = app.state::<Webbridge>();
+    crate::browser::chat_tabs(&app, &chat)
+        .into_iter()
+        .filter(|(id, _)| super::groups::is_tab(id))
+        .map(|(id, tab)| ChatTab {
+            browser: if id.starts_with("edge:") {
+                "Edge".into()
+            } else {
+                "Chrome".into()
+            },
+            taken: state.holds.lock().expect("webbridge lock").is_taken(&id),
+            id,
+            title: tab.title,
+            url: tab.url,
+            loading: tab.loading,
+        })
+        .collect()
+}
+
 // ── profiles.json ───────────────────────────────────────────────────────────
 
 #[derive(Default, Serialize, Deserialize)]

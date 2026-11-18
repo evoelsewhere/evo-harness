@@ -8,7 +8,58 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <div id="app"></div>
+  <header class="top">
+    <img class="logo" src="../icons/icon-32.png" alt="">
+    <div class="names">
+      <span class="product">Evo Webbridge</span>
+      <span id="chat-title" class="chat-title"></span>
+    </div>
+    <button id="history" class="icon" title="History" aria-label="History"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1.5"/></svg></button>
+    <button id="new-chat" class="icon" title="New chat" aria-label="New chat"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M8 5.5v5M5.5 8h5"/></svg></button>
+    <button id="menu" class="icon" title="More" aria-label="More" aria-haspopup="menu"><svg viewBox="0 0 16 16"><circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/></svg></button>
+    <button id="close" class="icon" title="Close" aria-label="Close"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    <div id="menu-list" class="menu" role="menu" hidden>
+      <div class="menu-site" id="menu-site">
+        <span class="eyebrow">This site</span>
+        <span id="menu-site-name" class="mono"></span>
+        <select id="menu-site-permission" aria-label="This site's permission"><option value="ask">Ask</option><option value="allow">Allow</option><option value="block">Block</option></select>
+      </div>
+      <button role="menuitem" id="menu-stop-all">Stop all in this browser</button>
+      <button role="menuitem" id="menu-open-app">Open in Evo</button>
+    </div>
+  </header>
+
+  <section id="history-view" class="history" hidden>
+    <input id="history-search" type="search" placeholder="Search chats" aria-label="Search chats">
+    <ul id="history-list"></ul>
+  </section>
+
+  <main id="messages" class="messages" aria-live="polite"></main>
+
+  <section id="offline" class="offline" hidden>
+    <p id="offline-text"></p>
+    <button id="retry">Try again</button>
+  </section>
+
+  <footer class="composer">
+    <div id="chips" class="chips"></div>
+    <textarea id="input" rows="2" placeholder="Ask Evo about this page…" aria-label="Message"></textarea>
+    <div class="row">
+      <button id="plus" class="icon" title="Attach" aria-label="Attach" aria-haspopup="menu"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>
+      <div id="plus-list" class="menu up" role="menu" hidden>
+        <button role="menuitem" id="attach-shot">Screenshot of this page</button>
+        <button role="menuitem" id="attach-file">A file from this computer</button>
+        <button role="menuitem" id="attach-tab">Another open tab</button>
+      </div>
+      <input id="file" type="file" multiple hidden>
+      <button id="mode" class="chip-button" title="Approval mode"><svg viewBox="0 0 16 16"><path d="M3 4l4 4-4 4M8 4l4 4-4 4"/></svg><span id="mode-label">Ask every time</span></button>
+      <span class="spacer"></span>
+      <button id="model" class="model" title="Model and effort"><span id="model-label">Model</span></button>
+      <div id="model-list" class="menu up wide" role="menu" hidden></div>
+      <button id="mic" class="icon" title="Dictate" aria-label="Dictate" hidden><svg viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg></button>
+      <button id="send" class="send" title="Send" aria-label="Send"><svg viewBox="0 0 16 16"><path d="M8 13V3M4 7l4-4 4 4"/></svg></button>
+    </div>
+  </footer>
   <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

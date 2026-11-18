@@ -53,6 +53,11 @@ on("attach", async ({ tab }) => {
   return { attached: true };
 });
 
+// Stop all: Evo lets go of a tab at once (a notice, no answer).
+on("detach-now", async ({ tab }) => {
+  await detach(tab);
+});
+
 on("detach", async ({ tab }) => {
   await detach(tab);
   return { attached: false };

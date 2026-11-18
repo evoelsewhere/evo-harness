@@ -618,6 +618,13 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
     merge_definitions(fixed, extra)
 }
 
+/// Answer a question a tool raised from outside a window (the browser's side panel).
+pub fn answer_ask(app: &AppHandle, request_id: &str, index: i32) {
+    if let Some((tx, _)) = app.state::<AgentTools>().asks.lock().expect("asks lock").remove(request_id) {
+        let _ = tx.send(index);
+    }
+}
+
 /// The person's answer to a question a tool raised (`agent://ask`).
 #[tauri::command]
 pub fn agent_ask_answer(state: State<'_, AgentTools>, request_id: String, index: i32) {
