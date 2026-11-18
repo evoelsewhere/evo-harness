@@ -186,6 +186,15 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   memory topics with the model the person chose for indexing, prints one
   result line and exits. It loads no plugins, hooks, skills or connectors
   and has two tools (docs/features/memory-topics-and-chat-recall).
+- **Evo Webbridge reaches the person's own Chrome or Edge** without a port.
+  The browser starts `evo-bridge-host` (one per profile) for the Evo
+  extension through native messaging; the host joins the shell over a
+  per-user named pipe (a 0600 Unix socket elsewhere), and each side checks the
+  other's executable. The extension only relays DevTools commands for tabs in
+  Evo's tab groups and hosts the side panel; the shell decides which chat owns
+  a tab and what the gate allows
+  ([ADR 0012](decisions/0012-native-messaging-bridge-to-the-persons-browser.md),
+  [Evo Webbridge](../features/browser-bridge/spec.md)).
 - **The shell owns native capabilities and cross-chat coordination**: windows,
   pseudo-terminals, file access for the Files tool, browser webviews, the MCP
   connection pool, plugin installs, the session mesh hub, the app database,
@@ -270,6 +279,7 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 | `evo-worktrees` | Managed Git worktrees for subagents and nested sessions |
 | `evo-telemetry` | Span/event contracts with a no-op default |
 | `evo-engine` | Composes everything into the headless application and its RPC server |
+| `evo-bridge-host` | Native messaging host for Evo Webbridge: frames between the browser's stdio and the shell's pipe; depends on no other Evo crate |
 
 **Dependency rules**
 
@@ -387,6 +397,7 @@ sequenceDiagram
 | `~/.evo/agent/auth.json` | credentials (owner-only on Unix) | engine |
 | `~/.evo/agent/settings.json`, `models.json`, `trust.json` | defaults, user model catalog, project trust | engine |
 | `~/.evo/agent/mcp.json`, `mcp-auth.json` | connectors and their OAuth tokens | shell |
+| `~/.evo/agent/webbridge/{sites.json,profiles.json}`, the host manifest `dev.evo.webbridge.json` and its per-user browser registration | Evo Webbridge site permissions (Allow / Block; others Ask), known browser profiles; where Chrome and Edge find the host | shell (`webbridge/`) |
 | `~/.evo/agent/{skills,plugins,lsp,memory}`, `projects/<folder>/memory` | personal skills, plugins, language servers, memory | engine / shell |
 | `~/.evo/agent/plugins/installed.json`, `plugins/data/<plugin>/storage.json` | installed plugins with the permissions approved (views and code), optional answers, Developer mode, an update waiting for consent, plain settings (personal and per workspace), which secrets are set, when its code starts, its sign-ins' names and states (never a secret), its AI rules (providers and models allowed, default, tier pins, caps); each plugin's own key–value storage (10 MB, removed on uninstall) | shell (`plugins.rs`, `plugin_settings.rs`, `plugin_auth/`, `plugin_ui/bridge.rs`) |
 | OS keychain, service `evo.plugins` (Credential Manager, Keychain, Secret Service), and `~/.evo/agent/plugins/vault/<plugin>.vault` | one 32-byte key per plugin in the keychain; the plugin's secret settings, tokens, refresh tokens and cookies sealed with it (AES-256-GCM); both removed on uninstall | shell only (`evo-vault`, [ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)) |
@@ -423,6 +434,7 @@ Details: [app database spec](../features/app-database/spec.md).
 | External tools | engine ↔ app | `crates/evo-engine/src/rpc/external_tools.rs` | tool schemas are part of the contract |
 | Plugin ABI | engine ↔ `cdylib` plugins | `crates/evo-plugin-sdk` | stable `#[repr(C)]`; breaking changes need a new ABI version |
 | MCP | shell ↔ connectors | `crates/evo-mcp` | follows the MCP spec |
+| Webbridge wire | Evo extension ↔ `evo-bridge-host` ↔ shell | `apps/desktop/src-tauri/src/webbridge/wire.rs`, `extensions/evo-webbridge/background/port.js`, [plan 3.3](../features/browser-bridge/plan.md#33-interfaces) | versioned (`v` in `hello` / `welcome`); messages added, never changed in meaning; a newer peer's unknown message is ignored |
 | Hooks | engine ↔ user commands / URLs | `crates/evo-hooks` | documented exit codes and JSON |
 | Plugin bridge (`window.evo`) | plugin views ↔ shell | `apps/desktop/src-tauri/src/plugin_ui/{bridge.rs,client.js}`, [sample plugin](../../examples/plugin-ui-sample/README.md) | calls are added, never changed in meaning; every call is checked against the plugin's approved permissions |
 | Plugin host API (`/v1/…` on `127.0.0.1`, `EVO_PLUGIN_HOST` + `EVO_PLUGIN_KEY`) | plugin backends and hooks ↔ shell | `apps/desktop/src-tauri/src/plugin_host/`, [sample plugin](../../examples/plugin-settings-sample/README.md) | versioned path (`/v1`); endpoints added, never changed in meaning; each call checked against the key's plugin, its part's permission and `secrets` |
@@ -456,6 +468,10 @@ Details: [app database spec](../features/app-database/spec.md).
   an open question counts as working, so its engine is never trimmed.
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
+- **The person's own browser.** Evo Webbridge acts only in tabs of a chat's
+  tab group; per-site permissions (Ask, Allow, Block) sit inside the approval
+  gate, and Block holds in every mode. The browser's debugging notice, the tab
+  group and Evo's in-page indicator (with Stop and Take over) show agent work.
 - **Plugin views.** A plugin's views are untrusted pages. Each runs in its
   own webview at its plugin's own origin, with a CSP (no remote or inline
   scripts, no frames, fetches only to its `network:` origins), no Tauri

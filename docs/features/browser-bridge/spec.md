@@ -2,12 +2,12 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | Accepted |
 | Area | browser extension, desktop shell, desktop UI, new crate `evo-bridge-host` |
 | Created | 2026-11-07 |
 | Updated | 2026-11-18 |
 | Plan | [plan.md](plan.md) |
-| Tasks | not yet (after Gate B) |
+| Tasks | [tasks.md](tasks.md) |
 | Related | [Agent browser](../agent-browser/spec.md), [Approval modes](../approval-modes/spec.md), [Shell-hosted engines](../shell-hosted-engines/spec.md), [ADR 0012](../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md) |
 
 ## 1. Summary
@@ -277,34 +277,7 @@ Acceptance scenarios:
 
 ### 6.1 Open
 
-1. [NEEDS CLARIFICATION: How long does the agent hold the browser's debugging
-   API on a tab (and so the browser's notice)?] — proposed answer: from its
-   first call on the tab while the chat's turn runs, released 60 s after the
-   turn ends; taken again on the next call.
-2. [NEEDS CLARIFICATION: Where do the agent's tabs open: in the window the
-   person is using (background tabs), or in a window of their own?] —
-   proposed answer: in the person's last focused window, in the background;
-   a window of their own only if screenshots of background tabs prove
-   unreliable in the browser (checked before tasks are written).
-3. [NEEDS CLARIFICATION: Which chats does the side panel offer?] — proposed
-   answer: the recent chats of every workspace, newest first; a new chat
-   starts in the workspace set in **Settings → Webbridge** (default: the last
-   used one).
-4. [NEEDS CLARIFICATION: Are site permissions one list for all browsers and
-   profiles, or one per profile?] — proposed answer: one list in Evo for all
-   of them.
-5. [NEEDS CLARIFICATION: Publish to the Chrome Web Store and Edge Add-ons as
-   part of this feature?] — proposed answer: yes, as its last phase; until
-   then the extension loads unpacked with a fixed id.
-6. [NEEDS CLARIFICATION: Should the agent be allowed to take over a tab the
-   person is actively typing in?] — proposed answer: no; acts on the tab the
-   person has focused, while they used it in the last 5 s, wait until they
-   stop.
-7. [NEEDS CLARIFICATION: Which speech-to-text does voice input use? The
-   browser's built-in recognition sends audio to the browser maker's service,
-   which breaks Evo's local-first default.] — proposed answer: the browser's
-   built-in recognition, off by default, with that notice where it is turned
-   on (FR-29); a local engine is a later feature.
+None.
 
 ### 6.2 Resolved
 
@@ -326,6 +299,20 @@ Acceptance scenarios:
 - 2026-11-18 — Q: What is the feature called? → A: Evo Webbridge (the
   extension's name in the browser stores and the browser's own notices);
   Webbridge for short in the app.
+- 2026-11-18 — Gate A: the person accepted the proposed answers:
+  - The debugging API is held on a tab from the agent's first call while the
+    chat's turn runs, and released 60 s after the turn ends.
+  - Agent tabs open in the background in the person's last focused window; a
+    window of their own only if background screenshots prove unreliable.
+  - The side panel offers the recent chats of every workspace; new chats start
+    in the workspace set in **Settings → Webbridge** (default: last used).
+  - Site permissions are one list for all browsers and profiles.
+  - Publishing to the Chrome Web Store and Edge Add-ons is this feature's last
+    phase; until then the extension loads unpacked with a fixed id.
+  - Acts on the tab the person has focused wait while they used it in the last
+    5 s.
+  - Voice input uses the browser's built-in speech recognition, off by
+    default, with a notice where it is turned on (FR-29).
 
 ## 7. History
 
@@ -337,3 +324,4 @@ Acceptance scenarios:
   tab permission.
 - 2026-11-18 — Renamed Evo Webbridge; the product name is written "Evo" in
   this feature's documents and UI text (identifiers stay lowercase).
+- 2026-11-18 — Accepted (Gates A and B); tasks written.

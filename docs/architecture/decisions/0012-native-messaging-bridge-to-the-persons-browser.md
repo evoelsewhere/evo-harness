@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Proposed |
+| Status | Accepted |
 | Date | 2026-11-18 |
 | ADD sections | [4. Process view](../README.md#4-process-view), [7. Data view](../README.md#7-data-view), [8. Interfaces](../README.md#8-interfaces), [9. Cross-cutting concepts](../README.md#9-cross-cutting-concepts) |
 | Related | [Evo Webbridge spec](../../features/browser-bridge/spec.md), [Agent browser spec](../../features/agent-browser/spec.md), [ADR 0013](0013-app-side-agent-tools-run-in-the-rust-shell.md), [ADR 0018](0018-the-shell-hosts-engines-windows-attach.md) |

@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Spec | [spec.md](spec.md) |
-| Tasks | not yet (after Gate B) |
+| Tasks | [tasks.md](tasks.md) |
 | Updated | 2026-11-18 |
 | ADD sections | [4. Process view](../../architecture/README.md#4-process-view), [5. Building blocks](../../architecture/README.md#5-building-blocks), [6.3 Hosting an engine](../../architecture/README.md#63-hosting-an-engine), [7. Data view](../../architecture/README.md#7-data-view), [8. Interfaces](../../architecture/README.md#8-interfaces), [9. Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts) |
 | ADRs | [0012 A native messaging bridge to the person's own browser](../../architecture/decisions/0012-native-messaging-bridge-to-the-persons-browser.md); [0013 App-side agent tools run in the Rust shell](../../architecture/decisions/0013-app-side-agent-tools-run-in-the-rust-shell.md); [0018 The shell hosts engines, windows attach](../../architecture/decisions/0018-the-shell-hosts-engines-windows-attach.md) |
@@ -113,9 +113,9 @@ commit that accepts this plan (Gate B).
 ┌──────────────────┴────────────────────────────────────────────┐
 │ Evo app shell (src-tauri)                                      │
 │  webbridge/  server · setup · groups · sites · panel           │
-│  browser/host.rs  TabHost                                      │
-│    ├ WebviewHost   built-in browser (WebView2, today's code)   │
-│    └ BridgeHost    CDP over webbridge                          │
+│  browser.rs   page functions dispatch by tab id                │
+│    ├ built-in tab  WebView2 (today's code)                     │
+│    └ chrome:/edge: webbridge/page.rs (CDP over the pipe)       │
 │  agent_tools/browser   29 browser tools, one page driver       │
 │  supervisor            hosted engines, open questions          │
 └──────────────────┬────────────────────────────────────────────┘
@@ -134,16 +134,16 @@ tools see a `Page` and do not know which browser serves it.
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
 | extension | `extensions/evo-webbridge/manifest.json` | MV3 manifest, permissions `debugger tabs tabGroups sidePanel nativeMessaging storage contextMenus activeTab`, fixed `key` for the unpacked id. | FR-1 |
-| extension | `extensions/evo-webbridge/src/background/port.ts` | `connectNative`, `hello`, reconnect with backoff, chunk reassembly, fail pending work on disconnect; keeps only the profile id and label in storage. | FR-4, FR-19, FR-20, NFR-5, NFR-6 |
-| extension | `extensions/evo-webbridge/src/background/cdp.ts` | Attach / detach `chrome.debugger`, relay commands and events, child-frame sessions, map browser errors to codes. | FR-5, FR-20, FR-22 |
-| extension | `extensions/evo-webbridge/src/background/groups.ts` | Create and name groups, add tabs the agent opens and tabs opened from group tabs, report tabs dragged in or out, closed groups. | FR-6 – FR-8, FR-20 |
-| extension | `extensions/evo-webbridge/src/background/control.ts` | Takeover state, Stop, Stop all, context menu items, the overlay's messages. | FR-15 – FR-18 |
-| extension | `extensions/evo-webbridge/src/overlay/overlay.ts` | In-page indicator (closed shadow root) with **Stop** / **Take over** / **Hand back**, injected per frame in an isolated world through CDP; signals through a CDP binding. | FR-15 – FR-17 |
-| extension | `extensions/evo-webbridge/src/sidepanel/` | Chat client: header (title, **History**, **New chat**, **⋯**, **Close**), empty state, streamed reply and tool activity, questions, Stop. | FR-10, FR-11, FR-14, FR-25 |
-| extension | `extensions/evo-webbridge/src/sidepanel/composer/` | Field with **Include this tab**; model and effort picker; approval mode switch; **+** menu (page screenshot through `captureVisibleTab`, file picker, paste and drop, another tab); attachment chips; microphone. | FR-26 – FR-29 |
-| extension | `extensions/evo-webbridge/src/permission/` | One-time page that asks for the microphone, opened from the panel when voice input is first used. | FR-29 |
-| extension | `extensions/evo-webbridge/src/popup/` | Connection state, profile name, Stop all, this site's permission. | FR-4, FR-12, FR-18 |
-| extension | `extensions/evo-webbridge/package.json`, `build.ts` | Build with `bun build` (TypeScript, no framework); output `dist/` loads unpacked and zips for the stores. | FR-1 |
+| extension | `extensions/evo-webbridge/background/port.js` | `connectNative`, `hello`, reconnect with backoff, chunk reassembly, fail pending work on disconnect; keeps only the profile id and label in storage. | FR-4, FR-19, FR-20, NFR-5, NFR-6 |
+| extension | `extensions/evo-webbridge/background/cdp.js` | Attach / detach `chrome.debugger`, relay commands and events, child-frame sessions, map browser errors to codes. | FR-5, FR-20, FR-22 |
+| extension | `extensions/evo-webbridge/background/groups.js` | Create and name groups, add tabs the agent opens and tabs opened from group tabs, report tabs dragged in or out, closed groups. | FR-6 – FR-8, FR-20 |
+| extension | `extensions/evo-webbridge/background/control.js` | Takeover state, Stop, Stop all, context menu items, the overlay's messages. | FR-15 – FR-18 |
+| extension | `extensions/evo-webbridge/overlay/overlay.js` | In-page indicator (closed shadow root) with **Stop** / **Take over** / **Hand back**, injected into each document through CDP; signals through a CDP binding. | FR-15 – FR-17 |
+| extension | `extensions/evo-webbridge/sidepanel/` | Chat client: header (title, **History**, **New chat**, **⋯**, **Close**), empty state, streamed reply and tool activity, questions, Stop. | FR-10, FR-11, FR-14, FR-25 |
+| extension | `extensions/evo-webbridge/sidepanel/composer.js` | Field with **Include this tab**; model and effort picker; approval mode switch; **+** menu (page screenshot through `captureVisibleTab`, file picker, paste and drop, another tab); attachment chips; microphone. | FR-26 – FR-29 |
+| extension | `extensions/evo-webbridge/permission/` | One-time page that asks for the microphone, opened from the panel when voice input is first used. | FR-29 |
+| extension | `extensions/evo-webbridge/popup/` | Connection state, profile name, Stop all, this site's permission. | FR-4, FR-12, FR-18 |
+| extension | `extensions/evo-webbridge/` (whole folder), `scripts/pack-webbridge.ts` | Plain ES modules and CSS with no build step: the folder loads unpacked as it is; the script zips it for the stores. | FR-1 |
 | crate | `crates/evo-bridge-host/` (binary) | stdio framing ↔ pipe; passes the caller origin; checks the pipe server is Evo; starts `evo --hidden` when no pipe answers; splits frames over 1 MB toward the browser. | FR-3, FR-19, NFR-1, NFR-6 |
 | desktop shell | `apps/desktop/src-tauri/src/webbridge/server.rs` | Pipe server (current-user ACL), client process check, `hello`, origin allow-list, protocol version, instance table, log lines. | FR-3, FR-4, FR-23, FR-24, NFR-3 |
 | desktop shell | `apps/desktop/src-tauri/src/webbridge/setup.rs` | Register / remove the host per browser (registry on Windows, manifest files elsewhere), extension install link, status. | FR-2, NFR-4 |
@@ -151,9 +151,9 @@ tools see a `Page` and do not know which browser serves it.
 | desktop shell | `apps/desktop/src-tauri/src/webbridge/sites.rs` | Site permissions: load, save, change events; `Block` checks. | FR-12, FR-13, FR-22 |
 | desktop shell | `apps/desktop/src-tauri/src/webbridge/panel.rs` | Side panel sessions: list and search chats, ensure / attach engines through the supervisor, send prompts with attachments, forward a reduced event stream, serve and answer open questions; model, effort and mode changes sent to the engine as the app sends them; **Open in Evo**. | FR-10, FR-11, FR-14, FR-16, FR-25 – FR-27 |
 | desktop shell | `apps/desktop/src-tauri/src/files.rs` | Attachments from the panel saved with the same code as `fs_save_paste`, with the app's size limits. | FR-28 |
-| desktop shell | `apps/desktop/src-tauri/src/browser/host.rs` (new), `browser.rs`, `browser/tabs.rs` | `TabHost` trait over today's free functions; `WebviewHost` wraps the current code; tab records gain `origin: Builtin \| Bridge { profile, tab }`. | FR-5, FR-7 |
-| desktop shell | `apps/desktop/src-tauri/src/webbridge/bridge_host.rs` | `BridgeHost`: `cdp` relayed with id and timeout; `eval` as `Runtime.evaluate` in the `evo` isolated world; the page helper from `browser_page.js` added on attach and on new documents; dialogs from `Page.javascriptDialogOpening`; event subscriptions. | FR-5, FR-20, NFR-2 |
-| desktop shell | `apps/desktop/src-tauri/src/agent_tools/browser/driver.rs`, `tabs.rs`, `core.rs` | `Page` dispatches to the tab's host; `target` argument; `browser_tabs` `choose`; built-in-only tools refuse Webbridge tabs with a reason; untrusted-content wording kept. | FR-5, FR-9, FR-21 |
+| desktop shell | `apps/desktop/src-tauri/src/browser.rs`, `browser/tabs.rs` | The page functions the tools call (`eval`, `cdp`, event subscriptions, dialogs, navigate, history, close, address, status) send a Webbridge tab (id `chrome:…` / `edge:…`) to `webbridge/page.rs` and keep the WebView2 path for built-in tabs. Webbridge tabs live in the same registry, so ownership, resolution and listing stay one code path. | FR-5, FR-7 |
+| desktop shell | `apps/desktop/src-tauri/src/webbridge/page.rs` | Webbridge pages: `cdp` relayed with id and timeout; `eval` as `Runtime.evaluate` (awaiting promises); the page helper from `browser_page.js` added on attach and on new documents, in the page's own world as in the built-in browser; dialogs from `Page.javascriptDialogOpening` into the shared dialog table; subscribed events into the shared event ring; load state from tab updates. | FR-5, FR-20, NFR-2 |
+| desktop shell | `apps/desktop/src-tauri/src/agent_tools/browser/driver.rs`, `tabs.rs`, `core.rs` | `target` argument; panel-only steps (showing the browser panel, the floating picture, the virtual cursor) skip Webbridge tabs; `browser_tabs` `choose`; built-in-only tools refuse Webbridge tabs with a reason; untrusted-content wording kept. | FR-5, FR-9, FR-21 |
 | desktop shell | `apps/desktop/src-tauri/src/agent_tools/gate.rs`, `agent_tools/mod.rs` | Webbridge rule: acts ask in "Ask every time" and "Approve edits" unless the site is Allow; Block refuses in every mode; "Allow for this site" option writes Allow. | FR-13, FR-22 |
 | desktop shell | `apps/desktop/src-tauri/src/supervisor/questions.rs` | Questions of a chat also go to its side panel sessions; first answer wins, the other side is told it is settled. | FR-14 |
 | desktop shell | `apps/desktop/src-tauri/tauri.conf.json`, `scripts/` | Ship `evo-bridge-host` as an `externalBin` next to the engine sidecar. | FR-2 |
@@ -297,7 +297,7 @@ sequenceDiagram
   X-->>B: result {tab: 1234}
   T->>B: attach 1234 (lease until turn end + 60 s)
   X->>X: chrome.debugger.attach (browser notice)
-  B->>X: cdp Page.addScriptToEvaluateOnNewDocument (helper, isolated world)
+  B->>X: cdp Page.addScriptToEvaluateOnNewDocument (page helper)
   B->>X: overlay working
   T-->>E: page summary (untrusted)
   E->>T: browser_click {tabId: chrome:work:1234, ref}
@@ -366,9 +366,10 @@ attaches again on the next call (spec clarification 1).
   for me" never overrides Block. The engine's own approval mode still applies
   to its tools ([ADR 0010](../../architecture/decisions/0010-engine-enforces-approval-mode.md)).
 - **Visibility.** The browser's debugging notice, the group, and the overlay
-  together make agent work visible; the overlay lives in an isolated world so
-  page scripts cannot call Evo's page helper. A page could hide the overlay;
-  the notice and the group still show.
+  together make agent work visible. A page could hide the overlay or call
+  Evo's page helper (it runs in the page's world, as in the built-in browser);
+  the notice and the group still show, and the helper only reads the page or
+  acts in it.
 - **Untrusted content.** Page text, titles, addresses and dialog messages are
   data in results (FR-21); the side panel renders chat text as Markdown
   without HTML.
