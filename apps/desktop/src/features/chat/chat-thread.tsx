@@ -5,6 +5,7 @@ import {
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerViewport,
+  useMessageScroller,
 } from "@/components/ui/message-scroller";
 import { Button } from "@/components/ui/button";
 import { useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
@@ -48,12 +49,35 @@ export function useThreadEmpty(): boolean {
   return empty && !switching && !restoring && !failed;
 }
 
+/**
+ * Chats whose next new turn the thread brings into view: the person just sent
+ * it, maybe while reading older turns. Auto-scroll alone only follows a thread
+ * that is already at its end, and the turn appears once the engine has it.
+ */
+const followNext = new Set<string>();
+
+/** Bring this chat's next turn into view when it appears (the composer sent it). */
+export function followNextTurn(chatId: string | null | undefined, on = true) {
+  if (!chatId) return;
+  if (on) followNext.add(chatId);
+  else followNext.delete(chatId);
+}
+
 /** The thread (shadcn/ui AI Elements · Chat): the person's turn anchors the scroll. */
 export function ChatThread() {
   const turns = usePaneEngine((s) => s.transcript.turns);
   const busy = usePaneEngine((s) => s.transcript.busy);
   const restoring = useRestoring();
-
+  const { scrollToMessage } = useMessageScroller();
+  const lastTurn = turns.at(-1)?.id;
+  const chatId = usePaneEngine((s) => s.activeId);
+  React.useEffect(() => {
+    if (!chatId || !lastTurn || !followNext.has(chatId)) return;
+    followNext.delete(chatId);
+    // After the turn has laid out, so its prompt can sit at the top.
+    const frame = requestAnimationFrame(() => scrollToMessage(`${lastTurn}-prompt`, { align: "start", behavior: "smooth" }));
+    return () => cancelAnimationFrame(frame);
+  }, [chatId, lastTurn]);
   // A chat was clicked and is on its way (the sidebar shows it, the thread not yet).
   const activeId = usePaneEngine((s) => s.activeId);
   // Only the focused pane follows the sidebar's pick (split view, FR-4).

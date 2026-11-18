@@ -53,6 +53,7 @@ import {
   releaseAttachment,
   textAttachment,
 } from "./composer-input";
+import { followNextTurn } from "./chat-thread";
 import { QueuedMessages } from "./queued-messages";
 import { ComposerActions } from "@/features/plugin-ui";
 
@@ -279,10 +280,13 @@ export function ChatComposer() {
       if (useEngineStore.getState().transcript.busy) {
         await queueMessage(text, prompt.images, queue ? "followUp" : "steer");
       } else {
+        // The new turn comes into view even if older turns were being read.
+        followNextTurn(chat);
         await sendPrompt(text, prompt.images);
       }
       files.forEach(releaseAttachment);
     } catch (error) {
+      followNextTurn(chat, false);
       // Put everything back so nothing is lost.
       setText((current) => current || message);
       setAttachments((current) => (current.length ? current : files));
