@@ -122,7 +122,7 @@ rendering, used by the drawing, the copy path and the previews.
 | desktop UI | `apps/desktop/src/components/reply-blocks/{stats,bars,table,steps,callout,actions}.tsx` | The stage-1 components, styled with theme tokens. `table` sorts by header (numbers as numbers) and scrolls inside its block. | FR-7, FR-8, FR-15, FR-16, FR-18–FR-21 |
 | desktop UI | `apps/desktop/src/components/reply-blocks/chart.tsx` | Line, bar and area charts drawn as SVG by hand (axes with rounded ticks, hover tooltip, legend, "Show data" table), loaded with `React.lazy` so it costs nothing until the first chart. | FR-7, FR-17, NFR-2, NFR-3 |
 | desktop UI | `apps/desktop/src/components/reply-blocks/block-action.ts` | `runBlockAction(action, chat)`: `send` → the shared send helper; `open` → a path inside the chat's working folder via `openFile`, or an `https` link via the app's link handling; anything else → a note. | FR-22, NFR-1 |
-| desktop UI | `apps/desktop/src/components/reply-blocks/{mermaid-block,diff-block}.tsx` | Mermaid fences drawn with `@streamdown/mermaid` (lazy, `securityLevel: "strict"`, theme per app theme, source toggle, parse error → source + note); diff fences with a gutter mark per added/removed line on top of Shiki's `diff` colours. | FR-9 |
+| desktop UI | `apps/desktop/src/components/reply-blocks/{mermaid-block,diff-block}.tsx` | Mermaid fences drawn with the `mermaid` package (lazy, `securityLevel: "strict"`, colours from the app's tokens, source toggle, full-screen view, parse error → source + note); diff fences with a gutter mark per added/removed line on top of Shiki's `diff` colours. | FR-9 |
 | desktop UI | `apps/desktop/src/components/markdown.tsx` | New prop `blocks` (off by default): routes `evo-ui` to `UiBlock`, `mermaid` and `diff` to their blocks. Other fences keep `MarkdownCodeBlock`. | FR-1, FR-9 |
 | desktop UI | `apps/desktop/src/features/chat/chat-turn.tsx`, `features/side-chat/side-chat-panel.tsx` | Pass `blocks` for the agent's reply text. `agent-run.tsx` (a subagent's own run) does not: a report is for the parent agent. | FR-13, FR-28 |
 | desktop UI | `apps/desktop/src/stores/engine-store.ts`, `components/widget-frame.tsx` | Move `sendToChat` from the widget frame into the store as `sendOrSteer(text)`; the widget and `send` actions both use it. | FR-22 |
@@ -393,6 +393,17 @@ n/a — no setting (spec section 2.2). Locale comes from the system (the
   - Mermaid uses the `mermaid` package (11.17) directly, imported on the
     first diagram, instead of `@streamdown/mermaid`, so its theme follows
     the app's and its strict mode is set here.
+  - Diagrams use Mermaid's `base` theme with variables read from the app's
+    tokens (`--card`, `--secondary`, `--accent`, `--foreground`,
+    `--muted-foreground`, a border mixed from them), turned to hex through a
+    canvas pixel because the tokens can be `color-mix()` of the background
+    picked in Settings → Appearance and Mermaid reads only hex, rgb and hsl.
+    A diagram redraws when the root's class, style or `data-bg-*` changes.
+  - "Full screen" (or a double-click) opens `diagram-viewer.tsx`: a dialog
+    filling the window, the diagram fitted (at most 200%), zoom by buttons,
+    Ctrl + wheel or `+`/`-`, `0` to fit, drag or scroll to pan. Its copy of
+    the SVG gets ids ending `-full`, since Mermaid scopes styles and arrow
+    markers by id.
   - `open` targets are resolved by a pure `lib/ui-blocks/open-target.ts`
     (tested); `block-action.ts` only dispatches. A refused target shows a
     toast ("Couldn't open that"), not an OS notification.

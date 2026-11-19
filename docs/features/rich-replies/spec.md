@@ -244,7 +244,7 @@ Stage 1 — format, guide and rendering
 | FR-6 | The app formats every value from the block's `format`: `number`, `compact` (3.18B), `percent`, `currency` with an ISO code, `bytes`, `duration` (from seconds), `date`. One format applies to all values of a field, so a block never mixes "$1K" and "$439.01". The agent supplies raw numbers. Separators and dates follow the app's display locale; the currency always comes from the block's ISO code, never from the locale. | US-1.2; a `currency` `EUR` block shows euros whatever the locale. |
 | FR-7 | Blocks follow the light and dark themes and DESIGN.md: achromatic, Geist, the one blue accent, shadow-as-border. In charts the first (or highlighted) series is the blue accent and the other series are greys of clearly different lightness, told apart also by dash and marker; at most 4 series are drawn this way and further ones in a light grey with the legend naming them. Status colours appear only as indicator dots (a `delta`'s direction, a step's status). DESIGN.md gains a short "Data visualisation" section with these rules. A theme switch redraws visible blocks. | Review in both themes; a 5-series chart reads in greyscale; edge case "theme". |
 | FR-8 | Blocks fit the chat column: they reflow in a narrow pane and in split view; wide content (tables, charts with many points) scrolls inside its block. | Edge case "split view" at 360 px pane width. |
-| FR-9 | ` ```mermaid ` fences are drawn as diagrams with a toggle to their source; ` ```diff ` fences mark added and removed lines. Both keep a copy button. A diagram that fails to parse shows its source with a note. | US-6. |
+| FR-9 | ` ```mermaid ` fences are drawn as diagrams in the app's colours (following the background picked in Settings) with a toggle to their source and a full-screen view that fits, zooms and pans; ` ```diff ` fences mark added and removed lines. Both keep a copy button. A diagram that fails to parse shows its source with a note. | US-6. |
 | FR-28 | Blocks are drawn wherever the desktop shows an agent's reply: the chat in every pane and split view, and Scheduler run views. The Webbridge side panel draws the stage-1 set when it shares the chat's reply components; until then it shows each block's text rendering (FR-4). | A Scheduler run with a `table` draws it; the side panel shows a block as drawing or as its text, never JSON. |
 
 Stage 1 — the agent's side
@@ -400,3 +400,6 @@ None.
   accepted.
 - 2026-11-18 — Gate B: stage 1 plan accepted (status Accepted). Stage 1
   implementation started (status In progress).
+- 2026-11-19 — Amended at the person's request after trying stage 1: FR-9
+  diagrams take the app's colours (and the chosen background) and open
+  full screen.
