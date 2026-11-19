@@ -20,6 +20,7 @@ import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { UserPrompt } from "./user-message";
 import { MessageMenu } from "./message-menu";
+import { replyMarkdown } from "./message-text";
 import { SentFiles, type SentFile } from "@/components/ai-elements/sent-files";
 import { KeptWorktree, childRun } from "@/components/ai-elements/agent-run";
 import { noteKind, turnReply, type NoteKind, type Part, type ReasoningPart, type ToolPart, type Turn } from "./transcript";
@@ -327,7 +328,7 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
 
           {shown.map((segment, index) =>
             segment.kind === "text" ? (
-              <Markdown key={segment.key} streaming={segment.streaming}>
+              <Markdown key={segment.key} streaming={segment.streaming} blocks>
                 {segment.text}
               </Markdown>
             ) : segment.kind === "widget" ? (
@@ -363,7 +364,7 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
                 <MessageAction
                   label={copied ? "Copied" : "Copy"}
                   onClick={() => {
-                    void navigator.clipboard.writeText(reply);
+                    void navigator.clipboard.writeText(replyMarkdown(reply));
                     setCopied(true);
                   }}
                 >

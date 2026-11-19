@@ -92,4 +92,5 @@ export const kinds: Record<string, Kind> = {
   mcp_call_tool: "mcp",
   show_widget: "visual",
   visualize_read_me: "visual",
+  ui_guide: "visual",
 };

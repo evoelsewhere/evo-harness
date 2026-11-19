@@ -86,6 +86,7 @@ pub const TOOLS: &[ToolInfo] = &[
     row("lsp", Class::Read, true, false),
     row("web_search", Class::Read, true, false),
     row("web_fetch", Class::Read, true, false),
+    row("ui_guide", Class::Read, true, false),
     row("visualize_read_me", Class::Read, false, false),
     row("show_widget", Class::Read, false, false),
     // Working with the person.

@@ -2,9 +2,12 @@
 // Scheduler past run (docs/features/ux-polish/spec.md, FR-9). Not a
 // markdown parser: it removes the marks people see in a one-line preview.
 
+import { replaceBlocks } from "./ui-blocks/text";
+
 export function plainText(markdown: string): string {
   return (
-    markdown
+    // UI blocks: their name (docs/features/rich-replies/spec.md, FR-4).
+    replaceBlocks(markdown, "title")
       // Code fences: keep what is inside.
       .replace(/```[^\n]*\n?([\s\S]*?)```/g, "$1")
       // Images and links: their text.

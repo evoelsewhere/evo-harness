@@ -1,5 +1,16 @@
 // What a chat message's right-click menu copies and quotes.
 
+import { replaceBlocks } from "@/lib/ui-blocks/text";
+
+/**
+ * A reply's Markdown with its UI blocks as their text (docs/features/rich-replies/spec.md,
+ * FR-4): what "Copy", "Copy as Markdown" and "Quote" use, since nowhere else
+ * draws `evo-ui` blocks.
+ */
+export function replyMarkdown(markdown: string): string {
+  return replaceBlocks(markdown, "text");
+}
+
 /**
  * Markdown as the plain text it reads as, line by line (unlike
  * `lib/plain-text.ts`, a one-line preview): no emphasis marks, headings, list
@@ -8,7 +19,7 @@
 export function messagePlainText(markdown: string): string {
   const out: string[] = [];
   let fence: string | null = null;
-  for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
+  for (const line of replyMarkdown(markdown).split("\n")) {
     const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence) {
       if (marker && marker[0] === fence[0] && marker.length >= fence.length && !line.trim().slice(marker.length)) fence = null;

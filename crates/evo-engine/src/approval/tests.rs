@@ -27,6 +27,7 @@ fn classification_table() {
         "reply",
         "list_nodes",
         "cancel_node",
+        "ui_guide",
         "visualize_read_me",
         "show_widget",
         "document_preview",

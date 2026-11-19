@@ -77,6 +77,8 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  --color-block-viz-1: var(--block-viz-1);
+
   /* Status dots only (DESIGN.md §2). */
   --color-status-ok: #45a557;
   --color-status-warn: #ff990a;
@@ -150,6 +152,14 @@
   --chart-3: #8f8f8f;
   --chart-4: #c7c7c7;
   --chart-5: #ebebeb;
+  /* Charts in replies (DESIGN.md "Data visualisation"; rich-replies FR-7):
+     the first series in the accent, the rest in greys of distinct lightness.
+     Not the Usage page's palette (`--viz-*`, below). */
+  --block-viz-1: var(--brand);
+  --block-viz-2: #4d4d4d;
+  --block-viz-3: #8f8f8f;
+  --block-viz-4: #bdbdbd;
+  --block-viz-rest: #dedede;
 
   /* Sidebar sits on the system material (Mica / vibrancy) when available. */
   --sidebar: #f2f2f2;
@@ -202,6 +212,11 @@
   --chart-3: #6e6e6e;
   --chart-4: #474747;
   --chart-5: #2e2e2e;
+  --block-viz-1: var(--brand);
+  --block-viz-2: #d4d4d4;
+  --block-viz-3: #8f8f8f;
+  --block-viz-4: #5c5c5c;
+  --block-viz-rest: #3d3d3d;
 
   --sidebar: #202020;
   --sidebar-solid: #202020;

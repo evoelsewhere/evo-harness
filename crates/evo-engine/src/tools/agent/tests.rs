@@ -167,6 +167,87 @@ async fn a_subagent_works_and_reports_back() {
     assert_eq!(updates.last().unwrap()["status"], "done");
 }
 
+/// docs/features/rich-replies/spec.md FR-13: a subagent's report reaches the
+/// parent's model as written, a UI block included: its `evo-ui` source text,
+/// not a drawing, a title or a summary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn agent_report_keeps_blocks() {
+    use evo_ai::providers::faux::{faux_assistant_message, FauxStep};
+    use evo_ai::types::{Content, Context, Message, StopReason};
+
+    let dir = tempfile::tempdir().unwrap();
+    let report = "Three packages are slow.\n\n```evo-ui\n\
+        {\"v\":1,\"type\":\"table\",\"title\":\"Slowest packages\",\n \
+        \"columns\":[{\"key\":\"name\",\"label\":\"Package\"},{\"key\":\"time\",\"format\":\"duration\"}],\n \
+        \"rows\":[{\"name\":\"evo-engine\",\"time\":74.2,\"action\":{\"open\":\"crates/evo-engine/src/lib.rs\"}}]}\n\
+        ```\n\nThe engine takes most of the time.";
+    // What the parent's model is given back by the agent call.
+    let seen = Arc::new(Mutex::new(None::<String>));
+    let parent_saw = seen.clone();
+    let script = FauxScript::new();
+    script.set_responses(vec![
+        FauxStep::tool_call(
+            "agent",
+            json!({"description":"Time the tests","prompt":"Report the slowest packages.","agentType":"explore"}),
+        ),
+        // The subagent's only reply: its report.
+        FauxStep::text(report),
+        // The parent's next request.
+        FauxStep::factory(move |ctx: &Context| {
+            let text = ctx.messages.iter().rev().find_map(|message| match message {
+                Message::ToolResult(result) if result.tool_name == "agent" => Some(
+                    result
+                        .content
+                        .iter()
+                        .filter_map(|c| match c {
+                            Content::Text(t) => Some(t.text.clone()),
+                            _ => None,
+                        })
+                        .collect::<String>(),
+                ),
+                _ => None,
+            });
+            *parent_saw.lock().unwrap() = text;
+            faux_assistant_message("Noted.".to_string(), StopReason::Stop)
+        }),
+    ]);
+    let events = Arc::new(Collector::default());
+    let parent = parent(dir.path(), script, events.clone()).await;
+    parent
+        .lane("main")
+        .prompt_text("Which packages are slow?", Vec::new())
+        .await
+        .unwrap();
+
+    let (result, is_error) = agent_end(&events);
+    assert!(!is_error, "{result:?}");
+    let id = result.details["child"]["agentId"].as_str().unwrap();
+    let expected = format!(
+        "{report}\n\n[This agent's id is {id}: pass it as agentId to message_agent to continue it \
+         with its context.]"
+    );
+    let call_text: String = result
+        .content
+        .iter()
+        .filter_map(|c| match c {
+            TextContentOrImage::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(call_text, expected);
+    let seen = seen
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("the parent's model ran again");
+    assert_eq!(
+        seen, expected,
+        "the parent's model reads the block's source"
+    );
+    // A background agent's report goes through `inert`, which leaves a block alone.
+    assert_eq!(inert(report), report);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn explore_agents_cannot_write() {
     let dir = tempfile::tempdir().unwrap();

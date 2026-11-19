@@ -62,6 +62,15 @@ These colors appear exclusively as small indicator dots (`div.size-2.5` — appr
 
 Vercel is fundamentally **achromatic**. The interface operates within a 4-stop grayscale: `#FAFAFA` → `#F2F2F2` → `#EBEBEB` → `#171717`. Blue (`#0072F5`) is the sole interactive accent — it appears in links, focus rings, and the skip-to-content indicator, and nowhere else. Every other color is confined to status indicator dots no larger than 10px, enforcing a strict hierarchy where chromatic information signals data, never decoration.
 
+### Data Visualisation
+
+Charts and bars in the agent's replies (docs/features/rich-replies/spec.md, FR-7) keep the same restraint:
+
+- **First series in the accent.** The first (or highlighted) series uses `--block-viz-1`, the interactive blue. A single-series chart or a bar list is blue only.
+- **Other series in greys.** Series 2–4 use `--block-viz-2` … `--block-viz-4`, greys of clearly different lightness, and are also told apart by line dash and point marker, so a chart reads in greyscale. Series beyond the fourth use `--block-viz-rest` and are named in the legend.
+- **Status colours stay dots.** A change's direction (a stat tile's delta) or a step's status is shown with a status dot and a sign, never a coloured fill.
+- **Quiet scaffolding.** Gridlines use `--border`; axis labels use `--muted-foreground` at 11–12px, weight 400. No chart backgrounds, gradients or shadows.
+
 ---
 
 ## 3. Typography Rules

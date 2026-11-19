@@ -15,7 +15,7 @@ use evo_harness::agent_harness::{AgentHarness, AgentLane};
 use serde_json::{json, Value};
 
 /// `ceil(chars / 4)`, the compactor's estimate.
-fn tokens(text: &str) -> i64 {
+pub(crate) fn tokens(text: &str) -> i64 {
     (text.chars().count() as i64 + 3) / 4
 }
 

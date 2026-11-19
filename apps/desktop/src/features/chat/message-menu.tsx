@@ -4,7 +4,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdow
 import { usePaneChat, useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { composerDraft } from "./chat-composer";
-import { messagePlainText, quoted } from "./message-text";
+import { messagePlainText, quoted, replyMarkdown } from "./message-text";
 import type { Turn } from "./transcript";
 
 // A chat message's right-click menu: copy it (as text or Markdown, or just
@@ -62,12 +62,12 @@ export function MessageMenu({ turn, text, markdown, onEdit, editDisabled, childr
           Copy message
         </DropdownMenuItem>
         {markdown && (
-          <DropdownMenuItem disabled={!text} onClick={() => copy(text)}>
+          <DropdownMenuItem disabled={!text} onClick={() => copy(replyMarkdown(text))}>
             Copy message as Markdown
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!text} onClick={() => quote(text)}>
+        <DropdownMenuItem disabled={!text} onClick={() => quote(markdown ? replyMarkdown(text) : text)}>
           Quote in composer
         </DropdownMenuItem>
         {onEdit && (

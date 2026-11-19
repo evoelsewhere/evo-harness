@@ -2178,8 +2178,8 @@ async fn rpc_turn_start(lane: &Arc<dyn AgentLane>) -> (Option<String>, u64) {
 /// session's subagents and plugin children that ended since the last turn
 /// (subagents-and-nested-sessions FR-6: a background agent that ends after
 /// its turn counts in the next one, a continued agent only with what it used
-/// since). `preview` is the start of the final text, left out for an
-/// incognito chat.
+/// since). `preview` is the start of the final text, with each UI block as
+/// its title, left out for an incognito chat.
 async fn rpc_turn_totals(
     lane: &Arc<dyn AgentLane>,
     start: (Option<String>, u64),
@@ -2246,9 +2246,11 @@ async fn rpc_turn_totals(
         "childCostUsd": children.cost,
         "childTokens": children.input + children.output + children.cache_read + children.cache_write,
     });
+    // A UI block shows as its title, not its JSON (rich-replies FR-4).
     let preview = final_text
         .map(|text| {
-            text.trim()
+            crate::ui_blocks::preview_text(text)
+                .trim()
                 .chars()
                 .take(TURN_PREVIEW_CHARS)
                 .collect::<String>()

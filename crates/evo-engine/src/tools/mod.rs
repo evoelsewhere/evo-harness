@@ -13,6 +13,7 @@ pub mod lsp;
 pub mod memory;
 pub mod mesh;
 pub mod skill;
+pub mod ui_guide;
 pub mod visualize;
 pub mod web;
 
@@ -186,6 +187,12 @@ pub fn register_all(
     all.push((
         "update_todos",
         HarnessTool::new(interaction::create_update_todos_tool()),
+    ));
+    // How to write the UI blocks Evo draws in a reply (`tools/ui_guide.rs`,
+    // docs/features/rich-replies/spec.md FR-11, FR-12); only reads.
+    all.push((
+        ui_guide::TOOL,
+        HarnessTool::new(ui_guide::create_ui_guide_tool()).with_replay(ToolReplay::Safe),
     ));
     // Inline HTML widgets in the chat (`tools/visualize.rs`); both only read.
     all.push((

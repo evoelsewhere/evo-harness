@@ -332,10 +332,17 @@ function widgetLoading(part: ToolPart): string | undefined {
   }
 }
 
-/** "Widget · Revenue by region", "Read the widget guide · chart, diagram". */
+/** "Widget · Revenue by region", "Read the widget guide · chart, diagram", "Read the block guide · stats, bars". */
 function visualLabel(part: ToolPart, phase: ToolPart["phase"]): string {
   const args = (part.args && typeof part.args === "object" ? part.args : {}) as Record<string, unknown>;
   const live = phase === "preparing" || phase === "running";
+  // The UI block guide (docs/features/rich-replies/spec.md, FR-11).
+  if (part.name === "ui_guide") {
+    const components = Array.isArray(args.components) ? args.components.map(String).join(", ") : "";
+    return `${phase === "error" ? "Could not read the block guide" : live ? "Reading the block guide" : "Read the block guide"}${
+      components ? ` · ${components}` : ""
+    }`;
+  }
   if (part.name === "visualize_read_me") {
     const modules = Array.isArray(args.modules) ? args.modules.map(String).join(", ") : "";
     return `${phase === "error" ? "Could not read the widget guide" : live ? "Reading the widget guide" : "Read the widget guide"}${

@@ -20,6 +20,7 @@ const REGISTERED: &[&str] = &[
     "memory",
     "ask_user",
     "update_todos",
+    "ui_guide",
     "visualize_read_me",
     "show_widget",
     "document_preview",
@@ -69,6 +70,10 @@ const OLD_READ_TOOLS: &[&str] = &[
     "show_widget",
     "visualize_read_me",
 ];
+
+/// Tools added since the table: reads that a read-only agent may call.
+/// `ui_guide`: docs/features/rich-replies/spec.md FR-12.
+const ADDED_SAFE_READS: &[&str] = &["ui_guide"];
 
 /// `approval.rs` `EDIT_TOOLS` before the table existed.
 const OLD_EDIT_TOOLS: &[&str] = &["write", "edit"];
@@ -171,6 +176,7 @@ fn classes_equal_the_old_lists() {
             Class::Edit
         } else if OLD_READ_TOOLS.contains(&row.name)
             || MESH_TOOLS.contains(&row.name)
+            || ADDED_SAFE_READS.contains(&row.name)
             // Its calls are read or edit by action (`approval::classify`).
             || row.name == "memory"
         {
@@ -193,14 +199,20 @@ fn unknown_names_are_commands() {
 }
 
 #[test]
-fn read_only_safe_equals_the_old_list_plus_the_mesh_tools() {
+fn read_only_safe_equals_the_old_list_plus_the_mesh_and_added_tools() {
     let safe = names(
         TOOLS
             .iter()
             .filter(|row| row.read_only_safe)
             .map(|row| row.name),
     );
-    let expected = names(OLD_SAFE_TOOLS.iter().chain(MESH_TOOLS).copied());
+    let expected = names(
+        OLD_SAFE_TOOLS
+            .iter()
+            .chain(MESH_TOOLS)
+            .chain(ADDED_SAFE_READS)
+            .copied(),
+    );
     assert_eq!(safe, expected);
     for name in &expected {
         assert!(read_only_safe(name), "{name}");

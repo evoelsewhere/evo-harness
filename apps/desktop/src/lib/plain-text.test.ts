@@ -20,3 +20,15 @@ describe("a markdown preview as plain text", () => {
     expect(plainText("snake_case_name stays")).toBe("snake_case_name stays");
   });
 });
+
+// docs/features/rich-replies/spec.md (FR-4).
+describe("a preview of a reply with UI blocks", () => {
+  test("names each block instead of showing its JSON", () => {
+    const reply = 'Spend this week:\n```evo-ui\n{"v":1,"type":"bars","title":"Cost per day","items":[{"label":"a","value":1}]}\n```\nMostly the 11th.';
+    expect(plainText(reply)).toBe("Spend this week: [Cost per day] Mostly the 11th.");
+  });
+
+  test("a preview cut inside a block names its type", () => {
+    expect(plainText('Done.\n```evo-ui\n{"v":1,"type":"table","columns":[{"key"')).toBe("Done. [table]");
+  });
+});

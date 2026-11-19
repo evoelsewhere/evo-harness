@@ -76,6 +76,7 @@ pub mod startup_diagnostics;
 pub mod timings;
 pub mod tools;
 pub mod trust;
+pub mod ui_blocks;
 pub mod usage_log;
 pub mod worktrees;
 

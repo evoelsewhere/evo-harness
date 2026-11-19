@@ -23,7 +23,7 @@ import {
   wrapWidgetHtml,
 } from "@/lib/widget-document";
 import { cn } from "@/lib/utils";
-import { useEngineStore } from "@/stores/engine-store";
+import { sendOrSteer } from "@/stores/engine-store";
 
 function appTheme() {
   const root = document.documentElement;
@@ -33,12 +33,6 @@ function appTheme() {
   };
 }
 
-/** A widget's message: a new user message, or the next step's input while the agent works. */
-function sendToChat(text: string) {
-  const engine = useEngineStore.getState();
-  if (engine.transcript.busy) void engine.queueMessage(text, [], "steer");
-  else void engine.sendPrompt(text);
-}
 
 export interface WidgetFrameProps {
   /** The widget's HTML (`widget_code`); empty while it is still being written. */
@@ -81,7 +75,7 @@ export function WidgetFrame({
       if (!frame || event.source !== frame) return;
       const data = event.data as { type?: unknown; prompt?: unknown; height?: unknown } | null;
       if (data?.type === WIDGET_SEND_PROMPT && typeof data.prompt === "string" && data.prompt.trim()) {
-        (sendRef.current ?? sendToChat)(data.prompt.trim());
+        (sendRef.current ?? sendOrSteer)(data.prompt.trim());
       } else if (data?.type === WIDGET_RESIZE && typeof data.height === "number" && Number.isFinite(data.height)) {
         setContentHeight(clampWidgetHeight(data.height));
       }

@@ -3,6 +3,8 @@
 // (plan 3.7): paragraphs, headings, bullet and numbered lists, fenced code,
 // `code`, **bold**, *italic* and [links](https://…).
 
+import { blockText } from "./ui-blocks.js";
+
 const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/;
 
 function inline(text, into) {
@@ -47,10 +49,13 @@ export function renderMarkdown(text) {
     if (line.startsWith("```")) {
       flush();
       list = null;
+      const info = line.slice(3).trim();
       const code = [];
       for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
       const pre = document.createElement("pre");
-      pre.append(Object.assign(document.createElement("code"), { textContent: code.join("\n") }));
+      // An Evo UI block shows as its text, never its JSON (rich-replies FR-28).
+      const text = info === "evo-ui" ? blockText(code.join("\n")) : code.join("\n");
+      pre.append(Object.assign(document.createElement("code"), { textContent: text }));
       fragment.append(pre);
       continue;
     }

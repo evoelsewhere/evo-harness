@@ -12,6 +12,9 @@ import {
   CodeBlockTitle,
 } from "@/components/ui/code-block";
 import { useHighlightedCode } from "@/hooks/use-highlighted-code";
+import { MermaidBlock } from "@/components/reply-blocks/mermaid-block";
+import { UiBlock } from "@/components/reply-blocks/ui-block";
+import { BLOCK_FENCE } from "@/lib/ui-blocks/types";
 import { useSmoothText } from "@/hooks/use-smooth-text";
 import { cn } from "@/lib/utils";
 
@@ -19,10 +22,21 @@ import { cn } from "@/lib/utils";
 // route fenced code to a CodeBlock, so code gets line highlighting and a copy
 // button. Streamdown sets `data-block` on fenced code only.
 
+/** Replies draw `evo-ui` and `mermaid` fences (docs/features/rich-replies/spec.md, FR-1, FR-9). */
+const ReplyBlocksContext = React.createContext(false);
+
+/** A diff line's mark: added, removed or neither (`+++`/`---` headers are neither). */
+function diffVariant(line: string): "added" | "removed" | "default" {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "added";
+  if (line.startsWith("-") && !line.startsWith("---")) return "removed";
+  return "default";
+}
+
 function MarkdownCodeBlock({ code, language }: { code: string; language: string }) {
   // True while the closing fence has not arrived yet.
   const incomplete = useIsCodeFenceIncomplete();
   const lines = useHighlightedCode(code, language);
+  const raw = language === "diff" ? code.split("\n") : null;
 
   return (
     <CodeBlock className="my-3">
@@ -34,7 +48,9 @@ function MarkdownCodeBlock({ code, language }: { code: string; language: string 
       </CodeBlockHeader>
       <CodeBlockContent className="max-h-[28rem]" data-selectable>
         {lines.map((line, index) => (
-          <CodeBlockLine key={index}>{line}</CodeBlockLine>
+          <CodeBlockLine key={index} variant={raw ? diffVariant(raw[index] ?? "") : "default"}>
+            {line}
+          </CodeBlockLine>
         ))}
       </CodeBlockContent>
     </CodeBlock>
@@ -50,12 +66,18 @@ function MarkdownCode({ node: _node, className, children, ...props }: React.Comp
       </code>
     );
   }
-  return (
-    <MarkdownCodeBlock
-      code={typeof children === "string" ? children : ""}
-      language={/language-(\S+)/.exec(className ?? "")?.[1] ?? ""}
-    />
-  );
+  const code = typeof children === "string" ? children : "";
+  const language = /language-(\S+)/.exec(className ?? "")?.[1] ?? "";
+  return <MarkdownFence code={code} language={language} />;
+}
+
+function MarkdownFence({ code, language }: { code: string; language: string }) {
+  const replyBlocks = React.useContext(ReplyBlocksContext);
+  const incomplete = useIsCodeFenceIncomplete();
+  const source = () => <MarkdownCodeBlock code={code} language={language === BLOCK_FENCE ? "json" : language} />;
+  if (replyBlocks && language === BLOCK_FENCE) return <UiBlock source={code} incomplete={incomplete} renderSource={source} />;
+  if (replyBlocks && language === "mermaid" && !incomplete) return <MermaidBlock code={code} renderSource={source} />;
+  return <MarkdownCodeBlock code={code} language={language} />;
 }
 
 const components = { code: MarkdownCode };
@@ -74,6 +96,7 @@ export const Markdown = React.memo(function Markdown({
   className,
   streaming = false,
   onLocalLink,
+  blocks = false,
 }: {
   children: string;
   className?: string;
@@ -81,6 +104,8 @@ export const Markdown = React.memo(function Markdown({
   streaming?: boolean;
   /** Relative links (`references/a.md`) call this instead of being blocked. */
   onLocalLink?(href: string): void;
+  /** The agent's reply: draw `evo-ui` blocks and Mermaid diagrams (docs/features/rich-replies/spec.md, FR-1, FR-9). */
+  blocks?: boolean;
 }) {
   const localComponents = React.useMemo(
     () =>
@@ -120,9 +145,11 @@ export const Markdown = React.memo(function Markdown({
         className,
       )}
     >
-      <Streamdown controls={false} components={localComponents} isAnimating={streaming || smooth.revealing}>
-        {text}
-      </Streamdown>
+      <ReplyBlocksContext.Provider value={blocks}>
+        <Streamdown controls={false} components={localComponents} isAnimating={streaming || smooth.revealing}>
+          {text}
+        </Streamdown>
+      </ReplyBlocksContext.Provider>
     </div>
   );
 });

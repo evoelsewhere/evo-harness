@@ -165,7 +165,7 @@ pub fn default_system_prompt_with_tool_prompts(
                 .cloned()
                 .unwrap_or_else(|| ToolPromptMetadata {
                     prompt_snippet: builtin_tool_snippet(name).map(str::to_owned),
-                    prompt_guidelines: Vec::new(),
+                    prompt_guidelines: builtin_tool_guidelines(name),
                 })
                 .normalized();
             (name.as_str(), prompt)
@@ -287,8 +287,19 @@ fn builtin_tool_snippet(name: &str) -> Option<&'static str> {
         "lsp" => "Code intelligence: diagnostics, definitions, references, hover, symbols",
         "document_preview" => "Render a .docx/.pdf/.pptx/.xlsx and report its laid-out pages and elements",
         "web_fetch" => "Read a public web page as Markdown",
+        "ui_guide" => "Read how to write a UI block (evo-ui: stats, bars, chart, table, steps, callout, actions) before using one",
         _ => return None,
     })
+}
+
+/// Guidelines the tools evo itself registers add to the prompt while they are
+/// active. `ui_guide` adds the index of UI blocks
+/// (docs/features/rich-replies/spec.md FR-10).
+fn builtin_tool_guidelines(name: &str) -> Vec<String> {
+    match name {
+        crate::tools::ui_guide::TOOL => crate::tools::ui_guide::index_rules(),
+        _ => Vec::new(),
+    }
 }
 
 /// How the user asked to select a session. v1 honors `NoSession` (ephemeral
@@ -4786,6 +4797,34 @@ mod tests {
             lower.contains("already shown earlier"),
             "the re-read rule must survive the flip: {p}"
         );
+    }
+
+    /// docs/features/rich-replies/spec.md FR-10: the index of UI blocks is in
+    /// the prompt while `ui_guide` is active, and costs at most 300 tokens.
+    #[test]
+    fn system_prompt_carries_the_ui_block_index_with_ui_guide() {
+        let index = crate::tools::ui_guide::index_rules();
+        let rendered = index
+            .iter()
+            .map(|rule| format!("- {rule}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let tokens = crate::context_breakdown::tokens(&rendered);
+        assert!(tokens <= 300, "the index costs {tokens} tokens");
+
+        let mut tools = default_prompt_tools();
+        let without = default_system_prompt_with_tools("/tmp/proj", false, &tools);
+        assert!(!without.contains("evo-ui"), "{without}");
+        tools.push("ui_guide".into());
+        let with = default_system_prompt_with_tools("/tmp/proj", false, &tools);
+        assert!(with.contains(&rendered), "{with}");
+        assert!(
+            with.contains("- ui_guide — Read how to write a UI block"),
+            "{with}"
+        );
+        // The core rules stay, once.
+        assert_eq!(with.matches("Be concise in your responses").count(), 1);
+        assert_eq!(with.matches("```evo-ui holding").count(), 1);
     }
 
     #[test]

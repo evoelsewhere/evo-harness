@@ -1807,3 +1807,15 @@ export const useEngineStore = create<EngineStore>((set, get) => {
 // shows an empty chat and clicks do nothing). Reload the window instead; it
 // picks the running engines up again.
 if (import.meta.hot) import.meta.hot.accept(() => window.location.reload());
+
+/**
+ * Send `text` as the person's message in the active chat, as if typed: a new
+ * turn when idle, the next step's input while the agent works. Used by HTML
+ * widgets and by `send` actions in reply blocks
+ * (docs/features/rich-replies/spec.md, FR-22).
+ */
+export function sendOrSteer(text: string) {
+  const engine = useEngineStore.getState();
+  if (engine.transcript.busy) void engine.queueMessage(text, [], "steer").catch(() => undefined);
+  else void engine.sendPrompt(text);
+}

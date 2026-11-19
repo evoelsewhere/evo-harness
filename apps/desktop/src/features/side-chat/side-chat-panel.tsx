@@ -71,7 +71,7 @@ function Turn({ turn }: { turn: SideTurn }) {
       </div>
       <div className="group/answer flex flex-col gap-1">
         {turn.text ? (
-          <Markdown streaming={writing}>{turn.text}</Markdown>
+          <Markdown streaming={writing} blocks>{turn.text}</Markdown>
         ) : writing ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-3.5" />
