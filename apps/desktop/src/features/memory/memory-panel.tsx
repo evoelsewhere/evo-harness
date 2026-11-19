@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { baseName, formatRelative } from "@/lib/format";
 import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
-import { useEngineStore } from "@/stores/engine-store";
+import { useActiveEngineReady, useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 
 // The Memory tool: what the agent keeps across chats (RPC `list_memories`,
@@ -88,7 +88,8 @@ interface Draft {
 
 function useMemories() {
   const chat = useEngineStore((s) => s.activeId);
-  const ready = useEngineStore((s) => (s.activeId ? s.runtimes[s.activeId]?.status === "ready" : false));
+  // A new chat's deferred engine starts for this view (ux-polish FR-14).
+  const ready = useActiveEngineReady();
   // A finished turn may have saved memories.
   const busy = useEngineStore((s) => (s.activeId ? Boolean(s.runtimes[s.activeId]?.transcript.busy) : false));
   const [state, setState] = React.useState<MemoryState | null>(null);

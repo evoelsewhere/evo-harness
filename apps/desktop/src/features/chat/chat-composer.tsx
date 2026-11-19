@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { useAnnotationsStore } from "@/stores/annotations-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
-import { useApprovalGrants, useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
+import { useApprovalGrants, useDeferred, useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore, type ApprovalMode } from "@/stores/ui-store";
 import { ComposerAnnotations } from "./annotation-chips";
@@ -112,7 +112,10 @@ export function ChatComposer() {
   const approvalNoteSeen = useUiStore((s) => s.approvalNoteSeen);
   const grants = useApprovalGrants();
   const [approvalMenuOpen, setApprovalMenuOpen] = React.useState(false);
-  const ready = status === "ready";
+  // A new chat's engine starts with its first message: it takes the message
+  // and model picks before that (ux-polish FR-14).
+  const deferred = useDeferred();
+  const ready = status === "ready" || deferred;
   const customizations = useCustomizeStore((s) => s.data);
   const connectors = useConnectorsStore((s) => s.servers);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);

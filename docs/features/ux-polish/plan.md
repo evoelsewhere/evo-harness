@@ -106,6 +106,18 @@ n/a — no settings.
 
 ## 5. As-built notes
 
+- **FR-14**: `activate` gives a new draft a runtime marked `deferred`
+  (status `idle`, the default model in `state`) and attaches the window,
+  without `engine_ensure`. `wake` (`stores/engine-store.ts`) starts it
+  once, waits for `ready` and the shell's set-up, then sends the model and
+  effort picked meanwhile (`pick`). `sendPrompt` saves the chat's row
+  first, so the shell starts it on the shown model, and sets `waking`
+  for the "Starting the chat engine…" line (`chat-turn.tsx`). `request`,
+  `setDefaultModel` and `start` wake it; Settings and Customize opening
+  wake it (a `ui-store` subscription), and the memory panel and office
+  views do through `useActiveEngineReady`. Deferral needs a known model
+  list, so a fresh window's first chat starts at once.
+
 - **FR-3** also covers a chat that loads while its engine has not
   reported a model yet. The ready-but-restoring case showed "No model" in
   the first check.

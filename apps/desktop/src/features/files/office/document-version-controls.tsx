@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { useEngineStore } from "@/stores/engine-store";
+import { useActiveEngineReady, useEngineStore } from "@/stores/engine-store";
 
 export interface DocumentVersion {
   id: string;
@@ -88,7 +88,8 @@ export function DocumentVersionControls({ path, revision, chatId, buttonClassNam
   const [data, setData] = React.useState<DocumentVersions | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [problem, setProblem] = React.useState<string | null>(null);
-  const ready = useEngineStore((s) => (s.activeId ? s.runtimes[s.activeId]?.status === "ready" : false));
+  // A new chat's deferred engine starts for this view (ux-polish FR-14).
+  const ready = useActiveEngineReady();
   const versions = data?.versions ?? [];
 
   React.useEffect(() => {

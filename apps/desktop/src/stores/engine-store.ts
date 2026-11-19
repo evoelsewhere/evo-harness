@@ -94,6 +94,16 @@ export interface ChatRuntime {
   restore: boolean;
   /** The last turn already counted in the chat's totals. */
   recordedTurn?: string;
+  /**
+   * A new chat shown before its engine runs: the engine starts with the first
+   * message, or when a view needs it (docs/features/ux-polish/spec.md, FR-14).
+   * `state` holds the model it will start on.
+   */
+  deferred?: boolean;
+  /** Model and effort picked in a deferred chat: they go to its engine once it is set up. */
+  pick?: { model?: ModelDescriptor; thinkingLevel?: string };
+  /** The first message waits for the engine to start ("Starting the chat engine…"). */
+  waking?: boolean;
 }
 
 type Mirrored = Pick<ChatRuntime, "status" | "error" | "cwd" | "state" | "transcript" | "contextBreakdown" | "contextBreakdownAt">;
@@ -249,6 +259,12 @@ interface EngineStore extends Mirrored {
   compact(): Promise<void>;
   /** Send any command to the active chat's engine. */
   request<T = unknown>(type: string, payload?: Record<string, unknown>): Promise<T>;
+  /**
+   * Start the deferred engine of a new chat (the active one by default) and
+   * wait until it is set up; `false` when it could not start. A chat whose
+   * engine already runs resolves `true` at once (ux-polish FR-14).
+   */
+  wakeEngine(chat?: string): Promise<boolean>;
 }
 
 const MAX_LOG_LINES = 500;
@@ -316,6 +332,25 @@ export const useRestoring = () =>
     const rt = s.activeId ? s.runtimes[s.activeId] : undefined;
     return Boolean(rt?.restore && rt.transcript.turns.length === 0);
   });
+
+/** The pane's chat is new and its engine waits for the first message (ux-polish FR-14). */
+export const useDeferred = () => usePaneEngine((s) => Boolean(s.activeId && s.runtimes[s.activeId]?.deferred));
+
+/** The pane's chat waits for its engine to start before its first message goes. */
+export const useWaking = () => usePaneEngine((s) => Boolean(s.activeId && s.runtimes[s.activeId]?.waking));
+
+/**
+ * The active chat's engine is ready. A view that needs the engine (memory,
+ * office documents) starts a new chat's deferred engine (ux-polish FR-14).
+ */
+export function useActiveEngineReady(): boolean {
+  const deferred = useEngineStore((s) => Boolean(s.activeId && s.runtimes[s.activeId]?.deferred));
+  const ready = useEngineStore((s) => (s.activeId ? s.runtimes[s.activeId]?.status === "ready" : false));
+  React.useEffect(() => {
+    if (deferred) void useEngineStore.getState().wakeEngine();
+  }, [deferred]);
+  return ready;
+}
 
 /**
  * What a worktree review needs for the worktree `chat` works in: Apply and
@@ -490,6 +525,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         transcript: store.runtimes[chat]?.transcript ?? initialTranscript,
         lastActive: Date.now(),
         restore,
+        // A first message waiting for this engine keeps its line (FR-14).
+        waking: store.runtimes[chat]?.waking,
       };
       const runtimes = { ...store.runtimes, [chat]: rt };
       return chat === store.activeId ? { runtimes, ...mirror(rt) } : { runtimes };
@@ -569,8 +606,32 @@ export const useEngineStore = create<EngineStore>((set, get) => {
    */
   const activate = async (chat: string, cwd: string | undefined, restore: boolean) => {
     flushDeltas();
-    set((store) => ({ activeId: chat, ...mirror(store.runtimes[chat]) }));
+    // A new chat shows at once, without an engine: it starts with the first
+    // message (ux-polish FR-14). Only once this window knows the models: the
+    // first chat of a fresh window starts its engine, which brings them (and
+    // says when no provider is set up).
+    const defer = !restore && !get().runtimes[chat] && isDraft(chat) && get().models.length > 0;
+    if (defer) {
+      set((store) => {
+        const rt: ChatRuntime = {
+          chatId: chat,
+          status: "idle",
+          cwd,
+          state: deferredState(),
+          transcript: initialTranscript,
+          lastActive: Date.now(),
+          restore: false,
+          deferred: true,
+        };
+        return { activeId: chat, runtimes: { ...store.runtimes, [chat]: rt }, ...mirror(rt) };
+      });
+    } else set((store) => ({ activeId: chat, ...mirror(store.runtimes[chat]) }));
     const attached = await client?.attachChat(chat).catch(() => undefined);
+    if (defer) {
+      // A draft kept across a reload may still have its engine: pick it up.
+      if (attached && attached.status !== "stopped" && runtime(chat)?.deferred) await launch(chat, cwd, false, true);
+      return;
+    }
     if (get().runtimes[chat]) {
       update(chat, () => ({ lastActive: Date.now() }));
       for (const question of attached?.questions ?? []) showQuestion(chat, question);
@@ -790,6 +851,55 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     if (!setup) return Promise.resolve();
     return Promise.race([setup.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, SETUP_WAIT_MS))]);
   };
+  /** The model a deferred chat shows: the default new chats start on, when this window knows it. */
+  const deferredState = (): EngineState => {
+    const key = get().defaultModel;
+    const at = key?.indexOf("/") ?? -1;
+    if (!key || at <= 0) return {};
+    const provider = key.slice(0, at);
+    const modelId = key.slice(at + 1);
+    return get().models.some((m) => m.provider === provider && m.id === modelId) ? { provider, modelId } : {};
+  };
+
+  /** Deferred engines starting now, so two callers start one (FR-14). */
+  const wakes = new Map<string, Promise<boolean>>();
+  /**
+   * Start a deferred chat's engine and wait until the shell has set it up;
+   * then give it the model and effort picked meanwhile (FR-14).
+   */
+  const wake = (chat: string): Promise<boolean> => {
+    const rt = runtime(chat);
+    if (!rt) return Promise.resolve(false);
+    if (!rt.deferred) return wakes.get(chat) ?? Promise.resolve(true);
+    const running = wakes.get(chat);
+    if (running) return running;
+    const { cwd, pick } = rt;
+    const woken = (async () => {
+      await launch(chat, cwd, false, true);
+      if (!(await untilLoaded(chat))) return false;
+      await setupDone(chat);
+      if (!client || !pick) return true;
+      // After the shell's set-up, which sets the chat's own model: the person's pick wins.
+      if (pick.model) {
+        await client
+          .request(chat, "set_model", { provider: pick.model.provider, modelId: pick.model.id })
+          .catch((error) => log("warn", "engine", `could not switch to the picked model: ${String(error)}`, { chatId: chat }));
+      }
+      if (pick.thinkingLevel) {
+        await client
+          .request(chat, "set_thinking_level", { level: pick.thinkingLevel })
+          .catch((error) => log("warn", "engine", `could not set the picked effort: ${String(error)}`, { chatId: chat }));
+      }
+      await get().refreshState(chat);
+      return true;
+    })();
+    wakes.set(chat, woken);
+    void woken.finally(() => {
+      if (wakes.get(chat) === woken) wakes.delete(chat);
+    });
+    return woken;
+  };
+
   /** What the shell last said of each chat's engine (`engine://state`). */
   const shellStatus = new Map<string, EngineStateEvent["status"]>();
   /** Who waits for the shell to finish setting a chat's engine up. */
@@ -1146,6 +1256,13 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         else if (payload.what === "providers" || payload.what === "model") void get().refreshState(payload.chat);
       });
       void useConnectorsStore.getState().load();
+      // Settings and Customize read the active chat's engine: a new chat's
+      // deferred engine starts when either opens (FR-14).
+      useUiStore.subscribe((ui, before) => {
+        const opened = (ui.settingsOpen && !before.settingsOpen) || (ui.customizeOpen && !before.customizeOpen);
+        const chat = get().activeId;
+        if (opened && chat && runtime(chat)?.deferred) void wake(chat);
+      });
       // Plugins were installed, removed or switched: every ready chat re-reads
       // its skills, commands, subagents and hooks.
       // The shell's supervisor hosts what the mesh hub needs (a new nested
@@ -1210,6 +1327,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       if (!chat) return;
       const rt = runtime(chat);
       const next = cwd === undefined ? rt?.cwd : cwd || undefined;
+      // A new chat's engine has not started: it starts in that folder with the first message (FR-14).
+      if (rt?.deferred) {
+        update(chat, () => ({ cwd: next }));
+        if (cwd === undefined) await wake(chat);
+        return;
+      }
       const saved = !useSessionStore.getState().sessions.find((s) => s.id === chat)?.draft;
       // The engine reopens the saved session; reload what it has.
       await launch(chat, next, saved);
@@ -1410,8 +1533,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         return;
       }
       await sessions.move(id, workspaceId);
-      // The engine works in the chat's folder: restart it in the new one.
-      if (rt) await launch(id, await chatFolder(id), true);
+      // The engine works in the chat's folder: restart it in the new one
+      // (a new chat's engine that has not started will start there, FR-14).
+      if (rt?.deferred) {
+        const folder = await chatFolder(id);
+        update(id, () => ({ cwd: folder }));
+      } else if (rt) await launch(id, await chatFolder(id), true);
     },
 
     async setChatFlags(chat, flags) {
@@ -1420,6 +1547,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       // Only before the first message: afterwards the choice is locked.
       if (!row?.draft || (rt?.transcript.turns.length ?? 0) > 0 || rt?.transcript.busy) return;
       useSessionStore.getState().setDraftFlags(chat, flags);
+      // Not started yet: it starts with the choice (FR-14).
+      if (rt?.deferred) return;
       // The draft's engine was started without the choice: start it again.
       await launch(chat, rt?.cwd, false);
     },
@@ -1542,16 +1671,31 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       const chat = get().activeId;
       if (!client || !chat || (!message && images.length === 0)) return;
       const sessions = useSessionStore.getState();
+      const deferred = Boolean(runtime(chat)?.deferred);
+      let saving: Promise<void> | undefined;
       if (sessions.sessions.find((s) => s.id === chat)?.draft) {
         const { provider, modelId, model } = get().state;
-        void sessions.saveDraft(chat, message, { provider, model: modelId ?? model });
+        saving = sessions.saveDraft(chat, message, { provider, model: modelId ?? model });
       }
       dispatch(chat, { type: "prompt", text: message, images: images.map(dataUrl) });
       try {
+        if (deferred) {
+          // The engine starts with the first message (FR-14). The chat's row
+          // is saved first: it names the model the shell starts it on.
+          update(chat, () => ({ waking: true }));
+          await saving;
+          const woken = await wake(chat);
+          // Stopped while it started (`abort`): the message is not sent.
+          const stopped = !runtime(chat)?.waking;
+          update(chat, () => ({ waking: false }));
+          if (stopped) return;
+          if (!woken) throw new Error(runtime(chat)?.error ?? "The engine could not start");
+        }
         // A new chat's engine may still be setting up its tools.
         await setupDone(chat);
         await client.request(chat, "prompt", promptPayload(message, images));
       } catch (error) {
+        update(chat, () => ({ waking: false }));
         dispatch(chat, { type: "fail", error: error instanceof Error ? error.message : String(error) });
         log("error", "engine", `prompt failed: ${String(error)}`, { chatId: chat });
       }
@@ -1586,6 +1730,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     async abort() {
       const chat = get().activeId;
       if (!chat) return [];
+      if (runtime(chat)?.waking) {
+        // Its engine is still starting (FR-14): the first message is not sent.
+        update(chat, () => ({ waking: false }));
+        dispatch(chat, { type: "engine", message: { type: "agent_end", aborted: true } });
+        return [];
+      }
       const reply = await client
         ?.request<{ steer?: { text?: string }[]; followUp?: { text?: string }[] }>(chat, "abort")
         .catch(() => undefined);
@@ -1631,6 +1781,14 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     async setModel(model) {
       const chat = get().activeId;
       if (!client || !chat) return;
+      if (runtime(chat)?.deferred) {
+        // Kept until the engine starts (FR-14).
+        update(chat, (rt) => ({
+          pick: { ...rt.pick, model },
+          state: { ...rt.state, provider: model.provider, modelId: model.id, model: undefined },
+        }));
+        return;
+      }
       // After the shell's set-up, which sets the chat's own model: the person's pick wins.
       if (runtime(chat)?.status === "starting") {
         await Promise.race([shellSetUp(chat), new Promise((resolve) => setTimeout(resolve, SETUP_WAIT_MS))]);
@@ -1646,6 +1804,11 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     async setThinkingLevel(level) {
       const chat = get().activeId;
       if (!client || !chat) return;
+      if (runtime(chat)?.deferred) {
+        // Kept until the engine starts (FR-14).
+        update(chat, (rt) => ({ pick: { ...rt.pick, thinkingLevel: level }, state: { ...rt.state, thinkingLevel: level } }));
+        return;
+      }
       await client.request(chat, "set_thinking_level", { level });
       await get().refreshState(chat);
     },
@@ -1653,6 +1816,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     async setDefaultModel(model) {
       const chat = get().activeId;
       if (!client || !chat) return;
+      // The engine keeps the saved default (settings.json): a new chat's starts for it (FR-14).
+      if (!(await wake(chat))) return;
       const saved = await client.request<{ provider?: string | null; modelId?: string | null }>(chat, "set_default_model", {
         provider: model?.provider ?? null,
         modelId: model?.id ?? null,
@@ -1772,8 +1937,14 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     async request<T>(type: string, payload?: Record<string, unknown>) {
       const chat = get().activeId;
       if (!client || !chat) throw new Error("The engine is not running");
+      // A new chat's engine starts for whatever needs it (FR-14).
+      if (runtime(chat)?.deferred && !(await wake(chat))) throw new Error(runtime(chat)?.error ?? "The engine could not start");
       // A provider command reaches the other engines through the shell (FR-8).
       return client.request<T>(chat, type, payload);
+    },
+
+    wakeEngine(chat = get().activeId ?? undefined) {
+      return chat ? wake(chat) : Promise.resolve(false);
     },
 
     async refreshState(chat = get().activeId ?? undefined) {

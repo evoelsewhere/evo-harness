@@ -9,7 +9,7 @@ import * as React from "react";
 import { create } from "zustand";
 import { db } from "@/lib/db";
 import { inTauri } from "@/lib/platform";
-import { useEngineStore } from "./engine-store";
+import { useActiveEngineReady, useEngineStore } from "./engine-store";
 
 export type OfficePhase = "downloading" | "verifying" | "extracting" | "failed";
 
@@ -84,7 +84,8 @@ export const officeReady = (status: OfficeStatus | null) => !!status?.installedV
 
 /** The status, refreshed when the engine is ready and every 700 ms while an install runs. */
 export function useOffice() {
-  const ready = useEngineStore((s) => (s.activeId ? s.runtimes[s.activeId]?.status === "ready" : false));
+  // A new chat's deferred engine starts for this view (ux-polish FR-14).
+  const ready = useActiveEngineReady();
   const chat = useEngineStore((s) => s.activeId);
   const status = useOfficeStore((s) => s.status);
   const error = useOfficeStore((s) => s.error);

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/trace";
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useWaking } from "@/stores/engine-store";
 import { UserPrompt } from "./user-message";
 import { MessageMenu } from "./message-menu";
 import { replyMarkdown } from "./message-text";
@@ -238,6 +239,8 @@ const ProcessGroup = React.memo(function ProcessGroup({ parts, running, live: tu
  * the step that runs now (ux-polish FR-12).
  */
 function RunningStatus({ startedAt, parts }: { startedAt: number; parts: Turn["parts"] }) {
+  // A new chat's first message waits for its engine (ux-polish FR-14).
+  const waking = useWaking();
   const step = React.useMemo(() => {
     for (let i = parts.length - 1; i >= 0; i--) {
       const part = parts[i];
@@ -256,8 +259,14 @@ function RunningStatus({ startedAt, parts }: { startedAt: number; parts: Turn["p
     <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
       <Spinner />
       <span className="shimmer">
-        Working for {seconds(now - startedAt)}
-        {step && ` · ${step}`}
+        {waking ? (
+          "Starting the chat engine…"
+        ) : (
+          <>
+            Working for {seconds(now - startedAt)}
+            {step && ` · ${step}`}
+          </>
+        )}
       </span>
     </div>
   );

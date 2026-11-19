@@ -38,6 +38,7 @@ the composer behave as specified.
 - [x] T12 [FR-12] Focus back to the composer after Send; the running step on the working line — `apps/desktop/src/features/chat/{chat-composer.tsx,chat-turn.tsx}` — check: running app
 - [x] T13 UI map — `apps/desktop/README.md` — check: review
 - [x] T14 [FR-13] Tests and `messagePlainText` / `quoted`; the message menu on prompts and replies; `forkChatAt`; UI map — `apps/desktop/src/features/chat/{message-text.ts,message-text.test.ts,message-menu.tsx,user-message.tsx,chat-turn.tsx}`, `apps/desktop/src/stores/engine-store.ts`, `apps/desktop/README.md` — check: `bun test`; running UI
+- [x] T15 [FR-14] Deferred engine for new chats: `wake`, the waiting line, picks kept, views that need the engine start it; UI map — `apps/desktop/src/stores/{engine-store.ts,office-store.ts}`, `apps/desktop/src/features/chat/{chat-composer.tsx,chat-turn.tsx}`, `apps/desktop/src/features/memory/memory-panel.tsx`, `apps/desktop/src/features/files/office/document-version-controls.tsx`, `apps/desktop/README.md` — check: `bun run typecheck`; running app
 
 ## 2. Verification
 
@@ -60,5 +61,6 @@ selected, and no prompt was sent.
 | FR-11 | Running app: an open dialog's `--tw-ease` is the spring `linear()` | passed (2026-11-13) |
 | FR-12 | `bun run typecheck` | not run in the app — it needs a prompt sent, and the checks were read-only |
 | FR-13 | `bun test src/features/chat/message-text.test.ts` (6); `bun run typecheck`; the UI on Vite with the README mock IPC (Playwright): the reply menu, the prompt menu (with Edit message) and the selection menu show; Copy message gives plain text, Copy as Markdown the raw reply, Quote puts `> ` lines in the composer. Fork from here not run against a real engine | passed (2026-11-18), fork not run |
+| FR-14 | `bun run typecheck`; running app (person's dev app, real data, WebView2 CDP): New chat took 113 ms and started no engine; the first message showed "Starting the chat engine…", the engine was ready at 1.4 s, the prompt went at 1.6 s and the reply came; a model and effort picked before the start (Haiku 4.5, low) were the engine's after Settings opened and started it; Stop while it started left the turn "Stopped." and the engine with no messages | passed (2026-11-19) |
 | NFR-1 | Review against DESIGN.md: achromatic tokens, one accent, no new weights | passed (2026-11-13) |
 | NFR-2 | `apps/desktop/package.json` unchanged | passed (2026-11-13) |
