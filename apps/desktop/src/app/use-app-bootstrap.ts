@@ -14,6 +14,7 @@ import { startSplit, useSplitStore } from "@/stores/split-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useTerminalStore } from "@/stores/terminal-store";
 import { useUiStore } from "@/stores/ui-store";
+import { setNativeMaterial } from "@/stores/appearance-store";
 import { startUpdates } from "@/stores/updates-store";
 import { chatWindowId } from "@/lib/windows";
 
@@ -22,8 +23,8 @@ export function useAppBootstrap() {
   React.useEffect(() => {
     installErrorLogging();
     invoke<"mica" | "vibrancy" | "none">("window_material")
-      .then((material) => document.documentElement.setAttribute("data-material", material))
-      .catch(() => document.documentElement.setAttribute("data-material", "none"));
+      .then(setNativeMaterial)
+      .catch(() => setNativeMaterial("none"));
     applyZoom(useUiStore.getState().zoom);
     // Side panel tabs, pages and terminals follow the chat showing.
     startChatScope();

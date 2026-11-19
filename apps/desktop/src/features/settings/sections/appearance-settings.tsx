@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useTheme, type Theme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { setZoom } from "@/features/shell/app-commands";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +30,7 @@ import {
   INTERFACE_FONTS,
   LIGHT_BACKGROUNDS,
   accentColors,
+  nativeMaterial,
   shownBackground,
   useAppearanceStore,
   type ChatWidth,
@@ -243,6 +245,34 @@ function BackgroundPicker() {
         ))}
       </div>
     </SettingsRow>
+  );
+}
+
+/** Mica (Windows 11) or vibrancy (macOS) behind the sidebar, or the picked background. */
+function Translucency() {
+  const translucency = useAppearanceStore((s) => s.translucency);
+  const setTranslucency = useAppearanceStore((s) => s.setTranslucency);
+  const native = nativeMaterial();
+  const available = native === "mica" || native === "vibrancy";
+  const material = native === "vibrancy" ? "vibrancy" : "Mica";
+  return (
+    <SettingsRow
+      labelId="translucency-label"
+      label="Window translucency"
+      description={
+        available
+          ? `Let the desktop show through the sidebar (${material}). Off, the sidebar and window use the background above.`
+          : "This system has no window material; the sidebar uses the background above."
+      }
+      control={
+        <Switch
+          aria-labelledby="translucency-label"
+          checked={available && translucency}
+          disabled={!available}
+          onCheckedChange={setTranslucency}
+        />
+      }
+    />
   );
 }
 
@@ -509,6 +539,7 @@ export function AppearanceSettings() {
         <ColorScheme />
         <AccentPicker />
         <BackgroundPicker />
+        <Translucency />
       </SettingsGroup>
 
       <Typography />

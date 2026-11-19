@@ -142,6 +142,11 @@ interface AppearanceStore {
   codeFont: string;
   chatWidth: ChatWidth;
   motion: MotionPreference;
+  /**
+   * Let the system material (Mica, vibrancy) show through the sidebar. Off,
+   * the window paints the picked background everywhere.
+   */
+  translucency: boolean;
   setAccent(id: string): void;
   setCustomAccent(hex: string): void;
   setBackground(mode: SchemeMode, id: string): void;
@@ -150,6 +155,7 @@ interface AppearanceStore {
   setCodeFont(id: string): void;
   setChatWidth(width: ChatWidth): void;
   setMotion(motion: MotionPreference): void;
+  setTranslucency(on: boolean): void;
   reset(): void;
 }
 
@@ -164,6 +170,7 @@ export const APPEARANCE_DEFAULTS = {
   codeFont: "geist-mono",
   chatWidth: "default" as ChatWidth,
   motion: "system" as MotionPreference,
+  translucency: true,
 };
 
 export const useAppearanceStore = create<AppearanceStore>()(
@@ -183,6 +190,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
       setCodeFont: (codeFont) => set({ codeFont }),
       setChatWidth: (chatWidth) => set({ chatWidth }),
       setMotion: (motion) => set({ motion }),
+      setTranslucency: (translucency) => set({ translucency }),
       reset: () => set(APPEARANCE_DEFAULTS),
     }),
     {
@@ -198,6 +206,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
         codeFont,
         chatWidth,
         motion,
+        translucency,
       }) => ({
         accent,
         customAccent,
@@ -209,6 +218,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
         codeFont,
         chatWidth,
         motion,
+        translucency,
       }),
     },
   ),
@@ -276,6 +286,32 @@ function apply(state: AppearanceStore) {
     }
   }
   root.setAttribute("data-motion", state.motion);
+  applyMaterial(state);
+}
+
+export type WindowMaterial = "mica" | "vibrancy" | "none";
+
+/** The material the shell applied to the window, once it has said. */
+export function nativeMaterial(): WindowMaterial | null {
+  if (typeof document === "undefined") return null;
+  return document.documentElement.getAttribute("data-native-material") as WindowMaterial | null;
+}
+
+/**
+ * `data-material`, which index.css reads: the shell's material, or `none` when
+ * translucency is off, so the sidebar and window take the picked background.
+ * Nothing is set before the shell reports its material.
+ */
+function applyMaterial(state: Pick<AppearanceStore, "translucency">) {
+  const native = nativeMaterial();
+  if (!native) return;
+  document.documentElement.setAttribute("data-material", state.translucency ? native : "none");
+}
+
+/** Records the shell's window material (`window_material`) and applies it. */
+export function setNativeMaterial(material: WindowMaterial) {
+  document.documentElement.setAttribute("data-native-material", material);
+  applyMaterial(useAppearanceStore.getState());
 }
 
 // Apply the stored choice before the first paint, then on every change.
