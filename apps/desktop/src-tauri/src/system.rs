@@ -402,6 +402,7 @@ pub fn dress_main(app: &AppHandle) {
         let _ = main.set_title(crate::window::app_name());
         let material = crate::window::apply(&main, None);
         *app.state::<crate::window::MaterialState>().0.lock().expect("material lock") = material;
+        crate::window::own_webview_size(&main);
     }
 }
 

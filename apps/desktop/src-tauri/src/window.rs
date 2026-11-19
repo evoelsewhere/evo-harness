@@ -49,6 +49,38 @@ pub fn apply(window: &Window, dark: Option<bool>) -> Material {
     Material::None
 }
 
+// ── Webview size ────────────────────────────────────────────────────────────
+//
+// With the `unstable` feature (child webviews for browser tabs and plugin
+// views) a window's own webview is a child too, and the runtime scales it with
+// every `Resized`. Minimizing on Windows reports the iconic window's size, so
+// the page was laid out at about 144×19: the sidebar became its mobile sheet,
+// every breakpoint flipped, and restoring rendered and laid out the whole UI
+// again (1–2 s before it showed on a long chat). The shell sizes the webview
+// itself and leaves it alone while the window is minimized.
+
+/// Stop the runtime scaling `window`'s own webview; [`on_resized`] sizes it.
+pub fn own_webview_size(window: &Window) {
+    use tauri::Manager;
+    if let Some(webview) = window.get_webview(window.label()) {
+        let _ = webview.set_auto_resize(false);
+    }
+}
+
+/// Keep `window`'s own webview filling it, except while it is minimized.
+pub fn on_resized(window: &Window, size: tauri::PhysicalSize<u32>) {
+    use tauri::Manager;
+    if size.width == 0 || size.height == 0 || window.is_minimized().unwrap_or(false) {
+        return;
+    }
+    if let Some(webview) = window.get_webview(window.label()) {
+        let _ = webview.set_bounds(tauri::Rect {
+            position: tauri::PhysicalPosition::new(0, 0).into(),
+            size: size.into(),
+        });
+    }
+}
+
 #[tauri::command]
 pub fn window_material(state: State<'_, MaterialState>) -> Material {
     *state.0.lock().expect("material lock")
@@ -165,6 +197,7 @@ pub async fn chat_window_open(app: tauri::AppHandle, chat: String, title: String
     use tauri::Manager;
     if let Some(window) = app.get_window(window.label()) {
         apply(&window, None);
+        own_webview_size(&window);
     }
     Ok(())
 }
