@@ -87,6 +87,20 @@ pub struct Webbridge {
     panels: panel::Panels,
     /// Why recent tabs went (plan 3.6), for the agent's next call on them.
     pub(crate) gone: Mutex<groups::Gone>,
+    /// Chat → the profile whose side panel last sent to it: that chat's pages open there by default.
+    pub(crate) panel_browser: Mutex<HashMap<String, String>>,
+    /// Tabs the person shared with a chat (Include this tab, choose): the agent reads and acts
+    /// in them, but a navigation that names no tab opens a new one instead of taking them away.
+    pub(crate) shared: Mutex<HashSet<String>>,
+}
+
+/// Whether the person shared `tab` with its chat (it was not opened by the agent).
+pub fn is_shared(app: &AppHandle, tab: &str) -> bool {
+    app.state::<Webbridge>()
+        .shared
+        .lock()
+        .expect("webbridge lock")
+        .contains(tab)
 }
 
 /// Why a Webbridge tab the agent names is no longer there, if it went lately.
@@ -267,15 +281,48 @@ pub fn setup(app: &AppHandle) {
     }
 }
 
+/// App setting: the browser the agent's browser tools use when a call names none:
+/// `builtin` (the default) or a connected profile's key (`edge:p85ee…`).
+pub const DEFAULT_BROWSER_KEY: &str = "webbridge.defaultBrowser";
+
 /// The browser profile a tool's `target` names: `None` for the built-in
-/// browser (no target, or `builtin`), else the key of a connected profile.
-pub fn resolve_target(app: &AppHandle, target: Option<&str>) -> Result<Option<String>, String> {
-    pick_profile(&app.state::<Webbridge>().profiles(), target)
+/// browser (`builtin`), else the key of a connected profile. No target means
+/// the browser whose side panel `chat` was last sent from, else the default
+/// browser the person picked in Settings → Browser.
+pub fn resolve_target(
+    app: &AppHandle,
+    chat: &str,
+    target: Option<&str>,
+) -> Result<Option<String>, String> {
+    let state = app.state::<Webbridge>();
+    let profiles = state.profiles();
+    let from_panel = state
+        .panel_browser
+        .lock()
+        .expect("webbridge lock")
+        .get(chat)
+        .filter(|key| profiles.iter().any(|p| &p.key == *key))
+        .cloned();
+    let default = from_panel.or_else(|| {
+        app.state::<Db>()
+            .with(|conn| evo_store::settings::get(conn, DEFAULT_BROWSER_KEY))
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(str::to_string))
+    });
+    pick_profile(&profiles, target, default.as_deref())
 }
 
-fn pick_profile(profiles: &[Profile], target: Option<&str>) -> Result<Option<String>, String> {
+fn pick_profile(
+    profiles: &[Profile],
+    target: Option<&str>,
+    default: Option<&str>,
+) -> Result<Option<String>, String> {
+    // The person's default: a connected profile the browser lets Evo use, else the built-in browser.
+    let default = default.and_then(|key| profiles.iter().find(|p| p.key == key && p.debugger));
     let target = match target.map(str::trim).filter(|t| !t.is_empty()) {
-        None | Some("builtin") => return Ok(None),
+        None => return Ok(default.map(|p| p.key.clone())),
+        Some("builtin") => return Ok(None),
         Some(target) => target.to_lowercase(),
     };
     let (browser, name) = match target.split_once(':') {
@@ -297,7 +344,11 @@ fn pick_profile(profiles: &[Profile], target: Option<&str>) -> Result<Option<Str
             .copied()
             .filter(|p| p.profile.to_lowercase() == *name || p.label.to_lowercase() == *name)
             .collect(),
-        None => of_browser.clone(),
+        None => match default.filter(|d| d.browser == browser) {
+            // Several profiles of this browser: the default one, when it is one of them.
+            Some(d) => vec![d],
+            None => of_browser.clone(),
+        },
     };
     match matched.as_slice() {
         [one] => {
@@ -370,6 +421,11 @@ pub async fn adopt(
         )
         .await?;
     let id = groups::tab_id(profile_key, number);
+    app.state::<Webbridge>()
+        .shared
+        .lock()
+        .expect("webbridge lock")
+        .insert(id.clone());
     crate::browser::register_external(
         app,
         &id,
@@ -915,38 +971,81 @@ mod tests {
     }
 
     #[test]
+    fn no_target_uses_the_default_browser_when_it_is_connected() {
+        let two = [
+            profile("chrome", "p1", "Work"),
+            profile("edge", "p2", "Home"),
+        ];
+        assert_eq!(
+            pick_profile(&two, None, Some("edge:p2"))
+                .unwrap()
+                .as_deref(),
+            Some("edge:p2")
+        );
+        assert_eq!(
+            pick_profile(&two, Some("builtin"), Some("edge:p2")).unwrap(),
+            None
+        );
+        assert_eq!(
+            pick_profile(&two, Some("chrome"), Some("edge:p2"))
+                .unwrap()
+                .as_deref(),
+            Some("chrome:p1")
+        );
+        // A default that is not connected falls back to the built-in browser.
+        assert_eq!(pick_profile(&two, None, Some("edge:gone")).unwrap(), None);
+        assert_eq!(pick_profile(&two, None, Some("builtin")).unwrap(), None);
+        // Several profiles of one browser: the default one among them.
+        let chromes = [
+            profile("chrome", "p1", "Work"),
+            profile("chrome", "p2", "Home"),
+        ];
+        assert_eq!(
+            pick_profile(&chromes, Some("chrome"), Some("chrome:p2"))
+                .unwrap()
+                .as_deref(),
+            Some("chrome:p2")
+        );
+        assert!(pick_profile(&chromes, Some("chrome"), None)
+            .unwrap_err()
+            .contains("several profiles"));
+    }
+
+    #[test]
     fn a_target_picks_the_one_connected_profile_or_asks_for_a_name() {
         let one = [profile("edge", "p1", "Work")];
-        assert_eq!(pick_profile(&one, None).unwrap(), None);
-        assert_eq!(pick_profile(&one, Some("builtin")).unwrap(), None);
+        assert_eq!(pick_profile(&one, None, None).unwrap(), None);
+        assert_eq!(pick_profile(&one, Some("builtin"), None).unwrap(), None);
         assert_eq!(
-            pick_profile(&one, Some("edge")).unwrap().as_deref(),
+            pick_profile(&one, Some("edge"), None).unwrap().as_deref(),
             Some("edge:p1")
         );
-        assert!(pick_profile(&one, Some("chrome"))
+        assert!(pick_profile(&one, Some("chrome"), None)
             .unwrap_err()
             .contains("not connected"));
-        assert!(pick_profile(&one, Some("firefox")).is_err());
+        assert!(pick_profile(&one, Some("firefox"), None).is_err());
         let two = [
             profile("chrome", "p1", "Work"),
             profile("chrome", "p2", "Personal"),
         ];
-        assert!(pick_profile(&two, Some("chrome"))
+        assert!(pick_profile(&two, Some("chrome"), None)
             .unwrap_err()
             .contains("several profiles"));
         assert_eq!(
-            pick_profile(&two, Some("chrome:personal"))
+            pick_profile(&two, Some("chrome:personal"), None)
                 .unwrap()
                 .as_deref(),
             Some("chrome:p2")
         );
         assert_eq!(
-            pick_profile(&two, Some("chrome:p1")).unwrap().as_deref(),
+            pick_profile(&two, Some("chrome:p1"), None)
+                .unwrap()
+                .as_deref(),
             Some("chrome:p1")
         );
         let mut blocked = profile("edge", "p1", "Work");
         blocked.debugger = false;
-        assert!(pick_profile(&[blocked], Some("edge"))
+        assert!(pick_profile(&[blocked], Some("edge"), None)
             .unwrap_err()
             .contains("administrator"));
     }

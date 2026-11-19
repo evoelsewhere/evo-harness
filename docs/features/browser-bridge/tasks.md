@@ -82,26 +82,35 @@ has a result.
 - [ ] T34 [NFR-4] macOS and Linux registration paths and the 0600 socket — `shell/webbridge/{setup,server}.rs`, `crates/evo-bridge-host` — check: `cargo check` for those targets where possible; manual later
 - [x] T35 UI map and docs: `apps/desktop/README.md`, plan as-built notes, verification table — check: review
 
+### Phase 6 — Defaults and panel chats
+
+Done when: the agent works where the person expects without naming a browser,
+and panel chats look like the app's.
+
+- [x] T36 [FR-30] Tests, then the default browser: `webbridge.defaultBrowser`, `resolve_target` with the default, `browser_navigate` and `browser_tabs` create reuse the chat's page there; the picker in Settings → Browser — `shell/webbridge/mod.rs`, `shell/agent_tools/browser/{core,tabs}.rs`, `apps/desktop/src/features/settings/sections/browser-settings.tsx` — check: `bun run test:shell -- webbridge`; manual
+- [x] T37 [FR-31] A panel chat's browser and shared tabs: the profile that sent last is the chat's default; adopted tabs are marked shared and a navigation without a tab id opens a new tab — `shell/webbridge/{mod,panel,page}.rs`, `shell/agent_tools/browser/core.rs` — check: manual
+- [x] T38 [FR-32] Panel chats named after their first message; `chat://updated` on create and rename — `shell/webbridge/panel.rs`, `ext/sidepanel/sidepanel.js` — check: test of the title rule; manual
+
 ## 2. Verification
 
 | Requirement | Test or check | Result |
 | --- | --- | --- |
 | FR-1 | Review of `ext/manifest.json` | passed (2026-11-18) |
 | FR-2 | Manual: set up Chrome, connected; remove, host unreachable | passed with Edge (2026-11-18): Set up registers, the extension connects, Remove deletes the key (Chrome shares the code; not checked separately) |
-| FR-3 | `webbridge` tests (origin admission, ids, setup); spike: host introduces the origin, pipe sees the sibling host | partly passed (2026-11-18); a page cannot connect: not run |
+| FR-3 | `webbridge` tests (origin admission, ids, setup); spike: host introduces the origin, pipe sees the sibling host | passed (2026-11-19): tests; a web page has no `chrome.runtime`, so it reaches neither the extension nor the host; the pipe admits only the sibling host with an Evo origin |
 | FR-4 | Manual: two profiles show as two entries | passed on Edge (2026-11-18): two profiles show as two named entries; `target: "edge"` then asks the agent to name one |
 | FR-5 | Manual: tools on a Chrome tab (T19) | passed on Edge (2026-11-18): navigate, read_page, find, click, type, key, hover, scroll, eval, dialog, wait, network, console, mock, storage, upload, frames, viewport, performance, screenshot (visible, full page, element), pdf, tabs, status; leases: let go 10 s after a turn with `leaseSeconds` 10, attached again on the next call |
 | FR-6 | `webbridge::groups` tests; manual: three pages, one group | tests passed (2026-11-18); manual (Edge): pages open in the background in the chat's group (passed) |
 | FR-7 | `webbridge::groups` tests; manual: chat B cannot name A's tab | passed (2026-11-18): another chat gets "No browser tab …" and lists none |
 | FR-8 | Manual: drag in and out | passed on Edge (2026-11-18): a tab put in the group joins the chat; a tab taken out answers "The person took this tab back." |
-| FR-9 | `agent_tools::browser` tests; manual: choose | schema tests passed (2026-11-18); choose: not run |
-| FR-10 | Manual: US-3 with the window closed | partly passed (2026-11-18): chats, new chat, history, send reach the engine; a model's reply: not run (no provider on the test profile) |
-| FR-11 | Manual: panel and app show the same chat | not run |
+| FR-9 | `agent_tools::browser` tests; manual: choose | passed on Edge (2026-11-19): the agent's `choose` asks in the panel with titles and sites only; the picked tab joins the chat and the agent reads its title |
+| FR-10 | Manual: US-3 with the window closed | passed on Edge with a model (2026-11-19): a new panel chat gets the reply; a message sent while New chat is still being made waits for it |
+| FR-11 | Manual: panel and app show the same chat | passed (2026-11-19): the app shows the panel's chat with the same messages and the included tab's note |
 | FR-12 | `webbridge::sites` tests; manual: Block in the side panel menu shows in Settings | passed (2026-11-18): Block and Ask from the panel's message show in `webbridge_sites` and the log |
 | FR-13 | `agent_tools::gate` tests | passed (2026-11-18) |
-| FR-14 | Manual: answer in the panel, the app's question goes | not run |
+| FR-14 | Manual: answer in the panel, the app's question goes | passed on Edge (2026-11-19): the site question shows in the panel and the app; Allow once in the panel removes the app's and the agent carries on |
 | FR-15 | Manual: indicator on every page acted on | passed on Edge (2026-11-18): the indicator is in each new document of an agent tab |
-| FR-16 | Manual: Stop during `browser_wait` | not run: Stop aborts the chat's engine turn, which ends its calls; the test profile has no model to run a turn with tool calls |
+| FR-16 | Manual: Stop during `browser_wait` | passed on Edge (2026-11-19): Stop in the panel during a 45 s `browser_wait` ended the turn in 8 s (machine at 100% CPU); the engine logs the run aborted |
 | FR-17 | Manual: Take over, then a click is held | passed on Edge (2026-11-18): Take over through the indicator's binding; the next tool call says the person has control. A click by the person makes the agent's next click wait 5.3 s; the agent's own input does not |
 | FR-18 | Manual: Stop all, the notices go | passed on Edge (2026-11-18): the tab is detached and its indicator off; the next call attaches again |
 | FR-19 | Manual: Evo starts in the tray | reconnect after a browser restart passed (2026-11-18); starting Evo from the browser: not run |
@@ -111,9 +120,12 @@ has a result.
 | FR-23 | Manual on a test machine with the policy | not run |
 | FR-24 | Manual: Logs page | passed (2026-11-18): set-up, connections, site changes and each call ("chat …: browser_click on http://127.0.0.1:8765 (allowed)") in the `webbridge` source; no page content or typed text |
 | FR-25 | Manual: US-8 scenarios 1 and 6 | passed on Edge (2026-11-18): header, history, new chat, menu, empty state |
-| FR-26 | Manual: model picked in the panel shows in the app | not run |
-| FR-27 | Manual: US-8 scenario 3 | not run |
-| FR-28 | Manual: screenshot and PDF attached | not run |
+| FR-26 | Manual: model picked in the panel shows in the app | passed (2026-11-19): a model and effort picked in the panel show in the app's composer for that chat at once |
+| FR-27 | Manual: US-8 scenario 3 | passed (2026-11-19): the panel's mode switch changes the app setting and the app's switch follows |
+| FR-28 | Manual: screenshot and PDF attached | partly passed (2026-11-19): a PDF from the file picker is saved as the app saves pasted files and the agent reads it; the page screenshot needs the browser's grant (the person clicks Evo's button on the page), which the panel now explains |
+| FR-30 | `webbridge` tests; manual: default Edge, built-in, not connected | tests passed (2026-11-19); manual on Edge (2026-11-19): default Edge opens and reuses an Edge tab; built-in and a default not connected use the built-in browser; named `builtin` keeps off the Edge page |
+| FR-31 | Manual: open a page from a panel chat | passed on Edge (2026-11-19): the page opens in a new Edge tab; the shared tab keeps its page |
+| FR-32 | `webbridge::panel` test; manual: a new panel chat's title in the panel and the app | passed (2026-11-19): a title test; on Edge the new panel chat shows its first message as the title in the panel and in the app's sidebar |
 | FR-29 | Manual: voice off hides the microphone; on, text only | partly passed (2026-11-18): the switch shows and hides the microphone live; dictation: not run |
 | NFR-1 | `netstat` shows no Evo listener for Webbridge | passed (2026-11-18): the only Evo listener is the plugin host's, there before set-up; Webbridge is the per-user pipe |
 | NFR-2 | Time `browser_read_page` on a Webbridge tab | passed (2026-11-18): 8–17 ms on Edge; click and type 220–360 ms |

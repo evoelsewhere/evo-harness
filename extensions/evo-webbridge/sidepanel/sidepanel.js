@@ -157,14 +157,28 @@ function applyChat(body) {
   composer.showState(view);
 }
 
-async function newChat() {
+/** The new chat being made: starting its engine takes a moment, and a message sent meanwhile waits for it. */
+let creating = null;
+
+function newChat() {
+  if (creating) return creating;
   closeMenus();
   $("history-view").hidden = true;
-  const body = await ask({ op: "new" });
-  applyChat(body);
-  chrome.storage.local.set({ last: body.chat });
+  // Leave the old chat at once, so nothing typed now goes to it.
+  view.chat = null;
   steps = null;
+  $("chat-title").textContent = "New chat";
   renderWelcome();
+  creating = (async () => {
+    try {
+      const body = await ask({ op: "new" });
+      applyChat(body);
+      chrome.storage.local.set({ last: body.chat });
+    } finally {
+      creating = null;
+    }
+  })();
+  return creating;
 }
 
 const SUGGESTIONS = [
@@ -389,12 +403,18 @@ function scrollDown() {
 const pendingEcho = new Set();
 
 async function send({ text, tab, attachments }) {
-  if (!view.chat) await newChat();
+  if (!view.chat) newChat().catch(() => {});
   addUser(text);
   pendingEcho.add(text);
   setRunning(true);
   try {
-    await ask({ op: "send", chat: view.chat, text, tab, attachments });
+    // A chat still being made gets the message once it is there.
+    if (creating) await creating;
+    const sent = await ask({ op: "send", chat: view.chat, text, tab, attachments });
+    if (sent?.title && sent.chat === view.chat) {
+      view.title = sent.title;
+      $("chat-title").textContent = sent.title;
+    }
   } catch (error) {
     setRunning(false);
     addNotice(`Not sent: ${error.message}`);

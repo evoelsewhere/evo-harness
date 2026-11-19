@@ -25,8 +25,9 @@ pub fn lease_ms(seconds: Option<f64>) -> u64 {
 
 /// How long the person must leave a tab alone before the agent acts in it.
 pub const QUIET_MS: u64 = 5_000;
-/// Input the page reports this soon after the agent's own input is the agent's.
-pub const ECHO_MS: u64 = 300;
+/// Input the page reports while the agent's own input command runs, or this soon
+/// after it, is the agent's (a busy machine delays the report).
+pub const ECHO_MS: u64 = 1_000;
 /// The longest an act waits for the person to stop before it gives up.
 pub const PATIENCE_MS: u64 = 30_000;
 
@@ -97,8 +98,8 @@ pub struct Holds {
     taken: HashSet<String>,
     /// When the person last used each tab (ms).
     person: HashMap<String, u64>,
-    /// When the agent last sent input to each tab (ms).
-    agent: HashMap<String, u64>,
+    /// The agent's input commands running on each tab, and when the last one ended (ms).
+    agent: HashMap<String, (u32, u64)>,
 }
 
 impl Holds {
@@ -149,14 +150,26 @@ impl Holds {
     }
 
     /// The agent sends input to `tab` now.
-    pub fn agent_input(&mut self, tab: &str, now_ms: u64) {
-        self.agent.insert(tab.to_string(), now_ms);
+    pub fn agent_input(&mut self, tab: &str) {
+        self.agent.entry(tab.to_string()).or_insert((0, 0)).0 += 1;
     }
 
-    /// The page reported input from its user. Input right after the agent's
-    /// own is the agent's (the browser reports both alike) and is not kept.
+    /// The agent's input command on `tab` ended.
+    pub fn agent_input_done(&mut self, tab: &str, now_ms: u64) {
+        let entry = self.agent.entry(tab.to_string()).or_insert((0, 0));
+        entry.0 = entry.0.saturating_sub(1);
+        entry.1 = now_ms;
+    }
+
+    /// The page reported input from its user. Input while the agent's own input
+    /// runs, or right after, is the agent's (the browser reports both alike) and
+    /// is not kept.
     pub fn person_input(&mut self, tab: &str, now_ms: u64) -> bool {
-        if self.agent.get(tab).is_some_and(|at| now_ms <= at + ECHO_MS) {
+        if self
+            .agent
+            .get(tab)
+            .is_some_and(|(running, ended)| *running > 0 || now_ms <= ended + ECHO_MS)
+        {
             return false;
         }
         self.person.insert(tab.to_string(), now_ms);
@@ -289,7 +302,10 @@ mod tests {
     #[test]
     fn the_agents_own_input_is_not_the_persons() {
         let mut holds = Holds::default();
-        holds.agent_input("edge:p1:1", 1_000);
+        holds.agent_input("edge:p1:1");
+        // However long the command takes, its input is the agent's.
+        assert!(!holds.person_input("edge:p1:1", 30_000));
+        holds.agent_input_done("edge:p1:1", 1_000);
         assert!(!holds.person_input("edge:p1:1", 1_000 + ECHO_MS));
         assert_eq!(holds.wait_for_person("edge:p1:1", 2_000), 0);
         assert!(holds.person_input("edge:p1:1", 1_000 + ECHO_MS + 1));

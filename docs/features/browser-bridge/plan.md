@@ -487,6 +487,28 @@ Edited in **Settings → Browser**; site permissions also in the side panel's
     folder to load, so edits show after Reload; the copy beside the debug exe
     is refreshed only by a build.
   - Chrome is not checked separately: it runs the same extension and code.
+- 2026-11-19 — Third round, with a model on the test profile:
+  - The default browser (`webbridge.defaultBrowser`, FR-30) and a panel
+    chat's browser (FR-31) are applied in `resolve_target`: a call that names
+    no browser uses the profile whose panel last sent to the chat, else the
+    default. With a default browser, `browser_navigate` reuses the chat's page
+    there; a named browser opens a new tab; tabs the person shared are never
+    navigated away without their tab id.
+  - The panel tells the app what it changed: `approval://changed` for the
+    mode and `engine://reloaded {what: "model"}` for the model and effort;
+    chats it makes or names go out as `chat://updated`.
+  - New chat in the panel takes a moment (the engine starts); a message sent
+    meanwhile waited for the old chat and went there. The panel now leaves
+    the old chat at once and sends once the new one exists.
+  - `browser_wait` waits at most 50 s: the engine cuts a shell tool off at
+    60 s with "client request timed out".
+  - Input the page reports while the agent's own `Input.*` command runs is
+    the agent's whatever the delay; 1 s after it ends as well.
+  - `chrome.tabs.captureVisibleTab` needs the `activeTab` grant, which the
+    browser gives when the person clicks Evo's button on the page; without
+    it the panel says so.
+  - The test machine ran at 100% CPU (antivirus and builds), so timings of
+    this round are not comparable with the earlier ones.
 - The side panel is `sidepanel/sidepanel.js` with the composer in
   `sidepanel/composer.js`; the extension packs with
   `apps/desktop/scripts/pack-webbridge.ts` (`bun run webbridge:pack`), which

@@ -172,7 +172,12 @@ export class Composer {
       const url = await chrome.tabs.captureVisibleTab(win.id, { format: "png" });
       await this.attach("page.png", "image", url.split(",")[1]);
     } catch (error) {
-      this.note(`The screenshot was not taken: ${error.message}`);
+      // The browser lets the extension see a page only after the person clicks its button there.
+      this.note(
+        /activeTab|all_urls/.test(error.message)
+          ? "The browser lets Evo capture a page only right after you click the Evo button on it. Click the Evo button in the toolbar on this page, then try again."
+          : `The screenshot was not taken: ${error.message}`,
+      );
     }
   }
 
@@ -218,10 +223,8 @@ export class Composer {
   }
 
   note(text) {
-    const line = document.createElement("div");
-    line.className = "tool error";
-    line.textContent = text;
-    $("messages").append(line);
+    $("messages").append(Object.assign(document.createElement("div"), { className: "notice", textContent: text }));
+    $("messages").scrollTop = $("messages").scrollHeight;
   }
 
   async renderChips() {

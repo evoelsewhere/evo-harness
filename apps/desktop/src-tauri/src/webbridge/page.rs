@@ -263,17 +263,13 @@ pub async fn cdp(app: &AppHandle, tab: &str, method: &str, params: Value) -> Res
     if method.starts_with("Input.") {
         wait_for_person(app, tab).await?;
         let state = app.state::<Webbridge>();
-        state
-            .holds
-            .lock()
-            .expect("webbridge lock")
-            .agent_input(tab, super::now_ms());
+        state.holds.lock().expect("webbridge lock").agent_input(tab);
         let reply = raw(app, &profile, number, method, params).await;
         state
             .holds
             .lock()
             .expect("webbridge lock")
-            .agent_input(tab, super::now_ms());
+            .agent_input_done(tab, super::now_ms());
         return reply;
     }
     if method == "Page.captureScreenshot" {
@@ -633,6 +629,7 @@ pub fn forget(app: &AppHandle, tab: &str) {
     let state = app.state::<Webbridge>();
     state.prepared.lock().expect("webbridge lock").remove(tab);
     state.holds.lock().expect("webbridge lock").forget(tab);
+    state.shared.lock().expect("webbridge lock").remove(tab);
     browser::remove_external(app, tab);
 }
 

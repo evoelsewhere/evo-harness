@@ -1142,7 +1142,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       void listen<{ chat: string; what: string }>("engine://reloaded", ({ payload }) => {
         if (!runtime(payload.chat)) return;
         if (payload.what === "approval") void get().refreshApproval(payload.chat);
-        else if (payload.what === "providers") void get().refreshState(payload.chat);
+        // "model": the side panel of Evo Webbridge picked the chat's model or effort.
+        else if (payload.what === "providers" || payload.what === "model") void get().refreshState(payload.chat);
       });
       void useConnectorsStore.getState().load();
       // Plugins were installed, removed or switched: every ready chat re-reads

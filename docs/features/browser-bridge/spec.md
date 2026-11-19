@@ -247,6 +247,9 @@ Acceptance scenarios:
 | FR-27 | The panel's composer shows the approval mode and switches it among the app's modes; the mode is the app's (every chat follows it, as when it is changed in the app) and the app shows the change. Site permissions keep their rules in every mode (FR-13). | US-8 scenario 3. |
 | FR-28 | **+** in the panel attaches: a screenshot of the visible part of the current tab, files from the computer, images and files pasted or dropped into the panel, and another open tab (which joins the chat's group). Attachments show as removable chips, follow the app's size limits, and go with the next message. | Attach a screenshot and a PDF, send: the agent receives both. |
 | FR-29 | A microphone button dictates into the panel's field; dictated text is editable and is only sent when the person sends it. Voice input is off until the person turns it on in **Settings → Browser**, where they are told which service turns speech into text. | Turned off: no microphone button. Turned on: speech becomes text in the field, nothing sent. |
+| FR-30 | **Settings → Browser** sets the agent's default browser: the built-in one (the default) or a connected Chrome or Edge profile. A browser tool call that names no browser uses it; a default that is not connected falls back to the built-in browser. | Default Edge: `browser_navigate` with no target opens in Edge and later calls reuse that tab; named `builtin` stays built-in. |
+| FR-31 | A chat sent from a profile's side panel works in that browser by default. A tab the person shared with the chat (Include this tab, `choose`) is read and acted in, but a navigation that names no tab opens a new tab instead of taking the shared one away. | Ask in the panel to open a page: it opens in a new tab of that browser; the shared tab keeps its page. |
+| FR-32 | A chat made in the side panel is named after its first message, as the app names its own, and shows in the app's sidebar at once. | Send "Summarize this page" in a new panel chat: the panel and the app show that title. |
 
 ### 4.2 Non-functional
 
@@ -326,6 +329,7 @@ None.
   this feature's documents and UI text (identifiers stay lowercase).
 - 2026-11-18 — Accepted (Gates A and B); tasks written.
 - 2026-11-18 — FR-27: the approval mode is the app's, so the panel switches the app's mode.
+- 2026-11-19 — FR-30 (default browser), FR-31 (a panel chat works in its browser; shared tabs are not navigated away), FR-32 (panel chats are named after their first message).
 - 2026-11-18 — Checks run on Edge; Chrome runs the same extension and code and
   is not checked separately.
 - 2026-11-18 — The toolbar button opens the side panel (no popup); the app's

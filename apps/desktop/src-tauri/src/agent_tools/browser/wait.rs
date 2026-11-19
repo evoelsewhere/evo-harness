@@ -19,7 +19,7 @@ use crate::agent_tools::{BoxFuture, Class, Tool, ToolCtx, ToolOutput};
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
-const WAIT: &str = "Wait for something on the page, up to timeoutMs (default 10000, at most 60000): a ref or the text to appear (state \"visible\", the default) or go away (state \"gone\"); or networkIdleMs, until the page has loaded and made no new requests for that long; or timeMs, a fixed pause. Returns as soon as it happens and says what happened and how long it took, or that it timed out. Ends at once when the turn is stopped.";
+const WAIT: &str = "Wait for something on the page, up to timeoutMs (default 10000, at most 50000): a ref or the text to appear (state \"visible\", the default) or go away (state \"gone\"); or networkIdleMs, until the page has loaded and made no new requests for that long; or timeMs, a fixed pause. Returns as soon as it happens and says what happened and how long it took, or that it timed out. Ends at once when the turn is stopped.";
 
 fn schema() -> Value {
     json!({
@@ -29,8 +29,8 @@ fn schema() -> Value {
             "text": { "type": "string", "description": "Wait for this text on the page (case-insensitive)." },
             "state": { "type": "string", "enum": ["visible", "gone"], "description": "With ref or text: wait for it to be visible (default) or to be gone." },
             "networkIdleMs": { "type": "number", "description": "Wait until the page is loaded and no new request finished for this many ms." },
-            "timeMs": { "type": "number", "description": "Just wait this long (at most 60000)." },
-            "timeoutMs": { "type": "number", "description": "Give up after this long. Default 10000, at most 60000." },
+            "timeMs": { "type": "number", "description": "Just wait this long (at most 50000)." },
+            "timeoutMs": { "type": "number", "description": "Give up after this long. Default 10000, at most 50000." },
             "tabId": { "type": "string", "description": "A tab id from browser_tabs; default: the active tab." },
         },
         "additionalProperties": false,
@@ -49,7 +49,9 @@ pub fn tools() -> Vec<Tool> {
 // ── Arguments ───────────────────────────────────────────────────────────────
 
 pub const DEFAULT_TIMEOUT_MS: u64 = 10_000;
-pub const MAX_TIMEOUT_MS: u64 = 60_000;
+/// Below the engine's 60 s limit for a tool the shell runs, so a wait that
+/// runs out says so itself instead of the engine cutting the call off.
+pub const MAX_TIMEOUT_MS: u64 = 50_000;
 
 /// What to wait for.
 #[derive(Debug, Clone, PartialEq)]
@@ -422,7 +424,7 @@ mod tests {
         assert!(spec(json!({ "ref": 4 })).unwrap_err().contains("must be a string"));
         assert!(spec(json!({ "timeMs": -1 })).unwrap_err().contains("timeMs"));
         assert!(spec(json!({ "timeMs": "soon" })).unwrap_err().contains("timeMs"));
-        assert!(spec(json!({ "timeMs": 61_000 })).unwrap_err().contains("at most 60000"));
+        assert!(spec(json!({ "timeMs": 51_000 })).unwrap_err().contains("at most 50000"));
         assert!(spec(json!({ "text": "x", "state": "hidden" })).unwrap_err().contains("state"));
         assert!(spec(json!({ "networkIdleMs": 0 })).unwrap_err().contains("more than 0"));
         assert!(spec(json!({ "networkIdleMs": 20_000 })).unwrap_err().contains("longer than timeoutMs"));
@@ -433,7 +435,7 @@ mod tests {
         let s = spec(json!({ "text": "Saved" })).unwrap();
         assert_eq!(s, Spec { mode: Mode::Text { text: "Saved".into(), gone: false }, timeout_ms: 10_000 });
         let s = spec(json!({ "ref": " ref_3 ", "state": "gone", "timeoutMs": 90_000 })).unwrap();
-        assert_eq!(s, Spec { mode: Mode::Ref { reference: "ref_3".into(), gone: true }, timeout_ms: 60_000 });
+        assert_eq!(s, Spec { mode: Mode::Ref { reference: "ref_3".into(), gone: true }, timeout_ms: 50_000 });
         let s = spec(json!({ "networkIdleMs": 500, "timeoutMs": 2000 })).unwrap();
         assert_eq!(s.mode, Mode::NetworkIdle { ms: 500 });
         assert_eq!(s.timeout_ms, 2000);

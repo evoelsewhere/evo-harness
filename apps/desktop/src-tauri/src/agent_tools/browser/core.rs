@@ -98,7 +98,7 @@ fn navigate_schema() -> Value {
         json!({
             "url": { "type": "string", "description": "URL, host (localhost:3000), local file path, or back/forward/reload." },
             "newTab": { "type": "boolean", "description": "Open in a new tab instead of the active one." },
-            "target": { "type": "string", "description": "builtin (default), chrome, edge, or chrome:<profile> / edge:<profile>: open a new tab in the person's own browser." },
+            "target": { "type": "string", "description": "builtin, chrome, edge, or chrome:<profile> / edge:<profile>: open a new tab in the person's own browser. Default: the browser of the side panel the person chats from, else the one they set as default (the built-in one unless they chose theirs)." },
         }),
         &["url"],
     )
@@ -231,13 +231,21 @@ async fn navigate(ctx: &ToolCtx, args: &Value) -> ToolResult {
         return Err("browser_navigate needs a url.".into());
     }
     let history = HISTORY_ACTIONS.contains(&url.as_str());
-    // The person's own browser (Evo Webbridge): a new tab there unless a tab id names one.
-    let bridge = crate::webbridge::resolve_target(&ctx.app, str_arg(args, "target"))?;
+    // The person's own browser (Evo Webbridge), named or the default one.
+    let named = str_arg(args, "target").map(str::trim).is_some_and(|t| !t.is_empty());
+    let bridge = crate::webbridge::resolve_target(&ctx.app, &ctx.chat, str_arg(args, "target"))?;
     // A tab id that is not this chat's page is no page: a new one opens (as it always did).
-    let existing = if flag(args, "newTab") || (bridge.is_some() && tab_id_arg(args).is_none()) {
-        None
-    } else {
-        shell::find_tab(&ctx.app, &ctx.chat, tab_id_arg(args).as_deref())
+    // A named browser gets a new tab; the default one reuses the chat's page there, if it shows one.
+    let existing = match (tab_id_arg(args), &bridge) {
+        _ if flag(args, "newTab") => None,
+        (Some(id), _) => shell::find_tab(&ctx.app, &ctx.chat, Some(&id)),
+        (None, Some(_)) if named => None,
+        // A tab the person shared stays on its page unless the call names it.
+        (None, Some(profile)) => shell::find_tab(&ctx.app, &ctx.chat, None)
+            .filter(|tab| tab.starts_with(&format!("{profile}:")) && !crate::webbridge::is_shared(&ctx.app, tab)),
+        // `builtin` named: the chat's page only if it is a built-in one.
+        (None, None) if named => shell::find_tab(&ctx.app, &ctx.chat, None).filter(|tab| !crate::webbridge::groups::is_tab(tab)),
+        (None, None) => shell::find_tab(&ctx.app, &ctx.chat, None),
     };
     if history && existing.is_none() {
         return Err("No browser tab is open to go back, forward or reload.".into());

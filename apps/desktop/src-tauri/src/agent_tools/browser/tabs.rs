@@ -27,7 +27,7 @@ fn tabs_schema() -> Value {
     schema(json!({
         "action": { "type": "string", "enum": ["list", "select", "close", "create", "choose"], "description": "Default list." },
         "url": { "type": "string", "description": "With create: the address to open (default a blank page)." },
-        "target": { "type": "string", "description": "With create or choose: builtin (default), chrome, edge, or chrome:<profile> / edge:<profile>." },
+        "target": { "type": "string", "description": "With create or choose: builtin, chrome, edge, or chrome:<profile> / edge:<profile>. Default: the browser the person set as default." },
     }))
 }
 
@@ -100,10 +100,13 @@ async fn core_tabs(ctx: &ToolCtx, args: Value) -> ToolOutput {
 async fn tabs(ctx: &ToolCtx, args: &Value) -> ToolResult {
     let action = parse_action(args)?;
     let url = create_url(args)?;
-    let target = args.get("target").and_then(Value::as_str).filter(|t| !t.is_empty() && *t != "builtin").map(str::to_string);
+    let named = args.get("target").and_then(Value::as_str).filter(|t| !t.is_empty());
     if action == "choose" {
-        return choose(ctx, target.as_deref()).await;
+        return choose(ctx, named).await;
     }
+    // The person's browser profile the new tab opens in, or `None` for the built-in browser
+    // (named, else the default browser set in Settings → Browser).
+    let target = if action == "create" { crate::webbridge::resolve_target(&ctx.app, &ctx.chat, named)? } else { None };
     if action != "create" {
         let mut forwarded = args.clone();
         if let Some(map) = forwarded.as_object_mut() {
@@ -115,10 +118,7 @@ async fn tabs(ctx: &ToolCtx, args: &Value) -> ToolResult {
     let opened = match url {
         // Opening an address is a navigation: its own tool asks the gate and waits for the load.
         Some(url) => {
-            let mut navigate = json!({ "url": url, "newTab": true });
-            if let Some(target) = &target {
-                navigate["target"] = json!(target);
-            }
+            let navigate = json!({ "url": url, "newTab": true, "target": target.as_deref().unwrap_or("builtin") });
             let result = call_tool(ctx, "browser_navigate", navigate).await;
             if result.is_error || ctx.cancelled() {
                 return Ok(result);
@@ -145,7 +145,7 @@ async fn tabs(ctx: &ToolCtx, args: &Value) -> ToolResult {
 
 /// `choose`: the person picks one of their open tabs; only that one joins the chat (spec FR-9).
 async fn choose(ctx: &ToolCtx, target: Option<&str>) -> ToolResult {
-    let profile = crate::webbridge::resolve_target(&ctx.app, target)?
+    let profile = crate::webbridge::resolve_target(&ctx.app, &ctx.chat, target)?
         .ok_or("choose needs target chrome or edge: the person's own browser.")?;
     let tabs = crate::webbridge::list_tabs(&ctx.app, &profile).await?;
     if tabs.is_empty() {

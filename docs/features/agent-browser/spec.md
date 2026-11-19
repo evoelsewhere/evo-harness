@@ -119,7 +119,7 @@ Wave 1 — input and observation (every platform where the webview allows).
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | FR-1 | `browser_click` takes `button` (left, right, middle) and `clickCount` (1–3); a new `browser_hover` moves the pointer to a ref or point; a new `browser_drag` drags between two refs or points. | Hovering opens a hover menu; a drag moves a range slider. |
-| FR-2 | A new `browser_wait` waits for a ref or text to appear or disappear, for the network to be quiet for N ms, or for a time, up to `timeoutMs` (max 60 s), and says which happened. | Waiting for a text that appears after 2 s returns at about 2 s; a missing one times out and says so. |
+| FR-2 | A new `browser_wait` waits for a ref or text to appear or disappear, for the network to be quiet for N ms, or for a time, up to `timeoutMs` (max 50 s, under the engine's 60 s limit for a shell tool), and says which happened. | Waiting for a text that appears after 2 s returns at about 2 s; a missing one times out and says so. |
 | FR-3 | `browser_screenshot` takes `fullPage`, `ref` (one element) and `region` (x, y, width, height), plus `scale`; a zoom on a region returns more detail. | A full-page shot of a long page is taller than the viewport; an element shot is its box. |
 | FR-4 | Dialogs (`alert`, `confirm`, `prompt`, `beforeunload`) no longer block a tool call: the call returns noting the open dialog, and `browser_dialog` accepts or dismisses it (with text for a prompt). | A click that opens `confirm()` returns; `browser_dialog {accept:true}` runs the page's handler. |
 | FR-5 | A new `browser_upload` sets files on a file input (by ref); paths must be allowed by the sandbox and the approval mode. | An input with `multiple` receives two files; a path outside the allowed folders is refused. |
@@ -210,3 +210,4 @@ Safety and structure.
   time without a query, and with `session_read` stays in the asking chat's
   project (the option to search every workspace is gone); both follow the
   **Search past chats** setting and never return an incognito chat.
+- 2026-11-19 — FR-2: `browser_wait` waits at most 50 s, under the engine's 60 s limit for a tool the shell runs (a 60 s wait was cut off by the engine with "client request timed out").

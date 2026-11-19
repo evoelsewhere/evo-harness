@@ -15,7 +15,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 
 use super::Webbridge;
@@ -105,9 +105,17 @@ async fn handle(
         }
         "send" => {
             let chat = chat_arg()?;
+            // A new chat is named after its first message, as the app names its own (FR-11).
+            let title = name_new_chat(app, &chat, body["text"].as_str().unwrap_or(""));
             watch(app, profile, session, &chat);
+            // The chat's pages open in this browser unless the agent names another.
+            app.state::<Webbridge>()
+                .panel_browser
+                .lock()
+                .expect("webbridge lock")
+                .insert(chat.clone(), profile.to_string());
             send(app, profile, &chat, body).await?;
-            Ok(json!({ "op": "sent", "chat": chat }))
+            Ok(json!({ "op": "sent", "chat": chat, "title": title }))
         }
         "stop" => {
             super::stop_chat(app, &chat_arg()?);
@@ -136,6 +144,7 @@ async fn handle(
                 json!({ "provider": body["provider"], "modelId": body["modelId"] }),
             )
             .await?;
+            model_changed(app, &chat);
             state(app, &chat).await
         }
         "set_effort" => {
@@ -148,6 +157,7 @@ async fn handle(
                 json!({ "level": body["level"] }),
             )
             .await?;
+            model_changed(app, &chat);
             state(app, &chat).await
         }
         "set_mode" => {
@@ -246,7 +256,50 @@ fn new_chat(app: &AppHandle, workspace: Option<&str>) -> Result<String, String> 
     let chat: evo_store::chats::NewChat = serde_json::from_value(json!({ "id": id, "workspace_id": workspace, "title": "", "provider": null, "model": null }))
         .map_err(|e| e.to_string())?;
     db.with(|conn| evo_store::chats::create_chat(conn, &chat))?;
+    announce(app, &id);
     Ok(id)
+}
+
+/// The app's windows show a chat the panel made or renamed (`chat://updated`).
+fn announce(app: &AppHandle, chat: &str) {
+    if let Ok(Some(row)) = app
+        .state::<Db>()
+        .with(|conn| evo_store::chats::get_chat(conn, chat))
+    {
+        let _ = app.emit("chat://updated", json!({ "from": "shell", "chat": row }));
+    }
+}
+
+/// The title of a message as the app makes it: spaces folded, at most 80 characters.
+fn title_from(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(80)
+        .collect()
+}
+
+/// Name a chat that has no title yet after `text`; the title it has after.
+fn name_new_chat(app: &AppHandle, chat: &str, text: &str) -> Option<String> {
+    let db = app.state::<Db>();
+    let row = db
+        .with(|conn| evo_store::chats::get_chat(conn, chat))
+        .ok()
+        .flatten()?;
+    if !row.title.trim().is_empty() {
+        return Some(row.title);
+    }
+    let title = title_from(text);
+    if title.is_empty() {
+        return None;
+    }
+    let patch: evo_store::chats::ChatPatch =
+        serde_json::from_value(json!({ "autoTitle": title })).ok()?;
+    db.with(|conn| evo_store::chats::update_chat(conn, chat, &patch))
+        .ok()?;
+    announce(app, chat);
+    Some(title)
 }
 
 /// A random id in the shape of the app's (`crypto.randomUUID()`).
@@ -468,7 +521,17 @@ fn set_mode(app: &AppHandle, mode: &str) -> Result<(), String> {
     app.state::<Db>()
         .with(|conn| evo_store::settings::set(conn, crate::engine::APPROVAL_MODE_KEY, &value))?;
     crate::supervisor::settings::on_setting(app, crate::engine::APPROVAL_MODE_KEY, &value);
+    // The app's windows show the mode as their own switch does (FR-27).
+    let _ = app.emit("approval://changed", json!({ "mode": mode }));
     Ok(())
+}
+
+/// The panel changed a chat's model or effort: the app's windows read its state again (FR-26).
+fn model_changed(app: &AppHandle, chat: &str) {
+    let _ = app.emit(
+        "engine://reloaded",
+        json!({ "chat": chat, "what": "model" }),
+    );
 }
 
 fn request_id(app: &AppHandle) -> String {
@@ -652,6 +715,16 @@ mod tests {
         assert_eq!(reduced[0]["text"], "Export the invoices");
         assert_eq!(reduced[1]["text"], "Opening Billing.");
         assert_eq!(reduced[1]["tools"], json!(["browser_navigate"]));
+    }
+
+    #[test]
+    fn a_title_is_the_first_message_folded_and_cut() {
+        assert_eq!(
+            title_from("  Summarize\n this   page  "),
+            "Summarize this page"
+        );
+        assert_eq!(title_from(&"x".repeat(200)).len(), 80);
+        assert_eq!(title_from("   "), "");
     }
 
     #[test]
