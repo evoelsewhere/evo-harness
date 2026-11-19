@@ -28,6 +28,7 @@ mod plugin_settings;
 mod plugin_ui;
 mod plugins;
 mod shell_integration;
+mod source_control;
 mod supervisor;
 mod system;
 mod updates;
@@ -64,6 +65,7 @@ pub fn run() {
         })
         .manage(engine::EngineState::default())
         .manage(supervisor::EngineSupervisor::default())
+        .manage(source_control::Discards::default())
         .manage(apps::AppsState::default())
         .manage(match db::Db::open() {
             Ok(db) => db,
@@ -183,6 +185,7 @@ pub fn run() {
             supervisor::engine_detach,
             supervisor::engine_hold,
             supervisor::engine_questions,
+            supervisor::turn_overlap,
             supervisor::engine_set_composing,
             supervisor::settings::settings_import_window,
             supervisor::settings::engine_reload_resources,
@@ -283,6 +286,17 @@ pub fn run() {
             worktrees::git_status,
             worktrees::git_ignored,
             worktrees::git_file_base,
+            source_control::scm_repositories,
+            source_control::scm_status,
+            source_control::scm_diff,
+            source_control::scm_diff_between,
+            source_control::scm_stage,
+            source_control::scm_unstage,
+            source_control::scm_discard,
+            source_control::scm_undo_discard,
+            source_control::scm_commit,
+            source_control::scm_recent_subjects,
+            source_control::checkpoints_drop,
             system::system_set,
             apps::open_apps,
             apps::open_in_app,

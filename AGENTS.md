@@ -32,7 +32,7 @@ crates/                 Rust workspace (one version, released together)
   evo-hooks             hooks: commands / web requests on agent events
   evo-lsp               language-server catalog, installers, LSP client
   evo-web               web_search and web_fetch
-  evo-worktrees         managed Git worktrees for subagents and nested sessions
+  evo-worktrees         managed Git worktrees, turn checkpoints, the person's git operations (source control)
   evo-telemetry         span/event contracts, no-op default
 apps/desktop/           desktop app (its own Cargo workspace in src-tauri/, bun for JS)
   src/                  React UI — see apps/desktop/README.md for the UI map and layout rules

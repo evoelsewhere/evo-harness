@@ -75,6 +75,19 @@ export function SideChatIcon(props: IconProps) {
   );
 }
 
+/** Source control: a branch leaving the main line and coming back (docs/features/source-control). */
+export function SourceControlIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <circle cx="7" cy="5.5" r="2.25" {...FILL} />
+      <circle cx="7" cy="18.5" r="2.25" {...FILL} />
+      <circle cx="17" cy="9" r="2.25" {...FILL} />
+      <path d="M7 7.75v8.5" />
+      <path d="M17 11.25c0 3-2.5 4-6 4.5-2 .3-3.4 1-4 2" />
+    </Base>
+  );
+}
+
 export function MemoryIcon(props: IconProps) {
   return (
     <Base {...props}>

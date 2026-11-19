@@ -39,9 +39,13 @@ import {
   turnReply,
   typedPrompt,
   userText,
+  withCheckpoints,
+  asCheckpoint,
   type TranscriptAction,
   type TranscriptState,
+  type TurnCheckpoint,
 } from "@/features/chat/transcript";
+import { scm } from "@/lib/scm";
 
 /** A picture for the model, base64 without the `data:` prefix. */
 export interface PromptImage {
@@ -265,6 +269,25 @@ interface EngineStore extends Mirrored {
    * engine already runs resolves `true` at once (ux-polish FR-14).
    */
   wakeEngine(chat?: string): Promise<boolean>;
+  /**
+   * A commit message for `diff` in the style of `subjects`, from the active
+   * chat's model; nothing is added to the chat (docs/features/source-control/spec.md, FR-7).
+   */
+  draftCommitMessage(diff: string, subjects: string[]): Promise<string>;
+  /**
+   * Put the files of `chat`'s turn with checkpoint `checkpoint` back as they
+   * were before it (FR-11, FR-12). Passing a revert's `undo` id undoes it.
+   * `force` also reverts files changed since.
+   */
+  revertTurn(chat: string, checkpoint: string, force?: boolean): Promise<RevertResult>;
+}
+
+/** What `revertTurn` did. */
+export interface RevertResult {
+  reverted: string[];
+  skipped: { path: string; reason: string }[];
+  /** A checkpoint id: `revertTurn` with it undoes this revert (`null` on an undo, or when nothing went back). */
+  undo?: string | null;
 }
 
 const MAX_LOG_LINES = 500;
@@ -542,6 +565,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         restore,
         restart: !attach,
       });
+      // Picked up running (adopted, handed over) with no folder given: what the
+      // chat works in, for the views that read it (Files, Source control, the empty chat).
+      if (cwd === undefined) {
+        const folder = await chatFolder(chat).catch(() => undefined);
+        if (folder) update(chat, (rt) => (rt.cwd ? {} : { cwd: folder }));
+      }
       if (ensured.started) return;
       update(chat, () => ({ status: "ready", error: undefined }));
       // The shell may still be setting it up: prompts wait for it.
@@ -669,10 +698,38 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       for (const question of questions) showQuestion(chat, question);
       // Mesh events may have arrived before the transcript existed.
       redrawAgents(chat);
+      // The files each turn changed (source-control FR-10); an older engine has none.
+      void loadCheckpoints(chat);
     } catch (error) {
       update(chat, () => ({ restore: false, error: `Could not load this chat: ${String(error)}` }));
       log("error", "engine", `could not load the saved chat: ${String(error)}`, { chatId: chat });
     }
+  };
+
+  /**
+   * The chat's kept checkpoints from its engine, put on their turns: a
+   * reopened chat's by prompt entry, a turn of this window by id
+   * (docs/features/source-control/spec.md, FR-10, FR-11).
+   */
+  const loadCheckpoints = async (chat: string) => {
+    if (!client) return;
+    const listed = await client
+      .request<{ checkpoints?: unknown[] }>(chat, "list_checkpoints")
+      .catch(() => undefined);
+    const checkpoints = (listed?.checkpoints ?? []).flatMap((item) => {
+      const checkpoint = asCheckpoint(item);
+      return checkpoint ? [checkpoint] : [];
+    });
+    if (checkpoints.length === 0) return;
+    const byId = new Map<string, TurnCheckpoint>(checkpoints.map((c) => [c.id, c]));
+    update(chat, (rt) => {
+      const matched = withCheckpoints(rt.transcript, checkpoints);
+      const turns = matched.turns.map((turn) => {
+        const fresh = turn.checkpoint && byId.get(turn.checkpoint.id);
+        return fresh && fresh !== turn.checkpoint ? { ...turn, checkpoint: fresh } : turn;
+      });
+      return { transcript: { ...matched, turns } };
+    });
   };
 
   // ── Session mesh ────────────────────────────────────────────────────────
@@ -1442,9 +1499,13 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       // Its pane closes; the other pane's chat takes the window (split view, FR-12).
       const remaining = forgetPane(id);
       void closeChatWindow(id);
+      // Its folder, while the chat still says which (its checkpoints live in that repository).
+      const folder = how === "delete" ? await chatFolder(id) : null;
       await stopChat(id);
       if (how === "delete") {
         await sessions.remove(id);
+        // Its turn checkpoints go with it (source-control FR-14).
+        if (folder) void scm.dropCheckpoints(folder, id).catch(() => undefined);
         // Its engine is gone, so its worktree's folder is free. An archived chat keeps its worktree.
         if (chat?.worktreePath) void dropWorktree(chat.title, chat.worktreePath, chat.workspaceId);
       } else await sessions.setArchived(id, true);
@@ -1945,6 +2006,19 @@ export const useEngineStore = create<EngineStore>((set, get) => {
 
     wakeEngine(chat = get().activeId ?? undefined) {
       return chat ? wake(chat) : Promise.resolve(false);
+    },
+
+    async draftCommitMessage(diff, subjects) {
+      const reply = await get().request<{ message?: string }>("draft_commit_message", { diff, subjects });
+      return reply?.message ?? "";
+    },
+
+    async revertTurn(chat, checkpoint, force = false) {
+      if (!client) throw new Error("The engine is not running");
+      if (!(await wake(chat))) throw new Error(runtime(chat)?.error ?? "The engine could not start");
+      const result = await client.request<RevertResult>(chat, "revert_turn", { checkpoint, force, paths: null });
+      await loadCheckpoints(chat);
+      return { reverted: result?.reverted ?? [], skipped: result?.skipped ?? [], undo: result?.undo };
     },
 
     async refreshState(chat = get().activeId ?? undefined) {

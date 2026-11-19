@@ -400,6 +400,257 @@ pub struct PromptOutcome {
     pub final_text: Option<String>,
 }
 
+// ── Turn checkpoints and the commit-message draft ──────────────────────────
+//
+// docs/features/source-control/plan.md, 3.3 (spec FR-7, FR-9 – FR-13).
+// Commands: `list_checkpoints`, `revert_turn`, `draft_commit_message`. A
+// top-level run in a repository adds `checkpoint` to its `agent_settled`
+// line, and the same object is kept as a session entry of custom type
+// [`CHECKPOINT_ENTRY`]; a revert appends the object again with `reverted`
+// set (the newest entry of an id wins).
+
+/// The custom type of the session entry that holds a [`Checkpoint`].
+pub const CHECKPOINT_ENTRY: &str = "checkpoint";
+
+/// The error `revert_turn` answers while a run is active (FR-13).
+pub const REVERT_BUSY: &str = "busy";
+
+/// The reason a file was left as it is by `revert_turn`.
+pub const SKIPPED_CHANGED_SINCE: &str = "changed-since";
+
+/// The id of turn `seq`'s checkpoint: `c-<seq>`.
+pub fn checkpoint_id(seq: u64) -> String {
+    format!("c-{seq}")
+}
+
+/// The id that undoes the revert of turn `seq`: `c-<seq>-undo`.
+pub fn checkpoint_undo_id(seq: u64) -> String {
+    format!("c-{seq}-undo")
+}
+
+/// `c-17` → `(17, false)`, `c-17-undo` → `(17, true)`.
+pub fn parse_checkpoint_id(id: &str) -> Option<(u64, bool)> {
+    let rest = id.strip_prefix("c-")?;
+    let (number, undo) = match rest.strip_suffix("-undo") {
+        Some(number) => (number, true),
+        None => (rest, false),
+    };
+    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    number.parse().ok().map(|seq| (seq, undo))
+}
+
+/// One top-level turn's checkpoint: the files it changed between the
+/// snapshots taken when it started and when it settled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checkpoint {
+    /// `c-<seq>`.
+    pub id: String,
+    /// The turn's number in its chat (kept across engine restarts).
+    pub seq: u64,
+    /// The session entry of the turn's prompt, to place it in the transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_entry_id: Option<String>,
+    #[serde(default)]
+    pub run_id: String,
+    /// Milliseconds since the epoch.
+    pub started_at: i64,
+    /// The commit of the start snapshot (for a turn's diff).
+    pub start: String,
+    /// The commit of the end snapshot; absent while the turn is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<String>,
+    #[serde(default)]
+    pub files: Vec<CheckpointFile>,
+    /// `false`: the start snapshot was late or the turn never settled, so
+    /// changes made before it may be missing.
+    pub complete: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverted: Option<CheckpointRevert>,
+}
+
+/// A file a turn changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointFile {
+    pub path: String,
+    /// `added`, `modified`, `deleted` or `renamed`.
+    pub status: String,
+    /// A renamed file's old path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// Lines added and removed; absent for a binary file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<u64>,
+}
+
+/// A revert of the turn that can still be undone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointRevert {
+    /// Milliseconds since the epoch.
+    pub at: i64,
+    /// The id that undoes it (`c-<seq>-undo`).
+    pub undo: String,
+    /// The files it put back (an undo restores these).
+    #[serde(default)]
+    pub paths: Vec<String>,
+}
+
+/// `list_checkpoints` → the chat's kept checkpoints, oldest first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListCheckpointsResult {
+    pub checkpoints: Vec<Checkpoint>,
+}
+
+/// `revert_turn`: put the turn's files back (`checkpoint` is `c-<seq>`), or
+/// undo that revert (`c-<seq>-undo`). `force` reverts files changed since;
+/// `paths` narrows it to some of the turn's files.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RevertTurnRequest {
+    pub checkpoint: String,
+    #[serde(default)]
+    pub force: bool,
+    #[serde(default)]
+    pub paths: Option<Vec<String>>,
+}
+
+/// What `revert_turn` did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RevertTurnResult {
+    pub reverted: Vec<String>,
+    pub skipped: Vec<SkippedFile>,
+    /// The id that undoes this revert; `null` after an undo or when nothing
+    /// was reverted.
+    pub undo: Option<String>,
+}
+
+/// A file `revert_turn` left as it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkippedFile {
+    pub path: String,
+    /// [`SKIPPED_CHANGED_SINCE`].
+    pub reason: String,
+}
+
+/// `draft_commit_message`: the staged diff (at most 64 KiB is read) and the
+/// repository's recent commit subjects.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftCommitMessageRequest {
+    pub diff: String,
+    #[serde(default)]
+    pub subjects: Vec<String>,
+}
+
+/// The drafted message, for the person to edit.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftCommitMessageResult {
+    pub message: String,
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn checkpoint_ids_round_trip() {
+        assert_eq!(checkpoint_id(17), "c-17");
+        assert_eq!(checkpoint_undo_id(17), "c-17-undo");
+        assert_eq!(parse_checkpoint_id("c-17"), Some((17, false)));
+        assert_eq!(parse_checkpoint_id("c-17-undo"), Some((17, true)));
+        for bad in ["c-", "c--1", "17", "c-1x", "c-undo", "c-+1"] {
+            assert_eq!(parse_checkpoint_id(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn checkpoint_wire_shape_matches_the_plan() {
+        let checkpoint = Checkpoint {
+            id: "c-2".into(),
+            seq: 2,
+            prompt_entry_id: Some("e1".into()),
+            run_id: "r1".into(),
+            started_at: 5,
+            start: "aaa".into(),
+            end: Some("bbb".into()),
+            files: vec![
+                CheckpointFile {
+                    path: "src/a.ts".into(),
+                    status: "renamed".into(),
+                    from: Some("src/old.ts".into()),
+                    added: Some(1),
+                    removed: Some(0),
+                },
+                CheckpointFile {
+                    path: "logo.png".into(),
+                    status: "added".into(),
+                    from: None,
+                    added: None,
+                    removed: None,
+                },
+            ],
+            complete: true,
+            reverted: Some(CheckpointRevert {
+                at: 9,
+                undo: "c-2-undo".into(),
+                paths: vec!["src/a.ts".into()],
+            }),
+        };
+        let value = serde_json::to_value(&checkpoint).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "id": "c-2", "seq": 2, "promptEntryId": "e1", "runId": "r1",
+                "startedAt": 5, "start": "aaa", "end": "bbb",
+                "files": [
+                    {"path": "src/a.ts", "status": "renamed", "from": "src/old.ts", "added": 1, "removed": 0},
+                    {"path": "logo.png", "status": "added"}
+                ],
+                "complete": true,
+                "reverted": {"at": 9, "undo": "c-2-undo", "paths": ["src/a.ts"]}
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<Checkpoint>(value).unwrap(),
+            checkpoint
+        );
+    }
+
+    #[test]
+    fn command_payloads_parse_with_their_defaults() {
+        let revert: RevertTurnRequest =
+            serde_json::from_value(json!({"checkpoint": "c-1", "paths": null})).unwrap();
+        assert_eq!(
+            revert,
+            RevertTurnRequest {
+                checkpoint: "c-1".into(),
+                force: false,
+                paths: None
+            }
+        );
+        let result = RevertTurnResult {
+            reverted: vec!["a".into()],
+            skipped: vec![SkippedFile {
+                path: "b".into(),
+                reason: SKIPPED_CHANGED_SINCE.into(),
+            }],
+            undo: None,
+        };
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            json!({"reverted": ["a"], "skipped": [{"path": "b", "reason": "changed-since"}], "undo": null})
+        );
+        let draft: DraftCommitMessageRequest =
+            serde_json::from_value(json!({"diff": "d"})).unwrap();
+        assert!(draft.subjects.is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

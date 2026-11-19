@@ -406,6 +406,7 @@ sequenceDiagram
 | `~/.evo/agent/{runtimes,cache/office,bundled-skills,document-versions/<chat>}` | LibreOffice runtime, Office preview cache (native HTML, exact PDFs), extracted Office skills, copies of Office files saved in a chat (versions) | engine (`office.rs`, `evo-office`); the shell removes a chat's versions with the chat |
 | `<project>/AGENTS.md`, `<project>/.evo/`, `.mcp.json` | project instructions, commands, agents, settings, connectors | the user (read by the engine after trust) |
 | managed worktrees | delegated work in isolation | `evo-worktrees` |
+| `refs/evo/checkpoints/<chat id>/<seq>/{start,end,undo}` in the chat folder's repository, and a `checkpoint` entry in the chat's transcript | the folder at the start and end of each top-level turn (git commits made from `HEAD` and the changed files in a temporary index), the files the turn changed; a chat's last 50 turns, removed with the chat | the chat's engine (`evo-worktrees::checkpoint`); the shell drops them on chat delete ([ADR 0024](decisions/0024-repository-writes-and-turn-checkpoints.md)) |
 | `<app cache dir>/updates/<version>/` | a downloaded, verified app update waiting for the person's restart; settings `updates.autoCheck` and `updates.lastCheckedAt` in `evo.db` | shell (`updates.rs`, [ADR 0017](decisions/0017-app-updates-from-signed-github-releases.md)) |
 
 Rules:
@@ -418,6 +419,9 @@ Rules:
 - Secrets stay out of `evo.db`, the transcript files and logs. A plugin's
   secrets live only in its sealed vault; `installed.json` says which are set.
 - Repository and project files are user-owned: app cleanup never deletes them.
+  Evo writes to a repository only on the person's click (stage, discard,
+  commit, Revert this turn); its own refs stay under `refs/evo/`
+  ([ADR 0024](decisions/0024-repository-writes-and-turn-checkpoints.md)).
 - Models are data from models.dev
   ([ADR 0002](decisions/0002-models-dev-is-the-model-database.md)); no model is
   hardcoded.
@@ -453,6 +457,9 @@ Details: [app database spec](../features/app-database/spec.md).
   self-kill guard → `PreToolUse` hooks → plugin handlers → approval mode. It
   classifies each call as a read, an edit or a command and asks for the kinds
   the mode says ([ADR 0010](decisions/0010-engine-enforces-approval-mode.md)).
+  After it, a top-level run's first edit or command waits for the turn's
+  checkpoint, which never lets through a call the gate blocked
+  ([ADR 0024](decisions/0024-repository-writes-and-turn-checkpoints.md)).
   App-side tools — terminal, scheduler, connectors — ask through the same
   approval panel, reading the same mode. The computer app tool has
   a gate class of its own: with its setting on "Ask every time" it asks in

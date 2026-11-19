@@ -345,6 +345,10 @@ pub struct RpcProviders<'a> {
     pub catalog: Arc<std::sync::RwLock<Vec<evo_ai::Model>>>,
     /// `None` (tests, embedded hosts): credential changes need a restart.
     pub reload: Option<&'a crate::session::ReloadContext>,
+    /// Turn checkpoints of this chat's folder (`checkpoints.rs`,
+    /// docs/features/source-control); `None` (tests, embedded hosts): none
+    /// are taken.
+    pub checkpoints: Option<Arc<crate::checkpoints::Checkpoints>>,
 }
 
 impl From<Vec<evo_ai::Model>> for RpcProviders<'static> {
@@ -352,6 +356,7 @@ impl From<Vec<evo_ai::Model>> for RpcProviders<'static> {
         Self {
             catalog: Arc::new(std::sync::RwLock::new(catalog)),
             reload: None,
+            checkpoints: None,
         }
     }
 }
@@ -677,6 +682,17 @@ where
         .reload
         .and_then(|_| crate::office::watch_office_files(office_chat.clone(), stdout.clone()));
 
+    // Turn checkpoints (docs/features/source-control, FR-9 – FR-13): read the
+    // turn numbers and close a turn an earlier engine left open, off the loop.
+    let checkpoints = rpc_providers.checkpoints.clone();
+    if let Some(checkpoints) = &checkpoints {
+        let (checkpoints, harness) = (Arc::clone(checkpoints), harness.clone());
+        command_tasks.push(RetainedRpcTask::new(
+            tokio::spawn(async move { checkpoints.recover(&harness).await }),
+            writer_failed.clone(),
+        ));
+    }
+
     // Background agents started by an earlier engine of this session ran in
     // that process and are gone: queue their missing reports for the next run.
     let lost_agents = rpc_report_lost_background_agents(harness).await;
@@ -922,6 +938,28 @@ where
                 ));
                 continue;
             }
+            // A commit message drafted on the chat's model (commit_message.rs):
+            // off the reader loop, since the model takes seconds.
+            "draft_commit_message" => {
+                command_tasks.retain(|task| !task.is_finished());
+                let (out, harness, request) = (stdout.clone(), harness.clone(), msg.clone());
+                command_tasks.push(RetainedRpcTask::new(
+                    tokio::spawn(async move {
+                        let result = crate::commit_message::draft(&harness, &request).await;
+                        write_line(
+                            &out,
+                            &rpc_protocol::response(
+                                Some(id),
+                                "draft_commit_message",
+                                result.map(Some),
+                            ),
+                        )
+                        .await;
+                    }),
+                    writer_failed.clone(),
+                ));
+                continue;
+            }
             "execute_command" => {
                 command_tasks.retain(|task| !task.is_finished());
                 let snapshot = oauth_snapshot.clone();
@@ -1002,6 +1040,9 @@ where
                 let mesh_session = harness.session().storage().metadata().id.clone();
                 let mailbox_task = ui_dialog.clone();
                 let flush_events = event_flush.clone();
+                // A prompt is a top-level turn: it gets a checkpoint.
+                let checkpoints_task = checkpoints.clone().filter(|_| kind == "prompt");
+                let harness_task = harness.clone();
                 let instructions = msg
                     .get("customInstructions")
                     .and_then(|v| v.as_str())
@@ -1076,6 +1117,11 @@ where
                         } else {
                             Some(rpc_turn_start(&lane_task).await)
                         };
+                        // The folder as the turn starts, taken off this task;
+                        // file-changing calls wait for it (checkpoints.rs).
+                        let checkpoint_turn = checkpoints_task
+                            .as_ref()
+                            .and_then(|checkpoints| checkpoints.begin(&harness_task));
                         let outcome_cancel = cancel_task.clone();
                         let execute_timing = RpcPhaseTiming::start(phase_diagnostics, "execute");
                         let result = if compact {
@@ -1141,6 +1187,24 @@ where
                             (status, text)
                         });
                         crate::mesh::session_run(&mesh_session, false, report);
+                        let checkpoint = match (checkpoints_task, checkpoint_turn) {
+                            (Some(checkpoints), Some(started)) => {
+                                let run_id = result
+                                    .as_ref()
+                                    .ok()
+                                    .and_then(|value| value.get("runId"))
+                                    .and_then(|value| value.as_str());
+                                checkpoints
+                                    .finish(
+                                        started,
+                                        &harness_task,
+                                        run_id,
+                                        turn_start.clone().unwrap_or((None, 0)),
+                                    )
+                                    .await
+                            }
+                            _ => None,
+                        };
                         let turn = match turn_start {
                             Some(start) => {
                                 let final_text = result
@@ -1185,6 +1249,13 @@ where
                         // (docs/features/shell-hosted-engines/spec.md, FR-6).
                         if let Some(turn) = turn {
                             settled["turn"] = turn;
+                        }
+                        // The files the turn changed, in a repository
+                        // (docs/features/source-control/plan.md, 3.3).
+                        if let Some(checkpoint) =
+                            checkpoint.and_then(|checkpoint| serde_json::to_value(checkpoint).ok())
+                        {
+                            settled["checkpoint"] = checkpoint;
                         }
                         let enqueue_timing =
                             RpcPhaseTiming::start(phase_diagnostics, "settled_enqueue");
@@ -1287,6 +1358,19 @@ where
             }
             "get_history" => rpc_get_history(&lane, harness, &msg).await,
             "get_session_branch" => rpc_get_session_branch(harness, &msg).await,
+            // Turn checkpoints (checkpoints.rs; docs/features/source-control).
+            "list_checkpoints" => match &checkpoints {
+                Some(checkpoints) => checkpoints.list(harness).await,
+                None => Ok(serde_json::json!({ "checkpoints": [] })),
+            },
+            "revert_turn" => {
+                let running = run_active.load(std::sync::atomic::Ordering::Acquire);
+                match &checkpoints {
+                    Some(checkpoints) => checkpoints.revert(harness, &msg, running).await,
+                    None if running => Err(evo_protocol::protocol::REVERT_BUSY.into()),
+                    None => Err("this engine keeps no checkpoints".into()),
+                }
+            }
             "append_entry" => rpc_append_entry(harness, &msg).await,
             "get_stats" => rpc_get_stats(&lane, harness).await,
             "get_queue" => rpc_get_queue(&lane, harness, &msg).await,
@@ -3948,6 +4032,9 @@ fn session_storage_notice(message: &str) -> String {
     )
 }
 
+#[cfg(test)]
+#[path = "modes/checkpoints_tests.rs"]
+mod checkpoints_tests;
 #[cfg(test)]
 #[path = "rpc/native_dispatch_tests.rs"]
 mod native_dispatch_tests;

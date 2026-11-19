@@ -11,13 +11,14 @@ import { BrowserPanel } from "@/features/browser";
 import { FilesPanel } from "@/features/files";
 import { MemoryPanel } from "@/features/memory";
 import { SideChatPanel } from "@/features/side-chat";
+import { SourceControlPanel } from "@/features/source-control";
 import { TerminalPanel } from "@/features/terminal";
 import { PluginPanel } from "@/features/plugin-ui";
 import { useUiStore, type PanelId } from "@/stores/ui-store";
 import { panelById, usePanels, type PanelDefinition } from "./panel-registry";
 
 /** Tools that lay out and scroll their own content. */
-const FULL_BLEED = new Set<PanelId>(["terminal", "side-chat", "files", "browser", "memory"]);
+const FULL_BLEED = new Set<PanelId>(["terminal", "side-chat", "files", "source-control", "browser", "memory"]);
 
 /** "Ctrl+T" — one chip, like the menu shortcuts. */
 export const shortcutLabel = (panel: PanelDefinition) => `${modKey}+${panel.shortcut}`;
@@ -133,7 +134,7 @@ function RailButton({
 }
 
 /** The ready tools first, the ones still to come after a divider. */
-const READY = new Set<PanelId>(["terminal", "browser", "files", "side-chat", "memory"]);
+const READY = new Set<PanelId>(["terminal", "browser", "files", "source-control", "side-chat", "memory"]);
 
 /**
  * The tool rail on the window's right edge, always shown: every tool as an
@@ -230,6 +231,8 @@ export function RightPanel({ variant = "docked" }: { variant?: "docked" | "overl
           <SideChatPanel />
         ) : panel?.id === "files" ? (
           <FilesPanel />
+        ) : panel?.id === "source-control" ? (
+          <SourceControlPanel />
         ) : panel?.id === "memory" ? (
           <MemoryPanel />
         ) : panel?.id === "browser" ? (

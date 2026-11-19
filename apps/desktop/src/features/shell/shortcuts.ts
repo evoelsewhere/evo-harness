@@ -63,6 +63,16 @@ export function shortcutGroups(): ShortcutGroup[] {
       ],
     },
     {
+      // docs/features/source-control/spec.md, FR-16 (handlers in features/source-control).
+      title: "Source control",
+      items: [
+        { label: "Move through the changed files", keys: ["↑", "↓"] },
+        { label: "Stage or unstage the file", keys: ["Space"] },
+        { label: "Discard the file's changes", keys: ["Delete"] },
+        { label: "Commit (in the message)", keys: mod("Enter") },
+      ],
+    },
+    {
       title: "Chat menu (right-click a chat)",
       items: [
         { label: "Pin · Mark as unread · Rename", keys: ["P", "U", "R"] },

@@ -101,6 +101,60 @@ export interface Turn {
    * a turn (the sidebar). The requests themselves are `TranscriptState.permissions`.
    */
   permission?: PermissionRequest;
+  /** The files this turn changed in the chat's repository (docs/features/source-control/spec.md, FR-10). */
+  checkpoint?: TurnCheckpoint;
+}
+
+/** One file a turn changed. */
+export interface TurnCheckpointFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  from?: string;
+  /** Lines; absent for binary files. */
+  added?: number | null;
+  removed?: number | null;
+}
+
+/** A turn's checkpoint, as the engine reports it (`agent_settled.checkpoint`, `list_checkpoints`). */
+export interface TurnCheckpoint {
+  id: string;
+  seq?: number;
+  promptEntryId?: string;
+  runId: string;
+  startedAt: number;
+  /** The snapshot commits before and after the turn. */
+  start?: string;
+  end?: string;
+  files: TurnCheckpointFile[];
+  /** `false`: the snapshot came late or failed; changes before it may be missing. */
+  complete: boolean;
+  /** Reverted: when, the checkpoint that undoes it, and the files it put back. */
+  reverted?: { at: number; undo: string; paths?: string[] };
+}
+
+/**
+ * Put the checkpoints of a reopened chat (`list_checkpoints`) on their turns,
+ * matched by the prompt's session entry. Turns without one keep theirs.
+ */
+export function withCheckpoints(state: TranscriptState, checkpoints: TurnCheckpoint[]): TranscriptState {
+  const byEntry = new Map(checkpoints.filter((c) => c.promptEntryId).map((c) => [c.promptEntryId as string, c]));
+  if (byEntry.size === 0) return state;
+  let changed = false;
+  const turns = state.turns.map((turn) => {
+    const checkpoint = turn.entryId ? byEntry.get(turn.entryId) : undefined;
+    if (!checkpoint || turn.checkpoint === checkpoint) return turn;
+    changed = true;
+    return { ...turn, checkpoint };
+  });
+  return changed ? { ...state, turns } : state;
+}
+
+/** A checkpoint object from the engine, or `undefined` when it is not one. */
+export function asCheckpoint(value: unknown): TurnCheckpoint | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.id !== "string" || !Array.isArray(raw.files)) return undefined;
+  return raw as unknown as TurnCheckpoint;
 }
 
 /** A message sent while the agent works, waiting for it to be read. */
@@ -555,7 +609,9 @@ function applyEngine(state: TranscriptState, message: EngineMessage, now: number
     case "agent_end":
     case "agent_settled": {
       const { aborted, failed, error } = runEnd(message);
-      const next = updateCurrent(state, (turn) => {
+      const checkpoint = message.type === "agent_settled" && message.compact !== true ? asCheckpoint(message.checkpoint) : undefined;
+      const next = updateCurrent(state, (current) => {
+        const turn = checkpoint ? { ...current, checkpoint } : current;
         if (turn.status !== "running") {
           // `agent_end` closed the turn as done; the settlement knows better.
           // Not a `compact` run's: it has no turn, and its outcome is not the last turn's.
@@ -793,7 +849,7 @@ export const MAIL_NOTE = "<mail";
  * nested session's note, mail from another agent, and the three prompts this
  * app wakes an idle chat with (`wake` in stores/engine-store.ts).
  */
-export type NoteKind = "agent-report" | "session-note" | "mail" | "agents-done" | "sessions-done" | "mail-arrived";
+export type NoteKind = "agent-report" | "session-note" | "mail" | "agents-done" | "sessions-done" | "mail-arrived" | "turn-reverted";
 
 /** One or more blocks `<tag attrs>\n…\n</tag>`, blank lines between, and nothing else. */
 const blocks = (open: string, tag: string) => {
@@ -814,6 +870,8 @@ const NOTES: [NoteKind, RegExp][] = [
   ["agents-done", blocks("<background-agents-done>", "background-agents-done")],
   ["sessions-done", blocks("<nested-sessions-done>", "nested-sessions-done")],
   ["mail-arrived", blocks("<mail-arrived>", "mail-arrived")],
+  // crates/evo-engine/src/checkpoints.rs: the person reverted a turn's files (source-control FR-12).
+  ["turn-reverted", /^<turn-reverted checkpoint="[^"]*">[\s\S]*<\/turn-reverted>$/],
 ];
 
 /**

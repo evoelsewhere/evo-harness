@@ -19,6 +19,7 @@ import {
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useWaking } from "@/stores/engine-store";
+import { TurnChanges } from "./turn-changes";
 import { UserPrompt } from "./user-message";
 import { MessageMenu } from "./message-menu";
 import { replyMarkdown } from "./message-text";
@@ -82,6 +83,9 @@ function noteLabel(kind: NoteKind, text: string): string {
       const finished = /finished: (.*?)\. (Its|Their) report/.exec(text)?.[1];
       return `Background ${finished?.includes(",") ? "agents" : "agent"} finished${finished ? ` · ${finished.replace(/"/g, "")}` : ""}`;
     }
+    case "turn-reverted":
+      // docs/features/source-control/spec.md, FR-12: what the agent was told.
+      return "You reverted an earlier turn's changes";
   }
 }
 
@@ -363,6 +367,8 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
           {keptWorktrees.map((part) => (
             <KeptWorktree key={part.key} part={part} />
           ))}
+
+          {!running && turn.checkpoint && <TurnChanges turn={{ ...turn, checkpoint: turn.checkpoint }} />}
 
           {turn.error && <TurnError error={turn.error} provider={turn.meta.provider} prompt={turn.prompt || undefined} />}
           {turn.status === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}

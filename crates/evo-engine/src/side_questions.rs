@@ -550,6 +550,38 @@ impl SideQuestions {
         Ok(thread.snapshot())
     }
 }
+/// One tool-free question on the chat's current model, outside every side
+/// thread: no thread keeps it (so nothing is left to clear) and the parent
+/// session is not written. Used for drafts (`commit_message.rs`), whose input
+/// is larger than a side-chat question may be.
+pub(crate) async fn ask_once(parent: &AgentHarness, question: &str) -> Result<String, String> {
+    let session_id = parent.session().storage().metadata().id.clone();
+    let id = parent.session().id_generator().next();
+    let job = Arc::new(Job::new(
+        id.clone(),
+        String::new(),
+        Arc::new(AtomicU64::new(1)),
+    ));
+    let (child, _reference) = parent
+        .create_side_question(
+            memory_session(&id, &session_id),
+            Arc::new(Emitter(job.clone())),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let execution_scope = child.execution_scope.clone();
+    job.state.lock().unwrap_or_else(|e| e.into_inner()).status = "running";
+    run(child, job.clone(), question.to_owned(), TIMEOUT).await;
+    execution_scope.wait_idle().await;
+    let state = job.state.lock().unwrap_or_else(|e| e.into_inner());
+    match state.status {
+        "done" => Ok(state.text.clone()),
+        _ => Err(state
+            .error
+            .clone()
+            .unwrap_or_else(|| "no answer from the model".into())),
+    }
+}
 fn memory_session(id: &str, parent: &str) -> Session {
     Session::new(
         Arc::new(InMemorySessionStorage::new(

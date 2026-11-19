@@ -14,7 +14,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { isMac, isWindows } from "@/lib/platform";
 import { openInApp, useOpenApps } from "@/lib/open-apps";
+import { useFilesStore } from "@/stores/files-store";
+import { showInSourceControl } from "@/stores/source-control-store";
 import { fileName, relativePath } from "./fs";
+import { pathKey } from "./git-state";
 
 const MANAGER = isMac ? "Finder" : isWindows ? "Explorer" : "file manager";
 
@@ -36,10 +39,15 @@ export function PathMenuItems({
   onOpen?(): void;
 }) {
   const apps = useOpenApps().filter((app) => (dir ? true : app.kind === "editor"));
+  // A changed file: its diff in Source control (source-control FR-15).
+  const git = useFilesStore((s) => s.git);
+  const key = git && !dir ? pathKey(path, git.caseless) : null;
+  const changed = key && git?.files.has(key) ? key.slice(git.root.length + 1) : null;
   return (
     <>
       <DropdownMenuGroup>
         {onOpen && !dir && <DropdownMenuItem onClick={onOpen}>Open</DropdownMenuItem>}
+        {changed && <DropdownMenuItem onClick={() => showInSourceControl(changed)}>Show changes</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => composerDraft.attach(path)}>Attach as context</DropdownMenuItem>
         {apps.length > 0 && (
           <DropdownMenuSub>

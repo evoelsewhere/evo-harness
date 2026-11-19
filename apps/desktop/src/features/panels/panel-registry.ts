@@ -4,6 +4,7 @@ import {
   FilesIcon,
   MemoryIcon,
   SideChatIcon,
+  SourceControlIcon,
   TerminalIcon,
 } from "@/components/icons/tool-icons";
 import { pluginIcon } from "@/features/plugin-ui";
@@ -26,6 +27,7 @@ export const panels: PanelDefinition[] = [
   { id: "terminal", title: "Terminal", description: "Run commands in the active workspace", icon: TerminalIcon, shortcut: "`" },
   { id: "browser", title: "Browser", description: "View and interact with the agent browser", icon: BrowserIcon, shortcut: "T" },
   { id: "files", title: "Files", description: "Browse workspace files and generated artifacts", icon: FilesIcon, shortcut: "F" },
+  { id: "source-control", title: "Source control", description: "Review, stage and commit the changes in this folder", icon: SourceControlIcon, shortcut: "G" },
   { id: "side-chat", title: "Side chat", description: "Ask a focused question without interrupting the run", icon: SideChatIcon, shortcut: ";" },
   { id: "memory", title: "Memory", description: "What the agent remembers across chats", icon: MemoryIcon, shortcut: "M" },
 ];

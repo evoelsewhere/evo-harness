@@ -25,6 +25,7 @@ import type { FileChange } from "@/lib/worktrees";
 import { chatColumnPx, useAppearanceStore } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { openFile } from "@/stores/files-store";
+import { showInSourceControl } from "@/stores/source-control-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { useSplitStore } from "@/stores/split-store";
@@ -363,7 +364,8 @@ function ExpandRow({
 function GitSection({ repo }: { repo: ReturnType<typeof useRepoStatus> }) {
   const { status, loading, refresh } = repo;
   if (!status) return null;
-  const open = (path: string) => void openFile(resolvePath(status.root, path));
+  // A changed file opens its diff in Source control (source-control FR-15).
+  const open = (path: string) => showInSourceControl(path);
   const where = status.branch ?? (status.head ? `Detached at ${status.head}` : "No branch");
   return (
     <Section
@@ -398,7 +400,7 @@ function GitSection({ repo }: { repo: ReturnType<typeof useRepoStatus> }) {
           <FileRow
             key={file.path}
             path={file.path}
-            onOpen={file.status === "deleted" ? undefined : () => open(file.path)}
+            onOpen={() => open(file.path)}
           >
             <LineCounts added={file.added} removed={file.removed} className="text-[11px]" />
             <span className={cn("w-3 text-center font-mono text-[11px]", STATUS_LETTER[file.status].className)}>

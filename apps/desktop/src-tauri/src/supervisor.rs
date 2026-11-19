@@ -52,6 +52,13 @@
 //! The tray, the quit question and the windows' sidebars read which chats
 //! work or wait for the person from [`EngineSupervisor::work`] (FR-11,
 //! FR-12, NFR-5; `system.rs`).
+//!
+//! It keeps the span of every run it follows, by folder ([`RunSpans`]):
+//! Source control asks whether a run is active in a folder before a commit
+//! ([`EngineSupervisor::folder_running`]), and a finished turn whether
+//! another chat ran in its folder meanwhile (`turn_overlap`), in this app run
+//! only (docs/features/source-control/spec.md, FR-13 and the edge case "two
+//! chats"; plan 3.2, 3.3).
 
 pub mod notices;
 pub mod questions;
@@ -60,7 +67,7 @@ pub mod settings;
 pub mod turns;
 pub mod wakes;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,6 +97,9 @@ pub const IDLE_GRACE: Duration = Duration::from_secs(10);
 /// Connector changes come in bursts (a server connecting): tools are set up
 /// again once the burst is over.
 const CONNECTORS_SETTLE: Duration = Duration::from_millis(300);
+/// Finished runs kept for [`EngineSupervisor::turn_overlap`], over the whole
+/// app (oldest forgotten first).
+pub const RUN_SPANS: usize = 1000;
 
 /// Why an engine's state changed, as `engine://state` says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,6 +349,111 @@ impl Follow {
     }
 }
 
+/// A folder as a key for comparing folders: forward slashes, no `\\?\`
+/// prefix or trailing slash, and without case on Windows and macOS, whose
+/// file systems ignore it.
+pub fn folder_key(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let text = text.strip_prefix("//?/").unwrap_or(&text);
+    let text = if text.len() > 1 { text.trim_end_matches('/') } else { text };
+    if cfg!(any(windows, target_os = "macos")) {
+        text.to_lowercase()
+    } else {
+        text.to_string()
+    }
+}
+
+/// One run of a chat's engine in a folder, from `agent_start` to
+/// `agent_settled` (ms since the epoch).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RunSpan {
+    chat: String,
+    /// The run's id, from `agent_settled` (or `agent_start` when it says).
+    run: Option<String>,
+    /// [`folder_key`] of the folder its engine works in.
+    folder: String,
+    start: u64,
+    /// `None` while it runs.
+    end: Option<u64>,
+}
+
+impl RunSpan {
+    /// Both ran at some moment (ends included: times are in ms).
+    fn overlaps(&self, other: &RunSpan) -> bool {
+        self.start <= other.end.unwrap_or(u64::MAX) && other.start <= self.end.unwrap_or(u64::MAX)
+    }
+}
+
+/// The runs the supervisor followed in this app run: the one active per
+/// chat, and the last [`RUN_SPANS`] finished ones.
+#[derive(Default)]
+struct RunSpans {
+    open: HashMap<String, RunSpan>,
+    closed: VecDeque<RunSpan>,
+}
+
+impl RunSpans {
+    fn start(&mut self, chat: &str, folder: &Path, run: Option<&str>, at: u64) {
+        // A second start without a settle keeps the first.
+        self.open.entry(chat.to_string()).or_insert_with(|| RunSpan { chat: chat.to_string(), run: run.map(str::to_string), folder: folder_key(folder), start: at, end: None });
+    }
+
+    /// `chat`'s run settled at `at`. A compaction is no turn: it is not kept.
+    /// A run whose start was missed is kept as a moment.
+    fn settle(&mut self, chat: &str, folder: Option<&Path>, run: Option<&str>, compact: bool, at: u64) {
+        let open = self.open.remove(chat);
+        if compact {
+            return;
+        }
+        let span = match (open, folder) {
+            (Some(span), _) => span,
+            (None, Some(folder)) => RunSpan { chat: chat.to_string(), run: None, folder: folder_key(folder), start: at, end: None },
+            (None, None) => return,
+        };
+        let run = run.map(str::to_string).or(span.run);
+        let end = Some(at.max(span.start));
+        self.push(RunSpan { run, end, ..span });
+    }
+
+    /// `chat`'s engine is gone at `at`: its run, if any, ended then.
+    fn engine_gone(&mut self, chat: &str, at: u64) {
+        if let Some(span) = self.open.remove(chat) {
+            let end = Some(at.max(span.start));
+            self.push(RunSpan { end, ..span });
+        }
+    }
+
+    fn push(&mut self, span: RunSpan) {
+        self.closed.push_back(span);
+        while self.closed.len() > RUN_SPANS {
+            self.closed.pop_front();
+        }
+    }
+
+    /// Chats with a run active in `folder`, sorted.
+    fn running_in(&self, folder: &Path) -> Vec<String> {
+        let key = folder_key(folder);
+        let chats: BTreeSet<&String> = self.open.values().filter(|span| span.folder == key).map(|span| &span.chat).collect();
+        chats.into_iter().cloned().collect()
+    }
+
+    /// Other chats whose runs overlapped `chat`'s run `run` in its folder, sorted.
+    fn overlap(&self, chat: &str, run: &str) -> Vec<String> {
+        let mine = |span: &&RunSpan| span.chat == chat && span.run.as_deref() == Some(run);
+        let Some(span) = self.closed.iter().rev().find(mine).or_else(|| self.open.values().find(mine)) else {
+            return Vec::new();
+        };
+        let others: BTreeSet<&String> = self
+            .closed
+            .iter()
+            .chain(self.open.values())
+            .filter(|other| other.chat != chat && other.folder == span.folder && other.overlaps(span))
+            .map(|other| &other.chat)
+            .collect();
+        others.into_iter().cloned().collect()
+    }
+}
+
 /// The shell's engines (managed as Tauri state).
 #[derive(Default)]
 pub struct EngineSupervisor {
@@ -364,6 +479,8 @@ pub struct EngineSupervisor {
     drafts: Mutex<HashSet<(String, String)>>,
     /// Which engines give turn totals; the runs recorded (FR-6).
     pub turns: turns::Turns,
+    /// Runs by folder, for Source control (source-control FR-13, "two chats").
+    runs: Mutex<RunSpans>,
 }
 
 /// Whether an engine refused a command because a run is active.
@@ -411,6 +528,7 @@ impl EngineSupervisor {
             Start::Started(generation) => {
                 // Nothing of an earlier process goes on: its runs, its agents, its questions.
                 self.follow(chat, Follow::engine_gone);
+                self.runs().engine_gone(chat, now_ms());
                 for id in self.questions.engine_gone(chat) {
                     host.question(chat, &questions::Change::Closed(id));
                 }
@@ -597,6 +715,7 @@ impl EngineSupervisor {
         }
         chats.remove(chat);
         drop(chats);
+        self.runs().engine_gone(chat, now_ms());
         self.rpc.fail_chat(chat, "engine exited");
         let worked = self.follow(chat, |follow| {
             let busy = follow.busy();
@@ -612,6 +731,28 @@ impl EngineSupervisor {
     }
 
     // ── Viewers, work and the idle trim (FR-2, FR-3) ────────────────────────
+
+    fn runs(&self) -> std::sync::MutexGuard<'_, RunSpans> {
+        self.runs.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The folder `chat`'s engine works in, while one runs.
+    fn hosted_folder(&self, chat: &str) -> Option<PathBuf> {
+        self.lock().get(chat).map(|hosted| hosted.folder.clone())
+    }
+
+    /// Chats with a run active in `folder` (their engines work there), sorted:
+    /// a commit there asks first (source-control FR-13).
+    pub fn folder_running(&self, folder: &Path) -> Vec<String> {
+        self.runs().running_in(folder)
+    }
+
+    /// Other chats whose runs overlapped `chat`'s run `run` in the same
+    /// folder, sorted; empty for a run this app run did not follow
+    /// (source-control, edge case "two chats").
+    pub fn turn_overlap(&self, chat: &str, run: &str) -> Vec<String> {
+        self.runs().overlap(chat, run)
+    }
 
     fn follow<T>(&self, chat: &str, f: impl FnOnce(&mut Follow) -> T) -> T {
         let mut follow = self.follow.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -744,10 +885,15 @@ impl EngineSupervisor {
             }
             Some("agent_start") => {
                 self.follow(chat, |follow| follow.run = true);
+                if let Some(folder) = self.hosted_folder(chat) {
+                    self.runs().start(chat, &folder, line.get("runId").and_then(Value::as_str), at);
+                }
                 false
             }
             Some("agent_settled") => {
                 self.follow(chat, |follow| follow.run = false);
+                let (folder, compact) = (self.hosted_folder(chat), line.get("compact") == Some(&Value::Bool(true)));
+                self.runs().settle(chat, folder.as_deref(), line.get("runId").and_then(Value::as_str), compact, at);
                 self.touch(chat, Instant::now());
                 // The turn, once per run; unread unless a focused window shows it (FR-6).
                 let unread = notices::wanted(&self.viewers_of(chat), |label| host.focused(label));
@@ -1391,6 +1537,14 @@ pub fn engine_set_composing(app: AppHandle, window: tauri::Window, chat: Option<
         None if !composing => supervisor.drop_drafts(&host, window.label()),
         None => {}
     }
+}
+
+/// Other chats that ran in the same folder while `chat`'s run `runId` ran,
+/// in this app run (docs/features/source-control/spec.md, edge case "two
+/// chats"; plan 3.3).
+#[tauri::command]
+pub fn turn_overlap(app: AppHandle, chat: String, run_id: String) -> Vec<String> {
+    app.state::<EngineSupervisor>().turn_overlap(&chat, &run_id)
 }
 
 /// Every open question of `chat` (a window that rebuilds its transcript draws them again, FR-9).
@@ -2262,5 +2416,134 @@ pub(crate) mod tests {
         fake.mail_for("c", true);
         supervisor.release(&fake, "c").await;
         assert_eq!(fake.lines("start").len(), 2);
+    }
+
+    // ── Run spans by folder (source-control FR-13, "two chats") ─────────────
+
+    /// `chat`'s engine started in `folder`; its generation.
+    async fn in_folder(fake: &Fake, supervisor: &EngineSupervisor, chat: &str, folder: &str) -> u64 {
+        supervisor.ensure(fake, viewer(chat, Some(folder), false)).await.unwrap().generation
+    }
+
+    fn start_line() -> Value {
+        json!({ "type": "agent_start" })
+    }
+
+    fn settled_line(run: &str) -> Value {
+        json!({ "type": "agent_settled", "runId": run, "outcome": "completed", "compact": false })
+    }
+
+    #[tokio::test]
+    async fn a_run_in_a_folder_is_running_there_until_it_settles() {
+        let fake = Fake::default();
+        let supervisor = EngineSupervisor::default();
+        let a = in_folder(&fake, &supervisor, "a", "/repo").await;
+        let b = in_folder(&fake, &supervisor, "b", "/repo").await;
+        let c = in_folder(&fake, &supervisor, "c", "/other").await;
+        assert!(supervisor.folder_running(Path::new("/repo")).is_empty());
+        supervisor.follow_line(&fake, "a", a, &start_line(), 10);
+        supervisor.follow_line(&fake, "c", c, &start_line(), 11);
+        assert_eq!(supervisor.folder_running(Path::new("/repo")), ["a"]);
+        assert_eq!(supervisor.folder_running(Path::new("/other")), ["c"]);
+        // A trailing slash never matters; case only where file systems ignore it.
+        assert_eq!(supervisor.folder_running(Path::new("/repo/")), ["a"]);
+        assert_eq!(supervisor.folder_running(Path::new("/REPO")).len(), usize::from(cfg!(any(windows, target_os = "macos"))));
+        if cfg!(windows) {
+            assert_eq!(supervisor.folder_running(Path::new(r"\repo\")), ["a"]);
+        }
+        supervisor.follow_line(&fake, "b", b, &start_line(), 12);
+        assert_eq!(supervisor.folder_running(Path::new("/repo")), ["a", "b"]);
+        // A line of a replaced engine changes nothing.
+        supervisor.follow_line(&fake, "a", a + 100, &settled_line("r-old"), 13);
+        assert_eq!(supervisor.folder_running(Path::new("/repo")), ["a", "b"]);
+        supervisor.follow_line(&fake, "a", a, &settled_line("r1"), 20);
+        assert_eq!(supervisor.folder_running(Path::new("/repo")), ["b"]);
+        // An engine that exits ends its run.
+        fake.crash("b");
+        supervisor.on_exit(&fake, "b", b, true);
+        assert!(supervisor.folder_running(Path::new("/repo")).is_empty());
+        // So does a restart.
+        let restarted = supervisor.ensure(&fake, EnsureRequest { restart: true, ..viewer("c", Some("/other"), true) }).await.unwrap();
+        assert!(restarted.started);
+        assert!(supervisor.folder_running(Path::new("/other")).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_turn_overlaps_the_runs_of_other_chats_in_its_folder() {
+        let fake = Fake::default();
+        let supervisor = EngineSupervisor::default();
+        let a = in_folder(&fake, &supervisor, "a", "/repo").await;
+        let b = in_folder(&fake, &supervisor, "b", "/repo").await;
+        let c = in_folder(&fake, &supervisor, "c", "/other").await;
+        let d = in_folder(&fake, &supervisor, "d", "/repo").await;
+        // a: 10–50; b: 20–30 in the same folder; c: 25–40 elsewhere; d: 60–70 after a.
+        for (chat, generation, line, at) in [
+            ("a", a, start_line(), 10),
+            ("b", b, start_line(), 20),
+            ("c", c, start_line(), 25),
+            ("b", b, settled_line("rb"), 30),
+            ("c", c, settled_line("rc"), 40),
+            ("a", a, settled_line("ra"), 50),
+            ("d", d, start_line(), 60),
+            ("d", d, settled_line("rd"), 70),
+        ] {
+            supervisor.follow_line(&fake, chat, generation, &line, at);
+        }
+        assert_eq!(supervisor.turn_overlap("a", "ra"), ["b"]);
+        assert_eq!(supervisor.turn_overlap("b", "rb"), ["a"]);
+        assert!(supervisor.turn_overlap("c", "rc").is_empty());
+        assert!(supervisor.turn_overlap("d", "rd").is_empty());
+        // A run not followed in this app run, or another chat's run id.
+        assert!(supervisor.turn_overlap("a", "unknown").is_empty());
+        assert!(supervisor.turn_overlap("a", "rb").is_empty());
+        // A run still going counts: a runs again from 80, b runs 85–90.
+        supervisor.follow_line(&fake, "a", a, &start_line(), 80);
+        supervisor.follow_line(&fake, "b", b, &start_line(), 85);
+        supervisor.follow_line(&fake, "b", b, &settled_line("rb2"), 90);
+        assert_eq!(supervisor.turn_overlap("b", "rb2"), ["a"]);
+        // A compaction is no turn and is not kept.
+        supervisor.follow_line(&fake, "a", a, &json!({ "type": "agent_settled", "runId": "compact", "outcome": "completed", "compact": true }), 95);
+        assert!(supervisor.turn_overlap("a", "compact").is_empty());
+        assert!(supervisor.folder_running(Path::new("/repo")).is_empty());
+        // A run that ends with its engine still overlaps what ran meanwhile.
+        supervisor.follow_line(&fake, "d", d, &start_line(), 100);
+        fake.crash("d");
+        supervisor.on_exit(&fake, "d", d, true);
+        supervisor.follow_line(&fake, "b", b, &start_line(), 101);
+        supervisor.follow_line(&fake, "b", b, &settled_line("rb3"), 102);
+        assert_eq!(supervisor.turn_overlap("b", "rb3"), ["d"]);
+    }
+
+    #[test]
+    fn finished_runs_are_kept_up_to_a_bound() {
+        let mut spans = RunSpans::default();
+        for i in 0..RUN_SPANS as u64 + 10 {
+            spans.start("a", Path::new("/repo"), None, i * 10);
+            spans.settle("a", Some(Path::new("/repo")), Some(&format!("r{i}")), false, i * 10 + 5);
+        }
+        assert_eq!(spans.closed.len(), RUN_SPANS);
+        assert!(spans.open.is_empty());
+        assert_eq!(spans.closed.front().unwrap().run.as_deref(), Some("r10"));
+        // One open run per chat: a second start keeps the first.
+        spans.start("b", Path::new("/repo"), None, 1);
+        spans.start("b", Path::new("/repo"), None, 2);
+        assert_eq!(spans.open["b"].start, 1);
+        // A settle whose start was missed is kept as a moment in its folder.
+        spans.settle("c", Some(Path::new("/repo")), Some("rc"), false, 3);
+        assert_eq!(spans.overlap("c", "rc"), ["b"]);
+    }
+
+    #[test]
+    fn folders_compare_by_key() {
+        assert_eq!(folder_key(Path::new("/a/b/")), folder_key(Path::new("/a/b")));
+        assert_eq!(folder_key(Path::new("/")), "/");
+        if cfg!(windows) {
+            assert_eq!(folder_key(Path::new(r"C:\Work\Repo\")), "c:/work/repo");
+            assert_eq!(folder_key(Path::new(r"\\?\C:\Work\Repo")), "c:/work/repo");
+        } else if cfg!(target_os = "macos") {
+            assert_eq!(folder_key(Path::new("/Work/Repo")), "/work/repo");
+        } else {
+            assert_eq!(folder_key(Path::new("/Work/Repo")), "/Work/Repo");
+        }
     }
 }

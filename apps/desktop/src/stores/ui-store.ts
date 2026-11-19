@@ -6,11 +6,11 @@ import { emit } from "@tauri-apps/api/event";
 import type { ApprovalMode } from "@/engine/protocol";
 import { db, log } from "@/lib/db";
 
-export type BuiltinPanelId = "terminal" | "browser" | "files" | "side-chat" | "memory";
+export type BuiltinPanelId = "terminal" | "browser" | "files" | "source-control" | "side-chat" | "memory";
 /** A built-in tool, or a plugin's panel (`plugin:<plugin id>/<view id>`; docs/features/plugin-ui/spec.md, FR-5). */
 export type PanelId = BuiltinPanelId | `plugin:${string}`;
 /** Panels that exist; a saved tab for any other (Plugins moved to Customize, Scheduler to its page) is dropped. */
-const PANEL_IDS: readonly string[] = ["terminal", "browser", "files", "side-chat", "memory"];
+const PANEL_IDS: readonly string[] = ["terminal", "browser", "files", "source-control", "side-chat", "memory"];
 /** A saved tab that may still exist: a built-in tool, or a plugin's panel (shown as "off" while its plugin is). */
 const keptTab = (id: string): id is PanelId => PANEL_IDS.includes(id) || id.startsWith("plugin:");
 export type { ApprovalMode };
@@ -98,6 +98,15 @@ interface UiStore {
   toggleSummary(open?: boolean): void;
   setSummaryFits(fits: boolean): void;
   setSummaryPeek(peek: boolean): void;
+  /** Source control: diffs inline or side by side (docs/features/source-control/spec.md, FR-2). Saved. */
+  scmDiffLayout: "inline" | "split";
+  setScmDiffLayout(layout: "inline" | "split"): void;
+  /** Source control: changed files as a tree of folders or a flat list (FR-18). Saved. */
+  scmListMode: "tree" | "list";
+  setScmListMode(mode: "tree" | "list"): void;
+  /** Source control: the files' share of the height over the diff, in percent (dragged). Saved. */
+  scmSplit: number;
+  setScmSplit(percent: number): void;
   /** Tools open as tabs in the side panel, in tab order. */
   openTabs: PanelId[];
   /** The visible tab; `null` shows the tool launcher. */
@@ -225,6 +234,12 @@ export const useUiStore = create<UiStore>()(
           : set({ summaryPeek: open ?? !get().summaryPeek }),
       setSummaryFits: (summaryFits) => set({ summaryFits, summaryPeek: false }),
       setSummaryPeek: (summaryPeek) => set({ summaryPeek }),
+      scmDiffLayout: "inline",
+      setScmDiffLayout: (scmDiffLayout) => set({ scmDiffLayout }),
+      scmListMode: "tree",
+      setScmListMode: (scmListMode) => set({ scmListMode }),
+      scmSplit: 40,
+      setScmSplit: (percent) => set({ scmSplit: Math.min(85, Math.max(15, percent)) }),
       openTabs: [],
       activePanel: null,
       panelChat: null,
@@ -452,6 +467,9 @@ export const useUiStore = create<UiStore>()(
         settledWorktrees: state.settledWorktrees,
         rightPanelOpen: state.rightPanelOpen,
         summaryOpen: state.summaryOpen,
+        scmDiffLayout: state.scmDiffLayout,
+        scmListMode: state.scmListMode,
+        scmSplit: state.scmSplit,
         sidebarOpen: state.sidebarOpen,
         sidebarWidth: state.sidebarWidth,
         sidePanelWidth: state.sidePanelWidth,

@@ -1274,6 +1274,12 @@ pub async fn build_prepared(
         ui_dialog_mailbox.clone(),
         crate::approval::global().clone(),
     );
+    // After the approval gate: a file-changing call waits for its turn's
+    // start checkpoint (docs/features/source-control, FR-9; `checkpoints.rs`).
+    let before_tool_call = crate::checkpoints::before_tool_call(
+        before_tool_call,
+        crate::checkpoints::global().clone(),
+    );
     // A read-only session (session_roles.rs, FR-13): its checker comes first,
     // and a refused call reaches no hook and no approval prompt.
     let before_tool_call = crate::session_roles::before_tool_call(before_tool_call);

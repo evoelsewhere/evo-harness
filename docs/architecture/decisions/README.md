@@ -31,6 +31,7 @@ consequences and the alternatives rejected. The
 | [0021](0021-plugin-views-run-in-native-webviews.md) | Plugin views run in native child webviews with no IPC; their bridge is their own scheme | Accepted | 2026-11-13 |
 | [0022](0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md) | Plugin code runs under Evo's runtimes; its secrets live in a keychain-sealed vault and reach it through a loopback host API | Accepted | 2026-11-14 |
 | [0023](0023-plugin-ai-runs-in-one-long-lived-engine-process.md) | Plugin AI runs in one long-lived engine process (`--mode plugin-ai`); the shell gates it | Accepted | 2026-11-14 |
+| [0024](0024-repository-writes-and-turn-checkpoints.md) | Evo writes to the person's repository only on a click; turn checkpoints live under `refs/evo/` | Accepted | 2026-11-19 |
 
 ## Rules
 

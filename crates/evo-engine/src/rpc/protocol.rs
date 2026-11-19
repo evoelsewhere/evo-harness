@@ -335,6 +335,23 @@ pub enum Command {
     GetApprovalState,
     /// Forget this chat's grants, so the prompts come back.
     ClearApprovalGrants,
+    /// The chat's kept turn checkpoints (`checkpoints.rs`;
+    /// docs/features/source-control/plan.md, 3.3).
+    ListCheckpoints,
+    /// Put a turn's files back (`c-<seq>`), or undo that (`c-<seq>-undo`).
+    RevertTurn {
+        checkpoint: String,
+        #[serde(default)]
+        force: bool,
+        #[serde(default)]
+        paths: Option<Vec<String>>,
+    },
+    /// Draft a commit message for a staged diff (`commit_message.rs`).
+    DraftCommitMessage {
+        diff: String,
+        #[serde(default)]
+        subjects: Vec<String>,
+    },
     Stop,
 }
 
@@ -462,6 +479,9 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "set_limits",
     "get_approval_state",
     "clear_approval_grants",
+    "list_checkpoints",
+    "revert_turn",
+    "draft_commit_message",
     "stop",
 ];
 
@@ -879,5 +899,34 @@ mod tests {
             serde_json::from_value(value).unwrap();
         assert!(legacy.is_ok());
         assert_eq!(legacy.result.unwrap()["accepted"], true);
+    }
+
+    /// docs/features/source-control/plan.md, 3.3.
+    #[test]
+    fn checkpoints_and_commit_message_commands_are_advertised_and_validated() {
+        for frame in [
+            json!({"type": "list_checkpoints", "id": 1}),
+            json!({"type": "revert_turn", "id": 2, "checkpoint": "c-17", "force": false, "paths": null}),
+            json!({"type": "revert_turn", "id": 3, "checkpoint": "c-17-undo", "paths": ["a.ts"]}),
+            json!({"type": "draft_commit_message", "id": 4, "diff": "diff --git a/x b/x", "subjects": ["feat: x"]}),
+            json!({"type": "draft_commit_message", "id": 5, "diff": ""}),
+        ] {
+            let name = frame["type"].as_str().unwrap();
+            assert!(SUPPORTED_COMMANDS.contains(&name), "{name} not advertised");
+            assert!(
+                serde_json::from_value::<Request>(frame.clone()).is_ok(),
+                "{frame} rejected"
+            );
+        }
+        for frame in [
+            json!({"type": "revert_turn"}),
+            json!({"type": "revert_turn", "checkpoint": 17}),
+            json!({"type": "draft_commit_message", "subjects": []}),
+        ] {
+            assert!(
+                serde_json::from_value::<Request>(frame.clone()).is_err(),
+                "{frame}"
+            );
+        }
     }
 }

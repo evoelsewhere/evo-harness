@@ -22,7 +22,14 @@
 //!
 //! Spec: `docs/features/subagents-and-nested-sessions/spec.md` (FR-13, FR-21,
 //! FR-22, NFR-4).
+//!
+//! Two modules serve source control (`docs/features/source-control/spec.md`):
+//! [`checkpoint`] keeps a repository's working tree at the start and end of a
+//! chat's turns, and [`scm`] is the person's own git operations (status,
+//! diffs, stage, discard, commit).
 
+pub mod checkpoint;
+pub mod scm;
 mod snapshot;
 
 use std::path::{Path, PathBuf};
@@ -80,9 +87,8 @@ pub struct Worktrees {
     data_root: PathBuf,
 }
 
-/// `git` output byte for byte: a patch must keep its trailing newline and
-/// text that is not UTF-8.
-fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+/// `git -C dir args…`, with no console window on Windows.
+fn git_command(dir: &Path, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(dir).args(args);
     #[cfg(windows)]
@@ -92,7 +98,58 @@ fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let output = command
+    command
+}
+
+/// `git` with extra environment and bytes on stdin. On failure the error
+/// holds what git printed on both streams (a hook's output goes to either).
+pub(crate) fn git_with(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &std::ffi::OsStr)],
+    stdin: Option<&[u8]>,
+) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut command = git_command(dir, args);
+    command.envs(env.iter().copied());
+    command
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    if let (Some(bytes), Some(mut input)) = (stdin, child.stdin.take()) {
+        // Written on a thread: git may fill its output pipe before reading all input.
+        let bytes = bytes.to_vec();
+        std::thread::spawn(move || {
+            let _ = input.write_all(&bytes);
+        });
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    if output.status.success() {
+        return Ok(output.stdout);
+    }
+    let said = [&output.stderr[..], &output.stdout[..]]
+        .iter()
+        .map(|bytes| String::from_utf8_lossy(bytes).trim().to_string())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(format!("git {} failed: {said}", args.join(" ")))
+}
+
+/// `git` output byte for byte: a patch must keep its trailing newline and
+/// text that is not UTF-8.
+fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = git_command(dir, args)
         .output()
         .map_err(|e| format!("could not run git: {e}"))?;
     if output.status.success() {
@@ -1116,7 +1173,11 @@ fn location_name(location: WorktreeLocation) -> &'static str {
 }
 
 #[cfg(test)]
+mod checkpoint_tests;
+#[cfg(test)]
 mod review_tests;
+#[cfg(test)]
+mod scm_tests;
 
 #[cfg(test)]
 mod tests {

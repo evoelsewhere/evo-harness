@@ -33,6 +33,7 @@ import {
 import { InputGroupButton } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { UNCONFIGURED_PROVIDER } from "@/engine/protocol";
+import { composeCodeComments } from "@/lib/code-comments";
 import { composeAnnotatedMessage } from "@/lib/document-annotations";
 import { mcp, type Connector } from "@/lib/mcp";
 import { cn } from "@/lib/utils";
@@ -42,7 +43,7 @@ import { useCustomizeStore } from "@/stores/customize-store";
 import { useApprovalGrants, useDeferred, useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore, type ApprovalMode } from "@/stores/ui-store";
-import { ComposerAnnotations } from "./annotation-chips";
+import { ComposerAnnotations, ComposerCodeComments } from "./annotation-chips";
 import { CommandMenu, commandItems, leadingCommand, matchCommands, type CommandItem } from "./command-menu";
 import {
   attachmentsFromPaths,
@@ -69,8 +70,22 @@ const grantChips = {
   edit: { long: "Edits allowed in this chat", short: "Edits" },
 } as const;
 
-/** A draft the empty state or a suggestion can prefill. */
-export const composerDraft = {
+interface ComposerDraft {
+  listeners: Set<(text: string) => void>;
+  insertListeners: Set<(text: string) => void>;
+  attachListeners: Set<(path: string) => void>;
+  set(text: string): void;
+  insert(text: string): void;
+  attach(path: string): void;
+}
+
+/**
+ * A draft the empty state or a suggestion can prefill. One object for the
+ * window: a reloaded copy of this module (development) keeps reaching the
+ * composer that registered with the first one (Source control's "Attach to
+ * message" went nowhere after a hot update).
+ */
+export const composerDraft: ComposerDraft = ((globalThis as { __evoComposerDraft?: ComposerDraft }).__evoComposerDraft ??= {
   listeners: new Set<(text: string) => void>(),
   insertListeners: new Set<(text: string) => void>(),
   attachListeners: new Set<(path: string) => void>(),
@@ -81,11 +96,11 @@ export const composerDraft = {
   insert(text: string) {
     for (const listener of this.insertListeners) listener(text);
   },
-  /** Attach a file or folder to the next message (Files tool → Attach as context). */
+  /** Attach a file or folder to the next message (Files tool → Attach as context, Source control's menu). */
   attach(path: string) {
     for (const listener of this.attachListeners) listener(path);
   },
-};
+});
 
 export function ChatComposer() {
   const [text, setText] = React.useState("");
@@ -271,15 +286,18 @@ export function ChatComposer() {
     const files = attachments;
     const chat = useEngineStore.getState().activeId;
     const annotations = chat ? (useAnnotationsStore.getState().pending[chat] ?? []) : [];
+    const comments = chat ? (useAnnotationsStore.getState().code[chat] ?? []) : [];
     setText("");
     setAttachments([]);
     setProblem(null);
     // The caret stays in the composer, also after a click on Send (ux-polish FR-12).
     requestAnimationFrame(() => textareaRef.current?.focus());
     if (chat && annotations.length > 0) useAnnotationsStore.getState().clear(chat);
+    if (chat && comments.length > 0) useAnnotationsStore.getState().clearCode(chat);
     try {
       const prompt = await buildPrompt(await withResources(message), files);
-      const text = composeAnnotatedMessage(prompt.text, annotations);
+      // Comments on changed lines go in the text; the office block stays last.
+      const text = composeAnnotatedMessage(composeCodeComments(prompt.text, comments), annotations);
       if (useEngineStore.getState().transcript.busy) {
         await queueMessage(text, prompt.images, queue ? "followUp" : "steer");
       } else {
@@ -294,6 +312,7 @@ export function ChatComposer() {
       setText((current) => current || message);
       setAttachments((current) => (current.length ? current : files));
       if (chat) useAnnotationsStore.getState().restore(chat, annotations);
+      if (chat) useAnnotationsStore.getState().restoreCode(chat, comments);
       setProblem(error instanceof Error ? error.message : String(error));
     }
   }
@@ -301,7 +320,9 @@ export function ChatComposer() {
   // The viewer's "Send now" sends the batch (with whatever is typed) through
   // this composer, as Enter would.
   const submitRequest = useAnnotationsStore((s) => s.submitRequest);
-  const pendingAnnotations = useAnnotationsStore((s) => (chatId ? (s.pending[chatId]?.length ?? 0) : 0));
+  const pendingAnnotations = useAnnotationsStore((s) =>
+    chatId ? (s.pending[chatId]?.length ?? 0) + (s.code[chatId]?.length ?? 0) : 0,
+  );
   const handledSubmit = React.useRef(submitRequest?.nonce ?? 0);
   // The effect runs with this render's `send`, `text` and state.
   React.useEffect(() => {
@@ -454,6 +475,7 @@ export function ChatComposer() {
             }}
           />
           <ComposerAnnotations chatId={chatId} />
+          <ComposerCodeComments chatId={chatId} />
           {!approvalNoteSeen && (
             <p role="note" className="mx-3 mb-1.5 flex items-start gap-2 text-xs text-muted-foreground">
               <span className="min-w-0 flex-1">

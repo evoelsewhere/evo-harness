@@ -718,6 +718,10 @@ async fn run_inner() -> i32 {
                         crate::modes::RpcProviders {
                             catalog: reload_context.catalog.clone(),
                             reload: Some(&reload_context),
+                            checkpoints: Some(crate::checkpoints::Checkpoints::new(
+                                crate::checkpoints::global().clone(),
+                                reload_context.cwd.clone(),
+                            )),
                         },
                         reload_context.ui_dialog.clone(),
                         oauth_snapshot,

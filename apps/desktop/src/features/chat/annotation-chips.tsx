@@ -5,9 +5,10 @@
 
 import * as React from "react";
 import { ChevronDownIcon, MessageSquareTextIcon, XIcon } from "lucide-react";
+import { describeCodeComment } from "@/lib/code-comments";
 import { describeAnnotation, type ParsedAnnotation } from "@/lib/document-annotations";
 import { cn } from "@/lib/utils";
-import { useAnnotationsStore, usePendingAnnotations } from "@/stores/annotations-store";
+import { useAnnotationsStore, usePendingAnnotations, usePendingCodeComments } from "@/stores/annotations-store";
 
 /** The chat's batch, above the message field. */
 export function ComposerAnnotations({ chatId }: { chatId: string | null }) {
@@ -60,6 +61,68 @@ export function ComposerAnnotations({ chatId }: { chatId: string | null }) {
                 type="button"
                 onClick={() => store.remove(chatId, annotation.id)}
                 aria-label={`Remove annotation ${index + 1}`}
+                className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <XIcon className="size-3" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The chat's comments on changed lines, above the message field
+ * (docs/features/source-control/spec.md, FR-8).
+ */
+export function ComposerCodeComments({ chatId }: { chatId: string | null }) {
+  const comments = usePendingCodeComments(chatId);
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (comments.length === 0) setOpen(false);
+  }, [comments.length]);
+  if (!chatId || comments.length === 0) return null;
+  const store = useAnnotationsStore.getState();
+  return (
+    <div className="mx-2 mb-1.5 rounded-xl border border-brand/25 bg-brand/5 py-1 pr-1 pl-3" data-testid="composer-code-comments">
+      <div className="flex min-w-0 items-center gap-2">
+        <MessageSquareTextIcon className="size-3.5 shrink-0 text-brand" aria-hidden />
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1 text-left text-[11px] font-medium text-foreground/80 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        >
+          Comments on changes: {comments.length}
+          <ChevronDownIcon className={cn("size-3 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
+        </button>
+        <button
+          type="button"
+          onClick={() => store.clearCode(chatId)}
+          aria-label="Remove all comments"
+          title="Remove all comments"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <XIcon className="size-3.5" aria-hidden />
+        </button>
+      </div>
+      {open && (
+        <ol className="mt-1 mb-1 flex flex-col gap-1 pr-1">
+          {comments.map((comment, index) => (
+            <li key={comment.id} className="flex min-w-0 items-start gap-2 text-xs">
+              <span className="mt-px grid size-4 shrink-0 place-items-center rounded-full bg-brand text-[10px] font-semibold text-brand-foreground">
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] text-muted-foreground">{describeCodeComment(comment)}</span>
+                <span className="block break-words [overflow-wrap:anywhere]">{comment.instruction || "Look at these lines"}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => store.removeCode(chatId, comment.id)}
+                aria-label={`Remove comment ${index + 1}`}
                 className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <XIcon className="size-3" aria-hidden />
