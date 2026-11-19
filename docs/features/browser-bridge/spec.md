@@ -329,6 +329,7 @@ None.
   this feature's documents and UI text (identifiers stay lowercase).
 - 2026-11-18 — Accepted (Gates A and B); tasks written.
 - 2026-11-18 — FR-27: the approval mode is the app's, so the panel switches the app's mode.
+- 2026-11-19 — FR-19 checked on Edge; the extension asks to start Evo once per browser run, also when the browser sends no `onStartup`.
 - 2026-11-19 — FR-30 (default browser), FR-31 (a panel chat works in its browser; shared tabs are not navigated away), FR-32 (panel chats are named after their first message).
 - 2026-11-18 — Checks run on Edge; Chrome runs the same extension and code and
   is not checked separately.

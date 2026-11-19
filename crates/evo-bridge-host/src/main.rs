@@ -5,16 +5,16 @@
 //! frames until either side closes.
 
 use std::io;
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use evo_bridge_host::frames::{read_frame, relay, write_frame};
 use evo_bridge_host::{
-    intro_frame, origin_arg, peer, unreachable_frame, wants_launch, APP_EXECUTABLES,
+    app_beside, intro_frame, origin_arg, peer, unreachable_frame, wants_launch, APP_EXECUTABLES,
 };
 
-/// How long the host waits for Evo after starting it.
-const START_WAIT: Duration = Duration::from_secs(10);
+/// How long the host waits for Evo after starting it: a cold start on a busy
+/// machine (an antivirus scanning the app) can take more than 10 s.
+const START_WAIT: Duration = Duration::from_secs(30);
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -146,18 +146,9 @@ async fn connect(own: &std::path::Path, launch: bool) -> Result<tokio::net::Unix
     }
 }
 
-/// The Evo app beside the host.
-fn app_executable(own: &std::path::Path) -> Option<PathBuf> {
-    let dir = own.parent()?;
-    APP_EXECUTABLES
-        .iter()
-        .map(|name| dir.join(name))
-        .find(|path| path.is_file())
-}
-
 /// Start Evo in the tray, outside the browser's process group, so it outlives the host.
 fn start_app(own: &std::path::Path) -> io::Result<()> {
-    let app = app_executable(own).ok_or_else(|| {
+    let app = own.parent().and_then(app_beside).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "Evo is not installed beside the host",

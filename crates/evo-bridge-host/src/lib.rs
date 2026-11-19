@@ -45,6 +45,24 @@ pub fn unreachable_frame(reason: &str) -> Vec<u8> {
     format!(r#"{{"t":"bye","reason":"{reason}"}}"#).into_bytes()
 }
 
+/// The Evo app in `dir`, the host's folder. A development build's folder can
+/// hold both names, one of them stale: the newest one is the app.
+pub fn app_beside(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    APP_EXECUTABLES
+        .iter()
+        .map(|name| dir.join(name))
+        .filter_map(|path| {
+            let modified = std::fs::metadata(&path)
+                .ok()
+                .filter(|m| m.is_file())?
+                .modified()
+                .ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
 /// Whether the extension's first frame asks the host to start Evo (`"launch":true`).
 pub fn wants_launch(hello: &[u8]) -> bool {
     let text = String::from_utf8_lossy(hello);
@@ -79,6 +97,27 @@ mod tests {
         assert!(wants_launch(br#"{"t":"hello","launch": true}"#));
         assert!(!wants_launch(br#"{"t":"hello","launch":false}"#));
         assert!(!wants_launch(br#"{"t":"hello"}"#));
+    }
+
+    #[test]
+    fn the_newest_app_beside_the_host_is_started() {
+        let dir = std::env::temp_dir().join(format!("evo-host-app-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(app_beside(&dir), None);
+        let old = dir.join(APP_EXECUTABLES[0]);
+        let new = dir.join(APP_EXECUTABLES[1]);
+        std::fs::write(&old, b"old").unwrap();
+        assert_eq!(app_beside(&dir), Some(old.clone()));
+        std::fs::write(&new, b"new").unwrap();
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        assert_eq!(app_beside(&dir), Some(new));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -50,9 +50,20 @@ on("settings", (settings) => {
   for (const port of panels.values()) port.postMessage({ type: "settings", settings });
 });
 
-// The browser just started: Evo may be started too (FR-19).
-chrome.runtime.onStartup.addListener(() => connect({ launch: true }));
-chrome.runtime.onInstalled.addListener(() => connect({ launch: false }));
+// The browser just started: Evo may be started too (FR-19). Session storage
+// is empty once per browser run, so the first start of this worker in a run
+// asks; later starts (the worker woke up again) never reopen an Evo the person
+// quit. `onStartup` alone is not enough: a browser that loads the extension
+// from its command line does not send it. A worker woken by anything else
+// connects here too; nothing may connect before it, or its `launch` is lost
+// (one connection at a time).
+async function connectAtStart() {
+  const { started } = await chrome.storage.session.get("started");
+  if (!started) await chrome.storage.session.set({ started: true });
+  return connect({ launch: !started });
+}
+chrome.runtime.onStartup.addListener(connectAtStart);
+connectAtStart();
 
 // The toolbar button opens the side panel.
 chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
@@ -61,7 +72,7 @@ chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() 
 chrome.runtime.onMessage.addListener((request, _sender, reply) => {
   switch (request?.type) {
     case "status":
-      if (status.state !== "connected") connect();
+      if (status.state !== "connected") connectAtStart();
       reply({ ...status });
       return false;
     case "reconnect":
@@ -93,6 +104,3 @@ onStatus(() => {
   chrome.action.setBadgeText({ text: status.state === "connected" ? "" : "!" }).catch(() => {});
   chrome.action.setBadgeBackgroundColor({ color: "#666666" }).catch(() => {});
 });
-
-// A worker woken by anything else connects too.
-connect();

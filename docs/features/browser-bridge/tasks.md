@@ -27,7 +27,7 @@ loaded extension shows "Connected to Evo", and Settings shows the profile.
 
 - [x] T3 [FR-3] Tests, then the wire: frame encode/decode (4-byte LE length), message types, `chunk` split and join — `shell/webbridge/wire.rs` — check: `bun run test:shell -- webbridge::wire`
 - [x] T4 [FR-3, NFR-1] Tests, then `evo-bridge-host`: relay stdin ↔ pipe frames unchanged, check the pipe server's executable sits in the host's folder, exit when either side closes — `crates/evo-bridge-host/` — check: `cargo test -p evo-bridge-host`
-- [ ] T5 [FR-19] The host starts Evo hidden when no pipe answers and retries for 10 s — `crates/evo-bridge-host/src/launch.rs` — check: manual (quit Evo, open the browser: Evo starts in the tray)
+- [x] T5 [FR-19] The host starts Evo hidden when no pipe answers and retries for 30 s; the extension asks once per browser run — `crates/evo-bridge-host/src/main.rs`, `ext/background/main.js` — check: manual (quit Evo, open the browser: Evo starts in the tray)
 - [x] T6 [FR-3, FR-4, FR-23, NFR-3] Tests, then the pipe server: current-user pipe, client executable check, `hello` (origin allow-list, version, policy), instance table, `bye` on refusal; starts only when set up — `shell/webbridge/{mod,server}.rs`, `shell/lib.rs` — check: `bun run test:shell -- webbridge::server`
 - [x] T7 [FR-2, NFR-4] Tests, then set-up: host manifest, per-user registration for Chrome and Edge (registry on Windows, manifest files on macOS and Linux), remove, status — `shell/webbridge/setup.rs` — check: `bun run test:shell -- webbridge::setup`
 - [x] T8 [FR-1, FR-4, NFR-5] The extension: manifest (permissions of FR-1 only), port with `hello`, reconnect with backoff, profile id and label in storage, popup with connection state — `ext/manifest.json`, `ext/background/*.js`, `ext/popup/*` — check: manual (load unpacked; popup says Connected to Evo)
@@ -113,7 +113,7 @@ and panel chats look like the app's.
 | FR-16 | Manual: Stop during `browser_wait` | passed on Edge (2026-11-19): Stop in the panel during a 45 s `browser_wait` ended the turn in 8 s (machine at 100% CPU); the engine logs the run aborted |
 | FR-17 | Manual: Take over, then a click is held | passed on Edge (2026-11-18): Take over through the indicator's binding; the next tool call says the person has control. A click by the person makes the agent's next click wait 5.3 s; the agent's own input does not |
 | FR-18 | Manual: Stop all, the notices go | passed on Edge (2026-11-18): the tab is detached and its indicator off; the next call attaches again |
-| FR-19 | Manual: Evo starts in the tray | reconnect after a browser restart passed (2026-11-18); starting Evo from the browser: not run |
+| FR-19 | Manual: Evo starts in the tray | reconnect after a browser restart passed (2026-11-18); passed on Edge (2026-11-19): with Evo quit, opening Edge started Evo with `--hidden` in 3 s, the main window stayed hidden and the profile connected; quitting Evo while Edge runs does not reopen it |
 | FR-20 | Manual: close the tab during a wait | passed on Edge (2026-11-18): the wait returns "The tab closed." at once; later calls say the same |
 | FR-21 | Review of result wording | passed (2026-11-18): page results end with the untrusted-data note, as in the built-in browser |
 | FR-22 | `webbridge` tests; manual: browser settings page refused | passed (2026-11-18): tests; on Edge `edge://settings`, `chrome://extensions` and the Web Store are refused with "The browser does not let extensions use this page."; a Block site refuses click, eval and navigate |

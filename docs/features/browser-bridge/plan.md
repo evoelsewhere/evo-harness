@@ -278,7 +278,7 @@ Webbridge tabs". Older engines are unaffected: the tools are the shell's.
 **Connect.** The browser starts the extension → `connectNative` → the
 browser starts `evo-bridge-host <origin>` → the extension sends `hello` →
 the host opens the pipe (when nobody answers and `hello` has `launch: true`,
-it starts Evo with `--hidden` and retries for 10 s) → the host sends its
+it starts Evo with `--hidden` and retries for 30 s) → the host sends its
 introduction (`{"t":"host","origin":…}`), then the `hello` → `welcome` → the
 shell records the profile and emits `webbridge://changed`. The extension asks
 for `launch` only when the browser itself just started, so reconnecting never
@@ -430,7 +430,7 @@ Edited in **Settings → Browser**; site permissions also in the side panel's
     policy on the machine. The extension reports `debugger` in `hello`; attach
     errors that name the policy come back as `refused`.
 - The host reads the extension's `hello` before reaching the pipe, so it can
-  honour `launch` (above); it gives up after 10 s when the pipe stays busy.
+  honour `launch` (above); it gives up after 30 s when the pipe stays busy.
 - Webbridge tabs are dispatched by tab id inside `browser.rs` instead of a
   `TabHost` trait (3.2), and the page helper runs in the page's world as in
   the built-in browser.
@@ -487,6 +487,17 @@ Edited in **Settings → Browser**; site permissions also in the side panel's
     folder to load, so edits show after Reload; the copy beside the debug exe
     is refreshed only by a build.
   - Chrome is not checked separately: it runs the same extension and code.
+- 2026-11-19 — Starting Evo from the browser (FR-19, T5):
+  - It never worked: the worker's last line connected without `launch`
+    before `onStartup` could ask, and the extension keeps one connection
+    at a time. The worker now connects only through `connectAtStart`.
+  - A browser that loads the extension from its command line sends no
+    `onStartup`, so the worker asks when its session storage is empty: once
+    per browser run (and after the extension reloads). A worker that wakes
+    up later in the run never reopens an Evo the person quit.
+  - The host waits 30 s for a started Evo (a debug build on a busy machine
+    took 14 s), and starts the newest app beside it: a development folder
+    can hold a stale `evo-harness.exe` beside `evo-desktop.exe`.
 - 2026-11-19 — Third round, with a model on the test profile:
   - The default browser (`webbridge.defaultBrowser`, FR-30) and a panel
     chat's browser (FR-31) are applied in `resolve_target`: a call that names
