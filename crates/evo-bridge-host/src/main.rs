@@ -8,9 +8,7 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use evo_bridge_host::frames::{read_frame, relay, write_frame};
-use evo_bridge_host::{
-    app_beside, intro_frame, origin_arg, peer, unreachable_frame, wants_launch, APP_EXECUTABLES,
-};
+use evo_bridge_host::{app_beside, intro_frame, origin_arg, peer, unreachable_frame, wants_launch};
 
 /// How long the host waits for Evo after starting it: a cold start on a busy
 /// machine (an antivirus scanning the app) can take more than 10 s.
@@ -111,7 +109,8 @@ async fn connect(
     let server = peer::pipe_server_pid(client.as_raw_handle())
         .and_then(peer::process_image)
         .map_err(|e| format!("not-evo: {e}"))?;
-    if !peer::is_sibling(own, &server, APP_EXECUTABLES) {
+    // Named in full: only this Windows check uses it, so other targets have no unused import.
+    if !peer::is_sibling(own, &server, evo_bridge_host::APP_EXECUTABLES) {
         return Err(format!("not-evo: {}", server.display()));
     }
     Ok(client)

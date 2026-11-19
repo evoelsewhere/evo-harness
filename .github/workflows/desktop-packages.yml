@@ -465,7 +465,7 @@ jobs:
           package_name="$(dpkg-deb -f "$package" Package)"
           sudo apt-get install -y "$PWD/$package"
 
-          executable="$(dpkg -L "$package_name" | grep '^/usr/bin/' | grep -v '/evo-engine$' | head -n1)"
+          executable="$(dpkg -L "$package_name" | grep '^/usr/bin/' | grep -v -e '/evo-engine$' -e '/evo-bridge-host$' | head -n1)"
           if [[ -z "$executable" || ! -x "$executable" ]]; then
             echo "Installed desktop executable was not found." >&2
             dpkg -L "$package_name" >&2
@@ -511,7 +511,8 @@ jobs:
             throw "The evo-engine sidecar was not installed at '$engine'."
           }
           $executable = Get-ChildItem $installLocation -Filter *.exe |
-            Where-Object { $_.Name -ne "evo-engine.exe" -and $_.Name -notlike "uninstall*" } |
+            # The app, not a sidecar: evo-bridge-host exits at once without the browser's arguments.
+            Where-Object { $_.Name -ne "evo-engine.exe" -and $_.Name -ne "evo-bridge-host.exe" -and $_.Name -notlike "uninstall*" } |
             Select-Object -First 1
           if (-not $executable) {
             throw "Installed desktop executable was not found in '$installLocation'."
