@@ -384,12 +384,27 @@ jobs:
 
           ln -s /Applications "$source_dir/Applications"
           mkdir -p "$dmg_dir"
-          hdiutil create \
-            -volname "$product_name" \
-            -srcfolder "$source_dir" \
-            -ov \
-            -format UDZO \
-            "$dmg_path"
+          # hdiutil on hosted macOS runners fails now and then ("Resource
+          # busy") with nothing wrong in the input; retry a few times and
+          # drop the half-written image between attempts.
+          attempts=5
+          for attempt in $(seq 1 "$attempts"); do
+            if hdiutil create \
+              -volname "$product_name" \
+              -srcfolder "$source_dir" \
+              -ov \
+              -format UDZO \
+              "$dmg_path"; then
+              break
+            fi
+            rm -f "$dmg_path"
+            if [[ "$attempt" -eq "$attempts" ]]; then
+              echo "hdiutil create failed $attempts times." >&2
+              exit 1
+            fi
+            echo "hdiutil create failed (attempt $attempt of $attempts); retrying in 15 s." >&2
+            sleep 15
+          done
           echo "path=$dmg_path" >> "$GITHUB_OUTPUT"
 
       - name: Sign and notarize DMG
