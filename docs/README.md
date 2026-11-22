@@ -66,12 +66,12 @@ Not in this folder:
 
 Each step produces a document, and each document is checked before the next
 step starts. The person who owns the work (the user, for agent-written work)
-approves at the two gates; agents do the rest.
+confirms the framing and approves at the two gates; agents do the rest.
 
 ```text
- request ──► 1 Specify ──► 2 Clarify ──► [gate A: spec accepted]
-                                                │
-             3 Plan ──► [gate B: plan accepted] ◄┘
+ request ──► 0 Frame ──► 1 Specify ──► 2 Clarify ──► [gate A: spec accepted]
+                                                                │
+             3 Plan ──► [gate B: plan accepted] ◄───────────────┘
                │
                ▼
              4 Tasks ──► 5 Implement ──► 6 Verify ──► Implemented
@@ -79,14 +79,22 @@ approves at the two gates; agents do the rest.
                               └──── 7 Evolve: spec first ◄┘
 ```
 
+0. **Frame.** Research the request, write down the big questions, answer
+   the facts from the repository, ask the owner the decisions, and play the
+   understanding back until the owner confirms it — see
+   [Framing](#framing-research-ask-confirm). Applies to every change, not
+   only features.
 1. **Specify.** Copy `templates/spec.md` to `features/<slug>/spec.md` and
    add a row to `features/README.md`. Write the summary, scope, user
    scenarios, requirements (`FR-n`, `NFR-n`) and success criteria from the
-   request. Every unknown is written as `[NEEDS CLARIFICATION: <question>]`
-   with a proposed answer — never a silent guess. Status `Draft`.
-2. **Clarify.** Put the open questions to the owner, a few at a time, most
-   important first. Each answer goes into the spec (requirement or scope)
-   and is logged in section 6.2. The spec is ready when no
+   confirmed framing. Framing decisions go to section 6.2, assumptions to
+   6.3. Every unknown left is written as
+   `[NEEDS CLARIFICATION: <question>]` with a proposed answer — never a
+   silent guess. Status `Draft`.
+2. **Clarify.** Put the questions that writing the spec turned up to the
+   owner, the same way as in framing (rounds, most impact first, a
+   recommended answer each). Each answer goes into the spec (requirement or
+   scope) and is logged in section 6.2. The spec is ready when no
    `[NEEDS CLARIFICATION]` marker is left and every requirement has an
    acceptance check.
    **Gate A:** the owner accepts the spec.
@@ -119,18 +127,152 @@ approves at the two gates; agents do the rest.
 If a feature changes the architecture (see "When the ADD changes"), the ADD
 and an ADR change in the same commit as the plan.
 
+## Framing: research, ask, confirm
+
+Most rework comes from building the wrong thing well: the agent's picture of
+the request differs from the owner's, and nobody notices until the code
+exists. So every change — a feature, a bug fix, a refactor, a behaviour
+tweak — starts with framing, before any spec, plan or code. Framing is
+proportional: a typo fix frames in one sentence, a new feature takes one or
+two rounds of questions.
+
+1. **Research first.** Read what already answers the request: the
+   feature's spec, plan and tasks, the ADD and ADRs, `AGENTS.md`, the code
+   and tests in the area, its recent history (`git log -- <path>`), and for
+   a bug the logs and a reproduction. Find what can be reused and what the
+   request would break.
+2. **Write the big questions down** (lists below) and answer each one
+   yourself first. Each answer is one of:
+   - **Fact** — the repository or a run answers it. Cite the source (a
+     path, a test, a command's output). Never ask the owner a fact.
+   - **Decision** — only the owner can settle it: intent, scope, what the
+     person sees, trade-offs, compatibility, anything costly to reverse. It
+     goes to the owner with a recommendation.
+   - **Assumption** — a low-impact choice with a sensible default that
+     changes neither what is built nor how it is checked. Recorded, not
+     asked.
+
+   When unsure whether it is a decision or an assumption, it is a decision.
+3. **Ask in rounds.** Put the open decisions to the owner, most impact
+   first, at most five per round. Ask only questions whose prerequisites
+   are settled; one that depends on an open answer waits for the next
+   round. Each question:
+   - is a full question about this request ("Should a closed panel keep its
+     scroll position?"), not a topic ("Scrolling?");
+   - says in one line why it matters — what changes in the build or the
+     check;
+   - gives 2–4 mutually exclusive options and a **recommended** one with
+     its reason, worded so that "yes" accepts it.
+
+   Wait for the answers. Ask an ambiguous answer again rather than guess.
+   Stop when no decision is open, or when the owner says to go on — the
+   questions still open then become assumptions, marked as such.
+4. **Play it back.** Before writing the spec (or, for a bug, before the
+   fix), restate the understanding in a few lines: the problem and the
+   outcome in the owner's terms, what is in and out, how "done" is checked,
+   and the assumptions taken. The owner confirms or corrects it. This is
+   where a mismatch is cheapest to catch.
+5. **Record it.** Answers never live only in a chat:
+   - a feature: decisions in spec section 6.2 and in the requirements or
+     scope they change, assumptions in 6.3, facts in plan section 1;
+   - a bug fix, refactor or change without a new spec: the root cause,
+     decisions and assumptions in the commit body; if they change what a
+     feature does, in its spec too (6.2 and a History line).
+6. **Reopen when reality disagrees.** A decision found later — while
+   planning or building (the agreed behaviour cannot be built as agreed, a
+   second reasonable behaviour appears, a fix would change more than the
+   report) — stops the work on that point: frame it, ask, record it. The
+   agent never settles it silently. An agent working with nobody to ask (a
+   background session, a parallel agent) takes the recommended answer,
+   records it as an assumption, and lists it first in its handoff report.
+
+### The big questions
+
+A feature or a behaviour change:
+
+- **Why.** What problem does the person have, what outcome shows it is
+  solved, and why now?
+- **Who and when.** Which person, in which situation, starts it; what do
+  they see before and after?
+- **Scope.** What is in; what is deliberately out, and where does that live
+  instead?
+- **What exists.** What in Evo already does part of this — reuse, extend or
+  replace? Which existing specs does it touch or contradict?
+- **Edges.** Empty, very large, offline, cancelled, engine restart, missing
+  permission, untrusted input, several windows or sessions at once?
+- **Layers and compatibility.** Which layers change (engine, protocol,
+  shell, UI, store, plugin ABI)? Do an older engine, client and database
+  still work?
+- **Trust.** Does it run tools, read untrusted content, store credentials,
+  cross a process or change permissions?
+- **Done.** How is each requirement checked — which test, which check in
+  the running app?
+- **Cost of being wrong.** What is hard to reverse (a schema, a wire
+  format, a settings key, a file layout)? Those are decisions, never
+  assumptions.
+
+A bug fix:
+
+- **Expected vs actual.** What should happen, what happens, for whom, since
+  when? Which requirement (`FR-n`) defines "expected" — or is the
+  expectation unwritten?
+- **Reproduction.** What is the shortest reliable way to make it fail?
+- **Root cause.** Where does the wrong value or state first appear?
+- **Blast radius.** What else uses that code; is data already wrong on disk
+  (a repair or a migration)?
+- **The fix.** A fix at the root cause or a guard at the symptom? Does it
+  change behaviour anyone relies on? A behaviour change is a decision.
+- **Proof.** Which regression test fails before the fix and passes after?
+
+A refactor:
+
+- **Why now, and what gets better** — measurably (a deeper module, a
+  removed dependency, less code, a faster build)?
+- **What must not change** — the behaviour and interfaces that stay
+  identical, and the tests that prove it?
+- **Steps** — can it land in small steps that each leave the build green?
+
+### Fixing a bug
+
+A bug fix needs no new spec, but it is framed like any other change, in
+this order:
+
+1. **Build a feedback loop**: a failing test or a command that shows the
+   bug, fast and deterministic. Without one, stop and ask for what is
+   missing (steps, logs, data) — no fixing by guesswork.
+2. **Reproduce and minimise** until every remaining step matters.
+3. **Find the root cause**: write 2–5 ranked hypotheses, each with the
+   result that would confirm or refute it, and test them one variable at a
+   time. Remove temporary logging afterwards.
+4. **Write the regression test** and see it fail for the right reason.
+5. **Fix at the root cause**, see the test pass, run the area's checks.
+6. **Record**: the commit body names the root cause and the fix; when the
+   bug was in behaviour a spec describes, keep the spec true.
+
+Ask the owner before fixing when the fix changes behaviour beyond the
+report, has more than one reasonable shape, or touches stored data, the
+protocol, permissions or the schema. After three failed fixes, stop: the
+design is the likely problem, not the hypothesis — reframe and discuss it
+with the owner before a fourth attempt.
+
 ## Agent-driven development
 
 Agents write most specs, plans, tasks and code; the documents are how the
 owner steers them and how one agent hands work to the next.
 
 - **The owner decides intent; the agent decides nothing silently.** Scope,
-  requirements and trade-offs are the owner's call at gates A and B. The
-  agent proposes, records each answer in the spec, and asks again when an
+  requirements and trade-offs are the owner's call — at framing and at
+  gates A and B. The agent researches first, proposes an answer to each
+  question, records each answer in the spec, and asks again when an
   answer is missing.
+- **Frame before building.** No spec, plan, fix or refactor starts before
+  the request is framed and the owner has confirmed the play-back (see
+  [Framing](#framing-research-ask-confirm)). A mismatch found later goes
+  back to framing, not into the code.
 - **No code before gate B.** An agent asked to "just build it" still writes
   the spec and plan (a half-page is fine for a small feature) and asks for
-  acceptance first. Bug fixes and refactors are exempt (see below).
+  acceptance first. Bug fixes and refactors are exempt from the spec and
+  plan (see below), not from framing.
 - **Read before writing.** Before touching a feature, an agent reads its
   `spec.md`, `plan.md` and `tasks.md`, the ADD sections the plan links, and
   `AGENTS.md`.
@@ -162,7 +304,8 @@ Needs one:
 
 Does not need one (but update the existing spec, plan or tasks if what they
 describe changes): bug fixes, refactors inside one module, copy and styling
-tweaks, dependency bumps, tests, CI.
+tweaks, dependency bumps, tests, CI. These are still framed first; a bug
+fix follows [Fixing a bug](#fixing-a-bug).
 
 When unsure, write a short spec — a half-page spec is fine; a missing one is
 not.
@@ -184,7 +327,8 @@ Update `architecture/README.md` **and** add an ADR when a change:
 - **Three files, fixed structure.** Every feature folder has `spec.md`,
   `plan.md` and `tasks.md`, each keeping every numbered section of its
   template in order. A section that does not apply says `n/a — <reason>`;
-  it is not deleted.
+  it is not deleted. Specs written before section 6.3 (Assumptions) existed
+  gain it on their next edit.
 - **What, how, work — kept apart.** `spec.md` holds no file paths, crate
   names or wire shapes unless the feature itself is a technical contract
   (a protocol, a tool schema the model sees). Design goes in `plan.md`;
@@ -256,6 +400,8 @@ its slug so the reader can still find it.
 
 Gate A — before accepting a spec:
 
+- [ ] The framing was played back and confirmed; its decisions are in 6.2
+      and its assumptions in 6.3.
 - [ ] Goals and non-goals are explicit.
 - [ ] User scenarios are prioritised and each has acceptance scenarios.
 - [ ] Every FR/NFR has an acceptance check; success criteria are

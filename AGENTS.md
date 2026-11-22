@@ -167,12 +167,33 @@ Evo is built spec first, by agents. Full rules and workflow:
   `docs/features/<slug>/` with `spec.md` (what and why), `plan.md` (how) and
   `tasks.md` (the work), from `docs/templates/`. Code follows the spec, never
   the other way round.
-- **Workflow:** specify → clarify → plan → tasks → implement → verify.
-  1. *Specify*: write `spec.md` from the request, add a row to
-     `docs/features/README.md`, status `Draft`. Write every unknown as
+- **Frame every change first** — feature, bug fix, refactor or tweak —
+  before any spec, plan or code ([Framing](docs/README.md#framing-research-ask-confirm)):
+  1. *Research*: read the spec/plan/tasks, ADD, ADRs, code, tests and
+     history of the area; for a bug, reproduce it.
+  2. *Big questions*: write them down (why, who, scope and non-goals, what
+     exists, edges, layers and compatibility, trust, how "done" is checked,
+     what is hard to reverse) and answer each yourself. A **fact** the repo
+     answers is cited, never asked. A **decision** (intent, scope, visible
+     behaviour, trade-off, anything costly to reverse) goes to the user. A
+     low-impact **assumption** is recorded, not asked. Unsure → decision.
+  3. *Ask in rounds*: at most five decisions per round, most impact first,
+     only those whose prerequisites are settled; each a full question with
+     why it matters, 2–4 options and a recommended answer "yes" accepts.
+     Wait for answers; never guess an ambiguous one.
+  4. *Play back* the understanding (problem, outcome, in/out, how it is
+     checked, assumptions) and get it confirmed before writing on.
+  5. *Reopen* when building turns up a new decision: stop on that point and
+     ask. With nobody to ask, take the recommended answer, record it as an
+     assumption, and report it first.
+- **Workflow:** frame → specify → clarify → plan → tasks → implement →
+  verify.
+  1. *Specify*: write `spec.md` from the confirmed framing, add a row to
+     `docs/features/README.md`, status `Draft`. Decisions go to section
+     6.2, assumptions to 6.3. Write every unknown left as
      `[NEEDS CLARIFICATION: …]` with a proposed answer — never guess.
-  2. *Clarify*: ask the user the open questions; record each answer in the
-     spec. **Gate A:** the user accepts the spec.
+  2. *Clarify*: ask the user the questions the spec turned up, the same way;
+     record each answer in the spec. **Gate A:** the user accepts the spec.
   3. *Plan*: write `plan.md`, starting with the architecture check against the
      rules above and the ADD. **Gate B:** the user accepts the plan; status
      `Accepted`. No code before this gate.
@@ -187,8 +208,15 @@ Evo is built spec first, by agents. Full rules and workflow:
      status `Implemented` when every requirement passes and the plan matches
      the code (deviations in its as-built notes).
 - **Later changes** edit the spec first (new `FR-n`, History line), then the
-  plan, then new tasks. Bug fixes and refactors need no new spec but must keep
-  the existing spec, plan and tasks true.
+  plan, then new tasks. Bug fixes and refactors need no new spec but are
+  still framed, and must keep the existing spec, plan and tasks true.
+- **Bug fixes** ([Fixing a bug](docs/README.md#fixing-a-bug)): build a
+  feedback loop (a failing test or command) → reproduce and minimise →
+  ranked, falsifiable hypotheses tested one at a time → regression test
+  that fails → fix at the root cause → root cause in the commit body. Ask
+  first when the fix changes behaviour beyond the report or touches data,
+  the protocol, permissions or the schema. After three failed fixes, stop
+  and reframe with the user.
 - **Parallel agents** take only `[P]` tasks of one phase and never edit the
   same files; the feature's owner agent merges, ticks and runs the checks.
 - **Architecture change → ADD + ADR.** A new crate, process, protocol plane,

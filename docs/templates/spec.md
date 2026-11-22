@@ -17,8 +17,10 @@ in the person's terms; no crate names, file paths or wire shapes here (those
 go in plan.md) unless the feature itself is a technical contract.
 Copy to docs/features/<slug>/spec.md, add a row to docs/features/README.md.
 Keep every numbered section; write "n/a — <reason>" where one does not apply.
-Mark every unknown with [NEEDS CLARIFICATION: <question>] instead of
-guessing. Rules: docs/README.md. Delete this comment.
+Write it from the confirmed framing (docs/README.md, "Framing"): the
+owner's decisions go to 6.2, the defaults the agent took to 6.3. Mark every
+unknown with [NEEDS CLARIFICATION: <question>] instead of guessing.
+Rules: docs/README.md. Delete this comment.
 -->
 
 ## 1. Summary
@@ -83,6 +85,14 @@ person (for example: "a chat with 1,000 messages opens in under 1 s").
 ### 6.2 Resolved
 
 - YYYY-MM-DD — Q: … → A: … (now in FR-n / section n)
+
+### 6.3 Assumptions
+
+Low-impact defaults taken without asking: they change neither what is
+built nor how it is checked. Anything costly to reverse is a question, not
+an assumption.
+
+- A-1 … — because …
 
 ## 7. History
 
