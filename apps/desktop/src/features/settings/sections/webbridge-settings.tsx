@@ -8,6 +8,7 @@ import { CopyIcon, FolderOpenIcon, OctagonXIcon, PlusIcon } from "lucide-react";
 import { StatusDot } from "@/components/status-dot";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { db } from "@/lib/db";
 import { useSessionStore } from "@/stores/session-store";
@@ -258,19 +259,23 @@ function SidePanelGroup() {
         labelId="webbridge-workspace"
         label="New chats start in"
         control={
-          <select
-            aria-labelledby="webbridge-workspace"
-            className="h-8 rounded-md bg-background px-2 text-sm shadow-[0_0_0_1px_var(--border)]"
-            value={workspace}
-            onChange={(e) => void save(WORKSPACE_KEY, e.target.value || null)}
+          <Select
+            value={workspace || LAST_WORKSPACE}
+            items={[{ value: LAST_WORKSPACE, label: "The last used workspace" }, ...workspaces.map((w) => ({ value: w.id, label: w.name }))]}
+            onValueChange={(next) => void save(WORKSPACE_KEY, next && next !== LAST_WORKSPACE ? next : null)}
           >
-            <option value="">The last used workspace</option>
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-labelledby="webbridge-workspace" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectItem value={LAST_WORKSPACE}>The last used workspace</SelectItem>
+              {workspaces.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         }
       />
       <SettingsRow
@@ -284,24 +289,29 @@ function SidePanelGroup() {
         label="Let go of the agent's tabs"
         description="While Evo works in a tab the browser shows that it is being debugged. After a chat's turn ends, Evo lets go of its tabs after this long, and picks them up again on the next turn."
         control={
-          <select
-            aria-labelledby="webbridge-lease"
-            className="h-8 rounded-md bg-background px-2 text-sm shadow-[0_0_0_1px_var(--border)]"
+          <Select
             value={String(typeof settings[LEASE_KEY] === "number" ? settings[LEASE_KEY] : 60)}
-            onChange={(e) => void save(LEASE_KEY, Number(e.target.value))}
+            items={LEASES.map(([seconds, label]) => ({ value: String(seconds), label }))}
+            onValueChange={(next) => void save(LEASE_KEY, Number(next))}
           >
-            {LEASES.map(([seconds, label]) => (
-              <option key={seconds} value={seconds}>
-                {label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger aria-labelledby="webbridge-lease" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              {LEASES.map(([seconds, label]) => (
+                <SelectItem key={seconds} value={String(seconds)}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         }
       />
     </SettingsGroup>
   );
 }
 
+const LAST_WORKSPACE = "__last__";
 const LEASE_KEY = "webbridge.leaseSeconds";
 const LEASES: [number, string][] = [
   [10, "After 10 seconds"],

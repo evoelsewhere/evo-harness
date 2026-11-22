@@ -5,6 +5,7 @@
 import * as React from "react";
 import { GlobeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { db } from "@/lib/db";
 import { useBrowserStore } from "@/stores/browser-store";
 import { useWebbridgeStore } from "@/stores/webbridge-store";
@@ -62,20 +63,28 @@ function DefaultBrowserGroup() {
               : "That browser profile is not connected now, so the agent uses the built-in browser."
         }
         control={
-          <select
-            aria-labelledby="browser-default"
-            className="h-8 max-w-56 rounded-md bg-background px-2 text-sm shadow-[0_0_0_1px_var(--border)]"
+          <Select
             value={value}
-            onChange={(e) => void save(e.target.value)}
+            items={[
+              { value: "builtin", label: "Built-in browser" },
+              ...profiles.map((p) => ({ value: p.key, label: `${name(p.browser)} · ${p.label}` })),
+              ...(known ? [] : [{ value, label: "A browser not connected now" }]),
+            ]}
+            onValueChange={(next) => void save(String(next ?? "builtin"))}
           >
-            <option value="builtin">Built-in browser</option>
-            {profiles.map((p) => (
-              <option key={p.key} value={p.key}>
-                {name(p.browser)} · {p.label}
-              </option>
-            ))}
-            {!known && <option value={value}>A browser not connected now</option>}
-          </select>
+            <SelectTrigger aria-labelledby="browser-default" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectItem value="builtin">Built-in browser</SelectItem>
+              {profiles.map((p) => (
+                <SelectItem key={p.key} value={p.key}>
+                  {name(p.browser)} · {p.label}
+                </SelectItem>
+              ))}
+              {!known && <SelectItem value={value}>A browser not connected now</SelectItem>}
+            </SelectContent>
+          </Select>
         }
       />
     </SettingsGroup>
