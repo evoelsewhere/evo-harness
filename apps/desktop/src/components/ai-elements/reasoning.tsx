@@ -8,26 +8,13 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace";
+import { preview, reasoningTitle, seconds } from "@/features/chat/turn-view";
+
+export { seconds };
 
 // shadcn/ui AI Elements · Reasoning on Trace, with DeepSeek Harness's
 // behaviour: always starts collapsed, shows a one-line preview of the thinking,
 // reads "Thinking" (shimmering) while it streams and "Thought for Ns" after.
-
-/** The line a reader sees: the latest finished paragraph while streaming, else the first. */
-function preview(text: string, streaming: boolean): string {
-  const paragraphs = text
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  const pick = streaming ? (paragraphs.length > 1 ? paragraphs.at(-2) : paragraphs.at(-1)) : paragraphs[0];
-  const line = (pick ?? "").split("\n")[0].replace(/^[#*_>\-\s]+/, "");
-  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
-}
-
-export function seconds(ms: number): string {
-  const s = Math.max(1, Math.round(ms / 1000));
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
-}
 
 export function Reasoning({
   text,
@@ -40,7 +27,7 @@ export function Reasoning({
   startedAt: number;
   endedAt?: number;
 }) {
-  const title = streaming ? "Thinking" : endedAt ? `Thought for ${seconds(endedAt - startedAt)}` : "Thought";
+  const title = reasoningTitle({ streaming, startedAt, endedAt });
   const line = (
     <TraceLine status={streaming ? "running" : undefined}>
       <TraceIcon>

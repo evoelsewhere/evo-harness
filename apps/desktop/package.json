@@ -13,6 +13,7 @@
     "engine:sidecar": "bun scripts/prepare-sidecar.ts",
     "engine:sidecar:release": "bun scripts/prepare-sidecar.ts --release",
     "webbridge:pack": "bun scripts/pack-webbridge.ts",
+    "webbridge:chat": "bun scripts/build-webbridge-chat.ts",
     "dev:app": "bun run engine:sidecar && tauri dev",
     "build:dev": "bun run engine:sidecar && tauri build --debug --bundles nsis",
     "build:app": "bun run engine:sidecar:release && tauri build"

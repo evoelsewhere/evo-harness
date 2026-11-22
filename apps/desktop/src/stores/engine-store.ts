@@ -1300,6 +1300,15 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       // (an older build's local value moves into it), and show changes from
       // any window. The shell tells every engine (FR-8).
       await useUiStore.getState().loadApproval();
+      void useUiStore.getState().loadPinnedModels();
+      // Evo Webbridge's side panel changed the model short list or the default model.
+      void listen<{ pinned?: string[] }>("models://pinned", ({ payload }) => {
+        if (Array.isArray(payload?.pinned)) useUiStore.getState().syncPinnedModels(payload.pinned);
+      });
+      void listen<{ default?: string | null }>("models://default", ({ payload }) => {
+        if (payload?.default) set({ defaultModel: payload.default, defaultSaved: true });
+        else set({ defaultModel: undefined, defaultSaved: false });
+      });
       void listen<{ mode?: ApprovalMode }>(APPROVAL_CHANGED, ({ payload }) => {
         const mode = payload?.mode;
         if (mode !== "ask" && mode !== "auto-edits" && mode !== "auto") return;

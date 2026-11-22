@@ -414,6 +414,23 @@ Edited in **Settings → Browser**; site permissions also in the side panel's
 
 ## 5. As-built notes
 
+- 2026-11-22 — The side panel's thread runs the app's own chat code: the
+  shell forwards the chat's engine lines (`agent_*`, `message_*`,
+  `tool_execution_*`; a `message_update` keeps only the block its delta is
+  for) and the raw `get_messages` history (pictures only in the last 12
+  messages) instead of reduced `event` bodies. `apps/desktop/src/lib/webbridge-chat.ts`
+  (the transcript reducer, `transcriptFromMessages`, and the words of turns and
+  tool rows, moved out of React into `components/ai-elements/tool-labels.ts`,
+  `features/chat/turn-view.ts` and `features/chat/prompt-text.ts`) is bundled
+  by `bun run webbridge:chat` into `extensions/evo-webbridge/sidepanel/vendor/chat.js`;
+  `src/lib/webbridge-chat.test.ts` fails when the bundle is out of date. The
+  panel draws turns as `chat-turn.tsx` does (thread.js): reasoning rows,
+  grouped tool rows with their bodies, "Working for", "Completed in", the
+  footer, explained errors; it queues messages while the agent works
+  (`queue`, `cancel_queued`) and answers `ask_user` (`answer_questions`). A
+  panel prompt is announced as `mesh://prompted` so an open window starts its
+  turn too, and `typedPrompt` leaves out the tab note in both. Widgets and
+  plugin cards are drawn only in the app (the panel offers Open in Evo).
 - 2026-11-18 — Spike (T2) on Windows 11 with Edge 157 and Chrome 157:
   - Edge loads the unpacked extension with `--load-extension` in a scratch
     profile; its id is the one the manifest key gives (`ids.rs`). Branded

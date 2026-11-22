@@ -208,9 +208,24 @@ pub fn show_overlay(app: &AppHandle, tab: &str) {
 }
 
 fn set_overlay(app: &AppHandle, tab: &str, mode: &str) {
-    let Some(expression) = overlay_expression(app, tab, mode) else {
+    let Some(mut expression) = overlay_expression(app, tab, mode) else {
         return;
     };
+    // A new document of a tab the agent just clicked in: its cursor stays where it was.
+    let recent = app
+        .state::<Webbridge>()
+        .pointers
+        .lock()
+        .expect("webbridge lock")
+        .get(tab)
+        .filter(|(_, _, at)| at.elapsed() < POINTER_LINGER)
+        .map(|(x, y, _)| (*x, *y));
+    if let (Some((x, y)), "working") = (recent, mode) {
+        expression.push_str("; ");
+        expression.push_str(&pointer_expression(
+            &json!({ "kind": "move", "x": x, "y": y }),
+        ));
+    }
     let Some((profile, number)) = split(tab) else {
         return;
     };
@@ -225,6 +240,47 @@ fn set_overlay(app: &AppHandle, tab: &str, mode: &str) {
         )
         .await;
     });
+}
+
+/// An agent tool is about to send a mouse event to `tab`: the page's indicator moves
+/// its virtual cursor there, as the app draws one over its own pages (floating-cards FR-17).
+pub fn show_pointer(app: &AppHandle, tab: &str, method: &str, params: &Value) {
+    let Some(payload) = crate::browser::stage::pointer_payload(tab, None, method, params) else {
+        return;
+    };
+    let Some((profile, number)) = split(tab) else {
+        return;
+    };
+    if let (Some(x), Some(y)) = (payload["x"].as_f64(), payload["y"].as_f64()) {
+        app.state::<Webbridge>()
+            .pointers
+            .lock()
+            .expect("webbridge lock")
+            .insert(tab.to_string(), (x, y, std::time::Instant::now()));
+    }
+    let expression = pointer_expression(&payload);
+    let (app, profile) = (app.clone(), profile.to_string());
+    tauri::async_runtime::spawn(async move {
+        let _ = raw(
+            &app,
+            &profile,
+            number,
+            "Runtime.evaluate",
+            json!({ "expression": expression }),
+        )
+        .await;
+    });
+}
+
+/// How long the cursor stays after the agent's last mouse event (the app's `LINGER_MS`).
+const POINTER_LINGER: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// The page statement that moves the virtual cursor (`kind`, `x`, `y` of a pointer payload).
+fn pointer_expression(payload: &Value) -> String {
+    format!(
+        "window.__evoOverlay && window.__evoOverlay.pointer && window.__evoOverlay.pointer({})",
+        json!({ "kind": payload["kind"], "x": payload["x"], "y": payload["y"] })
+    )
 }
 
 /// The page statement that sets `tab`'s indicator to `mode`.
@@ -684,6 +740,28 @@ pub fn let_go(app: &AppHandle, tab: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_cursor_moves_to_the_agents_mouse_events_only() {
+        let press = crate::browser::stage::pointer_payload(
+            "edge:p1:7",
+            None,
+            "Input.dispatchMouseEvent",
+            &serde_json::json!({ "type": "mousePressed", "x": 12.5, "y": 40.0 }),
+        )
+        .unwrap();
+        assert_eq!(
+            pointer_expression(&press),
+            r#"window.__evoOverlay && window.__evoOverlay.pointer && window.__evoOverlay.pointer({"kind":"down","x":12.5,"y":40.0})"#
+        );
+        assert!(crate::browser::stage::pointer_payload(
+            "edge:p1:7",
+            None,
+            "Input.dispatchKeyEvent",
+            &serde_json::json!({ "type": "keyDown" })
+        )
+        .is_none());
+    }
+
     use super::super::sites::Permission;
     use super::*;
 

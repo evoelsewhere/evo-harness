@@ -902,6 +902,9 @@ const isDelivery = (text: string) => {
 export function typedPrompt(text: string): string {
   // Context hooks added (`<hook-context>`, crates/evo-engine/src/hooks.rs) is not what was typed.
   text = text.replace(/\n\n<hook-context>\n[\s\S]*?\n<\/hook-context>\s*$/, "");
+  // Nor is the note on a tab included from Evo Webbridge's side panel
+  // (apps/desktop/src-tauri/src/webbridge/panel.rs, `TAB_NOTE`).
+  text = text.replace(/\n\n\[The person included a tab of their own browser: [\s\S]*?read it with the browser tools\.\]$/, "");
   const match = /^<skill name="([^"]+)" location="[^"]*">[\s\S]*?\n<\/skill>(?:\n\n([\s\S]*))?$/.exec(text);
   if (!match) return text;
   return `/${match[1]}${match[2] ? ` ${match[2]}` : ""}`;

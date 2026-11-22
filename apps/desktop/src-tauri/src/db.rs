@@ -457,6 +457,8 @@ pub fn settings_set(app: AppHandle, db: State<'_, Db>, key: String, value: Value
     if key.starts_with("webbridge.") {
         crate::webbridge::settings_changed(&app);
     }
+    // The side panels show the approval mode and the model short list the app does.
+    crate::webbridge::panel::app_setting_changed(&app, &key, &value);
     if key == crate::updates::AUTO_CHECK_KEY {
         crate::updates::settings_changed(&app, &key, &value);
     }

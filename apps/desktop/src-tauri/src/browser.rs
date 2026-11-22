@@ -474,8 +474,9 @@ fn park(app: &AppHandle, tab: &str) -> Result<(), String> {
 /// An agent tool is about to send a mouse event to `tab`: tell the window where its virtual cursor
 /// goes (`browser://pointer`).
 pub fn emit_pointer(app: &AppHandle, tab: &str, method: &str, params: &Value) {
-    // A Webbridge tab is in the person's browser: no picture in the app to draw on.
+    // A Webbridge tab is in the person's browser: its cursor is drawn in the page itself.
     if crate::webbridge::groups::is_tab(tab) {
+        crate::webbridge::page::show_pointer(app, tab, method, params);
         return;
     }
     let state = app.state::<BrowserState>();

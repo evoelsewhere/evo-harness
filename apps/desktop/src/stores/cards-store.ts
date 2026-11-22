@@ -12,6 +12,13 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { useUiStore } from "./ui-store";
 
 /**
+ * A Webbridge tab (`<browser>:<profile>:<tab>`, src-tauri/src/webbridge/groups.rs `tab_id`):
+ * a page in the person's own browser, which they watch there. Cards are for the
+ * in-app browser's pages only.
+ */
+export const isWebbridgeTab = (id: string) => /^(chrome|edge):/.test(id);
+
+/**
  * A page has a card, and so does the app a chat's agent controls
  * (docs/features/computer-app-control FR-10); an agent's shell runs without one
  * (docs/features/floating-cards FR-18). An app card's id is its chat's id.
@@ -112,6 +119,8 @@ export const useCardsStore = create<CardsStore>()(
     (set) => ({
       cards: {},
       ensure(chat, kind, id) {
+        // A tab in the person's own Chrome or Edge (Evo Webbridge) is seen there: no card.
+        if (kind === "browser" && isWebbridgeTab(id)) return;
         set((s) => {
           const key = cardKey(kind, id);
           const list = s.cards[chat] ?? [];
@@ -174,7 +183,7 @@ export const useCardsStore = create<CardsStore>()(
       // comes back only if the shell still has the app attached (agent-events).
       merge: (persisted, current) => {
         const saved = (persisted as { cards?: Record<string, Card[]> } | undefined)?.cards ?? {};
-        const cards = Object.fromEntries(Object.entries(saved).map(([chat, list]) => [chat, list.filter((c) => c.kind === "browser" || c.kind === "app")]));
+        const cards = Object.fromEntries(Object.entries(saved).map(([chat, list]) => [chat, list.filter((c) => (c.kind === "browser" && !isWebbridgeTab(c.id)) || c.kind === "app")]));
         return { ...current, cards };
       },
     },

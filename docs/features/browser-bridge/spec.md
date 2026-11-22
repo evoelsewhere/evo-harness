@@ -331,6 +331,9 @@ None.
 - 2026-11-18 — FR-27: the approval mode is the app's, so the panel switches the app's mode.
 - 2026-11-19 — FR-19 checked on Edge; the extension asks to start Evo once per browser run, also when the browser sends no `onStartup`.
 - 2026-11-19 — FR-30 (default browser), FR-31 (a panel chat works in its browser; shared tabs are not navigated away), FR-32 (panel chats are named after their first message).
+- 2026-11-22 — FR-26, FR-27 as built: the panel's model menu is the app's (short list of four shared with the app as the `models.pinned` setting, 1–4 keys, Effort and More models pages, Default badge, "Use … for new chats"); its approval menu lists the app's modes with their hints; model, effort and mode changes made in the app reach open panels.
+- 2026-11-22 — FR-10 as built: the panel shows a chat as the app does — the same transcript code and the same words for turns and tool rows (thinking, tool steps with their results, grouping and folding, the turn's footer, explained errors), messages queued while the agent works, and the agent's questions with several parts.
+- 2026-11-22 — End-to-end on Edge 158 through the app: a panel chat now starts in the workspace set in Settings (it started in none); a prompt sent from the app or the session hub starts its turn in open panels too (the engine echoes no message for a prompt); a tab in the person's browser gets no floating card in the app (cards are for the built-in browser's pages); the in-page indicator lights the tab with a glowing edge while Evo works and draws the agent's virtual cursor where it moves and clicks, also on the page a click opened.
 - 2026-11-18 — Checks run on Edge; Chrome runs the same extension and code and
   is not checked separately.
 - 2026-11-18 — The toolbar button opens the side panel (no popup); the app's

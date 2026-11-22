@@ -2,7 +2,7 @@ import * as React from "react";
 import { CheckIcon, ChevronRightIcon, CopyIcon, MessagesSquareIcon } from "lucide-react";
 import { MessageAction } from "@/components/ai-elements/message-action";
 import { Reasoning, seconds } from "@/components/ai-elements/reasoning";
-import { Tool, activity, toolKind } from "@/components/ai-elements/tool";
+import { Tool } from "@/components/ai-elements/tool";
 import { TurnError } from "./turn-error";
 import { Markdown } from "@/components/markdown";
 import { AgentIcon } from "@/components/icons/agent-icon";
@@ -16,7 +16,6 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace";
-import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useWaking } from "@/stores/engine-store";
 import { TurnChanges } from "./turn-changes";
@@ -25,7 +24,8 @@ import { MessageMenu } from "./message-menu";
 import { replyMarkdown } from "./message-text";
 import { SentFiles, type SentFile } from "@/components/ai-elements/sent-files";
 import { KeptWorktree, childRun } from "@/components/ai-elements/agent-run";
-import { noteKind, turnReply, type NoteKind, type Part, type ReasoningPart, type ToolPart, type Turn } from "./transcript";
+import { noteKind, turnReply, type NoteKind, type ToolPart, type Turn } from "./transcript";
+import { groupTitle, noteLabel, runningInBackground, runningStep, segments, turnMetaLine, type Process } from "./turn-view";
 
 // One turn, mapped the way DeepSeek Harness maps it, on shadcn/ui AI Elements:
 // - the person's text is a Bubble (Message);
@@ -37,57 +37,6 @@ import { noteKind, turnReply, type NoteKind, type Part, type ReasoningPart, type
 // - once the turn completes its process folds behind "Completed in 1m 12s";
 // - a running turn starts with a live "Working for 12s" line, so it stays put
 //   while the process and reply grow below it.
-
-/** What an automated message says in one line, by its kind (`noteKind`). */
-function noteLabel(kind: NoteKind, text: string): string {
-  switch (kind) {
-    case "mail": {
-      // A message or question from an agent.
-      const title = /^<mail [^>]*title="([^"]*)"/.exec(text)?.[1];
-      const ask = /^<mail [^>]*kind="ask"/.test(text);
-      return `${ask ? "Question" : "Message"} from ${title || "an agent"}`;
-    }
-    case "mail-arrived": {
-      // The wake that reads them names the senders.
-      const names = /^<mail-arrived>\s*(.*?) sent you/.exec(text)?.[1];
-      return `Messages arrived${names ? ` · ${names.replace(/"/g, "")}` : ""}`;
-    }
-    case "session-note":
-    case "sessions-done": {
-      // A note carries its title; the wake that reads notes lists them.
-      const listed = /finished a turn: (.*?)\. (Its|Their) note/.exec(text)?.[1];
-      // The person's answer to a proposed session (crates/evo-mesh/src/hub.rs).
-      const answer = /^<nested-session (?:id|proposal)="[^"]*"(?: title="([^"]*)")? status="(started|dismissed)">/.exec(text);
-      if (kind === "session-note" && answer) {
-        const what = answer[2] === "started" ? "Session started" : "Proposed session dismissed";
-        return `${what}${answer[1] ? ` · ${answer[1]}` : ""}`;
-      }
-      const titles = (
-        kind === "sessions-done"
-          ? [...(listed ?? "").matchAll(/"([^"]*)"/g)]
-          : [...text.matchAll(/(?:^|\n\n)<nested-session id="[^"]*" title="([^"]*)"/g)]
-      )
-        .map((m) => m[1])
-        .filter(Boolean);
-      if (titles.length > 1) return `${titles.length} sessions finished a turn · ${titles.join(", ")}`;
-      return `Session finished a turn${titles[0] ? ` · ${titles[0]}` : ""}`;
-    }
-    case "agent-report": {
-      const reports = [...text.matchAll(/(?:^|\n\n)<background-agent id="[^"]*" description="([^"]*)" status="([^"]*)">/g)];
-      const [, description, status] = reports[0] ?? [];
-      if (reports.length > 1) return `${reports.length} background agents reported · ${reports.map((m) => m[1]).join(", ")}`;
-      const how = status === "cancelled" ? "was cancelled" : status === "error" ? "stopped" : "reported";
-      return `Background agent ${how}${description ? ` · ${description}` : ""}`;
-    }
-    case "agents-done": {
-      const finished = /finished: (.*?)\. (Its|Their) report/.exec(text)?.[1];
-      return `Background ${finished?.includes(",") ? "agents" : "agent"} finished${finished ? ` · ${finished.replace(/"/g, "")}` : ""}`;
-    }
-    case "turn-reverted":
-      // docs/features/source-control/spec.md, FR-12: what the agent was told.
-      return "You reverted an earlier turn's changes";
-  }
-}
 
 /**
  * An automated message as an event line: a background subagent's report, a
@@ -114,67 +63,9 @@ export function UserMessage({ turn }: { turn: Turn }) {
 }
 
 function TurnMeta({ turn }: { turn: Turn }) {
-  const { meta } = turn;
-  // Usage reports uncached input, cache reads and cache writes separately;
-  // the prompt the model saw is their sum.
-  const prompt = (meta.inputTokens ?? 0) + (meta.cacheRead ?? 0) + (meta.cacheWrite ?? 0);
-  const total = prompt + (meta.outputTokens ?? 0);
-  const parts = [
-    meta.model,
-    meta.durationMs !== undefined ? formatDuration(meta.durationMs) : undefined,
-    total ? `${formatTokens(total)} tokens` : undefined,
-    meta.cacheRead && prompt ? `${Math.round((meta.cacheRead / prompt) * 100)}% cached` : undefined,
-    meta.cost ? formatCost(meta.cost) : undefined,
-  ].filter(Boolean);
-  if (parts.length === 0) return null;
-  return <span className="font-mono text-xs text-muted-foreground tabular-nums">{parts.join(" · ")}</span>;
-}
-
-type Process = (ReasoningPart | ToolPart)[];
-type Segment =
-  | { kind: "process"; key: string; parts: Process }
-  | { kind: "text"; key: string; text: string; streaming: boolean }
-  | { kind: "widget"; key: string; part: ToolPart };
-
-/** Consecutive reasoning and tool parts form one group; text breaks it. */
-function segments(parts: Part[]): Segment[] {
-  const out: Segment[] = [];
-  for (const part of parts) {
-    if (part.kind === "text") {
-      if (part.text) out.push({ kind: "text", key: part.key, text: part.text, streaming: part.streaming });
-      continue;
-    }
-    // A `show_widget` widget is part of the answer: it stands on its own and
-    // stays in sight when the turn folds (docs/features/office-v3-parity/spec.md).
-    // So does a plugin's card (docs/features/plugin-ui/spec.md, FR-7).
-    if (part.kind === "tool" && (part.name === "show_widget" || part.name === "plugin_show_card")) {
-      out.push({ kind: "widget", key: part.key, part });
-      continue;
-    }
-    const last = out.at(-1);
-    if (last?.kind === "process") last.parts.push(part);
-    else out.push({ kind: "process", key: part.key, parts: [part] });
-  }
-  return out;
-}
-
-function sentence(items: string[]): string {
-  if (items.length <= 1) return items[0] ?? "";
-  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
-}
-
-/** "Running commands" while live; "Read files, ran commands and edited files" after. */
-function groupTitle(parts: Process, live: boolean): string {
-  const current = parts.at(-1)!;
-  if (live) return current.kind === "reasoning" ? "Thinking" : activity[toolKind(current.name)].live;
-  const counts = new Map<string, number>();
-  for (const part of parts) {
-    const label = part.kind === "reasoning" ? "thought" : activity[toolKind(part.name)].done;
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([label]) => label);
-  const text = sentence(top);
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  const line = turnMetaLine(turn.meta);
+  if (!line) return null;
+  return <span className="font-mono text-xs text-muted-foreground tabular-nums">{line}</span>;
 }
 
 function ProcessRows({ parts, running }: { parts: Process; running: boolean }) {
@@ -189,16 +80,6 @@ function ProcessRows({ parts, running }: { parts: Process; running: boolean }) {
       )}
     </Trace>
   );
-}
-
-/**
- * A subagent still working after its call returned (an `agent` call or a
- * `message_agent` that continued one). A foreground agent ends with its call.
- */
-function runningInBackground(part: Part): boolean {
-  if (part.kind !== "tool") return false;
-  const child = part.details?.child;
-  return Boolean(child?.background) && child.status === "running";
 }
 
 type ProcessGroupProps = { parts: Process; running: boolean; live: boolean };
@@ -245,15 +126,7 @@ const ProcessGroup = React.memo(function ProcessGroup({ parts, running, live: tu
 function RunningStatus({ startedAt, parts }: { startedAt: number; parts: Turn["parts"] }) {
   // A new chat's first message waits for its engine (ux-polish FR-14).
   const waking = useWaking();
-  const step = React.useMemo(() => {
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const part = parts[i];
-      if (part.kind === "tool" && (part.phase === "running" || part.phase === "preparing")) {
-        return activity[toolKind(part.name)].live.toLowerCase();
-      }
-    }
-    return null;
-  }, [parts]);
+  const step = React.useMemo(() => runningStep(parts), [parts]);
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);

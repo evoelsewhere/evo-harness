@@ -13,7 +13,7 @@ for (const name of ["localStorage", "sessionStorage"]) {
 }
 
 const { useCardsStore } = await import("./cards-store");
-const { applyActivityEvent } = await import("./agent-events");
+const { applyActivityEvent, applyDrivenEvent } = await import("./agent-events");
 
 const card = (key: string) => useCardsStore.getState().cards.a?.find((c) => c.key === key);
 const event = (phase: "start" | "end", tab: string | null, tool: string, requestId: string, args: Record<string, unknown> = {}) => ({
@@ -44,6 +44,16 @@ describe("what a card says the agent is doing", () => {
     applyActivityEvent(event("end", "browser-2", "browser_navigate", "r1", { url: "http://x.test/" }));
     expect(card("browser:browser-1")).toMatchObject({ busy: false, activity: 'Finding "Go"' });
     expect(card("browser:browser-2")).toMatchObject({ busy: false, activity: "Opening http://x.test/" });
+  });
+
+  test("a page in the person's own browser (Evo Webbridge) gets no card", () => {
+    applyDrivenEvent({ chat: "a", tab: "edge:p6d5f3302e353:1234" });
+    applyActivityEvent(event("start", "chrome:p1a2b:77", "browser_navigate", "r1", { url: "http://x.test/" }));
+    applyActivityEvent(event("end", "chrome:p1a2b:77", "browser_navigate", "r1", { url: "http://x.test/" }));
+    expect(useCardsStore.getState().cards.a ?? []).toEqual([]);
+    // The in-app browser's pages still get theirs.
+    applyDrivenEvent({ chat: "a", tab: "browser-1" });
+    expect(card("browser:browser-1")).toBeDefined();
   });
 
   test("a terminal call has no card to mark", () => {

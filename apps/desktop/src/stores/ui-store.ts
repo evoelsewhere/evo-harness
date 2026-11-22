@@ -212,9 +212,15 @@ interface UiStore {
   closeSettings(): void;
   setApproval(mode: ApprovalMode): void;
   setPinnedModels(keys: string[]): void;
+  /** Read the short list from the app settings (the browser side panel shares it), once at start. */
+  loadPinnedModels(): Promise<void>;
+  /** Show a short list another window or the browser side panel saved. */
+  syncPinnedModels(keys: string[]): void;
 }
 
 export const PINNED_MODELS_MAX = 4;
+/** App setting: the model menu's short list (`provider/id`), shared with the browser side panel. */
+export const PINNED_MODELS_KEY = "models.pinned";
 
 const clampWidth = (width: number) => Math.round(Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, width)));
 
@@ -433,7 +439,24 @@ export const useUiStore = create<UiStore>()(
           .then(() => emit(APPROVAL_CHANGED, { mode: approval }))
           .catch((error) => log("error", "ui", `could not save the approval mode: ${String(error)}`));
       },
-      setPinnedModels: (keys) => set({ pinnedModels: keys.slice(0, PINNED_MODELS_MAX) }),
+      setPinnedModels: (keys) => {
+        const pinned = keys.slice(0, PINNED_MODELS_MAX);
+        if (pinned.join(" ") === get().pinnedModels.join(" ")) return;
+        set({ pinnedModels: pinned });
+        // Saved as an app setting: Evo Webbridge's side panel lists the same models first.
+        void db.setSetting(PINNED_MODELS_KEY, pinned).catch((error) => log("warn", "ui", `could not save the model list: ${String(error)}`));
+      },
+      loadPinnedModels: async () => {
+        try {
+          const saved = (await db.settings())[PINNED_MODELS_KEY];
+          if (Array.isArray(saved)) set({ pinnedModels: saved.filter((k): k is string => typeof k === "string").slice(0, PINNED_MODELS_MAX) });
+          // First start of this version: the list this window kept moves into the setting.
+          else if (get().pinnedModels.length) await db.setSetting(PINNED_MODELS_KEY, get().pinnedModels);
+        } catch (error) {
+          log("warn", "ui", `could not read the model list: ${String(error)}`);
+        }
+      },
+      syncPinnedModels: (keys) => set({ pinnedModels: keys.filter((k) => typeof k === "string").slice(0, PINNED_MODELS_MAX) }),
     }),
     {
       name: STORAGE_KEY,

@@ -11,7 +11,18 @@
   const root = host.attachShadow({ mode: "closed" });
   root.innerHTML = `
     <style>
-      .frame { position: fixed; inset: 0; box-shadow: inset 0 0 0 2px rgba(0, 114, 245, 0.55); pointer-events: none; }
+      /* A light around the page while Evo works in it: a crisp accent edge and a
+         soft glow spreading inwards from it, breathing slowly. */
+      .frame { position: fixed; inset: 0; pointer-events: none; border-radius: 0;
+        box-shadow: inset 0 0 0 2px rgba(0, 114, 245, 0.75), inset 0 0 14px 3px rgba(0, 114, 245, 0.45), inset 0 0 44px 10px rgba(0, 114, 245, 0.18);
+        animation: evo-breathe 2.6s ease-in-out infinite; }
+      @keyframes evo-breathe {
+        0%, 100% { box-shadow: inset 0 0 0 2px rgba(0, 114, 245, 0.75), inset 0 0 14px 3px rgba(0, 114, 245, 0.45), inset 0 0 44px 10px rgba(0, 114, 245, 0.18); }
+        50% { box-shadow: inset 0 0 0 2px rgba(0, 114, 245, 0.9), inset 0 0 22px 5px rgba(0, 114, 245, 0.55), inset 0 0 70px 16px rgba(0, 114, 245, 0.24); }
+      }
+      .dot { animation: evo-pulse 1.6s ease-in-out infinite; }
+      @keyframes evo-pulse { 50% { box-shadow: 0 0 0 4px rgba(0, 114, 245, 0.18); } }
+      @media (prefers-reduced-motion: reduce) { .frame, .dot { animation: none; } }
       .bar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
         padding: 6px 6px 6px 12px; border-radius: 8px; background: #fff; color: #171717; pointer-events: auto;
         box-shadow: 0 0 0 1px rgba(0, 114, 245, 0.6), 0 4px 16px rgba(0, 0, 0, 0.12);
@@ -23,8 +34,17 @@
       button.stop { background: #171717; color: #fff; box-shadow: none; }
       button:focus-visible { outline: 2px solid #0072f5; outline-offset: 2px; }
       [hidden] { display: none !important; }
+      /* The agent's virtual cursor, as the app draws it over a page's picture
+         (src/features/cards/agent-cursor.tsx): an arrow that glides to each of
+         the agent's mouse events, a ring where it presses, gone after a quiet spell. */
+      .cursor { position: fixed; top: 0; left: 0; pointer-events: none; transition: transform 150ms ease-out, opacity 150ms ease-out; opacity: 0; }
+      .cursor svg { position: relative; margin: -1.5px 0 0 -1.5px; filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.65)); }
+      .ripple { position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid #9aa0ab; box-sizing: border-box; opacity: 0; }
+      .ripple.go { animation: evo-ripple 450ms ease-out forwards; }
+      @keyframes evo-ripple { from { opacity: 0.9; transform: translate(-50%, -50%) scale(0.35); } to { opacity: 0; transform: translate(-50%, -50%) scale(2.2); } }
     </style>
     <div class="frame"></div>
+    <div class="cursor" aria-hidden="true"><span class="ripple"></span><svg width="11" height="11" viewBox="0 0 17 17"><path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#9ccbff" stroke="#9ccbff" stroke-width="3.4" stroke-linejoin="round"/><path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#1c2033" stroke="#1c2033" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
     <div class="bar" role="status">
       <span class="dot"></span><span class="text"></span>
       <button class="take" type="button">Take over</button>
@@ -37,6 +57,22 @@
   const take = root.querySelector(".take");
   const back = root.querySelector(".back");
   const stop = root.querySelector(".stop");
+  const cursor = root.querySelector(".cursor");
+  const ripple = root.querySelector(".ripple");
+  let quiet = 0;
+  /** The agent puts the mouse at (x, y) of the page; a press restarts the ring. */
+  const point = ({ kind, x, y }) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    cursor.style.transform = `translate(${x}px, ${y}px)`;
+    cursor.style.opacity = "1";
+    if (kind === "down") {
+      ripple.classList.remove("go");
+      void ripple.offsetWidth;
+      ripple.classList.add("go");
+    }
+    clearTimeout(quiet);
+    quiet = setTimeout(() => (cursor.style.opacity = "0"), 4000);
+  };
   const say = (action) => {
     try {
       window.__evoWebbridge?.(JSON.stringify({ action }));
@@ -66,6 +102,7 @@
     const taken = state.state === "taken";
     bar.classList.toggle("taken", taken);
     frame.hidden = taken;
+    cursor.hidden = taken;
     text.textContent = taken ? `You have control · ${state.chat}` : `Evo is working · ${state.chat}`;
     take.hidden = taken;
     back.hidden = !taken;
@@ -79,6 +116,10 @@
         state = { state: String(next?.state || "off"), chat: String(next?.chat || "") };
         mount();
         render();
+      },
+      pointer(event) {
+        mount();
+        point({ kind: String(event?.kind || ""), x: Number(event?.x), y: Number(event?.y) });
       },
     }),
   });

@@ -92,6 +92,9 @@ pub struct Webbridge {
     /// Tabs the person shared with a chat (Include this tab, choose): the agent reads and acts
     /// in them, but a navigation that names no tab opens a new one instead of taking them away.
     pub(crate) shared: Mutex<HashSet<String>>,
+    /// Tab → where the agent last put the mouse and when, so a new document of the
+    /// tab (a click that opened a page) shows the virtual cursor where it was.
+    pub(crate) pointers: Mutex<HashMap<String, (f64, f64, std::time::Instant)>>,
 }
 
 /// Whether the person shared `tab` with its chat (it was not opened by the agent).
@@ -630,6 +633,7 @@ pub fn on_engine_line(app: &AppHandle, chat: &str, message: &Value) {
 
 /// A chat's engine exited: whatever its turn was doing has ended too.
 pub fn on_engine_exit(app: &AppHandle, chat: &str) {
+    panel::engine_exited(app, chat);
     turn_ended(app, chat);
 }
 

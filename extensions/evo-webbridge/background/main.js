@@ -28,13 +28,28 @@ function siteOf(url) {
 // Side panels: each open panel is a session; its requests go to Evo and the
 // answers and the chat's events come back (spec FR-10, FR-14).
 const panels = new Map();
+const OFFLINE_ANSWER = {
+  connecting: "Evo is still connecting. Try again in a moment.",
+  "evo-not-running": "Evo is not running. Open Evo, then try again.",
+  "not-set-up": "Evo is not set up for this browser yet. In Evo, open Settings → Browser.",
+  refused: "Evo refused the connection.",
+  error: "Evo is not connected.",
+};
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "panel") return;
   const session = crypto.randomUUID();
   panels.set(session, port);
   port.postMessage({ type: "status", status: { ...status } });
+  // A panel opened after Evo sent its settings gets them too (the microphone, FR-29).
+  port.postMessage({ type: "settings", settings: known.settings });
   port.onMessage.addListener((message) => {
-    if (message?.type === "panel") send({ t: "panel", session, req: message.req, body: message.body });
+    if (message?.type === "panel") {
+      // Not connected: say so now, not after the panel's wait runs out.
+      if (status.state !== "connected" || !send({ t: "panel", session, req: message.req, body: message.body })) {
+        if (message.req) port.postMessage({ type: "panel", req: message.req, body: { op: "error", message: OFFLINE_ANSWER[status.state] || OFFLINE_ANSWER.error } });
+        if (status.state !== "connected" && status.state !== "connecting") connect();
+      }
+    }
     if (message?.type === "reconnect") connect({ launch: true });
   });
   port.onDisconnect.addListener(() => {

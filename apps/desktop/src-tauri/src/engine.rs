@@ -628,6 +628,11 @@ pub(crate) async fn start_process(
 pub async fn engine_send(app: AppHandle, state: State<'_, EngineState>, chat: String, message: Value) -> Result<(), String> {
     state.write(&chat, &message).await?;
     crate::supervisor::sent(&app, &chat, &message);
+    // Evo Webbridge's side panels showing the chat start the turn too: the
+    // engine echoes no message for a prompt.
+    if message.get("type").and_then(Value::as_str) == Some("prompt") {
+        crate::webbridge::panel::prompted(&app, &chat, &message);
+    }
     Ok(())
 }
 

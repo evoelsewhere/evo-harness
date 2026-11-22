@@ -39,7 +39,7 @@
     <ul id="history-list"></ul>
   </section>
 
-  <main id="messages" class="messages" aria-live="polite"></main>
+  <main id="messages" class="messages"><div id="welcome-slot"></div><div id="thread" class="thread" aria-live="polite"></div><div id="extras" class="extras"></div></main>
 
   <section id="offline" class="offline" hidden>
     <div class="offline-card">
@@ -49,6 +49,7 @@
   </section>
 
   <footer class="composer-wrap">
+    <div id="queued" class="queued" aria-label="Waiting messages" hidden></div>
     <div class="composer">
       <div id="chips" class="chips"></div>
       <textarea id="input" rows="1" placeholder="Ask Evo about this page…" aria-label="Message"></textarea>
@@ -60,10 +61,11 @@
           <button role="menuitem" id="attach-tab"><svg viewBox="0 0 16 16"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="M2 6.5h12M5 3.5v3"/></svg>Another open tab</button>
         </div>
         <input id="file" type="file" multiple hidden>
-        <button id="mode" class="pill" title="Approval mode"><svg viewBox="0 0 16 16"><path d="M3 4l4 4-4 4M8.5 4l4 4-4 4"/></svg><span id="mode-label">Ask every time</span></button>
+        <button id="mode" class="pill" title="Approvals" aria-haspopup="menu"><svg viewBox="0 0 16 16"><path d="M3 4l4 4-4 4M8.5 4l4 4-4 4"/></svg><span id="mode-label">Ask every time</span></button>
+        <div id="mode-list" class="menu up" role="menu" hidden></div>
         <span class="spacer"></span>
-        <button id="model" class="model" title="Model and effort"><span id="model-label">Model</span><svg viewBox="0 0 16 16"><path d="M5 6.5l3 3 3-3"/></svg></button>
-        <div id="model-list" class="menu up wide" role="menu" hidden></div>
+        <button id="model" class="model" title="Model and effort" aria-haspopup="menu"><span id="model-label">Model</span><span id="model-effort" class="effort" hidden></span><svg viewBox="0 0 16 16"><path d="M5 6.5l3 3 3-3"/></svg></button>
+        <div id="model-list" class="menu up wide" role="menu" tabindex="-1" hidden></div>
         <button id="mic" class="icon" title="Dictate" aria-label="Dictate" hidden><svg viewBox="0 0 16 16"><rect x="6" y="2" width="4" height="8" rx="2"/><path d="M4 8a4 4 0 0 0 8 0M8 12v2"/></svg></button>
         <button id="send" class="send" title="Send" aria-label="Send" disabled><svg viewBox="0 0 16 16"><path d="M8 12.5v-9M4.2 7.2L8 3.5l3.8 3.7"/></svg></button>
       </div>

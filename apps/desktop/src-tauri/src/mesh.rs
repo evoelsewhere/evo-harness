@@ -337,6 +337,7 @@ pub(crate) async fn apply(app: &AppHandle, effects: Vec<Effect>) {
             Effect::Host { chat, cwd, restore } => crate::supervisor::host_for_mail(app, chat, cwd, restore),
             Effect::Prompted { chat, text } => {
                 let _ = app.emit("mesh://prompted", json!({ "chat": chat, "text": text }));
+                crate::webbridge::panel::prompted(app, &chat, &json!({ "type": "prompt", "message": text }));
             }
         }
     }
