@@ -92,9 +92,10 @@ pub struct Webbridge {
     /// Tabs the person shared with a chat (Include this tab, choose): the agent reads and acts
     /// in them, but a navigation that names no tab opens a new one instead of taking them away.
     pub(crate) shared: Mutex<HashSet<String>>,
-    /// Tab → where the agent last put the mouse and when, so a new document of the
-    /// tab (a click that opened a page) shows the virtual cursor where it was.
-    pub(crate) pointers: Mutex<HashMap<String, (f64, f64, std::time::Instant)>>,
+    /// Tab → where the agent last put the mouse, so the virtual cursor stays visible
+    /// for as long as the agent works in the tab, and a new document of the tab (a click
+    /// that opened a page) shows it where it was. Cleared when the agent lets go of the tab.
+    pub(crate) pointers: Mutex<HashMap<String, (f64, f64)>>,
 }
 
 /// Whether the person shared `tab` with its chat (it was not opened by the agent).

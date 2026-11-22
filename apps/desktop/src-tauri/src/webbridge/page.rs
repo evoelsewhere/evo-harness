@@ -211,15 +211,14 @@ fn set_overlay(app: &AppHandle, tab: &str, mode: &str) {
     let Some(mut expression) = overlay_expression(app, tab, mode) else {
         return;
     };
-    // A new document of a tab the agent just clicked in: its cursor stays where it was.
+    // A new document of a tab the agent is working in: its cursor stays where it was.
     let recent = app
         .state::<Webbridge>()
         .pointers
         .lock()
         .expect("webbridge lock")
         .get(tab)
-        .filter(|(_, _, at)| at.elapsed() < POINTER_LINGER)
-        .map(|(x, y, _)| (*x, *y));
+        .copied();
     if let (Some((x, y)), "working") = (recent, mode) {
         expression.push_str("; ");
         expression.push_str(&pointer_expression(
@@ -256,7 +255,7 @@ pub fn show_pointer(app: &AppHandle, tab: &str, method: &str, params: &Value) {
             .pointers
             .lock()
             .expect("webbridge lock")
-            .insert(tab.to_string(), (x, y, std::time::Instant::now()));
+            .insert(tab.to_string(), (x, y));
     }
     let expression = pointer_expression(&payload);
     let (app, profile) = (app.clone(), profile.to_string());
@@ -271,9 +270,6 @@ pub fn show_pointer(app: &AppHandle, tab: &str, method: &str, params: &Value) {
         .await;
     });
 }
-
-/// How long the cursor stays after the agent's last mouse event (the app's `LINGER_MS`).
-const POINTER_LINGER: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// The page statement that moves the virtual cursor (`kind`, `x`, `y` of a pointer payload).
 fn pointer_expression(payload: &Value) -> String {
@@ -707,6 +703,11 @@ pub fn release_due(app: &AppHandle, now_ms: u64) {
 /// In that order: a command after the detach would attach the tab again.
 pub fn let_go(app: &AppHandle, tab: &str) {
     let off = overlay_expression(app, tab, "off");
+    app.state::<Webbridge>()
+        .pointers
+        .lock()
+        .expect("webbridge lock")
+        .remove(tab);
     app.state::<Webbridge>()
         .prepared
         .lock()

@@ -36,15 +36,18 @@
       [hidden] { display: none !important; }
       /* The agent's virtual cursor, as the app draws it over a page's picture
          (src/features/cards/agent-cursor.tsx): an arrow that glides to each of
-         the agent's mouse events, a ring where it presses, gone after a quiet spell. */
+         the agent's mouse events and a ring where it presses. In a person's own
+         browser it stays where the agent last put it for as long as the agent
+         is in control, so you can always see where it is; it is gone when you
+         take over or the agent lets go of the tab. */
       .cursor { position: fixed; top: 0; left: 0; pointer-events: none; transition: transform 150ms ease-out, opacity 150ms ease-out; opacity: 0; }
-      .cursor svg { position: relative; margin: -1.5px 0 0 -1.5px; filter: drop-shadow(0 0 2px rgba(96, 165, 250, 0.65)); }
-      .ripple { position: absolute; top: 0; left: 0; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid #9aa0ab; box-sizing: border-box; opacity: 0; }
+      .cursor svg { position: relative; margin: -2.3px 0 0 -2.3px; filter: drop-shadow(0 0 3px rgba(96, 165, 250, 0.7)); }
+      .ripple { position: absolute; top: 0; left: 0; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #9aa0ab; box-sizing: border-box; opacity: 0; }
       .ripple.go { animation: evo-ripple 450ms ease-out forwards; }
       @keyframes evo-ripple { from { opacity: 0.9; transform: translate(-50%, -50%) scale(0.35); } to { opacity: 0; transform: translate(-50%, -50%) scale(2.2); } }
     </style>
     <div class="frame"></div>
-    <div class="cursor" aria-hidden="true"><span class="ripple"></span><svg width="11" height="11" viewBox="0 0 17 17"><path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#9ccbff" stroke="#9ccbff" stroke-width="3.4" stroke-linejoin="round"/><path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#1c2033" stroke="#1c2033" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
+    <div class="cursor" aria-hidden="true"><span class="ripple"></span><svg width="17" height="17" viewBox="0 0 17 17"><path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#9ccbff" stroke="#9ccbff" stroke-width="3.4" stroke-linejoin="round"/><path d="M2.8 2.8 L16.02 7.25 L8.6 8.6 L7.25 16.02 Z" fill="#1c2033" stroke="#1c2033" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
     <div class="bar" role="status">
       <span class="dot"></span><span class="text"></span>
       <button class="take" type="button">Take over</button>
@@ -59,7 +62,6 @@
   const stop = root.querySelector(".stop");
   const cursor = root.querySelector(".cursor");
   const ripple = root.querySelector(".ripple");
-  let quiet = 0;
   /** The agent puts the mouse at (x, y) of the page; a press restarts the ring. */
   const point = ({ kind, x, y }) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -70,8 +72,6 @@
       void ripple.offsetWidth;
       ripple.classList.add("go");
     }
-    clearTimeout(quiet);
-    quiet = setTimeout(() => (cursor.style.opacity = "0"), 4000);
   };
   const say = (action) => {
     try {

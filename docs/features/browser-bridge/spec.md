@@ -336,5 +336,11 @@ None.
 - 2026-11-22 — End-to-end on Edge 158 through the app: a panel chat now starts in the workspace set in Settings (it started in none); a prompt sent from the app or the session hub starts its turn in open panels too (the engine echoes no message for a prompt); a tab in the person's browser gets no floating card in the app (cards are for the built-in browser's pages); the in-page indicator lights the tab with a glowing edge while Evo works and draws the agent's virtual cursor where it moves and clicks, also on the page a click opened.
 - 2026-11-18 — Checks run on Edge; Chrome runs the same extension and code and
   is not checked separately.
+- 2026-11-22 — The virtual cursor in a person's own browser no longer fades after
+  4 seconds: it stays where the agent last put it while the agent works in the
+  tab (gone on Take over or when the agent lets go of the tab), because a cursor
+  that vanished between actions left the person unable to see where it was. It is
+  also larger (arrow 17 px, ring 24 px; was 11 px and 16 px). The app's own pages
+  (floating-cards FR-17) keep their fade.
 - 2026-11-18 — The toolbar button opens the side panel (no popup); the app's
   settings page is **Settings → Browser**, holding the built-in browser and Webbridge.
