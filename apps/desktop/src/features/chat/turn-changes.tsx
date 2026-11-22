@@ -3,7 +3,7 @@
 // (docs/features/source-control/spec.md, FR-10 – FR-13).
 
 import * as React from "react";
-import { ChevronRightIcon, FileDiffIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronRightIcon, RotateCcwIcon, Undo2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, type Confirm } from "@/features/source-control";
 import { notify } from "@/features/notifications/notify";
@@ -12,16 +12,25 @@ import { cn } from "@/lib/utils";
 import { useEngineStore, usePaneChat, usePaneEngine } from "@/stores/engine-store";
 import { useSourceControlStore } from "@/stores/source-control-store";
 import { useUiStore } from "@/stores/ui-store";
-import type { Turn, TurnCheckpoint } from "./transcript";
+import type { Turn, TurnCheckpoint, TurnCheckpointFile } from "./transcript";
 
 const baseName = (path: string) => path.split("/").pop() ?? path;
+const dirName = (path: string) => path.split("/").slice(0, -1).join("/");
+
+// A status is a dot, never a fill (DESIGN.md): added, deleted and renamed get
+// a colour; a modified file, the common case, stays quiet.
+const STATUS: Record<TurnCheckpointFile["status"], { label: string; dot: string }> = {
+  added: { label: "Added", dot: "bg-status-ok" },
+  modified: { label: "Modified", dot: "bg-muted-foreground/40" },
+  deleted: { label: "Deleted", dot: "bg-status-error" },
+  renamed: { label: "Renamed", dot: "bg-status-info" },
+};
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function Counts({ added, removed }: { added?: number | null; removed?: number | null }) {
   return (
-    <span className="shrink-0 font-mono text-[11px] tabular-nums">
+    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums">
       {added ? <span className="text-status-ok">+{added}</span> : null}
-      {added && removed ? " " : null}
       {removed ? <span className="text-status-error">−{removed}</span> : null}
     </span>
   );
@@ -98,71 +107,87 @@ export function TurnChanges({ turn }: { turn: Turn & { checkpoint: TurnCheckpoin
       run: () => void revert(checkpoint.id, false, false),
     });
 
+  const notes = [
+    !checkpoint.complete && "Changes made before the checkpoint was taken may be missing from this list.",
+    overlap.length > 0 && "Another chat worked in this folder at the same time; its changes may be listed here too.",
+  ].filter((note): note is string => Boolean(note));
+
   return (
-    <div className="flex flex-col gap-1 text-[13px]" data-testid="turn-changes">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+    <div className="flex flex-col rounded-xl bg-card text-[13px] shadow-border-small" data-testid="turn-changes">
+      <div className="flex items-center justify-between gap-2 py-1 pr-1.5 pl-1">
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          className="group/changes flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
         >
-          <FileDiffIcon className="size-4" />
-          Changed {plural(files.length, "file")}
+          <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          <span className="font-medium">Changed {plural(files.length, "file")}</span>
           <Counts added={added} removed={removed} />
-          <ChevronRightIcon className={cn("size-3.5 transition-transform", open && "rotate-90")} />
         </button>
         {checkpoint.reverted ? (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             Reverted
             <Button
               variant="ghost"
-              size="sm"
-              className="h-6 px-1.5 text-xs"
+              size="xs"
               aria-label="Undo the revert of this turn"
               disabled={working || busy}
               onClick={() => void revert(checkpoint.reverted!.undo, false, true)}
             >
+              <Undo2Icon />
               Undo
             </Button>
           </span>
         ) : (
           <Button
             variant="ghost"
-            size="sm"
-            className="h-6 gap-1 px-1.5 text-xs text-muted-foreground"
+            size="xs"
+            className="shrink-0 text-muted-foreground"
             disabled={working || busy || !checkpoint.start}
             title={busy ? "Wait for the turn to finish" : "Put these files back as they were before this turn"}
             onClick={askRevert}
           >
-            <RotateCcwIcon className="size-3.5" />
+            <RotateCcwIcon />
             Revert this turn
           </Button>
         )}
       </div>
-      {!checkpoint.complete && (
-        <p className="text-xs text-muted-foreground">Changes made before the checkpoint was taken may be missing from this list.</p>
-      )}
-      {overlap.length > 0 && <p className="text-xs text-muted-foreground">Another chat worked in this folder at the same time; its changes may be listed here too.</p>}
-      {open && (
-        <ul className="ml-1 flex flex-col border-l pl-2">
-          {files.map((file) => (
-            <li key={file.path}>
-              <button
-                type="button"
-                onClick={() => show(file.path)}
-                className="flex w-full min-w-0 items-center gap-2 rounded px-1.5 py-0.5 text-left hover:bg-accent"
-                title={file.from ? `${file.from} → ${file.path}` : file.path}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {baseName(file.path)}
-                  <span className="ml-1.5 text-xs text-muted-foreground">{file.path.split("/").slice(0, -1).join("/")}</span>
-                </span>
-                <Counts added={file.added} removed={file.removed} />
-              </button>
-            </li>
+      {notes.length > 0 && (
+        <div className="flex flex-col gap-0.5 px-3.5 pb-2">
+          {notes.map((note) => (
+            <p key={note} className="text-xs text-muted-foreground">
+              {note}
+            </p>
           ))}
-        </ul>
+        </div>
+      )}
+      {open && (
+        <div className="px-1.5 pb-1.5">
+          <ul className="flex flex-col">
+            {files.map((file) => {
+              const status = STATUS[file.status] ?? STATUS.modified;
+              const dir = dirName(file.path);
+              return (
+                <li key={file.path}>
+                  <button
+                    type="button"
+                    onClick={() => show(file.path)}
+                    className="flex w-full min-w-0 items-center gap-2.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+                    title={file.from ? `${file.from} → ${file.path}` : file.path}
+                  >
+                    <span className={cn("size-1.5 shrink-0 rounded-full", status.dot)} role="img" aria-label={status.label} />
+                    <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                      <span className="shrink-0">{baseName(file.path)}</span>
+                      {dir && <span className="min-w-0 truncate text-xs text-muted-foreground">{dir}</span>}
+                    </span>
+                    <Counts added={file.added} removed={file.removed} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
       <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} />
     </div>
