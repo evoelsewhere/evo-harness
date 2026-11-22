@@ -69,6 +69,14 @@ export const WIDGET_THEME_PROPERTIES = [
   "--accent-red",
   "--accent-red-soft",
   "--font-sans",
+  // The names the visualize guidelines use (crates/evo-engine/src/tools/visualize/*.md).
+  "--color-text-primary",
+  "--color-text-secondary",
+  "--color-background",
+  "--color-background-secondary",
+  "--color-success",
+  "--color-warning",
+  "--color-error",
 ] as const;
 
 export type WidgetTheme = Partial<Record<(typeof WIDGET_THEME_PROPERTIES)[number], string>>;
@@ -110,6 +118,13 @@ export function readWidgetTheme(style: Pick<CSSStyleDeclaration, "getPropertyVal
     "--accent-red": red,
     "--accent-red-soft": soft(red),
     "--font-sans": read("--app-font-sans"),
+    "--color-text-primary": read("--foreground"),
+    "--color-text-secondary": read("--muted-foreground"),
+    "--color-background": read("--background"),
+    "--color-background-secondary": read("--muted"),
+    "--color-success": green,
+    "--color-warning": amber,
+    "--color-error": red,
   };
   for (const key of Object.keys(theme) as (keyof WidgetTheme)[]) if (!theme[key]) delete theme[key];
   return theme;
@@ -121,6 +136,14 @@ export function buildWidgetThemeCss(theme: WidgetTheme): string {
     .map(([property, value]) => `${property}: ${value}`);
   return declarations.length ? `:root { ${declarations.join("; ")}; }` : "";
 }
+
+/**
+ * The page's base style, before the widget's own: the app's font, size and
+ * text colour. The frame's document starts with the browser's defaults (a
+ * serif face), so a widget that sets no font of its own would not match the
+ * app. The widget's styles come later and override these.
+ */
+export const WIDGET_BASE_CSS = "html { font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif); font-size: 14px; line-height: 1.5; color: var(--color-text, CanvasText); }";
 
 /** Keep `</style>` and friends from closing the element a value is written into. */
 const inert = (text: string) => text.replace(/</g, "\\3c ");
@@ -165,6 +188,7 @@ const THEME_LISTENER = `<script>(function(){
     var data = event.data;
     if (!data || data.type !== '${WIDGET_THEME}' || !data.theme || typeof data.theme !== 'object') return;
     var style = document.documentElement.style;
+    if (data.colorScheme === 'dark' || data.colorScheme === 'light') document.documentElement.classList.toggle('dark', data.colorScheme === 'dark');
     for (var key in data.theme) {
       if (/^--[a-z0-9-]+$/.test(key) && typeof data.theme[key] === 'string') style.setProperty(key, data.theme[key]);
     }
@@ -178,8 +202,10 @@ export function wrapWidgetHtml(html: string, theme: WidgetTheme, colorScheme?: "
   const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${csp.replaceAll('"', "&quot;")}">`;
   const themeCss = buildWidgetThemeCss(theme);
   const scheme = colorScheme ? `:root { color-scheme: ${colorScheme}; }` : "";
-  const themeStyle = themeCss || scheme ? `<style id="evo-widget-theme">${inert(`${scheme}${themeCss}`)}</style>` : "";
-  const head = `${cspMeta}${themeStyle}${STORAGE_SHIM}${SEND_PROMPT}${RESIZE}${THEME_LISTENER}`;
+  const themeStyle = `<style id="evo-widget-theme">${inert(`${scheme}${themeCss}${WIDGET_BASE_CSS}`)}</style>`;
+  // The guidelines' `.dark { ... }` palette applies when the app is dark.
+  const darkClass = colorScheme === "dark" ? "<script>document.documentElement.classList.add('dark');</script>" : "";
+  const head = `${cspMeta}${themeStyle}${darkClass}${STORAGE_SHIM}${SEND_PROMPT}${RESIZE}${THEME_LISTENER}`;
   if (/<head\b[^>]*>/i.test(html)) {
     return html.replace(/<head\b[^>]*>/i, (match) => `${match}${head}`);
   }
