@@ -264,6 +264,7 @@ impl AgentTool for BashTool {
 
         // Build the terminal output text + details, applying truncation notices.
         let (output_text, details) = build_bash_output(&capture);
+        let output_text = with_heredoc_hint(output_text);
         let details_value = serde_json::to_value(details).unwrap_or(serde_json::Value::Null);
 
         // Resolution: cancelled → aborted; timeout → timeout; other exec error;
@@ -438,9 +439,40 @@ fn exec_err_to_agent(e: ExecutionError) -> AgentError {
     AgentError::Tool(e.to_string())
 }
 
+/// `output` with a note when bash reports a here-document that never met its
+/// end marker: everything after its first line went into it, so the files it
+/// wrote and the commands after it are cut or missing, while the exit code
+/// often says nothing went wrong.
+fn with_heredoc_hint(output: String) -> String {
+    if !(output.contains("here-document") && output.contains("delimited by end-of-file")) {
+        return output;
+    }
+    format!(
+        "{output}\n\nNote: a here-document was not closed, although the exit code may be 0: bash read to the end \
+         of the command looking for its end marker, so everything after the `<<` line went into it and the \
+         commands after it did not run. The end-marker line must hold the marker alone (no spaces around it, \
+         not indented unless the heredoc opens with `<<-` and the indent is tabs) and match the opening word \
+         exactly. Check what it wrote, and use the write tool for file contents instead of a heredoc."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unclosed_heredoc_gets_a_hint() {
+        let warning = "bash: line 4: warning: here-document at line 1 delimited by end-of-file (wanted `EOF')";
+        let hinted = with_heredoc_hint(warning.into());
+        assert!(hinted.starts_with(warning));
+        assert!(
+            hinted.contains("a here-document was not closed"),
+            "{hinted}"
+        );
+        assert!(hinted.contains("marker alone"), "{hinted}");
+        // Other output passes unchanged.
+        assert_eq!(with_heredoc_hint("ok".into()), "ok");
+    }
 
     #[test]
     fn omitted_and_null_timeout_use_tool_default() {
