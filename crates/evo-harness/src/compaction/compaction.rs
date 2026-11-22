@@ -42,6 +42,7 @@ use crate::compaction::tokens::{
     build_session_context, compute_file_lists, create_file_ops, estimate_context_tokens,
     extract_file_ops_from_message, format_file_operations, serialize_conversation, FileOperations,
 };
+use crate::compaction::user_messages;
 use crate::messages::convert_to_llm;
 use crate::messages::{create_branch_summary_message, create_compaction_summary_message};
 use crate::session::types::{Entry, EntryBase, MessageEntry};
@@ -768,6 +769,20 @@ pub async fn compact(
     preparation: &CompactionPreparation,
     opts: &CompactionLlmOptions,
 ) -> Result<CompactResult, CompactionError> {
+    // The person's words go on verbatim beside the summary, not through it.
+    let (previous_summary, mut kept) = match preparation.previous_summary.as_deref() {
+        Some(previous) => {
+            let (rest, kept) = user_messages::split(previous);
+            (Some(rest), kept)
+        }
+        None => (None, Vec::new()),
+    };
+    kept.extend(
+        user_messages::of(&preparation.messages_to_summarize)
+            .into_iter()
+            .chain(user_messages::of(&preparation.turn_prefix_messages))
+            .map(|text| user_messages::cut(&text)),
+    );
     let (summary, usage) =
         if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
             let (history_text, history_usage) = if preparation.messages_to_summarize.is_empty() {
@@ -776,7 +791,7 @@ pub async fn compact(
                 let (t, u) = generate_summary_with_usage(
                     &preparation.messages_to_summarize,
                     preparation.settings.reserve_tokens,
-                    preparation.previous_summary.as_deref(),
+                    previous_summary.as_deref(),
                     opts,
                 )
                 .await?;
@@ -799,7 +814,7 @@ pub async fn compact(
             let (t, u) = generate_summary_with_usage(
                 &preparation.messages_to_summarize,
                 preparation.settings.reserve_tokens,
-                preparation.previous_summary.as_deref(),
+                previous_summary.as_deref(),
                 opts,
             )
             .await?;
@@ -808,7 +823,7 @@ pub async fn compact(
 
     let (read_files, modified_files) = compute_file_lists(&preparation.file_ops);
     let file_ops_text = format_file_operations(&read_files, &modified_files);
-    let summary = format!("{summary}{file_ops_text}");
+    let summary = format!("{summary}{file_ops_text}{}", user_messages::render(&kept));
 
     Ok(CompactResult {
         summary,

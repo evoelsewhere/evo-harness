@@ -17,12 +17,15 @@
 //!   `complete_simple_with_retries`, prompts, `extract_file_operations`.
 //! - [`branch_summary`] — `collect_entries_for_branch_summary`,
 //!   `prepare_branch_entries`, `generate_branch_summary`.
+//! - [`user_messages`] — the person's own messages, kept word for word in a
+//!   block after the summary and carried through later compactions.
 
 pub mod branch_summary;
 pub mod compaction;
 pub mod cut_point;
 pub mod settings;
 pub mod tokens;
+pub mod user_messages;
 
 pub use compaction::{
     combine_usage, compact, complete_simple_with_retries, extract_file_operations,
