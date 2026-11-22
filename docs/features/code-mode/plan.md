@@ -366,3 +366,23 @@ UI: **Settings → Experimental → Code mode**.
   limit or a file over 64 pages. A call with `offset` or `limit` is one call,
   as the tool answers. `.nothrow()` reports `truncated` from the same
   `details`. Each page is one call against the 128-call cap (FR-13).
+- 2026-11-23 — Typed declarations (FR-18, T44). `declarations.rs` turns
+  each callable tool's JSON Schema into a method of one
+  `declare const tools: { ... }` block in the `run_code` description, in a
+  `ts` fence after the prose. Mapping: `string` / `number` (and `integer`) /
+  `boolean` / `null`; `enum` and `const` as literal unions; `type` lists,
+  `anyOf` and `oneOf` as unions, `allOf` as an intersection; arrays as `T[]`
+  and `items` / `prefixItems` lists as tuples; objects as type literals with
+  `?` on fields not in `required` and `[key: string]: T` for
+  `additionalProperties`; `$ref` to `#/$defs/…` or `#/definitions/…` resolved
+  against the tool's schema; `nullable` adds `| null`; anything else, and
+  nesting past six levels, is `unknown`. A tool with no fields takes `()`,
+  one with only optional fields `args?`. Doc comments carry only the first
+  sentence of each description (at most 160 characters), since the direct
+  tools already carry the full text; an object whose fields have no docs
+  stays on one line. The previous attempt with full descriptions cost about
+  5,500 tokens per request. With first sentences, the engine's 16 callable
+  built-in tools take 5,944 bytes (about 1,500 tokens; the one-line
+  signatures took 752 bytes); `declarations::tests` holds them to 8,000
+  bytes. Connector tools add their own share. Not yet measured with the
+  SC-1 benchmark (it spends real tokens; the owner starts it).

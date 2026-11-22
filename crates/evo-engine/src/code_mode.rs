@@ -128,7 +128,7 @@ mod tests {
             .into_iter()
             .find(|t| t.tool.schema().name == NAME)
             .unwrap();
-        assert!(code.tool.schema().description.contains("tools.read({path"));
+        assert!(code.tool.schema().description.contains("  read(args: {"));
         // Applying again changes nothing.
         apply(&harness).await.unwrap();
         assert_eq!(names(&harness).await.0, ["read", "run_code"]);

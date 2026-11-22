@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | engine, protocol, desktop UI, hooks |
 | Created | 2026-11-22 |
-| Updated | 2026-11-22 |
+| Updated | 2026-11-23 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [ADR 0025](../../architecture/decisions/0025-model-written-code-runs-in-an-embedded-interpreter.md), [Approval modes](../approval-modes/spec.md), [Agent tools by layer](../agent-tools-layers/spec.md), [Customize: hooks](../customize-skills-plugins-connectors/spec.md), [Source control: turn checkpoints](../source-control/spec.md), [Subagents and nested sessions](../subagents-and-nested-sessions/spec.md) |
@@ -230,7 +230,7 @@ Acceptance scenarios:
 | FR-17 | `PreToolUse` and `PostToolUse` hooks can match `run_code`. `PreToolUse` gets the code in `tool_input.code` and can block it or ask. `PostToolUse` gets `{code, result, stdout, stderr, toolsUsed, error}` and can return a changed copy in `hookSpecificOutput.updatedToolOutput` (for example to hide a secret). A malformed copy is ignored and the original output is used. | A hook that replaces `result` changes what the agent sees; a malformed one leaves the output unchanged. |
 | FR-22 | An `edit` or `write` from a program does not wait for the language server's diagnostics after each change (a program edits many files in a row; each wait can last the diagnostics timeout). The program runs its own check. Direct edits keep the check. | A program that edits 40 files finishes in seconds, not minutes; a direct edit still reports the language server's errors. |
 | FR-21 | For every tool, not only `run_code`, a `PostToolUse` hook can replace what the agent sees with `hookSpecificOutput.updatedToolOutput`. A string replaces the tool's text output and keeps its images. A tool with a structured response (`run_code`, FR-17) also accepts an object of that shape. Anything else is ignored. `PostToolUseFailure` cannot replace output. Calls from code get the same treatment as direct calls (6.1 Q4). | A `PostToolUse` hook on `bash` that returns `updatedToolOutput: "[hidden]"` makes the agent see `[hidden]`. A number is ignored. The same hook on a `bash` call from code hides that call's output. |
-| FR-18 | With code mode on, the agent's instructions say when to use `run_code` (many related calls, filtering large output, independent work in parallel) and when not to (a single call, anything that needs the person). They also include typed declarations of the built-in tools' functions. | Prompt snapshot with the mode on. |
+| FR-18 | With code mode on, the agent's instructions say when to use `run_code` (many related calls, filtering large output, independent work in parallel) and when not to (a single call, anything that needs the person). They also include TypeScript declarations of every tool a program can call (FR-12), generated from each tool's JSON Schema: one `declare const tools` object with a method per tool, typed parameters (strings, numbers, booleans, enums and constants as literal unions, arrays, tuples, nested objects, `$ref`, `anyOf` / `oneOf` / `allOf`, maps), `?` on optional fields, and a doc comment holding the first sentence of the tool's and each field's description. Each method returns `Promise<string>`. A name that is not a JavaScript identifier (a connector tool with `-`) is a quoted key. `tools.describe(name)` keeps the full schema. | Declarations for the engine's real tool set compile as TypeScript in shape (unit test of each mapping) and stay within the size budget; prompt snapshot with the mode on. |
 | FR-19 | Code mode is offered to every model that supports tool calls according to models.dev. There is no list of allowed models. | A models.dev model with tool calls gets `run_code` when the mode is on. |
 | FR-20 | When code mode is on, subagents and nested sessions get `run_code` too, with the same API, limits and checks (FR-5 to FR-17). The exception is an agent type whose explicit tool list leaves `run_code` out. A program in such an agent can call only the tools that agent has. Its prompts ask in the parent chat's panel, labelled with the agent's name and **From code**. Its **Code** rows show in its own transcript. Starting sessions or subagents from code stays excluded (FR-12). | A subagent in "Ask every time" runs a command from code: the parent's panel shows "<agent name> wants to run …" labelled **From code**. A read-only agent type's program can only read. An agent type that lists tools without `run_code` has no `run_code`. |
 
@@ -333,3 +333,8 @@ n/a — none open. All five questions were answered on 2026-11-22
 - 2026-11-22 — Scheduled task chats follow the setting like any chat (the
   shell starts them as chats); only plugin AI and memory indexing are left
   out (section 2.2).
+- 2026-11-23 — FR-18: the one-line signatures (`tools.read({path, offset?})`)
+  become TypeScript declarations generated from the schemas, with types and
+  one-sentence doc comments, so a program's API reads like a typed library
+  instead of field names only. Each doc is cut to its first sentence to keep
+  the cost per request bounded (plan section 5).
