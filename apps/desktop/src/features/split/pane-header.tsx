@@ -51,7 +51,7 @@ function HeaderButton({ label, onClick, children }: { label: string; onClick(): 
   );
 }
 
-/** One chat in the narrow switcher (FR-13). */
+/** One chat in the switcher shown when only one pane fits (FR-13). */
 function SwitcherItem({ chat, index, current }: { chat: string; index: PaneIndex; current: boolean }) {
   const { title, busy, waiting } = useChatLine(chat);
   return (
@@ -74,10 +74,10 @@ function SwitcherItem({ chat, index, current }: { chat: string; index: PaneIndex
 }
 
 /**
- * A pane's slim header, shown while two panes are open (spec Q6): the chat's
- * title and state, open in a window of its own, close. Dragging it to the
- * other half swaps the panes (FR-7). Narrow, it switches between the two
- * chats instead (FR-13).
+ * A pane's slim header, shown while several panes are open (spec Q6): the
+ * chat's title and state, open in a window of its own, close. Dragging it onto
+ * another pane swaps the two (FR-7, FR-16). With only one pane fitting, it
+ * switches between the chats instead (FR-13).
  */
 export function PaneHeader({ chat, index, narrow, onClose }: { chat: string; index: PaneIndex; narrow: boolean; onClose(): void }) {
   const { title, busy, waiting } = useChatLine(chat);
@@ -92,8 +92,9 @@ export function PaneHeader({ chat, index, narrow, onClose }: { chat: string; ind
     >
       {narrow && panes ? (
         <div className="flex min-w-0 flex-1 items-center gap-0.5" role="group" aria-label="Chats in this window">
-          <SwitcherItem chat={panes[0]} index={0} current={index === 0} />
-          <SwitcherItem chat={panes[1]} index={1} current={index === 1} />
+          {panes.map((other, at) => (
+            <SwitcherItem key={other} chat={other} index={at} current={index === at} />
+          ))}
         </div>
       ) : (
         <>

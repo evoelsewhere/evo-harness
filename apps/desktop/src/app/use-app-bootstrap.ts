@@ -156,10 +156,10 @@ export function useAppHotkeys() {
       } else if (key === "j") {
         event.preventDefault();
         ui.toggleRightPanel();
-      } else if ((key === "1" || key === "2") && !event.shiftKey && useSplitStore.getState().panes) {
-        // Split view: focus the left or right pane (chat-split-view FR-8).
+      } else if (/^[1-4]$/.test(key) && !event.shiftKey && (useSplitStore.getState().panes?.length ?? 0) >= Number(key)) {
+        // Split view: focus the first to fourth pane (chat-split-view FR-8, FR-15).
         event.preventDefault();
-        useSplitStore.getState().focusIndex(key === "1" ? 0 : 1);
+        useSplitStore.getState().focusIndex(Number(key) - 1);
       } else if (event.code === "Backslash" && !event.shiftKey && useSplitStore.getState().panes) {
         // Split view: close the focused pane; its chat goes on.
         event.preventDefault();

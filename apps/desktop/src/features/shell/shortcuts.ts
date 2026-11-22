@@ -58,7 +58,7 @@ export function shortcutGroups(): ShortcutGroup[] {
     {
       title: "Split view",
       items: [
-        { label: "Focus the left / right pane", keys: mod("1 2") },
+        { label: "Focus the first to fourth pane", keys: mod("1 2 3 4") },
         { label: "Close the focused pane", keys: mod("\\") },
       ],
     },

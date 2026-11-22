@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-13 |
+| Updated | 2026-11-14 |
 
 ## 1. Phases
 
@@ -52,6 +52,16 @@ by button or by drag.
 
 - [x] T13 [FR-14] `openBeside` (shared with Open in › Split view); the session card's **Open beside** and card drag — `apps/desktop/src/stores/split-store.ts`, `apps/desktop/src/components/ai-elements/session-proposal.tsx`, `apps/desktop/src/features/shell/chat-menu.tsx` — check: `bun run typecheck`; running app
 
+### Phase 6 — Up to four panes in a grid
+
+Done when: one to four panes show in the grid of FR-15, resize with two dividers, and drops add, replace and swap.
+
+- [x] T14 [FR-15 to FR-18] Tests for the list-based rules (open at a place, full grid, swap of two places, close keeping order, drop missing, `arrange`) — `apps/desktop/src/stores/split-rules.test.ts` — check: `bun test src/stores/split-rules.test.ts`
+- [x] T15 [FR-15 to FR-17] Tests for `paneRects`, edge and bottom drops, swap into a pane, previews of added panes — `apps/desktop/src/features/split/drag.test.ts` — check: `bun test src/features/split/drag.test.ts`
+- [x] T16 [FR-15, FR-16, FR-18] The rules, the store (list of panes, `rowRatio`, `open(chat, at)`, `swap(a, b)`, `openBeside`, restore) and the drop geometry — `apps/desktop/src/stores/split-{rules,store}.ts`, `apps/desktop/src/features/split/{drop-geometry,drag,drop-overlay}.ts*` — check: T14 and T15 pass; `bun run typecheck`
+- [x] T17 [FR-15, FR-17] The split area as one grid: placement, two dividers, row and focus arrangements, FLIP and enter for the grid, switcher for every pane — `apps/desktop/src/features/split/{split-area,pane-header,motion}.ts*` — check: running app
+- [x] T18 [FR-18] Ctrl/Cmd+1 to 4, the shortcuts list, the UI map — `apps/desktop/src/app/use-app-bootstrap.ts`, `apps/desktop/src/features/shell/shortcuts.ts`, `apps/desktop/README.md` — check: review
+
 ## 2. Verification
 
 In-app checks ran on 2026-11-13 in a debug build (`com.evoelsewhere.evo.e2e`) on a copy of the user's data, driven over WebView2 CDP with real mouse and key events.
@@ -72,6 +82,10 @@ In-app checks ran on 2026-11-13 in a debug build (`com.evoelsewhere.evo.e2e`) on
 | FR-12 | Running app: archiving the focused pane's chat and the other pane's chat each closed that pane, and the remaining chat took the focus | passed (2026-11-13) |
 | FR-14 | Running app: Open beside on a started session's card; the card dragged to the right half | not run — the dev app the person tests runs without a debugging port |
 | FR-13 | Running app at 1000 px wide (678 px area): one pane and the switcher; the switcher shows the other chat | passed (2026-11-13) |
+| FR-15 | `bun test src/stores/split-rules.test.ts src/features/split/drag.test.ts` (rules, geometry, previews); running app: drop at an edge, bottom and middle with 2, 3 and 4 panes | rules and geometry passed (2026-11-14); running app not run |
+| FR-16 | `bun test` (swap of two places); running app: header dropped on another pane | geometry passed (2026-11-14); running app not run |
+| FR-17 | `bun test` (`arrange`, `paneRects`); running app: both dividers, lower window, narrow window | tests passed (2026-11-14); running app not run |
+| FR-18 | `bun run typecheck`; running app: restart with four panes, Ctrl+3 | typecheck passed (2026-11-14); running app not run |
 | NFR-1 | Running app (debug build, CDP attached): divider drag 57 fps (p95 18 ms); swap animation 59 fps (p95 18 ms). Laying both chats out on every frame gave 36 fps, which led to the FR-5 change | passed (2026-11-13) |
 | NFR-2 | Running app: `showChat` attaches the pane's chat; both engines stayed ready and attached through the run | passed (2026-11-13) |
 | NFR-3 | Running app: one pane renders the same tree and layout as before (no header, no divider) | passed (2026-11-13) |

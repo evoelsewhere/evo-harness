@@ -83,7 +83,7 @@ function useChatActions({ chat, active, onRename, onDelete }: ChatMenuProps) {
 
   const newWindow: Action | null =
     archived || chatWindowId ? null : { key: "1", label: "New window", run: () => void openInNewWindow(chat.id) };
-  // Split view: beside the active chat, or in the other pane (chat-split-view FR-8).
+  // Split view: beside the active chat, or as a new pane (chat-split-view FR-8, FR-15).
   const splitView: Action | null =
     archived || chatWindowId || chat.draft
       ? null

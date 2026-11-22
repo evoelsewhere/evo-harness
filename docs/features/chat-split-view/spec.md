@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | desktop UI |
 | Created | 2026-11-13 |
-| Updated | 2026-11-13 |
+| Updated | 2026-11-14 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Engines run without a window](../shell-hosted-engines/spec.md) · [Nested sessions: roles and mail](../session-roles-and-mail/spec.md) |
@@ -18,8 +18,8 @@ arranging them by hand. This matters more now that a chat starts nested
 sessions and subagents that run beside it.
 
 Split view lets the person drag a chat from the sidebar onto the chat
-area. The area then splits into two panes side by side, like snapping
-windows, and each pane shows a live chat. One pane has the focus: the side
+area. The area then splits into panes, like snapping windows: two side by
+side, and up to four in a grid of two rows. Each pane shows a live chat. One pane has the focus: the side
 panel, the shortcuts and the title bar follow it.
 
 Panes open, close, resize and move with smooth, spring-like animation, so
@@ -30,16 +30,18 @@ the layout changes feel calm and easy to follow.
 ### 2.1 Goals
 
 - Drag a chat row from the sidebar onto the chat area to show it in a
-  second pane. Dropping it on the left or right half decides the side.
-  Dropping it on an existing pane, when two are open, replaces that
-  pane's chat.
-- Two live panes side by side. Each streams its chat, has its own
+  second pane. Dropping it on the left or right half decides the side. With panes
+  open, dropping it near a pane's edge adds a pane there, and dropping it
+  in the middle of a pane replaces that pane's chat (FR-15).
+- Up to four live panes: two side by side, three or four as two rows
+  (FR-15). Each streams its chat, has its own
   composer, and answers its own approvals and questions.
 - One focused pane. A click or keyboard focus moves the focus. The side
   panel, the title bar, the chat highlighted in the sidebar, and commands
   such as the palette all follow the focused pane.
-- Drag the divider between the panes to resize them.
-- Drag a pane's header to the other side to swap the panes.
+- Drag the divider between the columns, and the one between the rows, to
+  resize them.
+- Drag a pane's header onto another pane to swap the two.
 - Close a pane. The chat itself is not closed, and its work goes on.
 - The same actions without a mouse: **Open in › Split view** in a chat's
   menu, and keyboard shortcuts to move the focus between the panes and to
@@ -55,7 +57,8 @@ the layout changes feel calm and easy to follow.
   New window** and are unchanged.
 - Split view inside a chat window (a window that shows one chat).
 - The same chat in two panes at once.
-- More than two panes, and stacked (top and bottom) panes.
+- More than four panes, and layouts other than the grid in FR-15: no
+  stacked pair of two panes, no three columns.
 - Tabs inside a pane.
 - Splitting the Scheduler, Usage or Customize pages. These still take the
   whole chat area while open.
@@ -150,12 +153,16 @@ meanwhile leaves its pane out.
 | FR-12 | A chat that is archived or deleted closes its pane. | Given B in a pane, when B is deleted, then its pane closes. |
 | FR-13 | When the chat area is narrower than two minimum-width panes (about 360 px each), only the focused pane shows, with a compact switcher in its header to show the other. Both show again when the area widens. | Given two panes, when the window narrows below the threshold, then one pane and the switcher show. |
 | FR-14 | A started nested session's card in its parent's chat offers **Open beside**, which shows the session in the other pane and keeps the parent in its own. The card can also be dragged onto the chat area like a sidebar row. | Given a parent alone, when Open beside is chosen on its session's card, then the parent shows on the left and the session on the right. |
+| FR-15 | The chat area holds one to four panes in reading order (left to right, top to bottom). Two: side by side. Three: two above and one below spanning the full width. Four: a 2 x 2 grid. A chat dropped near a pane's left or right edge, or near the bottom edge of the last row, opens as a new pane at that place while fewer than four show; in the middle of a pane, or with four panes, it replaces that pane's chat. **Open in > Split view** and **Open beside** add a pane after the focused one (with four, they replace the next one). Closing a pane keeps the order of the rest, and the layout goes back to one pane when one is left. | Given two panes, when a chat is dropped on the bottom edge, then it shows full width below them. |
+| FR-16 | A pane's header dragged onto another pane swaps the two chats; the focus stays with its chat, and with two panes the widths go along (FR-7). | Given four panes, when the first header is dropped on the fourth pane, then the two trade places. |
+| FR-17 | Resizing: one vertical divider between the columns (shared by both rows) and, with three or four panes, one horizontal divider between the rows (shared by both columns), each with the keyboard, a double-click for 50 % and veils as in FR-5. No pane is narrower than 360 px or, in a grid of two rows, shorter than 300 px. When the area is too low for two rows, three or four panes show as one row of equal panes if each fits 360 px, and otherwise only the focused pane shows (FR-13). | Given four panes, when the window gets lower, then the grid becomes a row, and then one pane with the switcher. |
+| FR-18 | The layout (chats in order, focus, both ratios) is saved like FR-10; a layout saved with two panes still restores. Ctrl/Cmd+1 to Ctrl/Cmd+4 focus a pane. The narrow switcher lists every pane. | Restart with four panes: the same grid; Ctrl+3 focuses the third. |
 
 ### 4.2 Non-functional
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| NFR-1 | Smoothness: dragging, the drop preview, resizing and the pane animations hold 60 fps with 2 working chats streaming, on the developer's Windows machine. | Performance trace of a resize while two chats stream. |
+| NFR-1 | Smoothness: dragging, the drop preview, resizing and the pane animations hold 60 fps with 2 working chats streaming (4 for the grid), on the developer's Windows machine. | Performance trace of a resize while two (four) chats stream. |
 | NFR-2 | Both panes' chats are attached to the window (each pane is a viewer of its chat's engine). A chat that leaves its pane is let go as switching chats does today. | The supervisor's viewers match the panes. |
 | NFR-3 | One pane looks and behaves exactly as today: no header or divider shows until a second pane opens. | Visual comparison with one pane. |
 | NFR-4 | Accessibility: the panes are labelled regions, the dividers are keyboard-operable separators, and the drop has a keyboard alternative (FR-8). | Keyboard-only walkthrough. |
@@ -192,6 +199,11 @@ n/a — all answered.
   given. The spec chooses CSS with spring curves through `linear()`
   easing, which is enough for two panes and adds no dependency (FR-9,
   NFR-6).
+- 2026-11-14 — Q7: how many panes, and what shape? → A: up to four, as a
+  grid of two rows. Three panes: two above and one full width below, no
+  empty cell. One vertical and one horizontal divider, shared. A drop near
+  an edge adds a pane, in the middle replaces. A small window shrinks the
+  grid to one row, then to the focused pane (FR-15 to FR-18; replaces Q1).
 - 2026-11-13 — Q4: a window too narrow for its panes? → A: only the
   focused pane shows, with a switcher (FR-13).
 - 2026-11-13 — Q5: a chat open in a window of its own? → A: dropping it
@@ -208,3 +220,4 @@ n/a — all answered.
   frame rate, the way iPad Split View resizes.
 - 2026-11-13 — Implemented; every requirement checked in the app (tasks.md, section 2).
 - 2026-11-13 — FR-14: Open beside and drag on a nested session's card. Open session replaced the focused pane, which is the parent's own.
+- 2026-11-14 — FR-15 to FR-18: up to four panes in a 2 x 2 grid (Q7). Open beside and Split view now add a pane while fewer than four show; before, with two panes they replaced the other one.

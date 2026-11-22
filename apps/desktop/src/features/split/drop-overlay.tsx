@@ -1,7 +1,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { MessageSquareIcon } from "lucide-react";
-import { isNarrow } from "@/stores/split-rules";
+import { arrange } from "@/stores/split-rules";
 import { useSplitStore } from "@/stores/split-store";
 import { UNTITLED, useSessionStore } from "@/stores/session-store";
 import { useDragStore } from "./drag";
@@ -16,11 +16,11 @@ import { SPRING, SPRING_MS } from "./motion";
 export function DropPreview({ width, height }: { width: number; height: number }) {
   const target = useDragStore((s) => s.target);
   const dragging = useDragStore((s) => s.payload !== null);
-  const { panes, focus, ratio } = useSplitStore();
+  const { panes, focus, ratio, rowRatio } = useSplitStore();
   // The last place stays while the box fades, so it does not jump on leaving.
   const last = React.useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   if (target) {
-    last.current = previewRect({ left: 0, top: 0, width, height }, target, { panes, focus, ratio, narrow: isNarrow(width) });
+    last.current = previewRect({ left: 0, top: 0, width, height }, target, { panes, focus, ratio, rowRatio, arrangement: arrange(panes?.length ?? 1, width, height) });
   }
   if (!dragging) last.current = null;
   const rect = last.current;

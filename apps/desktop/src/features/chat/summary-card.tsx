@@ -681,7 +681,7 @@ export function SummaryCard() {
   const [measure, width] = useElementWidth<HTMLDivElement>();
   const chatWidth = useAppearanceStore((s) => s.chatWidth);
   const column = chatColumnPx(chatWidth, width) + CHAT_PADDING;
-  // With two panes the card would cover one: it opens only from the toolbar
+  // With several panes the card would cover one: it opens only from the toolbar
   // then, as in a narrow chat (docs/features/ux-polish/spec.md, FR-2).
   const split = useSplitStore((s) => s.panes !== null);
   const fits = !split && (width === 0 || (width - column) / 2 >= CARD_WIDTH + CARD_GAP);

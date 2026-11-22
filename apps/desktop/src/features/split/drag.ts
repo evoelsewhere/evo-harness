@@ -6,7 +6,7 @@
 
 import { create } from "zustand";
 import { useSplitStore } from "@/stores/split-store";
-import { isNarrow } from "@/stores/split-rules";
+import { arrange } from "@/stores/split-rules";
 import { dropTarget, type DragPayload, type DropTarget } from "./drop-geometry";
 
 interface DragState {
@@ -32,15 +32,17 @@ const THRESHOLD = 6;
 function targetAt(x: number, y: number, payload: DragPayload): DropTarget | null {
   if (!area) return null;
   const rect = area.getBoundingClientRect();
-  const { panes, focus, ratio } = useSplitStore.getState();
-  return dropTarget(rect, x, y, { panes, focus, ratio, narrow: isNarrow(rect.width) }, payload);
+  const { panes, focus, ratio, rowRatio } = useSplitStore.getState();
+  const arrangement = arrange(panes?.length ?? 1, rect.width, rect.height);
+  return dropTarget(rect, x, y, { panes, focus, ratio, rowRatio, arrangement }, payload);
 }
 
 function land(payload: DragPayload, target: DropTarget): void {
   const split = useSplitStore.getState();
-  if (target.kind === "swap") split.swap();
-  else if (payload.kind !== "chat") return;
-  else if (target.kind === "open") void split.open(payload.chat, target.side);
+  if (target.kind === "swap") {
+    if (payload.kind === "pane") split.swap(payload.index, target.into);
+  } else if (payload.kind !== "chat") return;
+  else if (target.kind === "open") void split.open(payload.chat, target.at);
   else void split.replace(target.index, payload.chat);
 }
 

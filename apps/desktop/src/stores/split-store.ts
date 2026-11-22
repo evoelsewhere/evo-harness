@@ -1,4 +1,4 @@
-// Split view: two chats side by side in the main window
+// Split view: one to four chats in a grid in the main window
 // (docs/features/chat-split-view/spec.md, plan 3.2). The focused pane's chat
 // is always the engine store's `activeId`, so everything that follows the
 // active chat follows the focused pane; this store keeps which chats the
@@ -11,6 +11,7 @@ import { chatWindowId } from "@/lib/windows";
 import { useEngineStore } from "./engine-store";
 import { useSessionStore } from "./session-store";
 import {
+  MAX_PANES,
   NO_SPLIT,
   closePane,
   dropMissing,
@@ -20,21 +21,21 @@ import {
   swapPanes,
   type Layout,
   type PaneIndex,
-  type Side,
 } from "./split-rules";
 
 interface SplitStore extends Layout {
-  /** Show `chat` beside the active chat on `side`, or in the pane on that side when two show (FR-1, FR-2, FR-11). */
-  open(chat: string, side: Side): Promise<void>;
+  /** Show `chat` as a new pane at place `at` in reading order, beside the active chat when one pane shows (FR-1, FR-2, FR-11, FR-15). */
+  open(chat: string, at: number): Promise<void>;
   /** Show `chat` in pane `index`. */
   replace(index: PaneIndex, chat: string): Promise<void>;
-  /** The panes change sides (FR-7). */
-  swap(): void;
+  /** Panes `a` and `b` change places (FR-7). */
+  swap(a: PaneIndex, b: PaneIndex): void;
   /** Close pane `index`; its chat goes on in the shell (FR-6). */
   close(index: PaneIndex): void;
   /** Focus pane `index`: its chat becomes the active one (FR-4). */
   focusIndex(index: PaneIndex): void;
   setRatio(ratio: number): void;
+  setRowRatio(ratio: number): void;
 }
 
 const engine = () => useEngineStore.getState();
@@ -42,7 +43,7 @@ const engine = () => useEngineStore.getState();
 export const useSplitStore = create<SplitStore>()(
   persist(
     (set, get) => {
-      const apply = (layout: Layout) => set({ panes: layout.panes, focus: layout.focus, ratio: layout.ratio });
+      const apply = (layout: Layout) => set({ panes: layout.panes, focus: layout.focus, ratio: layout.ratio, rowRatio: layout.rowRatio });
       const focused = () => {
         const { panes, focus } = get();
         if (panes) engine().focusPane(panes[focus]);
@@ -50,9 +51,9 @@ export const useSplitStore = create<SplitStore>()(
       return {
         ...NO_SPLIT,
 
-        async open(chat, side) {
+        async open(chat, at) {
           if (chatWindowId) return;
-          const next = openPane(get(), engine().activeId, chat, side);
+          const next = openPane(get(), engine().activeId, chat, at);
           if (next === get()) return;
           // The new chat's engine is attached before its pane shows.
           if (chat !== engine().activeId) await engine().showChat(chat);
@@ -68,13 +69,13 @@ export const useSplitStore = create<SplitStore>()(
           focused();
         },
 
-        swap() {
-          apply(swapPanes(get()));
+        swap(a, b) {
+          apply(swapPanes(get(), a, b));
         },
 
         close(index) {
           const { layout, remaining } = closePane(get(), index);
-          apply({ ...layout, ratio: get().ratio });
+          apply({ ...layout, ratio: get().ratio, rowRatio: get().rowRatio });
           if (remaining && remaining !== engine().activeId) engine().focusPane(remaining);
         },
 
@@ -88,24 +89,31 @@ export const useSplitStore = create<SplitStore>()(
         setRatio(ratio) {
           set({ ratio });
         },
+
+        setRowRatio(rowRatio) {
+          set({ rowRatio });
+        },
       };
     },
     {
       name: "evo-split",
       // A chat window shows one chat: it never splits, and keeps nothing.
-      partialize: (state) => (chatWindowId ? {} : { panes: state.panes, focus: state.focus, ratio: state.ratio }),
+      partialize: (state) => (chatWindowId ? {} : { panes: state.panes, focus: state.focus, ratio: state.ratio, rowRatio: state.rowRatio }),
     },
   ),
 );
 
 /**
- * Show `chat` beside the chat on screen: in a new right pane, or in the pane
- * that does not have the focus (Open in › Split view, a session card's Open
- * beside; FR-8, FR-14).
+ * Show `chat` beside the chat on screen: in a new pane after the focused one
+ * (a new right pane when one shows), or, with four panes, in the pane after the
+ * focused one (Open in › Split view, a session card's Open beside; FR-8, FR-14,
+ * FR-15).
  */
 export function openBeside(chat: string): Promise<void> {
   const split = useSplitStore.getState();
-  return split.panes ? split.replace(split.focus === 0 ? 1 : 0, chat) : split.open(chat, "right");
+  if (!split.panes) return split.open(chat, 1);
+  const count = split.panes.length;
+  return split.open(chat, count >= MAX_PANES ? (split.focus + 1) % count : split.focus + 1);
 }
 
 /**
@@ -149,7 +157,7 @@ export function startSplit(): void {
   });
 }
 
-/** Show the saved pair again: the other pane's chat is attached beside the active one (FR-10). */
+/** Show the saved panes again: the other panes' chats are attached beside the active one (FR-10). */
 export async function restoreSplit(): Promise<void> {
   if (chatWindowId) return;
   const split = useSplitStore.getState();
@@ -168,7 +176,6 @@ export async function restoreSplit(): Promise<void> {
     useSplitStore.setState({ panes: null, focus: 0 });
     return;
   }
-  const other = layout.panes[at === 0 ? 1 : 0];
-  await engine().showChat(other);
-  useSplitStore.setState({ panes: layout.panes, focus: at as PaneIndex, ratio: layout.ratio });
+  for (const chat of layout.panes) if (chat !== active) await engine().showChat(chat);
+  useSplitStore.setState({ panes: layout.panes, focus: at, ratio: layout.ratio, rowRatio: layout.rowRatio });
 }
