@@ -101,6 +101,9 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 
    evo-engine --mode plugin-ai     one process for every plugin's model calls,
                                    started on the first, stopped after 5 idle minutes
+
+   evo-engine --mode codegraph-index   one project's code graph index run,
+                                       queued by the shell, one at a time
 ```
 
 - **Plugin views are child webviews of a window** (`plugin-<n>`), served
@@ -186,6 +189,15 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   memory topics with the model the person chose for indexing, prints one
   result line and exits. It loads no plugins, hooks, skills or connectors
   and has two tools (docs/features/memory-topics-and-chat-recall).
+- **Code graph indexing is a short-lived engine process**
+  (`evo-engine --mode codegraph-index`,
+  [ADR 0026](decisions/0026-code-graph-indexing-in-a-short-lived-engine-process.md)).
+  A worker in the shell queues one run at a time per project: a syntax pass
+  when a chat opens, a precise pass with SCIP indexers after the person's
+  first Index in a trusted project, and refreshes when chats go idle. Chat
+  engines read the project's index in `~/.evo/agent/codegraph/` and refresh
+  changed files' syntax rows when a query needs them
+  (docs/features/code-graph).
 - **Evo Webbridge reaches the person's own Chrome or Edge** without a port.
   The browser starts `evo-bridge-host` (one per profile) for the Evo
   extension through native messaging; the host joins the shell over a
@@ -255,7 +267,7 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
               │                                │
  llm        evo-ai ◄───────────────────────────┘
               │
- leaf       evo-telemetry   evo-store  evo-hooks  evo-lsp  evo-web  evo-mcp  evo-plugins  evo-office
+ leaf       evo-telemetry   evo-store  evo-hooks  evo-lsp  evo-web  evo-mcp  evo-plugins  evo-office  evo-codegraph
 ```
 
 | Crate | Responsibility |
@@ -273,7 +285,8 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 | `evo-mcp` | MCP client and connection pool |
 | `evo-plugins` | Plugin bundles and marketplaces |
 | `evo-hooks` | Hook commands and web requests on agent events |
-| `evo-lsp` | Language-server catalog, installers, LSP client |
+| `evo-lsp` | Language-server catalog, installers, LSP client; also the catalog and installers of code graph's SCIP indexers |
+| `evo-codegraph` | Code graph index: tree-sitter parsing, SCIP reading, the SQLite store per project, queries and ranking; runs no process ([ADR 0026](decisions/0026-code-graph-indexing-in-a-short-lived-engine-process.md)) |
 | `evo-web` | Guarded page fetching as Markdown, web search |
 | `evo-office` | Office documents: the native preview renderer (DOCX/PPTX/XLSX → script-free HTML, package preflight, cache, inspection; [ADR 0009](decisions/0009-native-office-preview-renderer.md)), document versions, and the optional pinned LibreOffice runtime (verified install, headless Office to PDF conversion) |
 | `evo-worktrees` | Managed Git worktrees for subagents and nested sessions |
@@ -402,6 +415,7 @@ sequenceDiagram
 | `~/.evo/agent/plugins/installed.json`, `plugins/data/<plugin>/storage.json` | installed plugins with the permissions approved (views and code), optional answers, Developer mode, an update waiting for consent, plain settings (personal and per workspace), which secrets are set, when its code starts, its sign-ins' names and states (never a secret), its AI rules (providers and models allowed, default, tier pins, caps); each plugin's own key–value storage (10 MB, removed on uninstall) | shell (`plugins.rs`, `plugin_settings.rs`, `plugin_auth/`, `plugin_ui/bridge.rs`) |
 | OS keychain, service `evo.plugins` (Credential Manager, Keychain, Secret Service), and `~/.evo/agent/plugins/vault/<plugin>.vault` | one 32-byte key per plugin in the keychain; the plugin's secret settings, tokens, refresh tokens and cookies sealed with it (AES-256-GCM); both removed on uninstall | shell only (`evo-vault`, [ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)) |
 | `~/.evo/agent/runtimes/{deno-<v>,uv-<v>,deno-cache,python}`, `plugins/data/<plugin>/` | Deno and uv for plugin backends, Deno's module cache, uv's Python; each plugin's data folder (with a Python plugin's `venv/`) | shell (`plugin_runtime/`) |
+| `~/.evo/agent/codegraph/<hash of the project path>.db` (SQLite, WAL) | one project's code graph index: files with hashes, symbols, references, implementations, the precise layer's per-file hashes, each language's last index result; versioned and rebuilt, not migrated | written by `evo-engine --mode codegraph-index` and by chat engines (changed files' syntax rows); the shell lists and deletes them (`evo-codegraph`, [ADR 0026](decisions/0026-code-graph-indexing-in-a-short-lived-engine-process.md)) |
 | `~/.evo/agent/AGENTS.md` | personal instructions for every chat | engine |
 | `~/.evo/agent/{runtimes,cache/office,bundled-skills,document-versions/<chat>}` | LibreOffice runtime, Office preview cache (native HTML, exact PDFs), extracted Office skills, copies of Office files saved in a chat (versions) | engine (`office.rs`, `evo-office`); the shell removes a chat's versions with the chat |
 | `<project>/AGENTS.md`, `<project>/.evo/`, `.mcp.json` | project instructions, commands, agents, settings, connectors | the user (read by the engine after trust) |
@@ -475,6 +489,11 @@ Details: [app database spec](../features/app-database/spec.md).
   an open question counts as working, so its engine is never trimmed.
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
+- **Code graph indexers.** SCIP indexers run the project's own tooling, so
+  they run only in trusted projects, the first time only on the person's
+  Index, never from a tool call, outside the agent's sandbox and without
+  Evo's secrets
+  ([ADR 0026](decisions/0026-code-graph-indexing-in-a-short-lived-engine-process.md)).
 - **Model-written code.** A `run_code` program runs in the engine's embedded
   QuickJS with no files, network, environment, processes or modules. Its only
   host function is a tool call through the tool program capability, so every

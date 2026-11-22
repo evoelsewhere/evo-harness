@@ -5,7 +5,7 @@
 | Status | Draft |
 | Area | new crate `evo-codegraph`, engine, desktop shell, desktop UI |
 | Created | 2026-11-22 |
-| Updated | 2026-11-22 |
+| Updated | 2026-11-23 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Related | [Research notes](research.md), [Code intelligence](../code-intelligence/spec.md), [Code mode](../code-mode/spec.md), [Approval modes](../approval-modes/spec.md) |
@@ -279,6 +279,8 @@ n/a — none open.
 - 2026-11-22 — Draft, from the confirmed framing in [research.md](research.md).
 - 2026-11-22 — SC-1 raised by the owner to 30% fewer turns and 20% fewer
   input tokens.
+- 2026-11-23 — Gate A: the owner accepted the spec. Plan, tasks and
+  ADR 0026 written.
 - 2026-11-22 — Audit: FR-1 says when the map follows a change; FR-5 says
   indexer runs are not tool calls, run outside the sandbox and may fetch
   dependencies; FR-7 marks each item; FR-8 adds symbol ids; FR-11 scopes the

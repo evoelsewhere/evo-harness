@@ -33,6 +33,7 @@ consequences and the alternatives rejected. The
 | [0023](0023-plugin-ai-runs-in-one-long-lived-engine-process.md) | Plugin AI runs in one long-lived engine process (`--mode plugin-ai`); the shell gates it | Accepted | 2026-11-14 |
 | [0024](0024-repository-writes-and-turn-checkpoints.md) | Evo writes to the person's repository only on a click; turn checkpoints live under `refs/evo/` | Accepted | 2026-11-19 |
 | [0025](0025-model-written-code-runs-in-an-embedded-interpreter.md) | Model-written code runs in an embedded interpreter in the engine, with no abilities except checked tool calls | Accepted | 2026-11-22 |
+| [0026](0026-code-graph-indexing-in-a-short-lived-engine-process.md) | Code graph indexing runs in a short-lived engine process; indexers run only in trusted projects | Proposed | 2026-11-23 |
 
 ## Rules
 
