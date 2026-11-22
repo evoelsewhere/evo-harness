@@ -17,10 +17,11 @@ from its result without checking again. Use a direct call only when one call is 
 
 Plain JavaScript with top-level await; `return x` or the last expression is the result. \
 There is no require, import, fs or process: use these instead.
-- files(dir, ext?) -> sorted relative paths; read(path) -> text; write(path, text); \
+- files(dir, ext?) -> sorted relative paths; read(path) -> the whole file's text (all pages; \
+throws if it cannot); read(path, {offset, limit}) -> that range; write(path, text); \
 edit(path, oldText, newText).
 - $`cmd ${value}` runs bash (values quoted; throws on non-zero exit); .lines() .json() \
-.nothrow() -> {exitCode, output, ok}. Use grep -rl / find, not rg.
+.nothrow() -> {exitCode, output, ok, truncated}. Use grep -rl / find, not rg.
 - tools.<name>(args) -> Promise<string> for any other tool; a refused call throws ToolError.
 - Promise.all([...]) runs up to 8 calls at once; console.log lines come back.
 Inspect and act in the same program: read inside it and decide in code instead of printing \

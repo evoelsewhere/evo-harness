@@ -59,6 +59,7 @@ Done when: FR-15, US-5 and SC-1 to SC-4 are checked.
 - [x] T40 [FR-15] Write transcript tests from a fixture with a `run_code` result (running, done, failed, stopped, interrupted; live progress; rebuilt from saved messages) — `apps/desktop/src/features/chat/transcript-code.test.ts`, `apps/desktop/src/components/ai-elements/code-run.test.tsx` — check: the reducer test failed before T41 (as built: the row reads the result's bounded `calls`, not the journal entries)
 - [x] T41 [FR-15] Build the **Code** row with its nested cards — `apps/desktop/src/components/ai-elements/code-run.tsx`, `code-run-model.ts`, `tool.tsx`, `apps/desktop/src/features/chat/transcript.ts`, and the bounded per-call copy in `crates/evo-engine/src/tools/code/bridge.rs` — check: T40 passes; the row rendered with the built CSS in light and dark (screenshot); the running app not checked
 - [x] T42 [SC-1] Add the 12-task benchmark and run it with the mode off and on — `scripts/bench/code-mode/` — check: the fixture and checks agree (no task passes before the agent works; facts the checks expect hold) and the runner runs; the run with a real model is not done yet (it spends tokens; the owner starts it)
+- [x] T43 [FR-6] Whole-file `read(path)` and `.nothrow().truncated`: write the failing tests first (a 300 KB file comes back byte for byte without notices, a line over the page limit and a file over 64 pages reject, a range read stays one call, `truncated` follows the shell tool's `details`), then page through the read tool in the prelude and add `truncated` — `crates/evo-engine/src/tools/code/tests.rs`, `prelude.js`, `declarations.rs` — check: the four tests failed before `prelude.js` changed and pass after; the 46 `tools::code` tests pass
 
 ## 2. Verification
 
@@ -69,7 +70,7 @@ Done when: FR-15, US-5 and SC-1 to SC-4 are checked.
 | FR-3 | `code_mode::tests::switching_adds_and_removes_the_code_tool` (on adds only `run_code`, off restores the list); `tools::code::tests::the_schema_takes_code_and_a_description` | passed (2026-11-22) |
 | FR-4 | `tools::code::tests::the_schema_takes_code_and_a_description` | passed (2026-11-22) |
 | FR-5 | `tools::code::tests::{a_program_calls_tools_and_returns_its_last_value, failed_calls_throw_tool_errors, describe_gives_parameters}` | passed (2026-11-22) |
-| FR-6 | `tools::code::tests::{shell_and_file_shortcuts, grep_and_glob_need_their_tools}` | passed (2026-11-22) |
+| FR-6 | `tools::code::tests::{shell_and_file_shortcuts, grep_and_glob_need_their_tools, read_gives_a_file_longer_than_one_page_whole, read_rejects_a_file_it_cannot_give_whole, read_with_a_range_is_one_call_as_the_tool_answers, nothrow_says_when_the_output_was_cut}` | passed (2026-11-22) |
 | FR-7 | `tools::code::tests::calls_run_in_parallel_up_to_eight_at_once`; `runtime::tests::tool_replies_reach_the_program_even_out_of_order` | passed (2026-11-22) |
 | FR-8 | `tools::code::tests::{a_program_calls_tools_and_returns_its_last_value, images_are_attached_to_the_result}`; `runtime::tests::the_last_expression_is_the_result` | passed (2026-11-22) |
 | FR-9 | `runtime::tests::a_program_has_no_ambient_abilities` | passed (2026-11-22) |

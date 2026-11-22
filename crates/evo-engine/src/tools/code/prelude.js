@@ -112,7 +112,13 @@
     }
     async nothrow() {
       const reply = await this.run;
-      return { exitCode: exitCode(reply), output: withoutStatus(reply.text), ok: reply.ok };
+      return {
+        exitCode: exitCode(reply),
+        output: withoutStatus(reply.text),
+        ok: reply.ok,
+        // The shell tool cut its output: what is here is not all of it.
+        truncated: Boolean(reply.details && reply.details.truncation && reply.details.truncation.truncated),
+      };
     }
     async text() {
       const reply = await this.run;
@@ -165,7 +171,52 @@
   };
 
   // ── File shortcuts: each is exactly one ordinary tool call ───────────────
-  globalThis.read = (path, options) => invoke("read", { ...(options || {}), path });
+  // read(path) gives the whole file. The read tool cuts a file at one page
+  // (2000 lines or 50 KB) and ends the text with a "Use offset=N to continue"
+  // notice; handing that back as the file would let write(path, await read(path))
+  // save a cut file. So read on, page by page, and join the pages. A file that
+  // cannot be read whole rejects. With offset or limit the program asked for a
+  // range, and gets what the tool answers (FR-6).
+  const MAX_PAGES = 64;
+  const NOTICE = /\n\n\[[^\]\n]*Use offset=(\d+) to continue\.\]$/;
+  async function readWhole(path, options) {
+    const site = callSite();
+    const fail = (message) => {
+      throw new ToolError("read", message, null, site);
+    };
+    const pages = [];
+    let offset = 1;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const args = offset === 1 ? { ...options, path } : { ...options, path, offset };
+      const reply = await raw("read", args);
+      if (!reply.ok) throw new ToolError("read", reply.text, reply, site);
+      const cut = reply.details && reply.details.truncation;
+      if (cut && cut.first_line_exceeds_limit) {
+        fail(
+          `${path} cannot be read whole: line ${offset} is longer than one page of the read tool. ` +
+            `Use $\`sed -n\` or read(path, { offset, limit }) for the rest.`,
+        );
+      }
+      const next = cut && cut.truncated ? NOTICE.exec(reply.text) : null;
+      if (!next) {
+        pages.push(reply.text);
+        return pages.join("\n");
+      }
+      pages.push(reply.text.slice(0, next.index));
+      const following = Number(next[1]);
+      if (!(following > offset)) fail(`${path} cannot be read whole: the read tool did not advance past line ${offset}.`);
+      offset = following;
+    }
+    return fail(
+      `${path} cannot be read whole: it is longer than ${MAX_PAGES} pages of the read tool. ` +
+        `Read a range with read(path, { offset, limit }) or search it with $\`rg\`.`,
+    );
+  }
+  globalThis.read = (path, options) => {
+    const given = options || {};
+    if (given.offset !== undefined || given.limit !== undefined) return invoke("read", { ...given, path });
+    return readWhole(path, given);
+  };
   globalThis.write = (path, content) => invoke("write", { path, content: String(content) });
   globalThis.edit = (path, oldText, newText) =>
     invoke("edit", {

@@ -725,6 +725,13 @@ fn fake_shell() -> Arc<dyn AgentTool> {
                     Err(AgentError::Tool(
                         "partial output\n\nCommand exited with code 3".into(),
                     ))
+                } else if command.contains("long output") {
+                    // Like the real shell tool: the cut is in `details`.
+                    Ok(AgentToolResult {
+                        content: vec![TextContentOrImage::text("tail of it")],
+                        details: json!({ "truncation": { "truncated": true } }),
+                        ..Default::default()
+                    })
                 } else {
                     Ok(AgentToolResult::text(format!(
                         "{command}|timeout={}",
@@ -779,7 +786,7 @@ async fn shell_and_file_shortcuts() {
     assert_eq!(r["quoted"], r"echo 'a b' 'it'\''s' x 'y z'|timeout=null");
     assert_eq!(
         r["failed"],
-        json!({ "exitCode": 3, "output": "tool error: partial output", "ok": false })
+        json!({ "exitCode": 3, "output": "tool error: partial output", "ok": false, "truncated": false })
     );
     assert_eq!(r["slow"], "npm test|timeout=600");
     assert_eq!(r["thrown"], "ToolError");
@@ -886,5 +893,145 @@ async fn read_returns_the_raw_file_text() {
         3000,
         "{}",
         details(&result)
+    );
+}
+
+/// The real read tool over `dir`, for the whole-file tests (FR-6).
+fn real_read(dir: &std::path::Path) -> Vec<Arc<dyn AgentTool>> {
+    crate::tools::builtin_tools_in(dir)
+        .into_iter()
+        .map(|tool| tool.tool)
+        .filter(|tool| tool.schema().name == "read")
+        .collect()
+}
+
+fn forward(path: &std::path::Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
+async fn run_read(dir: &std::path::Path, code: &str) -> ToolResultMessage {
+    run_with(
+        code,
+        runtime::Limits::default(),
+        real_read(dir),
+        None,
+        CancellationToken::new(),
+    )
+    .await
+}
+
+// FR-6: read(path) gives the whole file even when the read tool cuts it into
+// pages, with none of the tool's "Use offset=" notices, so that writing it
+// back cannot save a partial file.
+#[tokio::test]
+async fn read_gives_a_file_longer_than_one_page_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    // About 300 KB: past both the byte and the line limit of one page.
+    let content: String = (1..=5000)
+        .map(|n| format!("line {n:05} {}\n", "x".repeat(48)))
+        .collect();
+    assert!(content.len() > 250_000);
+    let path = dir.path().join("big.txt");
+    std::fs::write(&path, &content).unwrap();
+    let path = forward(&path);
+    let result = run_read(
+        dir.path(),
+        &format!(
+            "const t = await read({path:?});\n\
+             return {{ length: t.length, notice: /Use offset=/.test(t), \
+             head: t.slice(0, 16), tail: t.slice(-30), lines: t.split('\\n').length }};"
+        ),
+    )
+    .await;
+    assert!(!result.is_error, "{}", text(&result));
+    let r = &details(&result)["result"];
+    assert_eq!(r["length"], content.len(), "{r}");
+    assert_eq!(r["notice"], false, "{r}");
+    assert_eq!(r["head"], "line 00001 xxxxx", "{r}");
+    assert_eq!(r["tail"], content[content.len() - 30..], "{r}");
+    assert_eq!(r["lines"], 5001, "{r}");
+}
+
+// FR-6: a file that cannot be read whole rejects; it is never returned in part.
+#[tokio::test]
+async fn read_rejects_a_file_it_cannot_give_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    // One line over the 50 KB page limit.
+    std::fs::write(
+        dir.path().join("wide.txt"),
+        format!("first\n{}\nlast\n", "y".repeat(60_000)),
+    )
+    .unwrap();
+    // More pages than the cap (64 pages of 2000 lines).
+    let many: String = (0..130_001).map(|_| "z\n").collect();
+    std::fs::write(dir.path().join("many.txt"), many).unwrap();
+    let wide = forward(&dir.path().join("wide.txt"));
+    let many = forward(&dir.path().join("many.txt"));
+    let result = run_read(
+        dir.path(),
+        &format!(
+            "const out = {{}};\n\
+             for (const [key, path] of [['wide', {wide:?}], ['many', {many:?}]]) {{\n\
+               try {{ out[key] = 'returned ' + (await read(path)).length; }}\n\
+               catch (e) {{ out[key] = e.name + ': ' + e.message; }}\n\
+             }}\n\
+             return out;"
+        ),
+    )
+    .await;
+    assert!(!result.is_error, "{}", text(&result));
+    let r = &details(&result)["result"];
+    let wide = r["wide"].as_str().unwrap();
+    assert!(
+        wide.starts_with("ToolError:") && wide.contains("line 2"),
+        "{wide}"
+    );
+    let many = r["many"].as_str().unwrap();
+    assert!(
+        many.starts_with("ToolError:") && many.contains("64 pages"),
+        "{many}"
+    );
+}
+
+// FR-6: with an offset or a limit the program asked for a range, and gets it
+// as the tool gives it (one call, notice included).
+#[tokio::test]
+async fn read_with_a_range_is_one_call_as_the_tool_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let content: String = (1..=10).map(|n| format!("row {n}\n")).collect();
+    std::fs::write(dir.path().join("rows.txt"), content).unwrap();
+    let path = forward(&dir.path().join("rows.txt"));
+    let result = run_read(
+        dir.path(),
+        &format!("return await read({path:?}, {{ offset: 3, limit: 2 }});"),
+    )
+    .await;
+    assert!(!result.is_error, "{}", text(&result));
+    let d = details(&result);
+    let shown = d["result"].as_str().unwrap();
+    assert!(
+        shown.starts_with("row 3\nrow 4") && shown.contains("Use offset=5"),
+        "{shown}"
+    );
+    assert_eq!(d["calls"].as_array().unwrap().len(), 1);
+}
+
+// FR-6: `.nothrow()` says when the shell tool cut the output.
+#[tokio::test]
+async fn nothrow_says_when_the_output_was_cut() {
+    let result = run_with(
+        "const cut = await $`long output`.nothrow();\n\
+         const whole = await $`short`.nothrow();\n\
+         ({ cut: cut.truncated, whole: whole.truncated })",
+        runtime::Limits::default(),
+        vec![fake_shell()],
+        None,
+        CancellationToken::new(),
+    )
+    .await;
+    assert!(!result.is_error, "{}", text(&result));
+    assert_eq!(
+        details(&result)["result"],
+        json!({ "cut": true, "whole": false })
     );
 }

@@ -357,3 +357,12 @@ UI: **Settings → Experimental → Code mode**.
     code (FR-22): 40 edits had taken 420 s.
   - `scripts/bench/code-mode/tasks-b.ts` adds set B, multi-step tasks;
     set A sits near the two-turn floor with code mode off.
+- 2026-11-22 — `read(path)` reads the whole file (FR-6). The read tool cuts a
+  file at one page and ends the text with a "Use offset=N to continue"
+  notice; its `details.truncation` carries the same fact, but the prelude
+  returned only the text, so a program could save a cut file. The prelude
+  now reads page by page (offset from the notice), joins the pages without
+  the notices, and rejects with a `ToolError` for a line over the page
+  limit or a file over 64 pages. A call with `offset` or `limit` is one call,
+  as the tool answers. `.nothrow()` reports `truncated` from the same
+  `details`. Each page is one call against the 128-call cap (FR-13).
