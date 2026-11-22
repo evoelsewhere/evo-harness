@@ -1341,7 +1341,7 @@ pub async fn build_prepared(
         // matching how `defaultTools` and the other settings-backed options in
         // this file are read.
         retry: saved_settings.retry_policy(),
-        compaction: saved_settings.compaction_settings(),
+        compaction: compaction_from(&saved_settings, args.compaction_config.as_deref()),
         steering_mode: saved_settings.steering_mode(),
         follow_up_mode: saved_settings.follow_up_mode(),
         tool_execution: HarnessToolExecution::default(),
@@ -5892,5 +5892,27 @@ mod tests {
         assert!(!resolve_project_trust(&args, &untrusted));
         // A directory with no stored decision loads by default.
         assert!(resolve_project_trust(&args, &launch));
+    }
+}
+
+/// The compaction settings a session starts with: `settings.json`, then the
+/// desktop's `--compaction-config` over it (auto-compact-threshold FR-3, FR-6).
+fn compaction_from(
+    saved: &crate::settings::Settings,
+    config: Option<&str>,
+) -> evo_harness::types::CompactionSettings {
+    let settings = saved.compaction_settings();
+    let Some(json) = config else {
+        return settings;
+    };
+    match serde_json::from_str::<serde_json::Value>(json)
+        .map_err(|error| error.to_string())
+        .and_then(|change| crate::settings::apply_compaction_change(settings, &change))
+    {
+        Ok(applied) => applied,
+        Err(error) => {
+            eprintln!("warning: --compaction-config: ignored ({error})");
+            settings
+        }
     }
 }

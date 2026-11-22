@@ -2806,6 +2806,12 @@ impl AgentHarness {
         Ok(())
     }
 
+    /// Replace the compaction settings. A run in progress keeps the ones it
+    /// started with; the next run's `snapshot_config` picks these up.
+    pub fn set_compaction(&self, compaction: crate::types::CompactionSettings) {
+        self.inner.lock().unwrap().compaction = compaction;
+    }
+
     /// `setResources(resources)`. Replace the skills + prompt-templates the
     /// harness advertises (TUI `/context` listing, `<available_skills>` gate).
     pub async fn set_resources(&self, resources: AgentHarnessResources) -> HarnessResult<()> {

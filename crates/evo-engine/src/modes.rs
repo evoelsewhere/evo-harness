@@ -1673,6 +1673,19 @@ where
                 }
                 None => Err("enabled must be true or false".to_string()),
             },
+            // Auto-compact (docs/features/auto-compact-threshold/spec.md, FR-3):
+            // a run in progress keeps its settings; the next run uses these.
+            "set_compaction" => {
+                crate::settings::apply_compaction_change(harness.compaction_settings(), &msg).map(
+                    |applied| {
+                        harness.set_compaction(applied);
+                        serde_json::json!({
+                            "enabled": applied.enabled,
+                            "triggerPercent": applied.trigger_percent,
+                        })
+                    },
+                )
+            }
             "get_approval_state" => Ok(crate::approval::global().snapshot()),
             "clear_approval_grants" => {
                 let state = crate::approval::global();
@@ -3058,7 +3071,7 @@ async fn rpc_context_usage(lane: &Arc<dyn AgentLane>, harness: &AgentHarness) ->
         .unwrap_or(0);
     let settings = harness.compaction_settings();
     let window = window as i64;
-    let threshold = window - settings.reserve_tokens;
+    let threshold = settings.threshold(window);
     let percent = if window > 0 {
         (estimate.tokens as f64) * 100.0 / (window as f64)
     } else {
@@ -3070,6 +3083,7 @@ async fn rpc_context_usage(lane: &Arc<dyn AgentLane>, harness: &AgentHarness) ->
         "threshold": threshold,
         "percent": (percent * 10.0).round() / 10.0,
         "reserveTokens": settings.reserve_tokens,
+        "triggerPercent": settings.trigger_percent,
         "keepRecentTokens": settings.keep_recent_tokens,
         "compactionEnabled": settings.enabled,
         // False once a real provider usage report backs the number; until then
@@ -5862,6 +5876,51 @@ ok
         let full = output.wait_for(|m| m["id"] == 5).await;
         assert_eq!(full["data"]["approval"]["mode"], "auto-edits");
         output.wait_for(|m| m["id"] == 6).await;
+        client.shutdown().await.unwrap();
+        assert_eq!(task.await.unwrap(), 0);
+    }
+
+    // docs/features/auto-compact-threshold/spec.md (FR-2, FR-3, FR-5).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rpc_changes_the_auto_compact_threshold() {
+        use tokio::io::AsyncWriteExt;
+        let harness = AgentHarness::create(Default::default()).await.unwrap();
+        let (mut client, output, task) =
+            start_test_rpc(harness.clone(), evo_extensions::UiDialogMailbox::new());
+        output.wait_for(|m| m["type"] == "ready").await;
+        client
+            .write_all(
+                b"{\"type\":\"set_compaction\",\"id\":1,\"triggerPercent\":60}
+",
+            )
+            .await
+            .unwrap();
+        let set = output.wait_for(|m| m["id"] == 1).await;
+        assert_eq!(set["success"], true);
+        assert_eq!(set["data"]["triggerPercent"], 60);
+        assert_eq!(harness.compaction_settings().trigger_percent, Some(60));
+        // A refused change leaves the settings as they were.
+        client
+            .write_all(
+                b"{\"type\":\"set_compaction\",\"id\":2,\"triggerPercent\":\"high\"}
+",
+            )
+            .await
+            .unwrap();
+        let bad = output.wait_for(|m| m["id"] == 2).await;
+        assert_eq!(bad["success"], false);
+        assert_eq!(harness.compaction_settings().trigger_percent, Some(60));
+        client
+            .write_all(
+                b"{\"type\":\"set_compaction\",\"id\":3,\"enabled\":false,\"triggerPercent\":5}
+",
+            )
+            .await
+            .unwrap();
+        let off = output.wait_for(|m| m["id"] == 3).await;
+        assert_eq!(off["data"]["enabled"], false);
+        assert_eq!(off["data"]["triggerPercent"], 30);
+        assert!(!harness.compaction_settings().enabled);
         client.shutdown().await.unwrap();
         assert_eq!(task.await.unwrap(), 0);
     }

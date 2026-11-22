@@ -10,6 +10,32 @@
 // Re-export so `super::mod` can surface them as `compaction::CompactionSettings`.
 pub use crate::types::{CompactionSettings, DEFAULT_COMPACTION_SETTINGS};
 
+/// The lowest share of the window a trigger percent may be set to.
+pub const MIN_TRIGGER_PERCENT: u8 = 30;
+/// The highest share of the window a trigger percent may be set to.
+pub const MAX_TRIGGER_PERCENT: u8 = 95;
+
+impl CompactionSettings {
+    /// The context size (tokens) above which a chat compacts by itself, for a
+    /// model with `window` tokens of context.
+    ///
+    /// With a `trigger_percent`: that share of the window, but never under
+    /// twice `keep_recent_tokens` (a compaction keeps that much, so it would
+    /// free nothing) and never over the window. Without one: the original
+    /// rule, the window minus `reserve_tokens`.
+    pub fn threshold(&self, window: i64) -> i64 {
+        match self.trigger_percent {
+            Some(percent) => {
+                let percent = i64::from(percent.clamp(MIN_TRIGGER_PERCENT, MAX_TRIGGER_PERCENT));
+                (window * percent / 100)
+                    .max(self.keep_recent_tokens.saturating_mul(2))
+                    .min(window)
+            }
+            None => window - self.reserve_tokens,
+        }
+    }
+}
+
 /// Return whether context usage exceeds the configured compaction threshold.
 /// Mirrors TS `shouldCompact(contextTokens, contextWindow, settings)`:
 /// `if (!settings.enabled) return false; return contextTokens > contextWindow -
@@ -28,8 +54,7 @@ pub fn should_compact(
     if !settings.enabled {
         return false;
     }
-    let threshold = context_window - settings.reserve_tokens;
-    context_tokens > threshold
+    context_tokens > settings.threshold(context_window)
 }
 
 #[cfg(test)]
@@ -42,6 +67,7 @@ mod tests {
             enabled: false,
             reserve_tokens: 1000,
             keep_recent_tokens: 500,
+            trigger_percent: None,
         };
         assert!(!should_compact(9_999_999, 10_000, &s));
     }
@@ -52,6 +78,7 @@ mod tests {
             enabled: true,
             reserve_tokens: 1000,
             keep_recent_tokens: 500,
+            trigger_percent: None,
         };
         // window 10000 - reserve 1000 = 9000 threshold.
         assert!(!should_compact(9000, 10000, &s));
@@ -68,9 +95,52 @@ mod tests {
             enabled: true,
             reserve_tokens: 20_000,
             keep_recent_tokens: 500,
+            trigger_percent: None,
         };
         assert!(should_compact(0, 10_000, &s));
         assert!(should_compact(1, 10_000, &s));
+    }
+
+    fn with_percent(percent: Option<u8>, keep_recent_tokens: i64) -> CompactionSettings {
+        CompactionSettings {
+            enabled: true,
+            reserve_tokens: 1000,
+            keep_recent_tokens,
+            trigger_percent: percent,
+        }
+    }
+
+    #[test]
+    fn a_percent_is_a_share_of_the_window() {
+        let s = with_percent(Some(60), 500);
+        assert_eq!(s.threshold(200_000), 120_000);
+        assert!(!should_compact(120_000, 200_000, &s));
+        assert!(should_compact(120_001, 200_000, &s));
+    }
+
+    #[test]
+    fn without_a_percent_the_threshold_is_window_minus_reserve() {
+        assert_eq!(with_percent(None, 500).threshold(10_000), 9_000);
+    }
+
+    #[test]
+    fn a_percent_outside_the_range_is_clamped() {
+        assert_eq!(with_percent(Some(5), 0).threshold(100_000), 30_000);
+        assert_eq!(with_percent(Some(100), 0).threshold(100_000), 95_000);
+    }
+
+    #[test]
+    fn the_threshold_never_drops_under_twice_keep_recent() {
+        // 30 % of 32k is 9.6k, under 2 x 20k: a compaction would free nothing.
+        assert_eq!(with_percent(Some(30), 20_000).threshold(32_000), 32_000);
+        assert_eq!(with_percent(Some(30), 5_000).threshold(32_000), 10_000);
+    }
+
+    #[test]
+    fn disabled_never_compacts_with_a_percent() {
+        let mut s = with_percent(Some(30), 500);
+        s.enabled = false;
+        assert!(!should_compact(9_999_999, 10_000, &s));
     }
 
     #[test]

@@ -72,6 +72,7 @@ fn split_preparation(messages: Vec<AgentMessage>) -> CompactionPreparation {
             enabled: true,
             reserve_tokens: 2000,
             keep_recent_tokens: 20,
+            trigger_percent: None,
         },
     }
 }

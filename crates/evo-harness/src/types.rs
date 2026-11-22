@@ -326,6 +326,9 @@ pub struct CompactionSettings {
     pub enabled: bool,
     pub reserve_tokens: i64,
     pub keep_recent_tokens: i64,
+    /// Compact when the context passes this share (percent) of the model's
+    /// window. `None` keeps the original rule: window minus `reserve_tokens`.
+    pub trigger_percent: Option<u8>,
 }
 
 /// Default compaction settings used by the harness. Mirrors TS
@@ -334,6 +337,7 @@ pub const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = CompactionSettings {
     enabled: true,
     reserve_tokens: 16384,
     keep_recent_tokens: 20000,
+    trigger_percent: None,
 };
 
 impl Default for CompactionSettings {

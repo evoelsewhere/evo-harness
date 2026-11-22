@@ -272,6 +272,19 @@ pub fn code_mode(db: &Db) -> bool {
         .unwrap_or(false)
 }
 
+/// Auto-compact (**Settings → General**, the context panel): `{ enabled,
+/// triggerPercent }`, the engine's `--compaction-config`
+/// (docs/features/auto-compact-threshold/spec.md FR-1, FR-3).
+pub const COMPACTION_KEY: &str = "compaction";
+
+/// The saved auto-compact setting; `None` when nothing is saved (the engine's
+/// own defaults apply).
+pub fn compaction_config(db: &Db) -> Option<Value> {
+    db.with(|conn| evo_store::settings::all(conn))
+        .ok()
+        .and_then(|settings| settings.get(COMPACTION_KEY).filter(|value| value.is_object()).cloned())
+}
+
 /// The saved approval mode; `ask` when none is saved or the value is unknown.
 pub fn approval_mode(db: &Db) -> &'static str {
     let saved = db
@@ -473,6 +486,8 @@ pub(crate) async fn start_process(
         .args(["--approval-mode", approval_mode(&db)])
         // `run_code` for the agent (Settings → Experimental → Code mode).
         .args(code_mode(&db).then_some("--code-mode"))
+        // Auto-compact: when a chat compacts (Settings → General, the context panel).
+        .args(compaction_config(&db).into_iter().flat_map(|config| ["--compaction-config".to_string(), config.to_string()]))
         .args(flags.engine_args())
         .args(role)
         .args(extra_args())

@@ -2,6 +2,7 @@ import * as React from "react";
 import { ChevronRightIcon, LoaderCircleIcon } from "lucide-react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Button } from "@/components/ui/button";
+import { CompactionSlider, CompactionSwitch } from "@/components/compaction-control";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ContextBreakdown, ContextCategory } from "@/engine/protocol";
 import { formatRelative, formatTokens } from "@/lib/format";
@@ -115,6 +116,16 @@ function Breakdown({ breakdown }: { breakdown: ContextBreakdown }) {
           label="Context files"
           items={breakdown.contextFiles.map((f) => ({ name: basename(f.path), tokens: f.tokens, hint: f.path }))}
         />
+      </div>
+
+      <div className="flex flex-col gap-2 border-t px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <span id="auto-compact-switch" className="text-[13px]">
+            Auto-compact
+          </span>
+          <CompactionSwitch labelledBy="auto-compact-switch" />
+        </div>
+        <CompactionSlider window={breakdown.window} />
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t px-3 py-2.5 text-[13px]">

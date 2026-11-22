@@ -1318,6 +1318,10 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       void listen<{ chat: string; what: string }>("engine://reloaded", ({ payload }) => {
         if (!runtime(payload.chat)) return;
         if (payload.what === "approval") void get().refreshApproval(payload.chat);
+        // Auto-compact moved: the panel's buffer and "until auto-compact" change with it.
+        else if (payload.what === "compaction") {
+          if (payload.chat === get().activeId) void get().loadContextBreakdown();
+        }
         // "model": the side panel of Evo Webbridge picked the chat's model or effort.
         else if (payload.what === "providers" || payload.what === "model") void get().refreshState(payload.chat);
       });

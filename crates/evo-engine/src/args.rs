@@ -178,6 +178,11 @@ pub struct Args {
     /// `--sandbox-config <json>`: process security for shell and file tools
     /// (`evo_tools::sandbox::SandboxConfig`, camelCase), set by the desktop.
     pub sandbox_config: Option<String>,
+    /// `--compaction-config <json>`: `{ "enabled"?, "triggerPercent"? }`, the
+    /// person's auto-compact setting, set by the desktop
+    /// (docs/features/auto-compact-threshold/spec.md, FR-3). It overrides
+    /// `settings.json`.
+    pub compaction_config: Option<String>,
     /// `--approval-mode ask|auto-edits|auto`: when to ask before edits and
     /// commands, set by the desktop (`approval.rs`). Absent: `ask` for the RPC
     /// host, `auto` for `text` and `json`.
@@ -489,6 +494,9 @@ pub fn parse_args(args: &[String]) -> Args {
             "--fork" => result.fork = take_value(&mut result, "--fork"),
             "--sandbox-config" => {
                 result.sandbox_config = take_value(&mut result, "--sandbox-config")
+            }
+            "--compaction-config" => {
+                result.compaction_config = take_value(&mut result, "--compaction-config")
             }
             "--approval-mode" => result.approval_mode = take_value(&mut result, "--approval-mode"),
             "--role-file" => {

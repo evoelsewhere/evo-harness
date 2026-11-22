@@ -84,6 +84,7 @@ async fn a_413_trims_older_images_and_the_run_recovers() {
             enabled: false,
             reserve_tokens: 20,
             keep_recent_tokens: 1,
+            trigger_percent: None,
         },
         steering_mode: Default::default(),
         follow_up_mode: Default::default(),

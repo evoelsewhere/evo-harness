@@ -146,11 +146,7 @@ pub async fn breakdown(
     } else {
         (estimate.tokens + overhead, estimate.tokens)
     };
-    let reserve = if settings.enabled {
-        settings.reserve_tokens
-    } else {
-        0
-    };
+    let (threshold, reserve) = compaction_budget(&settings, window);
     let free = (window - total - reserve).max(0);
     let percent = |value: i64| {
         if window > 0 {
@@ -167,7 +163,9 @@ pub async fn breakdown(
         "percent": (percent(total) * 10.0).round() / 10.0,
         "estimated": !reported,
         "compactionEnabled": settings.enabled,
-        "untilCompact": if settings.enabled && window > 0 { Some((window - reserve - total).max(0)) } else { None },
+        "triggerPercent": settings.trigger_percent,
+        "threshold": threshold,
+        "untilCompact": if settings.enabled && window > 0 { Some((threshold - total).max(0)) } else { None },
         "categories": [
             category("messages", "Messages", messages),
             category("system_tools", "System tools", builtin_tools),
@@ -182,4 +180,52 @@ pub async fn breakdown(
         "skills": skills.iter().map(|(name, value)| json!({"name": name, "tokens": value})).collect::<Vec<_>>(),
         "contextFiles": files.iter().map(|(path, value)| json!({"path": path, "tokens": value})).collect::<Vec<_>>(),
     })
+}
+
+/// Where a chat compacts by itself, and the part of the window kept back for
+/// it (the "Autocompact buffer"): `(threshold, buffer)`. No buffer while
+/// auto-compact is off (auto-compact-threshold FR-5).
+fn compaction_budget(settings: &evo_harness::types::CompactionSettings, window: i64) -> (i64, i64) {
+    let threshold = settings.threshold(window);
+    let buffer = if settings.enabled {
+        (window - threshold).max(0)
+    } else {
+        0
+    };
+    (threshold, buffer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use evo_harness::types::CompactionSettings;
+
+    // docs/features/auto-compact-threshold/spec.md (FR-5).
+    #[test]
+    fn the_buffer_is_what_a_percent_leaves_of_the_window() {
+        let s = CompactionSettings {
+            trigger_percent: Some(60),
+            ..Default::default()
+        };
+        assert_eq!(compaction_budget(&s, 200_000), (120_000, 80_000));
+    }
+
+    #[test]
+    fn without_a_percent_the_buffer_is_the_reserve() {
+        let s = CompactionSettings {
+            trigger_percent: None,
+            ..Default::default()
+        };
+        assert_eq!(compaction_budget(&s, 328_000), (328_000 - 16_384, 16_384));
+    }
+
+    #[test]
+    fn no_buffer_while_auto_compact_is_off() {
+        let s = CompactionSettings {
+            enabled: false,
+            trigger_percent: Some(60),
+            ..Default::default()
+        };
+        assert_eq!(compaction_budget(&s, 200_000).1, 0);
+    }
 }

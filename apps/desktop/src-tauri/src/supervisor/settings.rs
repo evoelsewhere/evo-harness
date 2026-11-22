@@ -9,6 +9,7 @@
 //!   engine; one still starting gets it when it is set up.
 //! - `experimental.codeMode`: `set_code_mode` the same way
 //!   (docs/features/code-mode/spec.md, FR-2).
+//! - `compaction`: `set_compaction` the same way (auto-compact-threshold FR-3).
 //! - providers: a window's provider command that succeeded (`set_api_key`, …)
 //!   or an engine's `providers_changed` line: `reload_providers` to every
 //!   other engine, idle ones at once, ones in a run when it settles.
@@ -60,6 +61,8 @@ pub struct Pending {
     pub approval: Option<String>,
     /// Code mode on or off (code-mode FR-2).
     pub code_mode: Option<bool>,
+    /// Auto-compact `{ enabled, triggerPercent }` (auto-compact-threshold FR-3).
+    pub compaction: Option<Value>,
     pub providers: bool,
     pub resources: bool,
     /// Start it again with the new sandbox once it has no work.
@@ -73,6 +76,8 @@ pub enum Change {
     Approval(String),
     /// Code mode on or off.
     CodeMode(bool),
+    /// Auto-compact: `{ enabled, triggerPercent }`.
+    Compaction(Value),
     /// Providers or keys changed; `from` already follows them.
     Providers { from: Option<String> },
     /// Skills, plugins, memory or instructions changed; `from` already reloaded.
@@ -139,6 +144,14 @@ impl EngineSupervisor {
                         self.mark(&chat, generation, |pending| pending.code_mode = Some(*on));
                     }
                 }
+                Change::Compaction(config) => {
+                    // An engine uses it from its next run, also while one is going.
+                    if ready {
+                        self.send_compaction(host, &chat, config).await;
+                    } else {
+                        self.mark(&chat, generation, |pending| pending.compaction = Some(config.clone()));
+                    }
+                }
                 Change::Providers { from } | Change::Resources { from } => {
                     if from.as_deref() == Some(chat.as_str()) {
                         continue;
@@ -190,6 +203,9 @@ impl EngineSupervisor {
         if let Some(on) = pending.code_mode {
             self.send_code_mode(host, chat, on).await;
         }
+        if let Some(config) = &pending.compaction {
+            self.send_compaction(host, chat, config).await;
+        }
         if pending.providers {
             self.reload(host, chat, true).await;
         }
@@ -217,6 +233,14 @@ impl EngineSupervisor {
             Ok(_) => host.reloaded(chat, "codeMode"),
             // An older engine without the command takes it at its next start.
             Err(error) => host.log(chat, "info", format!("set_code_mode: {error}")),
+        }
+    }
+
+    async fn send_compaction<H: Host>(&self, host: &H, chat: &str, config: &Value) {
+        match host.request(chat, "set_compaction", config.clone()).await {
+            Ok(_) => host.reloaded(chat, "compaction"),
+            // An older engine without the command takes it at its next start.
+            Err(error) => host.log(chat, "info", format!("set_compaction: {error}")),
         }
     }
 
@@ -324,6 +348,11 @@ pub fn on_setting(app: &AppHandle, key: &str, value: &Value) {
             }
         }
         crate::engine::CODE_MODE_KEY => spawn_change(app, Change::CodeMode(value.as_bool().unwrap_or(false))),
+        crate::engine::COMPACTION_KEY => {
+            if value.is_object() {
+                spawn_change(app, Change::Compaction(value.clone()));
+            }
+        }
         crate::engine::SANDBOX_KEY => sandbox_changed(app),
         AUTO_START_KEY => {
             if let Some(hub) = app.try_state::<crate::mesh::MeshHub>() {
@@ -452,6 +481,30 @@ mod tests {
         assert_eq!(fake.lines("reloaded a codeMode"), ["reloaded a codeMode"]);
         supervisor.on_ready(&fake, "b", b).await;
         assert_eq!(fake.lines("request b set_code_mode"), [r#"request b set_code_mode {"enabled":true}"#]);
+    }
+
+    // docs/features/auto-compact-threshold/spec.md (FR-3).
+    #[tokio::test]
+    async fn auto_compact_reaches_every_set_up_engine_and_a_starting_one_once_set_up() {
+        let fake = Fake::default().with_row("a", top(None)).with_row("b", top(None));
+        let supervisor = EngineSupervisor::default();
+        let a = set_up(&fake, &supervisor, "a").await;
+        // A run does not hold it back: it applies from the next run.
+        start_run(&supervisor, &fake, "a", a);
+        let b = supervisor.ensure(&fake, viewer("b", Some("/w"), true)).await.unwrap().generation;
+        let config = json!({ "enabled": true, "triggerPercent": 60 });
+        supervisor.setting_changed(&fake, Change::Compaction(config)).await;
+        assert_eq!(
+            fake.lines("request a set_compaction"),
+            [r#"request a set_compaction {"enabled":true,"triggerPercent":60}"#]
+        );
+        assert!(fake.lines("request b set_compaction").is_empty());
+        assert_eq!(fake.lines("reloaded a compaction"), ["reloaded a compaction"]);
+        supervisor.on_ready(&fake, "b", b).await;
+        assert_eq!(
+            fake.lines("request b set_compaction"),
+            [r#"request b set_compaction {"enabled":true,"triggerPercent":60}"#]
+        );
     }
 
     #[tokio::test]

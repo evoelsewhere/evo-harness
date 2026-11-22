@@ -102,6 +102,7 @@ async fn compact_single_call_returns_summary_and_file_ops() {
         enabled: true,
         reserve_tokens: 2000,
         keep_recent_tokens: 20,
+        trigger_percent: None,
     };
     let preparation = prepare_compaction(&entries, settings).unwrap().unwrap();
     assert!(!preparation.is_split_turn);
@@ -151,6 +152,7 @@ async fn compact_maps_error_stop_reason_to_summarization_failed() {
             enabled: true,
             reserve_tokens: 2000,
             keep_recent_tokens: 20,
+            trigger_percent: None,
         },
     };
 

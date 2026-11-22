@@ -281,6 +281,10 @@ export interface ContextBreakdown {
   /** A character estimate until the provider reports a prompt size. */
   estimated: boolean;
   compactionEnabled: boolean;
+  /** The share of the window at which a chat compacts; null with the older "window minus reserve" rule. */
+  triggerPercent?: number | null;
+  /** The context size (tokens) at which a chat compacts. */
+  threshold?: number;
   untilCompact: number | null;
   categories: ContextCategory[];
   tools: { name: string; tokens: number; source: "builtin" | "plugin" }[];

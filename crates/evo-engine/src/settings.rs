@@ -33,6 +33,39 @@ pub struct RetrySettings {
     pub provider: Option<serde_json::Value>,
 }
 
+/// Auto-compact's trigger share of the window when nothing says otherwise.
+pub const DEFAULT_TRIGGER_PERCENT: u8 = 90;
+
+fn clamp_trigger_percent(percent: u8) -> u8 {
+    use evo_harness::compaction::settings::{MAX_TRIGGER_PERCENT, MIN_TRIGGER_PERCENT};
+    percent.clamp(MIN_TRIGGER_PERCENT, MAX_TRIGGER_PERCENT)
+}
+
+/// Apply a change from the app, `{ "enabled"?: bool, "triggerPercent"?: number }`
+/// (the `--compaction-config` argument and the `set_compaction` command), to
+/// `settings`. The percent is clamped to the range the slider offers; a value
+/// of the wrong type is refused.
+pub fn apply_compaction_change(
+    mut settings: evo_harness::types::CompactionSettings,
+    change: &serde_json::Value,
+) -> Result<evo_harness::types::CompactionSettings, String> {
+    if let Some(enabled) = change.get("enabled") {
+        settings.enabled = enabled
+            .as_bool()
+            .ok_or_else(|| "enabled must be true or false".to_string())?;
+    }
+    if let Some(percent) = change.get("triggerPercent") {
+        let percent = percent
+            .as_f64()
+            .filter(|p| p.is_finite())
+            .ok_or_else(|| "triggerPercent must be a number".to_string())?;
+        settings.trigger_percent = Some(clamp_trigger_percent(
+            percent.round().clamp(0.0, 255.0) as u8
+        ));
+    }
+    Ok(settings)
+}
+
 /// `compaction` — upstream's `CompactionSettings`.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +76,12 @@ pub struct CompactionSettingsJson {
     pub reserve_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keep_recent_tokens: Option<i64>,
+    /// Compact when the context passes this share (percent, 30–95) of the
+    /// model's window (docs/features/auto-compact-threshold/spec.md, FR-1,
+    /// FR-6). Without it, a `reserveTokens` keeps the old rule; with neither,
+    /// [`DEFAULT_TRIGGER_PERCENT`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_percent: Option<u8>,
     /// Per-model overrides. Kept for round-tripping; the harness has no
     /// per-model compaction override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -339,10 +378,19 @@ impl Settings {
 
     /// Compaction settings, resolved onto the harness type.
     pub fn compaction_settings(&self) -> evo_harness::types::CompactionSettings {
-        let mut settings = evo_harness::types::CompactionSettings::default();
+        let mut settings = evo_harness::types::CompactionSettings {
+            trigger_percent: Some(DEFAULT_TRIGGER_PERCENT),
+            ..Default::default()
+        };
         let Some(compaction) = &self.compaction else {
             return settings;
         };
+        match (compaction.trigger_percent, compaction.reserve_tokens) {
+            (Some(percent), _) => settings.trigger_percent = Some(clamp_trigger_percent(percent)),
+            // A `reserveTokens` of its own keeps the rule it was written for.
+            (None, Some(_)) => settings.trigger_percent = None,
+            (None, None) => {}
+        }
         if let Some(enabled) = compaction.enabled {
             settings.enabled = enabled;
         }
@@ -1034,9 +1082,68 @@ mod scoped_tests {
         assert!(!compaction.enabled);
         assert_eq!(compaction.reserve_tokens, 1234);
         assert_eq!(compaction.keep_recent_tokens, 4321);
+        // A `reserveTokens` with no percent keeps the old rule.
+        assert_eq!(compaction.trigger_percent, None);
 
         assert_eq!(settings.steering_mode(), evo_agent::QueueMode::All);
         assert_eq!(settings.follow_up_mode(), evo_agent::QueueMode::All);
+    }
+
+    // docs/features/auto-compact-threshold/spec.md (FR-1, FR-6).
+    #[test]
+    fn the_trigger_percent_comes_from_settings_and_is_clamped() {
+        let parse =
+            |json: &str| -> Settings { serde_json::from_str(json).expect("settings parse") };
+        let percent = |s: &Settings| s.compaction_settings().trigger_percent;
+        assert_eq!(
+            percent(&parse(r#"{ "compaction": { "triggerPercent": 60 } }"#)),
+            Some(60)
+        );
+        assert_eq!(
+            percent(&parse(r#"{ "compaction": { "triggerPercent": 5 } }"#)),
+            Some(30)
+        );
+        assert_eq!(
+            percent(&parse(r#"{ "compaction": { "triggerPercent": 99 } }"#)),
+            Some(95)
+        );
+        // The percent wins over a reserve written beside it.
+        assert_eq!(
+            percent(&parse(
+                r#"{ "compaction": { "triggerPercent": 70, "reserveTokens": 100 } }"#
+            )),
+            Some(70)
+        );
+        // Nothing about the trigger: the default.
+        assert_eq!(
+            percent(&parse(r#"{ "compaction": { "enabled": true } }"#)),
+            Some(DEFAULT_TRIGGER_PERCENT)
+        );
+    }
+
+    #[test]
+    fn a_compaction_change_from_the_app_is_applied_clamped_or_refused() {
+        let base = Settings::default().compaction_settings();
+        let applied = apply_compaction_change(
+            base,
+            &serde_json::json!({ "enabled": false, "triggerPercent": 60 }),
+        )
+        .unwrap();
+        assert!(!applied.enabled);
+        assert_eq!(applied.trigger_percent, Some(60));
+        // Each key alone changes only itself.
+        let only_enabled =
+            apply_compaction_change(applied, &serde_json::json!({ "enabled": true })).unwrap();
+        assert!(only_enabled.enabled);
+        assert_eq!(only_enabled.trigger_percent, Some(60));
+        let clamped =
+            apply_compaction_change(base, &serde_json::json!({ "triggerPercent": 1000 })).unwrap();
+        assert_eq!(clamped.trigger_percent, Some(95));
+        assert!(
+            apply_compaction_change(base, &serde_json::json!({ "triggerPercent": "high" }))
+                .is_err()
+        );
+        assert!(apply_compaction_change(base, &serde_json::json!({ "enabled": "yes" })).is_err());
     }
 
     /// An absent key keeps the harness default rather than a zero value: a partial
@@ -1058,6 +1165,7 @@ mod scoped_tests {
             compaction.keep_recent_tokens,
             default_compaction.keep_recent_tokens
         );
+        assert_eq!(compaction.trigger_percent, Some(DEFAULT_TRIGGER_PERCENT));
 
         // Steering delivers every waiting message at once; follow-ups one by one.
         assert_eq!(empty.steering_mode(), evo_agent::QueueMode::All);

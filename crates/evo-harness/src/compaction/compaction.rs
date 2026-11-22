@@ -945,6 +945,7 @@ mod tests {
             enabled: true,
             reserve_tokens: 1000,
             keep_recent_tokens: 10,
+            trigger_percent: None,
         };
         let p = prepare_compaction(&entries, settings).unwrap().unwrap();
         assert!(p.messages_to_summarize.is_empty());

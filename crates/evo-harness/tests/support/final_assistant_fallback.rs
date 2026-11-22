@@ -154,6 +154,7 @@ impl Fixture {
                 enabled: compact,
                 reserve_tokens: 20,
                 keep_recent_tokens: 1,
+                trigger_percent: None,
             },
             session,
             ..Default::default()

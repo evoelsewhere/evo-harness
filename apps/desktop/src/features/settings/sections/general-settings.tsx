@@ -2,6 +2,7 @@ import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryIcon, SlidersHorizontalIcon } from "lucide-react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CompactionSlider, CompactionSwitch } from "@/components/compaction-control";
 import { Switch } from "@/components/ui/switch";
 import { notify } from "@/features/notifications/notify";
 import { AppIcon } from "@/features/shell/open-in-menu";
@@ -135,6 +136,16 @@ export function GeneralSettings() {
           description="Stop this computer from going to sleep while Evo is running, so scheduled tasks and long agent runs keep going while you are away. The display can still turn off."
           control={toggle("keepAwake")}
         />
+      </SettingsGroup>
+      <SettingsGroup title="Context">
+        <SettingsRow
+          labelId="setting-autoCompact"
+          label="Auto-compact"
+          description="When a chat's context fills up to the share of the model's window you choose, Evo summarises the older turns to make room, before the next answer. Applies to every chat, from its next run. You can also change it from the context panel."
+          control={<CompactionSwitch labelledBy="setting-autoCompact" />}
+        >
+          <CompactionSlider />
+        </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title="Workspace">
         <OpenInDefaultRow />
