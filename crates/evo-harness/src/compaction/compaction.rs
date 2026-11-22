@@ -568,6 +568,13 @@ pub fn is_retryable_assistant_error(message: &AssistantMessage) -> bool {
         "try your request again",
         "please retry your request",
         "resourceexhausted",
+        // The request body was too big. The harness retry loop trims older
+        // images before the next attempt (`image_budget`).
+        "413",
+        "request entity too large",
+        "payload too large",
+        "request too large",
+        "request_too_large",
     ];
     RETRYABLE.iter().any(|p| lower.contains(p))
 }

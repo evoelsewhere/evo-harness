@@ -17,6 +17,7 @@ pub mod error;
 pub mod events;
 pub mod frame_progress;
 pub mod frontmatter;
+pub mod image_budget;
 mod image_tool;
 pub mod messages;
 pub mod prompt_templates;

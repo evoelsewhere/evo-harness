@@ -3760,6 +3760,7 @@ impl AgentHarness {
         models: Vec<Arc<dyn AiProvider>>,
         provider_hooks: Option<Arc<dyn evo_ai::ProviderHooks>>,
         stream_options: AgentHarnessStreamOptions,
+        image_budget: Arc<crate::image_budget::ImageBudget>,
     ) -> HarnessResult<StreamFn> {
         // Resolve the provider lazily per call (the model may change between
         // turns via prepare_next_turn). If no provider matches, emit an Error
@@ -3776,6 +3777,12 @@ impl AgentHarness {
                         // Keep the history borrowed until an actual patch needs
                         // a private mutable copy for this request.
                         let mut ctx = std::borrow::Cow::Borrowed(ctx);
+                        // Keep the request's image bytes within budget: a long
+                        // run of screenshots otherwise ends in HTTP 413. Only
+                        // this request changes; the stored session does not.
+                        if let Some(trimmed) = image_budget.trim(&ctx) {
+                            ctx = std::borrow::Cow::Owned(trimmed);
+                        }
                         // B4 [merge_into]: the loop builds `opts` via
                         // `AgentLoopConfig::to_stream_options`, which DROPS the
                         // harness's pinned `headers`/`metadata` (AgentLoopConfig
@@ -4811,10 +4818,12 @@ impl AgentHarness {
         } else {
             Some(Arc::new(harness_convert_to_llm_incremental) as evo_agent::IncrementalConvertToLlm)
         };
+        let image_budget = Arc::new(crate::image_budget::ImageBudget::default());
         let stream_fn = Self::build_stream_fn(
             snap.models.clone(),
             snap.provider_hooks.clone(),
             snap.stream_options.clone(),
+            Arc::clone(&image_budget),
         )?;
         let post_compaction_cut = Arc::new(AtomicUsize::new(0));
         // Run-level turn ceiling shared with the post-loop notice below. The
@@ -5189,6 +5198,14 @@ impl AgentHarness {
             }
 
             retry_attempt += 1;
+            // A "request too large" answer: the next attempt sends fewer old images.
+            if retry_error
+                .as_deref()
+                .is_some_and(crate::image_budget::is_request_too_large)
+            {
+                let level = image_budget.tighten();
+                tracing::warn!(level, "request too large; trimming older images");
+            }
             // Record the retry before waiting, so a crash during the wait is
             // recognised as "this run was about to retry" rather than looking like
             // an interrupted run. The reserved id is that attempt's assistant
@@ -7567,6 +7584,7 @@ mod borrowed_context_tests {
             let stream_fn = AgentHarness::build_stream_fn(
                 vec![provider],
                 hook.map(|kind| Arc::new(Hook(kind)) as Arc<dyn evo_ai::ProviderHooks>),
+                Default::default(),
                 Default::default(),
             )
             .unwrap();
