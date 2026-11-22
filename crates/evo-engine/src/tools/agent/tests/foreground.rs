@@ -258,8 +258,18 @@ async fn an_agent_that_runs_out_of_turns_hands_over_what_it_said() {
     )
     .unwrap();
     let read = || FauxBlock::tool_call("read", json!({"path":"notes.md"}));
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let asked_in = asked.clone();
     let step = FauxStep::factory(move |ctx: &Context| {
         if is_child(ctx) {
+            // Asked once for its report (FR-8), it still says nothing.
+            if user_texts(ctx)
+                .iter()
+                .any(|u| u.contains("You stopped without writing a report"))
+            {
+                asked_in.fetch_add(1, Ordering::SeqCst);
+                return faux_assistant_message("", StopReason::Stop);
+            }
             return match tool_results(ctx) {
                 0 => faux_assistant_message(
                     vec![FauxBlock::text("Found the parser in src/parse.rs."), read()],
@@ -299,6 +309,7 @@ async fn an_agent_that_runs_out_of_turns_hands_over_what_it_said() {
         "{text}"
     );
     assert_eq!(result.details["child"]["toolUses"], 2);
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "asked for its report once");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

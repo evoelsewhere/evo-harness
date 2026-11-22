@@ -553,6 +553,19 @@ changes nothing. **Discard** removes the worktree.
 
 ## 5. As-built notes
 
+- **Phase 7** (2026-11-23, FR-8, FR-23, FR-24). A run is one or two
+  prompts (`step`) under one 30-minute deadline: the second, `REPORT_REQUEST`,
+  goes only when the first completed without text, and its answer replaces
+  the outcome only when it has text. `message_agent` on a running child calls
+  `steer_running` (the child's lane `steer`, as `deliver` does for mail).
+  The watchdog keys on any child event (`Progress::last_event`); `stalled`
+  marks a quiet spell already reported and clears on the next event. A
+  foreground `drive` loop releases the call through the same `ATTACHED →
+  DETACHED` switch a steer uses; `watch_stalls` runs beside every run and
+  only acts once the run is in the background. The stall note uses its own
+  tag so FR-12 still counts the agent as unreported. Not covered: an agent
+  that keeps calling tools without progress (reads only) is not "quiet".
+
 - **Phase 1** differs from the design in two small ways: an agent type's
   instructions open the child's first message (the harness has no getter for
   the parent's system prompt to extend), and the `agent` tool runs its child

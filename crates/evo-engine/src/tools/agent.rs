@@ -23,8 +23,14 @@
 //!   that run (`meta.wake`, see [`crate::mesh::LocalRouter::request_wake`]).
 //!
 //! A finished agent keeps its context: `message_agent` sends it another
-//! message (foreground or background) and it continues where it left off. It
-//! is named by its id, `a_<id>`, its node address or its description.
+//! message (foreground or background) and it continues where it left off; a
+//! running one gets the message at its next step (FR-23). It is named by its
+//! id, `a_<id>`, its node address or its description.
+//!
+//! A run that completes without text is asked once for its report (FR-8). A
+//! run quiet for [`STALL_AFTER`] is reported once per quiet spell: a waiting
+//! call lets go, a background agent's parent gets a note (FR-24). Spec:
+//! docs/features/subagents-and-nested-sessions/spec.md.
 //!
 //! Every agent is also a node of this engine's session mesh
 //! ([`crate::mesh`]) at `s_<session>/a_<agent>`: its state changes, tool rows,
@@ -298,6 +304,12 @@ struct Progress {
     said: String,
     worktree: Option<Value>,
     error: Option<String>,
+    /// When the child last did anything (any event: text, a tool's start,
+    /// output or end).
+    last_event: Instant,
+    /// This quiet spell was reported already ([`claim_stall`]); any event
+    /// clears it.
+    stalled: bool,
 }
 
 impl Progress {
@@ -325,6 +337,7 @@ impl Progress {
             "text": self.text,
             "worktree": self.worktree,
             "error": self.error,
+            "stalled": self.stalled,
         })
     }
 
@@ -355,6 +368,8 @@ impl Progress {
     }
 
     fn observe(&mut self, event: &AgentEvent) {
+        self.last_event = Instant::now();
+        self.stalled = false;
         match event {
             AgentEvent::TurnEnd { .. } => self.turns += 1,
             AgentEvent::MessageStart {
@@ -717,6 +732,8 @@ async fn run(
         progress.started_at = now_ms();
         progress.ended_at = None;
         progress.error = None;
+        progress.last_event = Instant::now();
+        progress.stalled = false;
         progress.text.clear();
         progress.said.clear();
     }
@@ -728,36 +745,26 @@ async fn run(
     );
     mesh::router().transition(&job.address, NodeState::Running, None, None);
     let lane = child.harness.lane("main");
-    let prompt = lane.prompt_text(&brief, Vec::new());
-    tokio::pin!(prompt);
-    let foreground_abort = async {
-        match &foreground {
-            Some(signal) => signal.cancelled().await,
-            None => std::future::pending::<()>().await,
-        }
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let stops = Stops {
+        cancel: &cancel,
+        foreground: foreground.as_ref(),
+        scope: &scope,
+        deadline,
     };
-    let outcome = tokio::select! {
-        biased;
-        _ = cancel.cancelled() => Err("cancelled".to_string()),
-        _ = foreground_abort => Err("cancelled".to_string()),
-        // Read now: a foreground run may have moved to the background since it started.
-        _ = scope.cancelled() => Err(if job.background.load(Ordering::Acquire) {
-            "the session closed"
-        } else {
-            "the parent run ended"
+    let mut outcome = step(&job, lane.as_ref(), &brief, &stops).await;
+    // It ended without a word (its turn limit, or a last step of tool calls
+    // only): ask once more for the report, so the requester gets one.
+    if outcome.as_ref().is_ok_and(silent) {
+        if let Ok(asked) = step(&job, lane.as_ref(), REPORT_REQUEST, &stops).await {
+            if !silent(&asked) {
+                outcome = Ok(asked);
+            }
         }
-        .to_string()),
-        _ = tokio::time::sleep(TIMEOUT) => Err(format!("timed out after {} minutes", TIMEOUT.as_secs() / 60)),
-        result = &mut prompt => result.map_err(|e| e.to_string()),
-    };
-    if outcome.is_err() {
-        let _ = lane.abort().await;
-        let _ = tokio::time::timeout(Duration::from_secs(2), &mut prompt).await;
     }
     let _ = tokio::time::timeout(Duration::from_secs(5), child.execution_scope.wait_idle()).await;
     match outcome {
-        Ok(result) => {
-            let outcome = crate::extensions_actions::run_outcome_json(result.outcome);
+        Ok(outcome) => {
             let text = outcome
                 .get("text")
                 .and_then(Value::as_str)
@@ -784,6 +791,202 @@ async fn run(
         }
         Err(reason) => Outcome::Failed(reason),
     }
+}
+
+/// What a subagent is asked when a run ends without any text (FR-8). Its
+/// type's report format (FR-2) still applies.
+const REPORT_REQUEST: &str = "You stopped without writing a report, and the requester sees only your final reply. \
+     Do not call any more tools. Write your final report now, in the format your instructions give; if they \
+     give none: what you found or did, each file you changed, the checks you ran and their results, and what \
+     is left or uncertain.";
+
+/// What ends one step of a run early.
+struct Stops<'a> {
+    cancel: &'a CancellationToken,
+    foreground: Option<&'a CancellationToken>,
+    scope: &'a CancellationToken,
+    deadline: tokio::time::Instant,
+}
+
+/// One prompt to the child, as the run outcome's JSON, or why it stopped.
+async fn step(
+    job: &Job,
+    lane: &dyn evo_harness::agent_harness::AgentLane,
+    text: &str,
+    stops: &Stops<'_>,
+) -> Result<Value, String> {
+    let prompt = lane.prompt_text(text, Vec::new());
+    tokio::pin!(prompt);
+    let foreground_abort = async {
+        match stops.foreground {
+            Some(signal) => signal.cancelled().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    let outcome = tokio::select! {
+        biased;
+        _ = stops.cancel.cancelled() => Err("cancelled".to_string()),
+        _ = foreground_abort => Err("cancelled".to_string()),
+        // Read now: a foreground run may have moved to the background since it started.
+        _ = stops.scope.cancelled() => Err(if job.background.load(Ordering::Acquire) {
+            "the session closed"
+        } else {
+            "the parent run ended"
+        }
+        .to_string()),
+        _ = tokio::time::sleep_until(stops.deadline) => Err(format!("timed out after {} minutes", TIMEOUT.as_secs() / 60)),
+        result = &mut prompt => result
+            .map(|result| crate::extensions_actions::run_outcome_json(result.outcome))
+            .map_err(|e| e.to_string()),
+    };
+    if outcome.is_err() {
+        let _ = lane.abort().await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), &mut prompt).await;
+    }
+    outcome
+}
+
+/// A completed run whose final reply has no text.
+fn silent(outcome: &Value) -> bool {
+    outcome.get("status").and_then(Value::as_str) == Some("completed")
+        && outcome
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+}
+
+// ── Stalls ──────────────────────────────────────────────────────────────────
+
+/// A running agent that does nothing for this long is reported as stalled.
+const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// Shorter stall times for the sessions of tests.
+#[cfg(test)]
+static STALL_AFTER_IN: LazyLock<Mutex<HashMap<String, Duration>>> = LazyLock::new(Default::default);
+
+fn stall_after(job: &Job) -> Duration {
+    #[cfg(test)]
+    if let Some(after) = lock(&STALL_AFTER_IN).get(&job.session_id) {
+        return *after;
+    }
+    let _ = job;
+    STALL_AFTER
+}
+
+/// Take the report of the job's current quiet spell, once it has lasted
+/// [`stall_after`] and is not reported yet, and only for a run that is
+/// `background` (a waiting call is let go instead; see [`drive`]).
+fn claim_stall(job: &Job, background: bool) -> bool {
+    if !job.running.load(Ordering::Acquire) || job.background.load(Ordering::Acquire) != background
+    {
+        return false;
+    }
+    let mut progress = lock(&job.progress);
+    if progress.stalled || progress.last_event.elapsed() < stall_after(job) {
+        return false;
+    }
+    progress.stalled = true;
+    true
+}
+
+/// Resolves when [`claim_stall`] takes a quiet spell of the job.
+async fn stalled(job: &Job, background: bool) {
+    let every = (stall_after(job) / 4).min(Duration::from_secs(15));
+    loop {
+        tokio::time::sleep(every).await;
+        if claim_stall(job, background) {
+            return;
+        }
+    }
+}
+
+/// How long the job has been quiet, in whole minutes (at least 1): "10 minutes".
+fn quiet_for(job: &Job) -> String {
+    match (lock(&job.progress).last_event.elapsed().as_secs() / 60).max(1) {
+        1 => "1 minute".to_string(),
+        minutes => format!("{minutes} minutes"),
+    }
+}
+
+/// What the requester can do about a stalled agent.
+fn stall_advice(job: &Job) -> String {
+    let progress = lock(&job.progress);
+    let last_tool = progress
+        .rows
+        .back()
+        .map(|row| {
+            format!(
+                " Its last tool call: {} ({}).",
+                row["name"].as_str().unwrap_or("?"),
+                row["phase"].as_str().unwrap_or("?")
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "So far: {} turns, {} tool calls.{last_tool} If it looks stuck, send it a message with message_agent \
+         (agentId {}) or stop it with cancel_node (node {}); otherwise keep working, and its report will \
+         be delivered to you as a message when it finishes.",
+        progress.turns, progress.tool_uses, job.id, job.id
+    )
+}
+
+/// While a background run of `job` lasts (until `done`), tell the parent
+/// about each quiet spell of [`stall_after`]: once per spell.
+async fn watch_stalls(job: Arc<Job>, done: CancellationToken) {
+    loop {
+        tokio::select! {
+            _ = done.cancelled() => return,
+            _ = stalled(&job, true) => tell_parent_stalled(&job).await,
+        }
+    }
+}
+
+/// A note for the parent that a background agent has gone quiet: it is not
+/// its report (the tag differs), so the agent still counts as running.
+async fn tell_parent_stalled(job: &Job) {
+    if job.quiet.load(Ordering::Acquire) {
+        return;
+    }
+    let Some(parent) = job.parent.upgrade() else {
+        return;
+    };
+    let description = lock(&job.progress).description.clone();
+    let note = format!(
+        "{NOTE_TAG}-stalled id=\"{}\" description=\"{}\">\nSubagent {} has shown no activity (no model output \
+         and no tool event) for {}; it is still running. {}\n</background-agent-stalled>",
+        job.id,
+        attribute(&description),
+        job.id,
+        quiet_for(job),
+        stall_advice(job)
+    );
+    let message = AgentMessage::from(evo_ai::types::UserMessage::new(note, now_ms() as i64));
+    let lane = parent.lane("main");
+    let queued = if parent.has_active_run() {
+        lane.steer(message).await
+    } else {
+        lane.next_run(message).await
+    };
+    if queued.is_ok() && !parent.has_active_run() {
+        mesh::router().request_wake(&Address::session(&job.session_id), &job.address, None);
+    }
+}
+
+/// A foreground agent's call let go because the agent went quiet: it keeps
+/// running in the background, and the parent decides what to do.
+fn released_stalled(job: &Job) -> AgentToolResult {
+    let mut released = released(job);
+    let description = lock(&job.progress).description.clone();
+    released.content = vec![TextContentOrImage::text(format!(
+        "Subagent {} ({description}) has shown no activity (no model output and no tool event) for {}, \
+         so this call stopped waiting for it. It is still running in the background. {}",
+        job.id,
+        quiet_for(job),
+        stall_advice(job)
+    ))];
+    released
 }
 
 /// A report cut to [`MAX_REPORT`] bytes, saying how to get the rest (an agent
@@ -989,7 +1192,10 @@ async fn drive(
         let snapshot = lock(&job.progress).snapshot();
         let worker = job.clone();
         tokio::spawn(async move {
+            let watching = CancellationToken::new();
+            tokio::spawn(watch_stalls(worker.clone(), watching.clone()));
             let outcome = run(worker.clone(), brief, None, scope).await;
+            watching.cancel();
             let cancelled = lock(&worker.cancel).is_cancelled();
             let snapshot = settle(&worker, &outcome, cancelled).await;
             tell_parent(&worker, &outcome, &snapshot).await;
@@ -1046,7 +1252,11 @@ async fn drive(
     {
         let (job, state, life) = (job.clone(), state.clone(), life.clone());
         tokio::spawn(async move {
+            // Once let go, it is a background run: its quiet spells go to the parent.
+            let watching = CancellationToken::new();
+            tokio::spawn(watch_stalls(job.clone(), watching.clone()));
             let outcome = run(job.clone(), brief, Some(stop), life.clone()).await;
+            watching.cancel();
             if state
                 .compare_exchange(ATTACHED, FINISHED, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
@@ -1073,6 +1283,12 @@ async fn drive(
                     return Ok(released(&job));
                 }
                 // Otherwise it finished meanwhile: its outcome is on the way.
+            }
+            // Gone quiet: give the parent its turn back; the agent runs on.
+            _ = stalled(&job, false) => {
+                if state.compare_exchange(ATTACHED, DETACHED, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+                    return Ok(released_stalled(&job));
+                }
             }
         }
     };
@@ -1610,6 +1826,8 @@ impl AgentTool for SubagentTool {
                 .as_ref()
                 .map(|created| crate::child_agents::worktree_json(created, None)),
             error: None,
+            last_event: Instant::now(),
+            stalled: false,
         }));
         let update: Arc<Mutex<Option<Update>>> = Arc::new(Mutex::new(None));
         let address = Address::session(&session_id).child(NodeKind::Agent, &id);
@@ -1776,10 +1994,11 @@ pub fn create_message_agent_tool(harness: HarnessCell) -> Arc<dyn AgentTool> {
         harness,
         schema: Tool {
             name: "message_agent".into(),
-            description: "Send a finished subagent another message; it continues with its own context (what it \
-                          read and did before), which is cheaper than starting a new agent with the whole \
-                          brief again. Name it by its id: the last line of its agent result, or the id in \
-                          the message that started or reported it. Set background to true to let it run \
+            description: "Send a subagent another message. A finished one continues with its own context (what \
+                          it read and did before), which is cheaper than starting a new agent with the whole \
+                          brief again; a running one reads the message at its next step and keeps going. \
+                          Name it by its id: the last line of its agent result, or the id in the message \
+                          that started or reported it. Set background to true to let a finished one run \
                           while you continue; its reply then arrives as a message."
                 .into(),
             parameters: Schema::new(json!({
@@ -1795,6 +2014,43 @@ pub fn create_message_agent_tool(harness: HarnessCell) -> Arc<dyn AgentTool> {
             constrained_sampling: None,
         },
     })
+}
+
+/// `message_agent` to an agent that is running: the message goes into its
+/// current run (it reads it at its next step) instead of being refused.
+async fn steer_running(job: &Job, message: &str) -> Result<AgentToolResult, AgentError> {
+    let child = lock(&job.child).clone().ok_or_else(|| {
+        AgentError::Tool(format!(
+            "subagent {} cannot continue (it was closed); start a new one",
+            job.id
+        ))
+    })?;
+    let note = AgentMessage::from(evo_ai::types::UserMessage::new(
+        message.to_string(),
+        now_ms() as i64,
+    ));
+    child
+        .harness
+        .lane("main")
+        .steer(note)
+        .await
+        .map_err(|e| AgentError::Tool(format!("could not deliver to subagent {}: {e}", job.id)))?;
+    let snapshot = lock(&job.progress).snapshot();
+    let report = if job.background.load(Ordering::Acquire) {
+        "its report will be delivered to you as a message when it finishes; do not wait for it or poll it"
+    } else {
+        "its report goes to the call that is waiting for it"
+    };
+    Ok(result(
+        format!(
+            "Subagent {} ({}) is still running, so the message was delivered into its current run: it reads \
+             it at its next step, and {report}.",
+            job.id,
+            snapshot["description"].as_str().unwrap_or("")
+        ),
+        snapshot,
+        None,
+    ))
 }
 
 #[async_trait]
@@ -1830,9 +2086,9 @@ impl AgentTool for MessageAgentTool {
         let parent = parent_of(&self.harness)?;
         let session_id = parent.session().storage().metadata().id.clone();
         let job = registry().find(&session_id, &input.agent_id)?;
-        let busy = || AgentError::Tool(format!("subagent {} is still running", job.id));
+        // A running agent reads the message at its next step, like mail.
         if job.running.load(Ordering::Acquire) {
-            return Err(busy());
+            return steer_running(&job, message).await;
         }
         if lock(&job.child).is_none() {
             return Err(AgentError::Tool(format!(
@@ -1845,9 +2101,11 @@ impl AgentTool for MessageAgentTool {
         } else {
             wait_for_slot(&parent, &session_id, &signal).await?
         };
-        // Only one call continues it (another may have, while this one waited).
+        // Only one call continues it (another may have, while this one waited):
+        // then this message joins that run.
         if !job.admit() {
-            return Err(busy());
+            drop(slot);
+            return steer_running(&job, message).await;
         }
         *lock(&job.slot) = Some(slot);
         *lock(&job.call_id) = tool_call_id.to_string();

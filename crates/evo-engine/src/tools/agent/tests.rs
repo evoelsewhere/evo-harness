@@ -38,6 +38,7 @@ async fn parent(cwd: &std::path::Path, script: FauxScript, events: Arc<Collector
         cell.clone(),
         cwd.to_path_buf(),
     )));
+    tools.push(HarnessTool::new(create_message_agent_tool(cell.clone())));
     let active_tool_names = tools
         .iter()
         .map(|tool| tool.tool.schema().name.clone())
@@ -627,4 +628,252 @@ async fn running_limit_wakes_a_waiting_call_when_a_slot_is_freed() {
         .unwrap();
     drop(slot);
     assert_eq!(*lock(&slots.running), 0);
+}
+
+// ── Replies, mail and stalls ────────────────────────────────────────────────
+
+/// A scripted model that answers the parent and its subagent from their own
+/// lists, whichever asks first: both share one provider queue, and a
+/// background agent runs at the same time as its parent.
+#[derive(Default)]
+struct Roles {
+    parent: Mutex<usize>,
+    child: Mutex<usize>,
+}
+
+type Answer =
+    Arc<dyn Fn(usize, &evo_ai::types::Context) -> evo_ai::types::AssistantMessage + Send + Sync>;
+
+fn by_role(parent: Answer, child: Answer) -> FauxScript {
+    use evo_ai::providers::faux::FauxStep;
+    let roles = Arc::new(Roles::default());
+    let script = FauxScript::new();
+    script.set_responses(
+        (0..16)
+            .map(|_| {
+                let (roles, parent, child) = (roles.clone(), parent.clone(), child.clone());
+                FauxStep::factory(move |ctx: &evo_ai::types::Context| {
+                    let is_child = context_text(ctx).contains("You are a subagent");
+                    let (counter, answer) = if is_child {
+                        (&roles.child, &child)
+                    } else {
+                        (&roles.parent, &parent)
+                    };
+                    let n = {
+                        let mut count = counter.lock().unwrap();
+                        *count += 1;
+                        *count - 1
+                    };
+                    answer(n, ctx)
+                })
+            })
+            .collect(),
+    );
+    script
+}
+
+fn context_text(ctx: &evo_ai::types::Context) -> String {
+    serde_json::to_string(&ctx.messages).unwrap_or_default()
+}
+
+fn say(text: &str) -> evo_ai::types::AssistantMessage {
+    evo_ai::providers::faux::faux_assistant_message(
+        text.to_string(),
+        evo_ai::types::StopReason::Stop,
+    )
+}
+
+fn call(name: &str, args: Value) -> evo_ai::types::AssistantMessage {
+    use evo_ai::providers::faux::faux_tool_call;
+    let mut message = say("");
+    message.content = vec![faux_tool_call(name, args)];
+    message.stop_reason = evo_ai::types::StopReason::ToolUse;
+    message
+}
+
+fn tool_end(events: &Collector, name: &str) -> Option<(String, Value, bool)> {
+    events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolExecutionEnd {
+                tool_name,
+                result,
+                is_error,
+                ..
+            } if tool_name == name => Some((
+                result
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        TextContentOrImage::Text(t) => Some(t.text.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+                result.details.clone(),
+                *is_error,
+            )),
+            _ => None,
+        })
+}
+
+async fn until(what: &str, done: impl Fn() -> bool) {
+    for _ in 0..500 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("timed out waiting for {what}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_subagent_that_ends_without_text_is_asked_for_its_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let brief = Arc::new(Mutex::new(String::new()));
+    let asked = Arc::new(Mutex::new(String::new()));
+    let (seen_brief, seen_ask) = (brief.clone(), asked.clone());
+    let script = by_role(
+        Arc::new(|n, _| match n {
+            0 => call(
+                "agent",
+                json!({"description":"Quiet one","prompt":"Look around."}),
+            ),
+            _ => say("Done."),
+        }),
+        Arc::new(move |n, ctx| match n {
+            0 => {
+                *seen_brief.lock().unwrap() = context_text(ctx);
+                // Its turn ends on a step without any text.
+                say("")
+            }
+            _ => {
+                *seen_ask.lock().unwrap() = context_text(ctx);
+                say("Result: done. Changed: none. Checked: none. Open: none.")
+            }
+        }),
+    );
+    let events = Arc::new(Collector::default());
+    let parent = parent(dir.path(), script, events.clone()).await;
+    parent
+        .lane("main")
+        .prompt_text("Go.", Vec::new())
+        .await
+        .unwrap();
+
+    let (text, _, is_error) = tool_end(&events, "agent").expect("the agent call ended");
+    assert!(!is_error, "{text}");
+    assert!(
+        text.starts_with("Result: done. Changed: none."),
+        "the report it was asked for: {text}"
+    );
+    // The general type's report format is in its brief; the second prompt asks for it.
+    let brief = brief.lock().unwrap().clone();
+    assert!(brief.contains("**Changes**"), "{brief}");
+    assert!(asked
+        .lock()
+        .unwrap()
+        .contains("You stopped without writing a report"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn message_agent_reaches_a_running_subagent() {
+    let dir = tempfile::tempdir().unwrap();
+    let sent = Arc::new(AtomicBool::new(false));
+    let child_read = Arc::new(AtomicBool::new(false));
+    let (parent_sent, child_waits, read) = (sent.clone(), sent.clone(), child_read.clone());
+    let script = by_role(
+        Arc::new(move |n, ctx| match n {
+            0 => call(
+                "agent",
+                json!({"description":"Waiter","prompt":"Wait for my message.","background":true}),
+            ),
+            1 => {
+                let text = context_text(ctx);
+                let id = text
+                    .split("Started background agent ")
+                    .nth(1)
+                    .and_then(|rest| rest.split(' ').next())
+                    .expect("the background agent's id")
+                    .to_string();
+                call(
+                    "message_agent",
+                    json!({"agentId": id, "message": "PING-42"}),
+                )
+            }
+            _ => {
+                parent_sent.store(true, Ordering::Release);
+                say("ok")
+            }
+        }),
+        Arc::new(move |n, ctx| match n {
+            0 => {
+                // Still running while the parent sends its message.
+                for _ in 0..500 {
+                    if child_waits.load(Ordering::Acquire) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                call("ls", json!({}))
+            }
+            _ => {
+                read.store(context_text(ctx).contains("PING-42"), Ordering::Release);
+                say("Result: got the message.")
+            }
+        }),
+    );
+    let events = Arc::new(Collector::default());
+    let parent = parent(dir.path(), script, events.clone()).await;
+    parent
+        .lane("main")
+        .prompt_text("Go.", Vec::new())
+        .await
+        .unwrap();
+
+    let (text, _, is_error) = tool_end(&events, "message_agent").expect("message_agent ended");
+    assert!(!is_error, "{text}");
+    assert!(text.contains("delivered into its current run"), "{text}");
+    until("the subagent to read the message", || {
+        child_read.load(Ordering::Acquire)
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_quiet_subagent_gives_the_parent_its_turn_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = by_role(
+        Arc::new(|n, _| match n {
+            0 => call(
+                "agent",
+                json!({"description":"Slow one","prompt":"Take your time."}),
+            ),
+            _ => say("ok"),
+        }),
+        Arc::new(|_, _| {
+            // No event at all while the model "thinks".
+            std::thread::sleep(Duration::from_millis(1200));
+            say("Result: finished late.")
+        }),
+    );
+    let events = Arc::new(Collector::default());
+    let parent = parent(dir.path(), script, events.clone()).await;
+    let session_id = parent.session().storage().metadata().id.clone();
+    lock(&STALL_AFTER_IN).insert(session_id, Duration::from_millis(200));
+    parent
+        .lane("main")
+        .prompt_text("Go.", Vec::new())
+        .await
+        .unwrap();
+
+    let (text, details, is_error) = tool_end(&events, "agent").expect("the agent call ended");
+    assert!(!is_error, "{text}");
+    assert!(text.contains("has shown no activity"), "{text}");
+    assert!(text.contains("cancel_node"), "{text}");
+    assert_eq!(details["child"]["background"], true);
+    assert_eq!(details["child"]["status"], "running");
+    assert_eq!(details["child"]["stalled"], true);
 }

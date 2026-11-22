@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-11 |
+| Updated | 2026-11-23 |
 
 ## 1. Phases
 
@@ -81,6 +81,15 @@ and runs in the app) is fixed with a test where one can be written.
 - [x] T32 [FR-13] [FR-22] A folded turn keeps a kept worktree's badge in sight; the review dialog fits its width; a failed external tool call reads as its text — `apps/desktop/src/components/ai-elements/agent-run.tsx`, `apps/desktop/src/features/chat/chat-turn.tsx`, `apps/desktop/src/components/ai-elements/worktree-review.tsx`, `crates/evo-engine/src/rpc/external_tools.rs` — check: `error_keeps_complete_raw_content_and_structured_result`, runs in the app
 - [x] T28 [FR-6] [FR-16] [FR-19] [FR-20] [FR-22] The stores and the shell UI: wakes held for a draft, an open approval or an archived chat; usage counted when an agent ends; engines with working subagents left alone; proposals started once; the sidebar's dots, roll-up and footer; header and menu; a session's engine stopped around Apply; a deleted chat's unchanged worktree removed — `apps/desktop/src/stores/engine-store.ts`, `session-store.ts`, `ui-store.ts`, `apps/desktop/src/features/shell/`, `apps/desktop/src/components/ai-elements/session-proposal.tsx`, `apps/desktop/src/features/chat/chat-composer.tsx`, `apps/desktop/src/features/settings/sections/sandbox-settings.tsx` — check: `bun run typecheck`; a run in the app
 
+### Phase 7 — Silent, busy and quiet agents (2026-11-23)
+
+Done when: a child that ends without text is asked for its report, `message_agent`
+reaches a running child, and a quiet child is reported, each with a test.
+
+- [x] T33 [FR-8] Ask a run that completed without text once more for its report (`step`, `REPORT_REQUEST`, one deadline for both prompts) — `crates/evo-engine/src/tools/agent.rs` — check: `a_subagent_that_ends_without_text_is_asked_for_its_report`, `an_agent_that_runs_out_of_turns_hands_over_what_it_said`
+- [x] T34 [FR-23] `message_agent` steers a running child (`steer_running`), also when it loses the race to continue it — `crates/evo-engine/src/tools/agent.rs` — check: `message_agent_reaches_a_running_subagent`
+- [x] T35 [FR-24] Stall watchdog: last event and `stalled` in the snapshot; a foreground call released, a background parent told once per quiet spell — `crates/evo-engine/src/tools/agent.rs` — check: `a_quiet_subagent_gives_the_parent_its_turn_back`
+
 ## 2. Verification
 
 Results are from 2026-11-11 (`cargo test -p evo-engine --lib`: 761 passed;
@@ -98,7 +107,7 @@ no automated tests, so their rows name a run in the app.
 | FR-5 | Manual check in the running app; `bun run typecheck` | passed (2026-11-11): `bun test src/features/chat`, typecheck; run in the app (2026-11-11): a stopped child kept its 21 steps live and reopened, a background report showed on its call after reopening  |
 | FR-6 | Manual check in the running app: the turn's cost includes the child | passed (2026-11-11): `a_stopped_foreground_agent_keeps_its_view_and_usage`; the store's counting: run in the app (2026-11-11): turn costs matched the parent's calls plus each child run (foreground, continued, cancelled, background), none twice  |
 | FR-7 | `cargo test -p evo-engine child_limits_reject_wrong_types_and_out_of_range_values`; manual recursion check | passed (2026-11-11): `six_foreground_agents_in_one_message_all_run_four_at_a_time`, `child_limits_reject_wrong_types_and_out_of_range_values` |
-| FR-8 | `cargo test -p evo-engine long_reports_are_cut_with_a_way_to_the_rest` | passed (2026-11-11) |
+| FR-8 | `cargo test -p evo-engine -- long_reports_are_cut_with_a_way_to_the_rest a_subagent_that_ends_without_text_is_asked_for_its_report an_agent_that_runs_out_of_turns_hands_over_what_it_said` | passed (2026-11-23) |
 | FR-9 | `cargo test -p evo-engine a_background_agent_reports_to_the_idle_parent_on_its_next_run` | passed (2026-11-11) |
 | FR-10 | `cargo test -p evo-engine -- a_finished_agent_continues_with_its_context a_background_agent_can_be_cancelled` | passed (2026-11-11): also `a_foreground_result_names_the_agent_and_message_agent_finds_it` |
 | FR-11 | `cargo test -p evo-engine -- steering_releases_a_waiting_foreground_agent_into_the_background without_steering_a_foreground_agent_reports_to_its_call` | passed (2026-11-11) |
@@ -113,6 +122,8 @@ no automated tests, so their rows name a run in the app.
 | FR-20 | `bun run typecheck` and a preview with sample data | typecheck; seen in the app (2026-11-11): children under their parent with the footer |
 | FR-21 | Manual check: `worktree: true` runs the child in a new worktree | passed (2026-11-11): `an_incognito_parent_has_incognito_sessions_and_no_copy`; run in the app (2026-11-11)  |
 | FR-22 | `cargo test -p evo-worktrees -- a_conflicting_apply_changes_nothing changes_are_measured_from_the_fork_and_applied_to_the_working_folder`; manual check of the dialog | passed (2026-11-11): `cargo test -p evo-worktrees` (24 tests), `bun test src/lib/worktrees.test.ts`; the dialog run in the app (2026-11-11): Apply from a running session's chip applied, removed the worktree and its branch, and restarted the session in the workspace  |
+| FR-23 | `cargo test -p evo-engine message_agent_reaches_a_running_subagent` | passed (2026-11-23) |
+| FR-24 | `cargo test -p evo-engine a_quiet_subagent_gives_the_parent_its_turn_back`; the background note by code review (it goes the way of `tell_parent`) | passed (2026-11-23) |
 | NFR-1 | Code review of the throttle and caps in `tools/agent.rs`; `a_subagent_is_a_mesh_node_with_live_summary_events` | passed (2026-11-11): `a_subagent_is_a_mesh_node_with_live_summary_events` |
 | NFR-2 | `cargo test -p evo-engine child_agents` | passed (2026-11-11) |
 | NFR-3 | `cargo test -p evo-engine an_agent_file_added_later_is_usable_at_once` | passed (2026-11-11) |
