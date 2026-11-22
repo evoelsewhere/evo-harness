@@ -268,6 +268,22 @@ fn gate_after(
     (hook, mailbox, state)
 }
 
+/// A gate whose calls all come from a `run_code` program.
+fn code_gate(
+    mode: ApprovalMode,
+) -> (
+    evo_agent::BeforeToolCall,
+    evo_extensions::UiDialogMailbox,
+    Arc<ApprovalState>,
+) {
+    let mailbox = evo_extensions::UiDialogMailbox::new();
+    mailbox.attach();
+    let state = Arc::new(ApprovalState::new(mode));
+    let hook =
+        super::gate(None, mailbox.clone(), state.clone(), || Origin::Code).expect("installed");
+    (hook, mailbox, state)
+}
+
 /// Wait for the prompt and answer it.
 async fn answer(mailbox: &evo_extensions::UiDialogMailbox, index: u64) -> Value {
     for _ in 0..200 {
@@ -598,5 +614,121 @@ async fn tools_the_app_runs_are_left_to_the_app() {
     )
     .await;
     assert!(result.is_none());
+    no_prompt(&mailbox);
+}
+
+// ── Calls from code (docs/features/code-mode/spec.md, FR-10, FR-11, FR-20) ──
+
+#[test]
+fn outside_a_program_calls_are_direct() {
+    assert_eq!(origin(), Origin::Direct);
+}
+
+#[test]
+fn answers_map_to_the_options_offered() {
+    assert_eq!(answer_for(Origin::Direct, Some(2), ""), Answer::Deny);
+    assert_eq!(answer_for(Origin::Code, Some(0), ""), Answer::Allow);
+    assert_eq!(answer_for(Origin::Code, Some(1), ""), Answer::AllowChat);
+    assert_eq!(answer_for(Origin::Code, Some(2), ""), Answer::StopCode);
+    assert_eq!(answer_for(Origin::Code, Some(3), ""), Answer::Deny);
+    assert_eq!(answer_for(Origin::Code, None, "stop"), Answer::StopCode);
+    assert_eq!(answer_for(Origin::Direct, None, "stop"), Answer::Deny);
+    assert_eq!(answer_for(Origin::Code, None, "allow"), Answer::Allow);
+}
+
+#[tokio::test]
+async fn a_call_from_code_is_labelled_and_offers_stop_and_deny() {
+    let (hook, mailbox, _) = code_gate(ApprovalMode::Ask);
+    let running = call(
+        &hook,
+        "c1",
+        "bash",
+        json!({ "command": "npm test" }),
+        CancellationToken::new(),
+    );
+    let (result, ui) = tokio::join!(running, answer(&mailbox, 0));
+    assert!(result.is_none(), "allowed call is not blocked");
+    assert_eq!(ui["title"], "Run a command?");
+    assert_eq!(ui["approval"]["origin"], "code");
+    let titles: Vec<_> = ui["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["title"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Allow",
+            "Allow commands for this chat",
+            "Stop code",
+            "Deny this call"
+        ]
+    );
+    // Esc picks the first rejecting option: Stop code.
+    assert_eq!(ui["options"][2]["permission"], "reject-stop");
+}
+
+#[tokio::test]
+async fn deny_this_call_blocks_only_that_call() {
+    let (hook, mailbox, _) = code_gate(ApprovalMode::Ask);
+    let running = call(
+        &hook,
+        "c1",
+        "edit",
+        json!({ "path": "a.txt", "edits": [] }),
+        CancellationToken::new(),
+    );
+    let (result, _) = tokio::join!(running, answer(&mailbox, 3));
+    let result = result.expect("blocked");
+    assert!(result.block && !result.terminate);
+    assert_eq!(
+        result.reason.as_deref(),
+        Some("The user declined this edit.")
+    );
+}
+
+#[tokio::test]
+async fn stop_code_blocks_the_call_without_ending_the_turn() {
+    let (hook, mailbox, _) = code_gate(ApprovalMode::Ask);
+    let running = call(
+        &hook,
+        "c1",
+        "bash",
+        json!({ "command": "rm -rf build" }),
+        CancellationToken::new(),
+    );
+    let (result, _) = tokio::join!(running, answer(&mailbox, 2));
+    let result = result.expect("blocked");
+    assert!(result.block);
+    // Stopping the program never sets `terminate`, which would end the turn.
+    assert!(!result.terminate);
+    assert_eq!(
+        result.reason.as_deref(),
+        Some("The user stopped the code at this command.")
+    );
+}
+
+#[tokio::test]
+async fn grants_cover_calls_from_code_too() {
+    let (hook, mailbox, _) = code_gate(ApprovalMode::Ask);
+    let first = call(
+        &hook,
+        "c1",
+        "bash",
+        json!({ "command": "npm test" }),
+        CancellationToken::new(),
+    );
+    let (result, _) = tokio::join!(first, answer(&mailbox, 1));
+    assert!(result.is_none());
+    let second = call(
+        &hook,
+        "c2",
+        "bash",
+        json!({ "command": "npm run lint" }),
+        CancellationToken::new(),
+    )
+    .await;
+    assert!(second.is_none());
     no_prompt(&mailbox);
 }

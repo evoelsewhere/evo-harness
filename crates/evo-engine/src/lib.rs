@@ -28,6 +28,7 @@ pub mod auth_guidance;
 pub mod builtin_commands;
 pub mod checkpoints;
 pub mod child_agents;
+pub mod code_mode;
 pub mod commit_message;
 pub mod config;
 pub mod context_breakdown;

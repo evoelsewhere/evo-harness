@@ -32,6 +32,8 @@ import { AgentIcon } from "@/components/icons/agent-icon";
 import { BrowserIcon } from "@/components/icons/tool-icons";
 import { type ToolPart } from "@/features/chat/transcript";
 import { AgentRun } from "./agent-run";
+import { CodeRun } from "./code-run";
+import { CODE_TOOL } from "./code-run-model";
 import { SessionProposal } from "./session-proposal";
 import { FileLink } from "./file-link";
 import { openLink } from "@/features/shell/app-commands";
@@ -243,6 +245,9 @@ export function Tool({
   /** Just the row, never a body (a subagent's steps). */
   lineOnly?: boolean;
 }) {
+  // A program the agent ran is one Code row with its calls inside
+  // (docs/features/code-mode/spec.md, FR-15).
+  if (part.name === CODE_TOOL) return <CodeRun part={part} streaming={streaming} lineOnly={lineOnly} />;
   const { kind, about, phase, stopped, live, failed, child, label: shownLabel, fileVerb, diff } = toolHeader(part, streaming);
   const Icon = icons[kind];
   // A file the call read or changed opens in the Files tool, at the line it touched.

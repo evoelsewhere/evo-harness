@@ -57,6 +57,9 @@ base64 = { workspace = true }
 png = { workspace = true }
 rusqlite = { workspace = true }
 evo-store = { workspace = true }
+# The code tool's interpreter: QuickJS with no std modules (ADR 0025,
+# docs/features/code-mode/plan.md).
+rquickjs = { version = "0.14", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

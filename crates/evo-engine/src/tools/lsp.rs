@@ -312,7 +312,15 @@ impl AgentTool for EditCheck {
         signal: CancellationToken,
         on_update: Arc<dyn Fn(ToolResultPartial) + Send + Sync>,
     ) -> Result<AgentToolResult, AgentError> {
-        let file = self.file(&params).filter(|_| edit_diagnostics_enabled());
+        // An edit from a `run_code` program does not wait for the language
+        // server: a program edits many files in a row, and each wait can take
+        // up to the diagnostics timeout. The program runs its own check
+        // (docs/features/code-mode/spec.md, FR-22).
+        let from_code = evo_agent::tool_program::nested_parent()
+            .is_some_and(|parent| parent.root_name == crate::tools::code::NAME);
+        let file = self
+            .file(&params)
+            .filter(|_| edit_diagnostics_enabled() && !from_code);
         let Some(file) = file else {
             return self
                 .inner

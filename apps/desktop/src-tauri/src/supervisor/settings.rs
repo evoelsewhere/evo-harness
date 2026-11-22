@@ -7,6 +7,8 @@
 //!
 //! - `approvalMode` (`db::settings_set`): `set_approval_mode` to every set-up
 //!   engine; one still starting gets it when it is set up.
+//! - `experimental.codeMode`: `set_code_mode` the same way
+//!   (docs/features/code-mode/spec.md, FR-2).
 //! - providers: a window's provider command that succeeded (`set_api_key`, …)
 //!   or an engine's `providers_changed` line: `reload_providers` to every
 //!   other engine, idle ones at once, ones in a run when it settles.
@@ -56,6 +58,8 @@ pub const PROVIDER_COMMANDS: &[&str] = &["set_api_key", "set_provider", "remove_
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Pending {
     pub approval: Option<String>,
+    /// Code mode on or off (code-mode FR-2).
+    pub code_mode: Option<bool>,
     pub providers: bool,
     pub resources: bool,
     /// Start it again with the new sandbox once it has no work.
@@ -67,6 +71,8 @@ pub struct Pending {
 pub enum Change {
     /// The approval mode (`ask`, `auto-edits`, `auto`).
     Approval(String),
+    /// Code mode on or off.
+    CodeMode(bool),
     /// Providers or keys changed; `from` already follows them.
     Providers { from: Option<String> },
     /// Skills, plugins, memory or instructions changed; `from` already reloaded.
@@ -125,6 +131,14 @@ impl EngineSupervisor {
                         self.mark(&chat, generation, |pending| pending.approval = Some(mode.clone()));
                     }
                 }
+                Change::CodeMode(on) => {
+                    // An engine offers `run_code`, or not, from its next request.
+                    if ready {
+                        self.send_code_mode(host, &chat, *on).await;
+                    } else {
+                        self.mark(&chat, generation, |pending| pending.code_mode = Some(*on));
+                    }
+                }
                 Change::Providers { from } | Change::Resources { from } => {
                     if from.as_deref() == Some(chat.as_str()) {
                         continue;
@@ -173,6 +187,9 @@ impl EngineSupervisor {
         if let Some(mode) = &pending.approval {
             self.send_approval(host, chat, mode).await;
         }
+        if let Some(on) = pending.code_mode {
+            self.send_code_mode(host, chat, on).await;
+        }
         if pending.providers {
             self.reload(host, chat, true).await;
         }
@@ -192,6 +209,14 @@ impl EngineSupervisor {
         match host.request(chat, "set_approval_mode", json!({ "mode": mode })).await {
             Ok(_) => host.reloaded(chat, "approval"),
             Err(error) => host.log(chat, "warn", format!("set_approval_mode failed: {error}")),
+        }
+    }
+
+    async fn send_code_mode<H: Host>(&self, host: &H, chat: &str, on: bool) {
+        match host.request(chat, "set_code_mode", json!({ "enabled": on })).await {
+            Ok(_) => host.reloaded(chat, "codeMode"),
+            // An older engine without the command takes it at its next start.
+            Err(error) => host.log(chat, "info", format!("set_code_mode: {error}")),
         }
     }
 
@@ -298,6 +323,7 @@ pub fn on_setting(app: &AppHandle, key: &str, value: &Value) {
                 spawn_change(app, Change::Approval(mode.to_string()));
             }
         }
+        crate::engine::CODE_MODE_KEY => spawn_change(app, Change::CodeMode(value.as_bool().unwrap_or(false))),
         crate::engine::SANDBOX_KEY => sandbox_changed(app),
         AUTO_START_KEY => {
             if let Some(hub) = app.try_state::<crate::mesh::MeshHub>() {
@@ -409,6 +435,23 @@ mod tests {
         let mode = log.iter().position(|line| line == r#"request c set_approval_mode {"mode":"auto"}"#).expect("c got the mode");
         let hosted = log.iter().position(|line| line == "hosted c").unwrap();
         assert!(mode < hosted, "{log:?}");
+    }
+
+    // docs/features/code-mode/spec.md (FR-2).
+    #[tokio::test]
+    async fn code_mode_reaches_every_set_up_engine_and_a_starting_one_once_set_up() {
+        let fake = Fake::default().with_row("a", top(None)).with_row("b", top(None));
+        let supervisor = EngineSupervisor::default();
+        let a = set_up(&fake, &supervisor, "a").await;
+        // A run does not hold it back: it applies from the next request.
+        start_run(&supervisor, &fake, "a", a);
+        let b = supervisor.ensure(&fake, viewer("b", Some("/w"), true)).await.unwrap().generation;
+        supervisor.setting_changed(&fake, Change::CodeMode(true)).await;
+        assert_eq!(fake.lines("request a set_code_mode"), [r#"request a set_code_mode {"enabled":true}"#]);
+        assert!(fake.lines("request b set_code_mode").is_empty());
+        assert_eq!(fake.lines("reloaded a codeMode"), ["reloaded a codeMode"]);
+        supervisor.on_ready(&fake, "b", b).await;
+        assert_eq!(fake.lines("request b set_code_mode"), [r#"request b set_code_mode {"enabled":true}"#]);
     }
 
     #[tokio::test]

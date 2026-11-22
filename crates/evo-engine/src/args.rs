@@ -208,6 +208,9 @@ pub struct Args {
     /// `--incognito`: as `--no-memory`, and the chat's usage is recorded
     /// without its id (FR-20, FR-23). Removing the chat is the shell's part.
     pub incognito: bool,
+    /// `--code-mode`: offer `run_code` (docs/features/code-mode/spec.md,
+    /// FR-1). The desktop passes it from the person's setting; off when absent.
+    pub code_mode: bool,
     /// `--index-after <entry id>` (index mode): the last transcript entry an
     /// earlier index run read; only what follows it is read now.
     pub index_after: Option<String>,
@@ -423,6 +426,7 @@ pub fn parse_args(args: &[String]) -> Args {
             "--no-prompt-templates" | "-np" => result.no_prompt_templates = true,
             "--no-context-files" | "-nc" => result.no_context_files = true,
             "--no-memory" => result.no_memory = true,
+            "--code-mode" => result.code_mode = true,
             "--index-after" => result.index_after = take_value(&mut result, "--index-after"),
             "--index-summary-only" => result.index_summary_only = true,
             "--incognito" => {

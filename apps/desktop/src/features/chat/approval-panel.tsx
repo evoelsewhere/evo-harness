@@ -15,13 +15,17 @@ export function usePendingPermission(): PermissionRequest | undefined {
 
 /**
  * What the prompt says. A subagent's call names the agent ("explore-2 wants to
- * run a command"); engine prompts without `approval` read as they are.
+ * run a command"); engine prompts without `approval` read as they are. A call
+ * from a `run_code` program is labelled "From code"
+ * (docs/features/code-mode/spec.md, FR-11).
  */
 function approvalTitle(permission: PermissionRequest): string {
   const agent = permission.approval?.agent;
-  if (!agent) return permission.title;
+  const fromCode = permission.approval?.origin === "code";
+  if (!agent) return fromCode ? `From code · ${permission.title}` : permission.title;
   const what = permission.title.replace(/\?\s*$/, "");
-  return `${agent} wants to ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
+  const asks = `${agent} wants to ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
+  return fromCode ? `From code · ${asks}` : asks;
 }
 
 const rejects = (option: { title: string; permission?: string }) =>

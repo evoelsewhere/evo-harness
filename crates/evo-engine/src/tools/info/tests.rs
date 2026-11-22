@@ -46,6 +46,8 @@ const NOT_REGISTERED: &[&str] = &[
     "permission",
     "plan_mode_start",
     "plan_mode_complete",
+    // Registered only when code mode is on (docs/features/code-mode/spec.md, FR-3).
+    "run_code",
 ];
 
 /// `approval.rs` `READ_TOOLS` before the table existed.
@@ -73,7 +75,12 @@ const OLD_READ_TOOLS: &[&str] = &[
 
 /// Tools added since the table: reads that a read-only agent may call.
 /// `ui_guide`: docs/features/rich-replies/spec.md FR-12.
-const ADDED_SAFE_READS: &[&str] = &["ui_guide"];
+/// `run_code`: docs/features/code-mode/spec.md FR-10 (each call it makes is
+/// checked on its own, including by the read-only guard).
+const ADDED_SAFE_READS: &[&str] = &["ui_guide", "run_code"];
+
+/// Reserved names added since the table: `run_code` (code-mode FR-3).
+const ADDED_RESERVED: &[&str] = &["run_code"];
 
 /// `approval.rs` `EDIT_TOOLS` before the table existed.
 const OLD_EDIT_TOOLS: &[&str] = &["write", "edit"];
@@ -155,8 +162,10 @@ fn every_tool_the_session_builds_has_a_row() {
             info(&name).is_some(),
             "the session builds `{name}` but the table has no row"
         );
+        // `run_code` is built only while code mode is on, which another
+        // test may have switched on (docs/features/code-mode/spec.md, FR-3).
         assert!(
-            REGISTERED.contains(&name.as_str()),
+            REGISTERED.contains(&name.as_str()) || name == "run_code",
             "`{name}` missing from the test list"
         );
     }
@@ -230,7 +239,41 @@ fn a_read_only_safe_tool_is_a_read() {
 
 #[test]
 fn reserved_names_equal_the_old_list() {
-    assert_eq!(names(reserved_names()), names(OLD_RESERVED.iter().copied()));
+    assert_eq!(
+        names(reserved_names()),
+        names(OLD_RESERVED.iter().chain(ADDED_RESERVED).copied())
+    );
+}
+
+// docs/features/code-mode/spec.md (FR-12).
+#[test]
+fn programs_cannot_call_the_person_session_or_app_surface_tools() {
+    for name in [
+        "run_code",
+        "ask_user",
+        "agent",
+        "message_agent",
+        "send_message",
+        "start_session",
+        "browser_click",
+        "computer_app",
+        "terminal_run",
+        "permissions",
+    ] {
+        assert!(!callable_from_code(name), "{name}");
+    }
+    for name in [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "powershell",
+        "web_fetch",
+        "memory",
+        "mcp__github__list_issues",
+    ] {
+        assert!(callable_from_code(name), "{name}");
+    }
 }
 
 #[test]

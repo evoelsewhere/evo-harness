@@ -303,12 +303,102 @@ pub(crate) fn describe(tool: &str, kind: Kind, args: &Value) -> (String, String)
     }
 }
 
+/// The code tool, whose nested calls ask with the code options
+/// (docs/features/code-mode/spec.md, FR-11).
+pub(crate) const CODE_TOOL: &str = "run_code";
+
+/// Where a call comes from: the model directly, or a program the code tool
+/// runs (FR-10, FR-11, FR-20).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Origin {
+    Direct,
+    Code,
+}
+
+/// The current call's origin. Only the native tool program driver can mark a
+/// call as nested ([`evo_agent::tool_program::nested_parent`]); arguments and
+/// JSON never can.
+fn origin() -> Origin {
+    match evo_agent::tool_program::nested_parent() {
+        Some(parent) if parent.root_name == CODE_TOOL => Origin::Code,
+        _ => Origin::Direct,
+    }
+}
+
+/// What the approval panel shows. A call from code is labelled
+/// (`approval.origin`) and offers Stop code first among the rejections, so
+/// Esc stops the program; Deny this call refuses only that call (FR-11).
+pub(crate) fn prompt(
+    request_id: &str,
+    tool_call_id: &str,
+    tool: &str,
+    kind: Kind,
+    args: &Value,
+    origin: Origin,
+) -> Value {
+    let (title, description) = describe(tool, kind, args);
+    let noun = match kind {
+        Kind::Edit => "edits",
+        _ => "commands",
+    };
+    let allow_chat =
+        json!({ "title": format!("Allow {noun} for this chat"), "permission": "allow-chat" });
+    let (approval, options) = match origin {
+        Origin::Direct => (
+            json!({ "kind": kind.as_str(), "tool": tool }),
+            json!([
+                { "title": "Allow" },
+                allow_chat,
+                { "title": "Deny", "permission": "reject" },
+            ]),
+        ),
+        Origin::Code => (
+            json!({ "kind": kind.as_str(), "tool": tool, "origin": "code" }),
+            json!([
+                { "title": "Allow" },
+                allow_chat,
+                { "title": "Stop code", "permission": "reject-stop" },
+                { "title": "Deny this call", "permission": "reject" },
+            ]),
+        ),
+    };
+    json!({
+        "op": "open",
+        "requestId": request_id,
+        "toolCallId": tool_call_id,
+        "ui": {
+            "kind": "confirm",
+            "title": title,
+            "description": description,
+            "approval": approval,
+            "options": options,
+        },
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
 enum Answer {
     Allow,
     AllowChat,
     Deny,
+    /// Stop the program the call came from (calls from code only).
+    StopCode,
     /// No one can answer (headless).
     NoUi,
+}
+
+/// The answer an option index or value stands for, given the options
+/// [`prompt`] offered for `origin`.
+fn answer_for(origin: Origin, index: Option<u64>, value: &str) -> Answer {
+    match (origin, index) {
+        (_, Some(0)) => Answer::Allow,
+        (_, Some(1)) => Answer::AllowChat,
+        (Origin::Code, Some(2)) => Answer::StopCode,
+        (_, Some(_)) => Answer::Deny,
+        (_, None) if value.eq_ignore_ascii_case("allow") => Answer::Allow,
+        (Origin::Code, None) if value.eq_ignore_ascii_case("stop") => Answer::StopCode,
+        (_, None) => Answer::Deny,
+    }
 }
 
 async fn ask(
@@ -317,30 +407,11 @@ async fn ask(
     tool: &str,
     kind: Kind,
     args: &Value,
+    origin: Origin,
     signal: &tokio_util::sync::CancellationToken,
 ) -> Answer {
-    let (title, description) = describe(tool, kind, args);
     let request_id = format!("approve:{tool_call_id}");
-    let noun = match kind {
-        Kind::Edit => "edits",
-        _ => "commands",
-    };
-    let opened = ui_dialog.handle(json!({
-        "op": "open",
-        "requestId": request_id,
-        "toolCallId": tool_call_id,
-        "ui": {
-            "kind": "confirm",
-            "title": title,
-            "description": description,
-            "approval": { "kind": kind.as_str(), "tool": tool },
-            "options": [
-                { "title": "Allow" },
-                { "title": format!("Allow {noun} for this chat"), "permission": "allow-chat" },
-                { "title": "Deny", "permission": "reject" },
-            ],
-        },
-    }));
+    let opened = ui_dialog.handle(prompt(&request_id, tool_call_id, tool, kind, args, origin));
     if opened.is_err() {
         return Answer::NoUi;
     }
@@ -355,13 +426,7 @@ async fn ask(
                     let answer = state.get("answer").cloned().unwrap_or(Value::Null);
                     let index = answer.get("index").and_then(Value::as_u64);
                     let value = answer.get("value").and_then(Value::as_str).unwrap_or("");
-                    return match index {
-                        Some(0) => Answer::Allow,
-                        Some(1) => Answer::AllowChat,
-                        Some(_) => Answer::Deny,
-                        None if value.eq_ignore_ascii_case("allow") => Answer::Allow,
-                        None => Answer::Deny,
-                    };
+                    return answer_for(origin, index, value);
                 }
                 Some("cancelled") => return Answer::Deny,
                 _ => {}
@@ -388,11 +453,24 @@ pub fn before_tool_call(
     ui_dialog: evo_extensions::UiDialogMailbox,
     state: Arc<ApprovalState>,
 ) -> Option<evo_agent::BeforeToolCall> {
+    gate(previous, ui_dialog, state, origin)
+}
+
+/// [`before_tool_call`] with the origin lookup passed in, so tests can ask as
+/// a call from code without a running program.
+fn gate(
+    previous: Option<evo_agent::BeforeToolCall>,
+    ui_dialog: evo_extensions::UiDialogMailbox,
+    state: Arc<ApprovalState>,
+    origin_of: fn() -> Origin,
+) -> Option<evo_agent::BeforeToolCall> {
     Some(Arc::new(
         move |ctx: evo_agent::BeforeToolCallContext<'_>, signal| {
             let tool = ctx.tool_call.name.clone();
             let id = ctx.tool_call.id.clone();
             let args = ctx.args.clone();
+            // Read while the driver's nested-call scope is in place.
+            let origin = origin_of();
             let earlier = previous.as_ref().map(|hook| hook(ctx, signal.clone()));
             let ui_dialog = ui_dialog.clone();
             let state = state.clone();
@@ -418,13 +496,30 @@ pub fn before_tool_call(
                 if !asks(state.mode(), kind, state.grants()) {
                     return inner;
                 }
-                match ask(&ui_dialog, &id, &tool, kind, &args, &signal).await {
+                // Waiting on the person does not count toward the program's
+                // time limit (docs/features/code-mode/spec.md, FR-11).
+                let _paused = match origin {
+                    Origin::Code => evo_agent::tool_program::current().map(|p| p.hold_clock()),
+                    Origin::Direct => None,
+                };
+                match ask(&ui_dialog, &id, &tool, kind, &args, origin, &signal).await {
                     Answer::Allow => inner,
                     Answer::AllowChat => {
                         state.grant(kind);
                         inner
                     }
                     Answer::Deny => blocked(format!("The user declined this {}.", kind.as_str())),
+                    Answer::StopCode => {
+                        // The program this call came from; the call itself
+                        // is blocked either way (FR-11, FR-14).
+                        if let Some(program) = evo_agent::tool_program::current() {
+                            program.stop("The user stopped the code.");
+                        }
+                        blocked(format!(
+                            "The user stopped the code at this {}.",
+                            kind.as_str()
+                        ))
+                    }
                     Answer::NoUi => blocked(
                         "Not run: approval needed and no one can approve in this mode \
                          (use --approval-mode auto)."

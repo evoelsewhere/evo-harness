@@ -110,12 +110,15 @@ export interface ApprovalState {
 
 /**
  * The extra field of an approval prompt (`ui_dialog_request`, `ui.kind`
- * `"confirm"`): what is asked, which tool, and the subagent that asks.
+ * `"confirm"`): what is asked, which tool, the subagent that asks, and
+ * whether the call comes from a `run_code` program
+ * (docs/features/code-mode/spec.md, FR-11).
  */
 export interface ApprovalPrompt {
   kind: "command" | "edit";
   tool: string;
   agent?: string;
+  origin?: "code";
 }
 
 /** Commands for the approval gate (camelCase JSON, sent through `EngineClient.request`). */

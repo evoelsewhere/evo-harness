@@ -225,6 +225,10 @@ async fn run_inner() -> i32 {
         }
     }
 
+    // Code mode, before the session builds its tools
+    // (docs/features/code-mode/spec.md, FR-1).
+    crate::code_mode::set(parsed.code_mode);
+
     // When to ask before edits and commands (docs/features/approval-modes).
     match crate::approval::initial_mode(parsed.approval_mode.as_deref(), parsed.mode) {
         Ok(mode) => crate::approval::global().set_mode(mode),

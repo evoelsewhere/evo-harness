@@ -9,6 +9,7 @@
 // events find them. (The same model as DeepSeek Harness's per-step `blocks[]`.)
 
 import { type AgentMessage, type ApprovalPrompt, type EngineMessage } from "@/engine/protocol";
+import { withLiveCall, CODE_TOOL } from "@/components/ai-elements/code-run-model";
 
 export interface TextPart {
   kind: "text";
@@ -516,6 +517,7 @@ function approvalFrom(value: unknown): ApprovalPrompt | undefined {
     kind: approval.kind,
     tool: typeof approval.tool === "string" ? approval.tool : "",
     agent: typeof approval.agent === "string" && approval.agent ? approval.agent : undefined,
+    origin: approval.origin === "code" ? "code" : undefined,
   };
 }
 
@@ -736,7 +738,9 @@ function applyEngine(state: TranscriptState, message: EngineMessage, now: number
           output: toolOutput(result) || part.output,
           images: toolImages(result) ?? part.images,
           // A failed call's result carries its details (a subagent's last snapshot) like any other.
-          details: resultDetails(result, part.details),
+          // A running program keeps each of its calls' progress (docs/features/code-mode/spec.md, FR-15).
+          details:
+            !done && part.name === CODE_TOOL ? withLiveCall(part.details, result?.details) : resultDetails(result, part.details),
           endedAt: done ? now : part.endedAt,
         };
         // A subagent's tokens and cost count toward the turn, also when it failed.

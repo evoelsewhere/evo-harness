@@ -331,6 +331,11 @@ pub enum Command {
     SetApprovalMode {
         mode: String,
     },
+    /// Code mode on or off (docs/features/code-mode/spec.md, FR-2): `run_code`
+    /// is offered from the next model request.
+    SetCodeMode {
+        enabled: bool,
+    },
     /// The approval mode and this chat's "allow for this chat" grants.
     GetApprovalState,
     /// Forget this chat's grants, so the prompts come back.
@@ -476,6 +481,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "list_hooks",
     "set_hooks_disabled",
     "set_approval_mode",
+    "set_code_mode",
     "set_limits",
     "get_approval_state",
     "clear_approval_grants",

@@ -273,6 +273,7 @@ fn extension_tool_prompt_metadata(
 fn builtin_tool_snippet(name: &str) -> Option<&'static str> {
     Some(match name {
         "read" => "Read file contents",
+        "run_code" => "Run one JavaScript program that makes many tool calls and returns only the result",
         "bash" => "Execute Bash commands (Bash/POSIX syntax, also on Windows)",
         "edit" => "Find/replace edits to existing files",
         "write" => "Create or overwrite files",
@@ -298,6 +299,16 @@ fn builtin_tool_snippet(name: &str) -> Option<&'static str> {
 fn builtin_tool_guidelines(name: &str) -> Vec<String> {
     match name {
         crate::tools::ui_guide::TOOL => crate::tools::ui_guide::index_rules(),
+        // docs/features/code-mode/spec.md (FR-18): when a program beats separate calls.
+        crate::tools::code::NAME => vec![concat!(
+            "run_code is your default for any task that needs more than one tool call: write one ",
+            "program that does every step (find the files, read them, change them, run the check ",
+            "that proves it worked) and returns a short summary, then answer from that summary. ",
+            "Do not explore first in separate calls or programs: read inside the program and ",
+            "decide in code, so one program and one answer finish the task. Use a direct call ",
+            "only when one call is enough."
+        )
+        .to_string()],
         _ => Vec::new(),
     }
 }
@@ -2907,7 +2918,10 @@ pub(crate) fn build_tools(
     {
         if let Ok(settings) = crate::settings::load_settings() {
             if let Some(default_tools) = &settings.default_tools {
-                all.retain(|(name, _)| default_tools.iter().any(|t| t == name));
+                // Code mode is its own switch (docs/features/code-mode/spec.md, FR-1).
+                all.retain(|(name, _)| {
+                    *name == crate::tools::code::NAME || default_tools.iter().any(|t| t == name)
+                });
             }
         }
     }

@@ -1662,6 +1662,17 @@ where
                     None => Err("mode must be ask, auto-edits or auto".to_string()),
                 }
             }
+            // Code mode (docs/features/code-mode/spec.md, FR-2): `run_code`
+            // is offered, or not, from the next model request.
+            "set_code_mode" => match msg.get("enabled").and_then(serde_json::Value::as_bool) {
+                Some(on) => {
+                    crate::code_mode::set(on);
+                    crate::code_mode::apply(harness)
+                        .await
+                        .map(|()| serde_json::json!({ "codeMode": on }))
+                }
+                None => Err("enabled must be true or false".to_string()),
+            },
             "get_approval_state" => Ok(crate::approval::global().snapshot()),
             "clear_approval_grants" => {
                 let state = crate::approval::global();
@@ -2405,6 +2416,7 @@ async fn rpc_get_state(lane: &Arc<dyn AgentLane>, harness: &AgentHarness) -> ser
         "context": context,
         "sessionId": harness.session().storage().metadata().id,
         "approval": crate::approval::global().snapshot(),
+        "codeMode": crate::code_mode::enabled(),
         "activeOperation": active_operation,
         "queue": {
             // Text-only view: these consumers render a single-line pending row.
@@ -5850,6 +5862,51 @@ ok
         let full = output.wait_for(|m| m["id"] == 5).await;
         assert_eq!(full["data"]["approval"]["mode"], "auto-edits");
         output.wait_for(|m| m["id"] == 6).await;
+        client.shutdown().await.unwrap();
+        assert_eq!(task.await.unwrap(), 0);
+    }
+
+    // docs/features/code-mode/spec.md (FR-1, FR-2, FR-3).
+    #[tokio::test]
+    async fn rpc_turns_code_mode_on_and_off() {
+        use tokio::io::AsyncWriteExt;
+        let _lock = crate::code_mode::TEST_LOCK.lock().await;
+        crate::code_mode::set(false);
+        let harness = AgentHarness::create(Default::default()).await.unwrap();
+        let (mut client, output, task) =
+            start_test_rpc(harness, evo_extensions::UiDialogMailbox::new());
+        output.wait_for(|m| m["type"] == "ready").await;
+        client
+            .write_all(
+                b"{\"type\":\"get_state\",\"id\":1}
+{\"type\":\"set_code_mode\",\"id\":2,\"enabled\":true}
+{\"type\":\"get_state\",\"id\":3}
+{\"type\":\"set_code_mode\",\"id\":4,\"enabled\":\"yes\"}
+{\"type\":\"set_code_mode\",\"id\":5,\"enabled\":false}
+{\"type\":\"get_state\",\"id\":6}
+",
+            )
+            .await
+            .unwrap();
+        let before = output.wait_for(|m| m["id"] == 1).await;
+        assert_eq!(before["data"]["codeMode"], false);
+        assert!(!before["data"]["activeTools"]
+            .to_string()
+            .contains("run_code"));
+        let on = output.wait_for(|m| m["id"] == 2).await;
+        assert_eq!(on["success"], true, "{on}");
+        assert_eq!(on["data"]["codeMode"], true);
+        let state = output.wait_for(|m| m["id"] == 3).await;
+        assert_eq!(state["data"]["codeMode"], true);
+        assert!(state["data"]["activeTools"]
+            .to_string()
+            .contains("run_code"));
+        let bad = output.wait_for(|m| m["id"] == 4).await;
+        assert_eq!(bad["success"], false);
+        output.wait_for(|m| m["id"] == 5).await;
+        let off = output.wait_for(|m| m["id"] == 6).await;
+        assert_eq!(off["data"]["codeMode"], false);
+        assert!(!off["data"]["activeTools"].to_string().contains("run_code"));
         client.shutdown().await.unwrap();
         assert_eq!(task.await.unwrap(), 0);
     }

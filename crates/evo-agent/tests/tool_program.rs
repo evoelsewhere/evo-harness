@@ -349,6 +349,79 @@ async fn timed_out_future_retains_sequential_gate_through_cleanup() {
     assert_eq!(count.load(Ordering::SeqCst), 2);
 }
 
+// docs/features/code-mode/spec.md (FR-11, FR-13, FR-14): a native host can
+// raise the per-call timeout cap, and stopping ends only the program.
+#[tokio::test]
+async fn host_timeout_limit_and_stop_end_only_the_program() {
+    run(
+        Arc::new(|p| {
+            Box::pin(async move {
+                let long = json!({
+                    "op":"start", "name":"effect", "arguments":{"value":"ok"}, "timeoutMs": 600_000
+                });
+                let refused = p.handle(long.clone()).await.unwrap_err();
+                assert!(refused.contains("timeoutMs"), "{refused}");
+                p.set_timeout_limit_ms(600_000);
+                let id = p.handle(long).await.unwrap()["requestId"].clone();
+                assert!(p.stopped().is_none());
+                p.stop("The person stopped the code.");
+                assert_eq!(poll(&p, &id).await["status"], "failed");
+                assert_eq!(p.stopped().as_deref(), Some("The person stopped the code."));
+                let after = start_result(&p).await.unwrap_err();
+                assert!(after.contains("program stopped"), "{after}");
+                p.stop("again");
+                assert_eq!(p.stopped().as_deref(), Some("The person stopped the code."));
+                p.handle(json!({"op":"dispose", "requestId": id}))
+                    .await
+                    .unwrap();
+            })
+        }),
+        common::base_config(),
+        Arc::new(AtomicUsize::new(0)),
+        200,
+    )
+    .await;
+}
+
+// docs/features/code-mode/plan.md 3.3: a native host waits for a request
+// without polling, and approval prompts pause the program's clock (FR-11).
+#[tokio::test]
+async fn native_wait_and_clock_holds() {
+    run(
+        Arc::new(|p| {
+            Box::pin(async move {
+                let id = start(&p).await;
+                let done = p.wait(id.as_str().unwrap()).await.unwrap();
+                assert_eq!(done["status"], "done");
+                assert!(p.wait("forged").await.is_err());
+                p.handle(json!({"op":"dispose", "requestId": id}))
+                    .await
+                    .unwrap();
+
+                assert_eq!(p.paused(), std::time::Duration::ZERO);
+                let first = p.hold_clock();
+                let second = p.hold_clock();
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                drop(first);
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                drop(second);
+                let paused = p.paused();
+                assert!(paused >= std::time::Duration::from_millis(55), "{paused:?}");
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                assert_eq!(
+                    p.paused(),
+                    paused,
+                    "the clock runs again after the last hold"
+                );
+            })
+        }),
+        common::base_config(),
+        Arc::new(AtomicUsize::new(0)),
+        20,
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn total_starts_budget_and_argument_bounds() {
     run(

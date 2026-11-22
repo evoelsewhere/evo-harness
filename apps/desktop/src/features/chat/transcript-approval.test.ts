@@ -23,6 +23,26 @@ describe("approval prompts", () => {
     expect(permission?.options.map((o) => o.permission)).toEqual([undefined, "allow-chat", "reject"]);
   });
 
+  // docs/features/code-mode/spec.md (FR-11).
+  test("a call from code keeps its origin and the Stop code option", () => {
+    const permission = open({
+      kind: "confirm",
+      title: "Run a command?",
+      description: "npm test",
+      approval: { kind: "command", tool: "bash", origin: "code" },
+      options: [
+        { title: "Allow" },
+        { title: "Allow commands for this chat", permission: "allow-chat" },
+        { title: "Stop code", permission: "reject-stop" },
+        { title: "Deny this call", permission: "reject" },
+      ],
+    });
+    expect(permission?.approval?.origin).toBe("code");
+    expect(permission?.options.map((o) => o.permission)).toEqual([undefined, "allow-chat", "reject-stop", "reject"]);
+    const forged = open({ kind: "confirm", title: "x", approval: { kind: "command", tool: "bash", origin: "plugin" } });
+    expect(forged?.approval?.origin).toBeUndefined();
+  });
+
   test("older prompts have no approval details", () => {
     const permission = open({ kind: "confirm", title: "Allow this hook?", options: [{ title: "Allow" }, { title: "Deny" }] });
     expect(permission?.approval).toBeUndefined();

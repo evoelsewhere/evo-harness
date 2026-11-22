@@ -5,6 +5,7 @@
 //! ADR 0014.
 
 pub mod agent;
+pub mod code;
 pub mod docs;
 pub mod document_preview;
 pub mod info;
@@ -235,6 +236,16 @@ pub fn register_all(
     // Add PowerShell tool on Windows
     #[cfg(target_os = "windows")]
     all.push(("powershell", HarnessTool::new(create_powershell_tool(ctx))));
+
+    // The code tool, when code mode is on (docs/features/code-mode/spec.md,
+    // FR-3, FR-18): its description declares the tools above.
+    if crate::code_mode::enabled() {
+        let schemas: Vec<evo_ai::types::Tool> = all
+            .iter()
+            .map(|(_, tool)| tool.tool.schema().clone())
+            .collect();
+        all.push((code::NAME, crate::code_mode::code_tool(&schemas)));
+    }
 
     all
 }

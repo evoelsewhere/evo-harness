@@ -259,6 +259,19 @@ pub(crate) fn sandbox_config(db: &Db) -> Value {
 /// (docs/features/approval-modes/spec.md FR-1, FR-2).
 pub const APPROVAL_MODE_KEY: &str = "approvalMode";
 
+/// Code mode (**Settings → Experimental**), the engine's `--code-mode`
+/// (docs/features/code-mode/spec.md FR-1, FR-2). A person-level app setting:
+/// project settings cannot turn it on.
+pub const CODE_MODE_KEY: &str = "experimental.codeMode";
+
+/// Whether code mode is on; off when nothing is saved.
+pub fn code_mode(db: &Db) -> bool {
+    db.with(|conn| evo_store::settings::all(conn))
+        .ok()
+        .and_then(|settings| settings.get(CODE_MODE_KEY).and_then(Value::as_bool))
+        .unwrap_or(false)
+}
+
 /// The saved approval mode; `ask` when none is saved or the value is unknown.
 pub fn approval_mode(db: &Db) -> &'static str {
     let saved = db
@@ -458,6 +471,8 @@ pub(crate) async fn start_process(
         .arg(sandbox_config(&db).to_string())
         // Which tool calls wait for the person (the composer's Approvals menu).
         .args(["--approval-mode", approval_mode(&db)])
+        // `run_code` for the agent (Settings → Experimental → Code mode).
+        .args(code_mode(&db).then_some("--code-mode"))
         .args(flags.engine_args())
         .args(role)
         .args(extra_args())

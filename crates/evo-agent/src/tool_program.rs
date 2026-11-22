@@ -39,6 +39,9 @@ pub enum ToolProgramContentPart {
 }
 
 const MAX_BYTES: usize = 1024 * 1024;
+/// The per-call `timeoutMs` cap for JSON callers (plugins). Only native code
+/// can raise it ([`ToolProgram::set_timeout_limit_ms`]).
+const TIMEOUT_LIMIT_MS: u64 = 120_000;
 static NEXT: AtomicU64 = AtomicU64::new(1);
 tokio::task_local! { static CURRENT: Arc<ToolProgram>; static PARENT: NestedParent; }
 
@@ -93,7 +96,40 @@ pub struct ToolProgram {
     ordered: bool,
     terminated: AtomicBool,
     progress: Arc<Progress>,
+    /// Per-call `timeoutMs` cap; raised only by native code.
+    timeout_limit: AtomicU64,
+    /// Why the program was stopped ([`ToolProgram::stop`]), if it was.
+    stop_reason: Mutex<Option<String>>,
+    /// Woken whenever a request's result is published ([`ToolProgram::wait`]).
+    finished: Notify,
+    /// Time spent waiting on the person ([`ToolProgram::hold_clock`]).
+    clock: Mutex<Clock>,
     pub(crate) signal: CancellationToken,
+}
+
+/// Paused time: how many holds are open, since when, and the total so far.
+#[derive(Default)]
+struct Clock {
+    holds: usize,
+    since: Option<std::time::Instant>,
+    total: Duration,
+}
+
+/// While alive, the program's clock is paused ([`ToolProgram::hold_clock`]).
+pub struct ClockHold(Weak<ToolProgram>);
+
+impl Drop for ClockHold {
+    fn drop(&mut self) {
+        if let Some(program) = self.0.upgrade() {
+            let mut clock = program.clock.lock().unwrap();
+            clock.holds = clock.holds.saturating_sub(1);
+            if clock.holds == 0 {
+                if let Some(since) = clock.since.take() {
+                    clock.total += since.elapsed();
+                }
+            }
+        }
+    }
 }
 impl ToolProgram {
     pub(crate) fn capture(
@@ -160,6 +196,10 @@ impl ToolProgram {
             serial: RwLock::new(()),
             active: Arc::new(Semaphore::new(8)),
             terminated: AtomicBool::new(false),
+            timeout_limit: AtomicU64::new(TIMEOUT_LIMIT_MS),
+            stop_reason: Mutex::new(None),
+            finished: Notify::new(),
+            clock: Mutex::default(),
             progress: previous
                 .as_ref()
                 .map(|p| p.progress.clone())
@@ -184,6 +224,77 @@ impl ToolProgram {
     /// Cancellation stops admission. Cleanup/poll remain available to the binding.
     pub fn cancel_all(&self) {
         self.signal.cancel();
+    }
+    /// Raise (or lower) the per-call `timeoutMs` cap for this invocation. For a
+    /// trusted native host such as the code tool, whose shell commands follow
+    /// the shell tool's own timeout (docs/features/code-mode/spec.md, FR-13).
+    /// Plugins reach the program only through [`ToolProgram::handle`] and keep
+    /// the 120 s cap.
+    pub fn set_timeout_limit_ms(&self, max: u64) {
+        self.timeout_limit.store(max.max(1), Ordering::SeqCst);
+    }
+    /// End the program for `reason` (the person's "Stop code", FR-11, FR-14):
+    /// no new starts, active children cancelled, finished results kept. Unlike
+    /// a child's `terminate`, this never ends the containing turn. The first
+    /// reason wins.
+    pub fn stop(&self, reason: &str) {
+        self.stop_reason
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| reason.to_owned());
+        self.cancel_all();
+    }
+    /// Cancelled when the program is stopped or cancelled, or when its
+    /// containing call is: a native host's interpreter stops with it.
+    pub fn cancellation(&self) -> CancellationToken {
+        self.signal.clone()
+    }
+    /// The reason given to [`ToolProgram::stop`], once stopped.
+    pub fn stopped(&self) -> Option<String> {
+        self.stop_reason.lock().unwrap().clone()
+    }
+    /// Wait for request `id` to finish and return what `poll` would then
+    /// return, without polling. For native hosts (the code tool).
+    pub async fn wait(&self, id: &str) -> Result<Value, String> {
+        loop {
+            let notified = self.finished.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            {
+                let state = self.state.lock().unwrap();
+                match state.requests.get(id) {
+                    None => return Err("unknown request for this invocation".into()),
+                    Some(Request {
+                        result: Some(result),
+                        ..
+                    }) => return Ok(result.clone()),
+                    Some(_) => {}
+                }
+            }
+            notified.await;
+        }
+    }
+    /// Pause this program's clock while the guard lives: the person is being
+    /// asked about one of its calls (docs/features/code-mode/spec.md, FR-11).
+    /// Holds nest; the clock runs again when the last one drops.
+    pub fn hold_clock(self: &Arc<Self>) -> ClockHold {
+        let mut clock = self.clock.lock().unwrap();
+        if clock.holds == 0 {
+            clock.since = Some(std::time::Instant::now());
+        }
+        clock.holds += 1;
+        ClockHold(Arc::downgrade(self))
+    }
+    /// Time this program's clock has been paused, including an open hold.
+    pub fn paused(&self) -> Duration {
+        let clock = self.clock.lock().unwrap();
+        clock.total + clock.since.map(|s| s.elapsed()).unwrap_or_default()
+    }
+    fn inactive(&self) -> String {
+        match self.stopped() {
+            Some(reason) => format!("program stopped: {reason}"),
+            None => "parent invocation is no longer active".into(),
+        }
     }
     /// Observe driver-local cancellation, without retaining a finished invocation.
     pub fn bind_signal(self: &Arc<Self>, signal: CancellationToken) {
@@ -221,7 +332,7 @@ impl ToolProgram {
         if matches!(op, "list" | "start")
             && (self.signal.is_cancelled() || self.terminated.load(Ordering::SeqCst))
         {
-            return Err("parent invocation is no longer active".into());
+            return Err(self.inactive());
         }
         match op {
             "list" => {
@@ -279,7 +390,13 @@ impl ToolProgram {
                     .filter(|v| v.is_object())
                     .ok_or("arguments must be an object")?
                     .clone();
-                let timeout = integer(&args, "timeoutMs", 30000, 1, 120000)?;
+                let timeout = integer(
+                    &args,
+                    "timeoutMs",
+                    30000,
+                    1,
+                    self.timeout_limit.load(Ordering::SeqCst),
+                )?;
                 let permit = self
                     .active
                     .clone()
@@ -307,7 +424,7 @@ impl ToolProgram {
                         .map_err(|_| "ToolProgram start budget exceeded")?;
                     ordinal = previous + 1;
                     if self.signal.is_cancelled() || self.terminated.load(Ordering::SeqCst) {
-                        return Err("parent invocation is no longer active".into());
+                        return Err(self.inactive());
                     }
                     state.requests.insert(
                         id.clone(),
@@ -361,6 +478,7 @@ impl ToolProgram {
                         {
                             request.result = Some(reply);
                         }
+                        this.finished.notify_waiters();
                     };
                     let (mut result, mut published) = {
                         let work = async {

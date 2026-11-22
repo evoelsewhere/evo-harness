@@ -30,6 +30,10 @@ pub struct Outcome {
     pub allow: bool,
     /// A hook rewrote the tool's input.
     pub updated_input: Option<Value>,
+    /// A `PostToolUse` hook replaced what the agent sees
+    /// (`hookSpecificOutput.updatedToolOutput`): a string, or an object for a
+    /// tool with a structured response (docs/features/code-mode/spec.md, FR-21).
+    pub updated_output: Option<Value>,
     /// Context for the model (`additionalContext`, or plain output where allowed).
     pub context: Vec<String>,
     /// Messages for the person (`systemMessage`, errors).
@@ -229,6 +233,16 @@ fn apply_json(outcome: &mut Outcome, record: &mut RunRecord, json: &Value) {
     }
     if let Some(input) = specific.get("updatedInput").filter(|v| v.is_object()) {
         outcome.updated_input = Some(input.clone());
+    }
+    // Only after the tool ran, and only text or a structured copy; the engine
+    // checks the copy's shape against the tool (FR-21).
+    if record.event == "PostToolUse" {
+        if let Some(output) = specific
+            .get("updatedToolOutput")
+            .filter(|v| v.is_string() || v.is_object())
+        {
+            outcome.updated_output = Some(output.clone());
+        }
     }
     if let Some(context) = text(specific.get("additionalContext")) {
         outcome.context.push(cut(&context));
@@ -531,6 +545,43 @@ mod tests {
                 timeout: Some(60),
             }
         }
+    }
+
+    fn record(event: &str) -> RunRecord {
+        RunRecord {
+            event: event.into(),
+            hook: "h".into(),
+            source: "user".into(),
+            target: Some("bash".into()),
+            result: "ok".into(),
+            exit: Some(0),
+            ms: 0,
+            detail: None,
+            at: 0,
+        }
+    }
+
+    // docs/features/code-mode/spec.md (FR-21).
+    #[test]
+    fn updated_tool_output_is_kept_for_post_tool_use_only() {
+        let output = |event: &str, value: Value| {
+            let mut outcome = Outcome::default();
+            let json = json!({ "hookSpecificOutput": { "updatedToolOutput": value } });
+            apply_json(&mut outcome, &mut record(event), &json);
+            outcome.updated_output
+        };
+        assert_eq!(
+            output("PostToolUse", json!("[hidden]")),
+            Some(json!("[hidden]"))
+        );
+        assert_eq!(
+            output("PostToolUse", json!({ "result": "x" })),
+            Some(json!({ "result": "x" }))
+        );
+        assert_eq!(output("PostToolUse", json!(3)), None);
+        assert_eq!(output("PostToolUse", json!(null)), None);
+        assert_eq!(output("PostToolUseFailure", json!("[hidden]")), None);
+        assert_eq!(output("PreToolUse", json!("[hidden]")), None);
     }
 
     #[tokio::test]

@@ -278,7 +278,7 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 | `evo-office` | Office documents: the native preview renderer (DOCX/PPTX/XLSX → script-free HTML, package preflight, cache, inspection; [ADR 0009](decisions/0009-native-office-preview-renderer.md)), document versions, and the optional pinned LibreOffice runtime (verified install, headless Office to PDF conversion) |
 | `evo-worktrees` | Managed Git worktrees for subagents and nested sessions |
 | `evo-telemetry` | Span/event contracts with a no-op default |
-| `evo-engine` | Composes everything into the headless application and its RPC server |
+| `evo-engine` | Composes everything into the headless application and its RPC server; embeds QuickJS (`rquickjs`, no standard modules) for the code tool `run_code` ([ADR 0025](decisions/0025-model-written-code-runs-in-an-embedded-interpreter.md)) |
 | `evo-bridge-host` | Native messaging host for Evo Webbridge: frames between the browser's stdio and the shell's pipe; depends on no other Evo crate |
 
 **Dependency rules**
@@ -475,6 +475,15 @@ Details: [app database spec](../features/app-database/spec.md).
   an open question counts as working, so its engine is never trimmed.
 - **Untrusted data.** Tool results, web pages, MCP output, plugin content,
   documents and memories are data, never instructions to the app.
+- **Model-written code.** A `run_code` program runs in the engine's embedded
+  QuickJS with no files, network, environment, processes or modules. Its only
+  host function is a tool call through the tool program capability, so every
+  effect passes the whole tool-call chain (guards, hooks, plugin handlers, the
+  approval gate with the call's real arguments, checkpoints, the sandbox) like
+  a direct call. Limits are enforced by the host: time (prompt time excluded),
+  memory and number of calls
+  ([ADR 0025](decisions/0025-model-written-code-runs-in-an-embedded-interpreter.md),
+  [code mode](../features/code-mode/spec.md)).
 - **The person's own browser.** Evo Webbridge acts only in tabs of a chat's
   tab group; per-site permissions (Ask, Allow, Block) sit inside the approval
   gate, and Block holds in every mode. The browser's debugging notice, the tab

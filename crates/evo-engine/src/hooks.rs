@@ -12,7 +12,9 @@
 //!   reason becomes the tool's error), ask the person first (the same
 //!   approval prompt extensions use), allow it, or rewrite its input.
 //! * `PostToolUse` / `PostToolUseFailure` — after it ran (`after_tool_call`):
-//!   feedback and context are added to the tool's result.
+//!   feedback and context are added to the tool's result, and a
+//!   `PostToolUse` hook may replace what the agent sees
+//!   (`updatedToolOutput`; docs/features/code-mode/spec.md, FR-21).
 //! * `Stop` — when a run ends; `SessionEnd` — when the engine shuts down.
 //! * `SubagentStop` — when a subagent's run ends; it cannot block and its
 //!   output is dropped (docs/features/session-roles-and-mail/spec.md, FR-10).
@@ -478,9 +480,123 @@ fn result_text(result: &evo_agent::types::AgentToolResult) -> String {
         .join("\n")
 }
 
-/// `PostToolUse` / `PostToolUseFailure`: a hook's feedback (`decision:
-/// "block"` + reason) and context are added to the tool's result, and its
-/// messages ride in the result's details for the app.
+/// How a tool with a structured response shows it to `PostToolUse` hooks and
+/// takes a hook's changed copy back (docs/features/code-mode/spec.md, FR-17,
+/// FR-21). Tools without one show their text and take a string.
+#[derive(Clone, Copy)]
+pub struct OutputView {
+    /// What hooks get as `tool_response`; `None` falls back to the text.
+    pub view: fn(&evo_agent::types::AgentToolResult) -> Option<Value>,
+    /// The result rebuilt from a hook's copy; `None` means the copy is
+    /// malformed and the original output stays.
+    pub apply:
+        fn(&evo_agent::types::AgentToolResult, &Value) -> Option<evo_agent::types::AgentToolResult>,
+}
+
+type OutputViews = RwLock<std::collections::HashMap<&'static str, OutputView>>;
+
+fn output_views() -> &'static OutputViews {
+    static VIEWS: OnceLock<OutputViews> = OnceLock::new();
+    VIEWS.get_or_init(Default::default)
+}
+
+/// Register `tool`'s structured view for hooks (once, when the tool is built).
+pub fn register_output_view(tool: &'static str, view: OutputView) {
+    output_views()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(tool, view);
+}
+
+fn output_view(tool: &str) -> Option<OutputView> {
+    output_views()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(tool)
+        .copied()
+}
+
+/// `tool_response` for the tool hooks: the tool's structured view, else its text.
+fn tool_response(tool: &str, result: &evo_agent::types::AgentToolResult) -> Value {
+    output_view(tool)
+        .and_then(|view| (view.view)(result))
+        .unwrap_or_else(|| json!(result_text(result)))
+}
+
+/// The result after a hook's `updatedToolOutput`, or `None` when there is
+/// none or it does not fit: a string replaces the text and keeps the images;
+/// an object goes through the tool's [`OutputView`]; `PostToolUseFailure`
+/// never replaces (FR-21).
+fn replaced_output(
+    event: &str,
+    tool: &str,
+    result: &evo_agent::types::AgentToolResult,
+    updated: Option<&Value>,
+) -> Option<evo_agent::types::AgentToolResult> {
+    use evo_agent::types::TextContentOrImage;
+    if event != "PostToolUse" {
+        return None;
+    }
+    match updated? {
+        Value::String(text) => {
+            let mut replaced = result.clone();
+            replaced.content = std::iter::once(TextContentOrImage::text(text.clone()))
+                .chain(
+                    result
+                        .content
+                        .iter()
+                        .filter(|part| matches!(part, TextContentOrImage::Image(_)))
+                        .cloned(),
+                )
+                .collect();
+            Some(replaced)
+        }
+        copy @ Value::Object(_) => output_view(tool).and_then(|view| (view.apply)(result, copy)),
+        _ => None,
+    }
+}
+
+/// What `after_tool_call` changes for one hook outcome: the replaced output
+/// (FR-21), then the hooks' feedback and context, with their messages in the
+/// result's details for the app. `None` when nothing changes.
+fn post_tool_result(
+    event: &str,
+    tool: &str,
+    result: &evo_agent::types::AgentToolResult,
+    outcome: &Outcome,
+) -> Option<evo_agent::types::AfterToolCallResult> {
+    let replaced = replaced_output(event, tool, result, outcome.updated_output.as_ref());
+    let mut notes = Vec::new();
+    if let Some(reason) = &outcome.block {
+        notes.push(format!("Hook feedback: {reason}"));
+    }
+    notes.extend(outcome.context.iter().map(|c| format!("Hook context: {c}")));
+    if replaced.is_none() && notes.is_empty() && outcome.messages.is_empty() {
+        return None;
+    }
+    let was_replaced = replaced.is_some();
+    let base = replaced.unwrap_or_else(|| result.clone());
+    let mut content = base.content;
+    if !notes.is_empty() {
+        content.push(evo_agent::types::TextContentOrImage::text(notes.join("\n")));
+    }
+    let mut details = if base.details.is_object() {
+        base.details
+    } else {
+        json!({})
+    };
+    details["hooks"] = json!({ "event": event, "messages": outcome.messages, "notes": notes });
+    if was_replaced {
+        details["hooks"]["replacedOutput"] = json!(true);
+    }
+    Some(evo_agent::types::AfterToolCallResult {
+        content: Some(content),
+        details: Some(details),
+        ..Default::default()
+    })
+}
+
+/// `PostToolUse` / `PostToolUseFailure`: see [`post_tool_result`].
 pub fn after_tool_call() -> Option<evo_agent::AfterToolCall> {
     if !has("PostToolUse") && !has("PostToolUseFailure") {
         return None;
@@ -497,37 +613,13 @@ pub fn after_tool_call() -> Option<evo_agent::AfterToolCall> {
                 "tool_name": tool,
                 "tool_input": ctx.args,
                 "tool_use_id": ctx.tool_call.id,
-                "tool_response": result_text(ctx.result),
+                "tool_response": tool_response(&tool, ctx.result),
                 "is_error": ctx.is_error,
             });
-            let content = ctx.result.content.clone();
-            let details = ctx.result.details.clone();
+            let result = ctx.result.clone();
             Box::pin(async move {
                 let outcome = run(event, Some(&tool), input).await;
-                let mut notes = Vec::new();
-                if let Some(reason) = outcome.block {
-                    notes.push(format!("Hook feedback: {reason}"));
-                }
-                notes.extend(outcome.context.iter().map(|c| format!("Hook context: {c}")));
-                if notes.is_empty() && outcome.messages.is_empty() {
-                    return None;
-                }
-                let mut content = content;
-                if !notes.is_empty() {
-                    content.push(evo_agent::types::TextContentOrImage::text(notes.join("\n")));
-                }
-                let mut details = if details.is_object() {
-                    details
-                } else {
-                    json!({})
-                };
-                details["hooks"] =
-                    json!({ "event": event, "messages": outcome.messages, "notes": notes });
-                Some(evo_agent::types::AfterToolCallResult {
-                    content: Some(content),
-                    details: Some(details),
-                    ..Default::default()
-                })
+                post_tool_result(event, &tool, &result, &outcome)
             })
         },
     ))
@@ -536,6 +628,133 @@ pub fn after_tool_call() -> Option<evo_agent::AfterToolCall> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // docs/features/code-mode/spec.md (FR-17, FR-21).
+    mod output {
+        use super::*;
+        use evo_agent::types::{AgentToolResult, TextContentOrImage};
+        use evo_ai::types::{ImageContent, ImageContentType};
+
+        fn image() -> TextContentOrImage {
+            TextContentOrImage::Image(ImageContent {
+                kind: ImageContentType,
+                data: "aGk=".into(),
+                mime_type: "image/png".into(),
+            })
+        }
+
+        fn result() -> AgentToolResult {
+            AgentToolResult {
+                content: vec![TextContentOrImage::text("token abc123"), image()],
+                details: json!({ "exitCode": 0 }),
+                ..Default::default()
+            }
+        }
+
+        fn outcome(updated: Value) -> Outcome {
+            Outcome {
+                updated_output: Some(updated),
+                ..Default::default()
+            }
+        }
+
+        fn texts(content: &[TextContentOrImage]) -> Vec<String> {
+            content
+                .iter()
+                .filter_map(|part| match part {
+                    TextContentOrImage::Text(t) => Some(t.text.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[test]
+        fn a_string_replaces_the_text_and_keeps_images() {
+            let changed = post_tool_result(
+                "PostToolUse",
+                "bash",
+                &result(),
+                &outcome(json!("[hidden]")),
+            )
+            .expect("replaced");
+            let content = changed.content.unwrap();
+            assert_eq!(texts(&content), vec!["[hidden]".to_string()]);
+            assert!(content
+                .iter()
+                .any(|part| matches!(part, TextContentOrImage::Image(_))));
+            let details = changed.details.unwrap();
+            assert_eq!(details["exitCode"], 0);
+            assert_eq!(details["hooks"]["replacedOutput"], true);
+        }
+
+        #[test]
+        fn other_values_and_failures_leave_the_output() {
+            let unchanged = |event: &str, tool: &str, value: Value| {
+                post_tool_result(event, tool, &result(), &outcome(value)).is_none()
+            };
+            assert!(unchanged("PostToolUse", "bash", json!(3)));
+            // No structured view for `bash`: an object does not fit.
+            assert!(unchanged("PostToolUse", "bash", json!({ "result": "x" })));
+            assert!(unchanged("PostToolUseFailure", "bash", json!("[hidden]")));
+        }
+
+        fn view(result: &AgentToolResult) -> Option<Value> {
+            Some(json!({ "result": result_text(result), "stdout": "" }))
+        }
+
+        fn apply(_: &AgentToolResult, copy: &Value) -> Option<AgentToolResult> {
+            let text = copy.get("result")?.as_str()?;
+            copy.get("stdout")?.as_str()?;
+            Some(AgentToolResult {
+                content: vec![TextContentOrImage::text(text)],
+                details: json!({ "structured": true }),
+                ..Default::default()
+            })
+        }
+
+        #[test]
+        fn an_object_goes_through_the_tools_output_view() {
+            register_output_view("structured_test_tool", OutputView { view, apply });
+            assert_eq!(
+                tool_response("structured_test_tool", &result()),
+                json!({ "result": "token abc123", "stdout": "" })
+            );
+            assert_eq!(tool_response("bash", &result()), json!("token abc123"));
+
+            let changed = post_tool_result(
+                "PostToolUse",
+                "structured_test_tool",
+                &result(),
+                &outcome(json!({ "result": "[hidden]", "stdout": "" })),
+            )
+            .expect("replaced");
+            assert_eq!(
+                texts(&changed.content.unwrap()),
+                vec!["[hidden]".to_string()]
+            );
+            assert_eq!(changed.details.unwrap()["structured"], true);
+
+            // A malformed copy is ignored.
+            assert!(post_tool_result(
+                "PostToolUse",
+                "structured_test_tool",
+                &result(),
+                &outcome(json!({ "result": 1 })),
+            )
+            .is_none());
+        }
+
+        #[test]
+        fn notes_follow_the_replaced_output() {
+            let mut out = outcome(json!("[hidden]"));
+            out.context.push("checked".into());
+            let changed = post_tool_result("PostToolUse", "bash", &result(), &out).unwrap();
+            assert_eq!(
+                texts(&changed.content.unwrap()),
+                vec!["[hidden]".to_string(), "Hook context: checked".to_string()]
+            );
+        }
+    }
 
     // docs/features/session-roles-and-mail/spec.md (FR-10).
     #[test]

@@ -95,7 +95,8 @@ let lastEditable: HTMLElement | null = null;
 const isEditable = (el: Element | null): el is HTMLElement =>
   el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
 
-if (typeof document !== "undefined") {
+// Only in a real page: tests may import this module beside a stand-in `document`.
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
   document.addEventListener("focusin", (event) => {
     if (isEditable(event.target as Element)) lastEditable = event.target as HTMLElement;
   });

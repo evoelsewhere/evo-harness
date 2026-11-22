@@ -99,6 +99,9 @@ pub const TOOLS: &[ToolInfo] = &[
     row("skill", Class::Read, false, false),
     row("agent", Class::Read, false, false),
     row("message_agent", Class::Read, false, false),
+    // The code tool: every call its program makes is checked one by one, so
+    // the program itself is a read (docs/features/code-mode/spec.md, FR-10).
+    row("run_code", Class::Read, true, true),
     // The session mesh.
     row("send_message", Class::Read, true, false),
     row("ask", Class::Read, true, false),
@@ -114,6 +117,38 @@ pub const TOOLS: &[ToolInfo] = &[
     row("plan_mode_start", Class::Command, false, true),
     row("plan_mode_complete", Class::Command, false, true),
 ];
+
+/// Tools a `run_code` program may not call (docs/features/code-mode/spec.md,
+/// FR-12): the code tool itself, tools that need the person, session and
+/// delegation tools, and names reserved for security. The app's browser,
+/// computer and terminal tools are left out by [`NOT_FROM_CODE_PREFIXES`].
+pub const NOT_FROM_CODE: &[&str] = &[
+    "run_code",
+    "ask_user",
+    "agent",
+    "message_agent",
+    "send_message",
+    "ask",
+    "reply",
+    "list_nodes",
+    "cancel_node",
+    "start_session",
+    "permissions",
+    "permission",
+    "plan_mode_start",
+    "plan_mode_complete",
+];
+
+/// Families of app tools a program may not call (FR-12).
+pub const NOT_FROM_CODE_PREFIXES: &[&str] = &["browser_", "computer_", "terminal_"];
+
+/// Whether a `run_code` program may call the tool.
+pub fn callable_from_code(name: &str) -> bool {
+    !NOT_FROM_CODE.contains(&name)
+        && !NOT_FROM_CODE_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+}
 
 pub fn info(name: &str) -> Option<&'static ToolInfo> {
     TOOLS.iter().find(|row| row.name == name)
