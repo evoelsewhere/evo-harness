@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   MessageScroller,
+  MessageScrollerProvider,
   MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
@@ -63,11 +64,10 @@ export function followNextTurn(chatId: string | null | undefined, on = true) {
   else followNext.delete(chatId);
 }
 
-/** The thread (shadcn/ui AI Elements · Chat): the person's turn anchors the scroll. */
-export function ChatThread() {
+/** The scrolling thread of one chat; its scroller state is fresh per mount. */
+function ThreadScroller() {
   const turns = usePaneEngine((s) => s.transcript.turns);
   const busy = usePaneEngine((s) => s.transcript.busy);
-  const restoring = useRestoring();
   const { scrollToMessage } = useMessageScroller();
   const lastTurn = turns.at(-1)?.id;
   const chatId = usePaneEngine((s) => s.activeId);
@@ -78,6 +78,24 @@ export function ChatThread() {
     const frame = requestAnimationFrame(() => scrollToMessage(`${lastTurn}-prompt`, { align: "start", behavior: "smooth" }));
     return () => cancelAnimationFrame(frame);
   }, [chatId, lastTurn]);
+  return (
+    <MessageScroller>
+      <MessageScrollerViewport>
+        <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-(--chat-width) gap-8 px-6 py-6">
+          {turns.map((turn) => (
+            <ThreadTurn key={turn.id} turn={turn} />
+          ))}
+        </MessageScrollerContent>
+      </MessageScrollerViewport>
+      <MessageScrollerButton />
+    </MessageScroller>
+  );
+}
+
+/** The thread (shadcn/ui AI Elements · Chat): the person's turn anchors the scroll. */
+export function ChatThread() {
+  const turns = usePaneEngine((s) => s.transcript.turns);
+  const restoring = useRestoring();
   // A chat was clicked and is on its way (the sidebar shows it, the thread not yet).
   const activeId = usePaneEngine((s) => s.activeId);
   // Only the focused pane follows the sidebar's pick (split view, FR-4).
@@ -112,16 +130,11 @@ export function ChatThread() {
     return null;
   }
 
+  // The provider applies "open at the end" only once, so each chat (and each
+  // remount after loading) gets a fresh one and opens at its latest message.
   return (
-    <MessageScroller>
-      <MessageScrollerViewport>
-        <MessageScrollerContent aria-busy={busy} className="mx-auto w-full max-w-(--chat-width) gap-8 px-6 py-6">
-          {turns.map((turn) => (
-            <ThreadTurn key={turn.id} turn={turn} />
-          ))}
-        </MessageScrollerContent>
-      </MessageScrollerViewport>
-      <MessageScrollerButton />
-    </MessageScroller>
+    <MessageScrollerProvider key={activeId} autoScroll>
+      <ThreadScroller />
+    </MessageScrollerProvider>
   );
 }

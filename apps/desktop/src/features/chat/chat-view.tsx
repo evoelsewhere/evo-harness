@@ -1,4 +1,3 @@
-import { MessageScrollerProvider } from "@/components/ui/message-scroller";
 import { CardLayer, ChipRow } from "@/features/cards";
 import { cn } from "@/lib/utils";
 import { ApprovalPanel, usePendingPermission } from "./approval-panel";
@@ -19,7 +18,7 @@ export function ChatView() {
   const empty = useThreadEmpty();
   const place = useChatPlace(empty);
   return (
-    <MessageScrollerProvider autoScroll>
+    <>
       <div
         className={cn(
           "@container relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
@@ -52,6 +51,6 @@ export function ChatView() {
         </div>
         <CardLayer />
       </div>
-    </MessageScrollerProvider>
+    </>
   );
 }
