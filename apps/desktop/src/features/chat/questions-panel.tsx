@@ -1,6 +1,7 @@
 import * as React from "react";
 import { CheckIcon, MessageCircleQuestionIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { StatusDot } from "@/components/status-dot";
 import { cn } from "@/lib/utils";
@@ -93,7 +94,7 @@ function QuestionCard({
           })}
         </div>
       )}
-      <input
+      <Input
         value={answer.other}
         onChange={(e) => {
           const other = e.target.value;
@@ -101,7 +102,7 @@ function QuestionCard({
         }}
         placeholder={question.options.length ? "Or answer in your own words" : "Your answer"}
         aria-label={`Answer to: ${question.question}`}
-        className="h-8 rounded-lg border border-border bg-background px-2.5 text-[13px] outline-none focus-visible:border-brand"
+        className="rounded-lg text-[13px] md:text-[13px]"
       />
     </fieldset>
   );

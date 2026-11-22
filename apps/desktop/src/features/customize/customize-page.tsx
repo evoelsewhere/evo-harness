@@ -24,6 +24,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { AgentIcon } from "@/components/icons/agent-icon";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -581,13 +582,13 @@ function SkillSettingsCard() {
       <p className="font-medium">Skill settings</p>
       <label className="flex flex-col gap-1">
         <span className="text-muted-foreground">Listing budget (characters the agent sees)</span>
-        <input
+        <Input
           inputMode="numeric"
           value={budget}
           onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ""))}
           onBlur={commit}
           onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
-          className="h-7 rounded-md border border-border bg-background px-2 font-mono text-xs outline-none focus-visible:border-brand"
+          className="h-7 rounded-md px-2 font-mono text-xs md:text-xs"
         />
         <span className="text-muted-foreground">
           {trimmed

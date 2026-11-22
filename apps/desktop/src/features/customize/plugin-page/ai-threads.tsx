@@ -6,6 +6,7 @@ import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ChevronDownIcon, ChevronRightIcon, WrenchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatRelative } from "@/lib/format";
 import { inTauri } from "@/lib/platform";
 import { plugins, type AiThread, type AiThreadMessage, type InstalledPlugin } from "@/lib/plugins";
@@ -20,15 +21,17 @@ function Message({ message, last }: { message: AiThreadMessage; last: boolean })
         <div className={mine ? "max-w-[85%] whitespace-pre-wrap rounded-lg bg-muted px-3 py-1.5 text-[13px]" : "max-w-[95%] whitespace-pre-wrap text-[13px]"}>{message.text}</div>
       )}
       {message.tools?.map((tool) => (
-        <details key={tool.id} className="max-w-[95%] rounded-md border border-border/60 px-2 py-1 text-[12px] text-muted-foreground">
-          <summary className="flex cursor-pointer items-center gap-1.5">
+        <Collapsible key={tool.id} className="max-w-[95%] rounded-md border border-border/60 px-2 py-1 text-[12px] text-muted-foreground">
+          <CollapsibleTrigger className="flex cursor-pointer items-center gap-1.5">
             <WrenchIcon className="size-3" />
             <span className="font-mono">{tool.name}</span>
             {tool.isError && <span className="text-destructive">failed</span>}
-          </summary>
-          <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(tool.input, null, 2)}</pre>
-          {tool.result != null && <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words border-t border-border/60 pt-1 font-mono text-[11px]">{tool.result}</pre>}
-        </details>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px]">{JSON.stringify(tool.input, null, 2)}</pre>
+            {tool.result != null && <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words border-t border-border/60 pt-1 font-mono text-[11px]">{tool.result}</pre>}
+          </CollapsibleContent>
+        </Collapsible>
       ))}
       {!mine && last && message.model && <span className="text-[11px] text-muted-foreground">{message.model}</span>}
     </li>

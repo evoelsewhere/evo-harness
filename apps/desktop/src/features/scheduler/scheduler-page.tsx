@@ -11,10 +11,12 @@ import {
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DateTimeField, MinuteField, TimeField } from "./time-fields";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { StatusDot } from "@/components/status-dot";
 import { baseName, formatRelative } from "@/lib/format";
 import { describeSchedule, formatWhen, nextRun, scheduleProblem, type Schedule } from "@/lib/schedule";
@@ -84,7 +86,7 @@ function scheduleOf(kind: Schedule["kind"], from: Schedule): Schedule {
   }
 }
 
-const input = "h-8 rounded-md border border-border bg-background px-2 text-[13px] outline-none focus-visible:border-brand";
+const input = "rounded-md px-2 text-[13px] md:text-[13px]";
 
 function ScheduleEditor({ value, onChange }: { value: Schedule; onChange(next: Schedule): void }) {
   const problem = scheduleProblem(value);
@@ -146,7 +148,7 @@ function ScheduleEditor({ value, onChange }: { value: Schedule; onChange(next: S
           </div>
         )}
         {value.kind === "cron" && (
-          <input
+          <Input
             value={value.expression}
             onChange={(e) => onChange({ ...value, expression: e.target.value })}
             placeholder="minute hour day month weekday"
@@ -312,12 +314,12 @@ function TaskEditor({ task, initial, onDone }: { task: ScheduledTask | null; ini
 
       <section className="flex flex-col gap-1.5">
         <h3 className="text-xs font-medium text-muted-foreground">Prompt</h3>
-        <textarea
+        <Textarea
           value={draft.prompt}
           onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
           placeholder="What the chat should do each time. It starts fresh, so say everything it needs."
           aria-label="Prompt"
-          className="field-sizing-content min-h-32 resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-[13px] leading-6 outline-none focus-visible:border-brand"
+          className="min-h-32 rounded-xl px-3 py-2.5 text-[13px] leading-6 md:text-[13px]"
         />
       </section>
 

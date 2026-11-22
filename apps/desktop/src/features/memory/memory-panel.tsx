@@ -4,8 +4,10 @@ import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { baseName, formatRelative } from "@/lib/format";
 import { db } from "@/lib/db";
@@ -171,7 +173,7 @@ function Editor({
   saving: boolean;
   canPickScope: boolean;
 }) {
-  const field = "w-full rounded-md border border-border bg-background px-2 text-[13px] outline-none focus-visible:border-brand";
+  const field = "rounded-md px-2 text-[13px] md:text-[13px]";
   return (
     <div
       className="flex flex-col gap-2 rounded-xl bg-muted/50 p-3 ring-1 ring-brand/30 dark:bg-accent/40"
@@ -197,7 +199,7 @@ function Editor({
           ))}
         </div>
       )}
-      <input
+      <Input
         autoFocus
         value={draft.name}
         onChange={(e) => onChange({ ...draft, name: e.target.value })}
@@ -205,7 +207,7 @@ function Editor({
         aria-label="Name"
         className={cn(field, "h-7 font-mono")}
       />
-      <input
+      <Input
         value={draft.description}
         onChange={(e) => onChange({ ...draft, description: e.target.value })}
         placeholder="One line: what it is about"
@@ -233,12 +235,12 @@ function Editor({
           </Tooltip>
         ))}
       </div>
-      <textarea
+      <Textarea
         value={draft.content}
         onChange={(e) => onChange({ ...draft, content: e.target.value })}
         placeholder={"What to remember.\nFor how-to-work and project memories, add why and how to apply it."}
         aria-label="Memory"
-        className={cn(field, "field-sizing-content min-h-24 max-h-80 resize-none py-1.5 leading-5")}
+        className={cn(field, "min-h-24 max-h-80 py-1.5 leading-5")}
       />
       <div className="flex items-center justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>

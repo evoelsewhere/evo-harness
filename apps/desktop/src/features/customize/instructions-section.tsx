@@ -5,6 +5,7 @@ import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { baseName } from "@/lib/format";
 import { modKey } from "@/lib/platform";
 import { cn } from "@/lib/utils";
@@ -120,7 +121,7 @@ function Editor({
           </span>
         </div>
         {mode === "edit" ? (
-          <textarea
+          <Textarea
             value={draft}
             readOnly={file.tooLarge}
             onChange={(e) => onDraft(e.target.value)}
@@ -133,7 +134,7 @@ function Editor({
             placeholder={EXAMPLE}
             spellCheck={false}
             aria-label={personal ? "Personal instructions" : "Project instructions"}
-            className="field-sizing-content min-h-72 w-full resize-none bg-background px-4 py-3 font-mono text-[13px] leading-6 outline-none placeholder:text-muted-foreground/70 focus-visible:shadow-none"
+            className="min-h-72 rounded-none border-0 bg-background px-4 py-3 font-mono text-[13px] leading-6 placeholder:text-muted-foreground/70 focus-visible:ring-0 md:text-[13px]"
           />
         ) : (
           <div className="min-h-72 bg-background px-4 py-3 text-[13px]">
