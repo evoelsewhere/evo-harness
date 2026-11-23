@@ -68,6 +68,21 @@ pins, starts fresh after the set time and opens from a notification.
 - [x] T24 [FR-20] Errors in the compact turn: the `TurnError` text and next step of the main window, plus **Open in Evo** — `src/features/chat/chat-turn.tsx`, `src/features/quick-entry/quick-conversation.tsx` — check: manual with no provider set up on scratch data
 - [x] T25 [FR-9, FR-18] Settings › General: **Start a new chat after** (5, 15, 30, 60 minutes, Never) and its search keywords — `src/features/settings/sections/general-settings.tsx`, `src/features/settings/settings-registry.ts` — check: manual in Settings
 
+### Phase 7 — Resizing (FR-23)
+
+Done when: the box with a chat resizes by its edges and keeps the size.
+
+- [x] T28 [FR-23] Unit tests for `is_users_resize` and `fixed_size`; the window resizable while it shows a chat, `user_size` and `expected` in `QuickEntryState`, `Resized` handling, `quick-entry://sized`, the size kept by `quick_entry_resize` and `place` — `apps/desktop/src-tauri/src/quick_entry.rs`, `src/lib.rs` — check: `bun run test:shell quick_entry`
+- [x] T29 [FR-23] The page fills a resized window: card, conversation and turns stretch — `src/quick-entry/quick-entry.tsx`, `src/features/quick-entry/quick-conversation.tsx` — check: `bun run typecheck`; manual
+
+### Phase 8 — Pictures and files (FR-24)
+
+Done when: pasting or dropping a picture or file on the box attaches it and
+it is sent with the message.
+
+- [x] T30 [FR-24] Export the composer's attachment helpers from `features/chat`; `startChat` / `followUp` build the prompt with attachments (and steer while a turn runs) — `src/features/chat/index.ts`, `src/features/quick-entry/box.ts` — check: `bun run typecheck`
+- [x] T31 [FR-24] The box page: paste and drop handling, chips with thumbnails and remove, sent with Enter / Ctrl+Enter — `src/quick-entry/quick-entry.tsx` — check: `bun run typecheck`; manual
+
 ### Phase 6 — Docs and verification
 
 Done when: the UI map and the ADD describe the box as a viewer window, and
@@ -110,4 +125,6 @@ every new and changed requirement has a recorded check.
 | FR-22 | Manual: open the box on a chat, type: the text goes in the follow-up field | not run |
 | NFR-1 (answers) | `bun run build`: the first chunk of the box holds no engine code; manual: open time, first reply text at about the same moment as the main window | build passed (2026-11-23): the first chunk of the box has no engine code (engine-store loads only with the conversation chunk); manual not run |
 | NFR-3 | Manual: one engine for the chat with both windows showing it; no drawing while the box is hidden (React Profiler) | not run |
-| FR-10 (box margin) | Screen capture of the box after the Mica fix | passed (2026-11-23, debug build on scratch data): the margin around the card is transparent |
+| FR-10 (box margin) | Screen capture of the box | passed (2026-11-23, debug build on scratch data): no margin, the window is the card with the system's shadow and rounded corners |
+| FR-23 | Unit tests `is_users_resize`, `box_size`; manual: resize the box with a chat, hide and show | unit passed (2026-11-23); manual passed (2026-11-23, debug build on scratch data: an outside resize was kept and the card filled the window; the person resized the box by its edge and it filled the new size) |
+| FR-24 | Manual: paste a picture, drop a file, send; the reply and the chat show both | passed (2026-11-23, debug build on scratch data: a pasted picture showed as a chip, was sent and read ("RED"); a dropped text file was attached as a path and read ("4711"); a dropped PDF was attached and sent like any file. The agent's `document_preview` refuses files outside the workspace, as in the main window, so it read the PDF with a command); after the drop fix, a CDP drag of a PDF onto the box (`Input.dispatchDragEvent`) attached it; the person dragged a file from Explorer onto the box and it attached (2026-11-23) |

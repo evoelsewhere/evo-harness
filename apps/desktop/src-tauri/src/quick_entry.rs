@@ -21,6 +21,8 @@
 //!   ([`keep_chat`], FR-18), hands a chat to the main window at a target
 //!   (`quick_entry_open`, FR-15) and sends notice clicks for the box's chat
 //!   to the box (`quick-entry://notice`, FR-19).
+//! * While it shows a chat the box can be resized by its edges; a size the
+//!   person gives it is kept and the page fills it (FR-23).
 
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,7 +31,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use evo_store::logs::NewLog;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use crate::db::Db;
@@ -42,15 +44,19 @@ const SHORTCUT_KEY: &str = "system.quickEntryShortcut";
 const NEW_CHAT_KEY: &str = "system.quickEntryNewChatAfter";
 /// The default of [`NEW_CHAT_KEY`].
 pub const NEW_CHAT_AFTER: u64 = 15;
-/// The window's logical width; the card inside leaves room for its shadow.
-const WIDTH: f64 = 680.0;
+/// The window's logical width: the card fills the window, which has no
+/// margin to catch clicks; the system draws its shadow and corners.
+const WIDTH: f64 = 656.0;
 /// The window's logical height with one line of text.
-const HEIGHT: f64 = 84.0;
+const HEIGHT: f64 = 48.0;
 /// The window grows with the text up to this, then the field scrolls (FR-8),
 /// and never stops below it once it shows a chat.
 const MAX_HEIGHT: f64 = 320.0;
 /// A box with a chat grows up to this share of its monitor's height (FR-11).
 const MONITOR_SHARE: f64 = 0.6;
+/// The smallest box the person can resize to (logical px, FR-23).
+const MIN_WIDTH: f64 = 420.0;
+const MIN_HEIGHT: f64 = 160.0;
 /// How far down the monitor the box's top sits.
 const TOP_SHARE: f64 = 0.22;
 /// Focus changes right after showing are the show's own (a tray click).
@@ -81,6 +87,11 @@ pub struct QuickEntryState {
     pinned: AtomicBool,
     /// Where a pinned box was left (physical px), until it is unpinned.
     position: Mutex<Option<(i32, i32)>>,
+    /// A size the person gave the box (logical px), kept until the app quits (FR-23).
+    user_size: Mutex<Option<(f64, f64)>>,
+    /// The size the shell last gave the window (physical px): a different
+    /// size is the person's resize.
+    expected: Mutex<Option<(u32, u32)>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -196,6 +207,24 @@ pub fn new_chat_after(saved: Option<&Value>) -> Option<u64> {
     }
 }
 
+/// Whether the window's new `size` (physical px) is the person's resize
+/// rather than the size the shell last set, `expected` (FR-23). Rounding
+/// may move a size the shell set by a pixel.
+pub fn is_users_resize(expected: Option<(u32, u32)>, size: (u32, u32)) -> bool {
+    expected.is_some_and(|(width, height)| width.abs_diff(size.0) > 2 || height.abs_diff(size.1) > 2)
+}
+
+/// The window's logical size for a card asking for `height`: the person's
+/// size while the box shows a chat; otherwise the width they chose (or the
+/// default) and a height that follows the card up to `limit` (FR-8, FR-11, FR-23).
+pub fn box_size(user: Option<(f64, f64)>, chat: bool, height: f64, limit: f64) -> (f64, f64) {
+    match user {
+        Some(size) if chat => size,
+        Some((width, _)) => (width, window_height(height, limit)),
+        None => (WIDTH, window_height(height, limit)),
+    }
+}
+
 fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
@@ -223,11 +252,16 @@ fn build(app: &AppHandle) -> tauri::Result<()> {
         .minimizable(false)
         .decorations(false)
         .transparent(true)
-        // The page draws the card's shadow; a native one would frame the
-        // transparent margin.
-        .shadow(false)
+        // The card fills the window, so the system's shadow (and, on
+        // Windows 11, its rounded corners) frame the box itself; a margin
+        // for a drawn shadow would be an invisible border that takes clicks.
+        .shadow(true)
         .always_on_top(true)
         .skip_taskbar(true)
+        // Files dropped on the box reach its page as an HTML drop (FR-24):
+        // the shell's own drop handler finds no WebView2 window to attach to
+        // in a window built hidden, and turns WebView2's own drops off.
+        .disable_drag_drop_handler()
         .visible(false)
         .focused(false)
         .build()?;
@@ -356,12 +390,13 @@ fn place(app: &AppHandle, window: &tauri::WebviewWindow) {
         return;
     };
     let scale = monitor.scale_factor();
-    let height = window
+    let own = window.scale_factor().unwrap_or(1.0);
+    let (width, height) = window
         .inner_size()
         .ok()
-        .map(|size| size.height as f64 / window.scale_factor().unwrap_or(1.0))
-        .unwrap_or(HEIGHT);
-    let size = ((WIDTH * scale) as u32, (height * scale) as u32);
+        .map(|size| (size.width as f64 / own, size.height as f64 / own))
+        .unwrap_or((WIDTH, HEIGHT));
+    let size = ((width * scale) as u32, (height * scale) as u32);
     let origin = monitor.position();
     let area = monitor.size();
     let (x, y) = placement((origin.x, origin.y), (area.width, area.height), size);
@@ -415,11 +450,13 @@ fn show(app: &AppHandle, window: &tauri::WebviewWindow) {
     *locked(&state.shown_at) = Some(Instant::now());
     let chat = chat_to_show(app);
     let pinned = state.pinned.load(Ordering::Acquire);
+    // A box resized by the person fills that size while it shows a chat (FR-23).
+    let fixed = chat.is_some() && locked(&state.user_size).is_some();
     let _ = window.show();
     let _ = window.set_focus();
     // The page shows the chat (or empties), puts the caret in the field and
     // reads the theme again (FR-18, FR-22).
-    let _ = app.emit_to(LABEL, "quick-entry://shown", json!({ "chat": chat, "pinned": pinned }));
+    let _ = app.emit_to(LABEL, "quick-entry://shown", json!({ "chat": chat, "pinned": pinned, "fixed": fixed }));
 }
 
 fn hide(app: &AppHandle) {
@@ -484,6 +521,24 @@ pub fn on_focus_lost(window: &tauri::Window) {
     let _ = window.app_handle().emit_to(LABEL, "quick-entry://hidden", ());
 }
 
+/// The box's window changed size: when the person resized it, that size is
+/// kept and the page fills it (FR-23).
+pub fn on_resized(window: &tauri::Window, size: PhysicalSize<u32>) {
+    if window.label() != LABEL || !window.is_visible().unwrap_or(false) || !window.is_resizable().unwrap_or(false) {
+        return;
+    }
+    let state = window.state::<QuickEntryState>();
+    if !is_users_resize(*locked(&state.expected), (size.width, size.height)) {
+        return;
+    }
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let first = locked(&state.user_size).replace((size.width as f64 / scale, size.height as f64 / scale)).is_none();
+    *locked(&state.expected) = Some((size.width, size.height));
+    if first || locked(&state.chat).is_some() {
+        let _ = window.app_handle().emit_to(LABEL, "quick-entry://sized", json!({ "fixed": true }));
+    }
+}
+
 /// A pinned box was dragged: it opens there next time (FR-17).
 pub fn on_moved(window: &tauri::Window, position: PhysicalPosition<i32>) {
     if window.label() != LABEL || !window.is_visible().unwrap_or(false) {
@@ -537,12 +592,22 @@ pub fn quick_entry_resize(window: tauri::WebviewWindow, height: f64) {
     if window.label() != LABEL {
         return;
     }
+    let state = window.state::<QuickEntryState>();
+    let chat = locked(&state.chat).is_some();
+    let user = *locked(&state.user_size);
+    // A size the person gave the box stays while it shows a chat (FR-23).
+    if chat && user.is_some() {
+        return;
+    }
     let monitor = window
         .current_monitor()
         .ok()
         .flatten()
         .map(|monitor| monitor.size().height as f64 / monitor.scale_factor());
-    let _ = window.set_size(LogicalSize::new(WIDTH, window_height(height, height_limit(monitor))));
+    let (width, height) = box_size(user, chat, height, height_limit(monitor));
+    let scale = window.scale_factor().unwrap_or(1.0);
+    *locked(&state.expected) = Some(((width * scale).round() as u32, (height * scale).round() as u32));
+    let _ = window.set_size(LogicalSize::new(width, height));
 }
 
 /// The box now holds `chat` (`None`: empty); `used`: a message was sent or a
@@ -554,6 +619,20 @@ pub fn quick_entry_chat(state: State<'_, QuickEntryState>, window: tauri::Window
     }
     let mut held = locked(&state.chat);
     let changed = *held != chat;
+    // Resizable by its edges while it shows a chat (FR-23).
+    let showing = chat.is_some();
+    if window.is_resizable().unwrap_or(false) != showing {
+        let _ = window.set_resizable(showing);
+        let _ = window.set_min_size(showing.then(|| LogicalSize::new(MIN_WIDTH, MIN_HEIGHT)));
+        // A chat again in a box the person resized: back to their size.
+        let user = *locked(&state.user_size);
+        if let (true, Some((width, height))) = (showing, user) {
+            let scale = window.scale_factor().unwrap_or(1.0);
+            *locked(&state.expected) = Some(((width * scale).round() as u32, (height * scale).round() as u32));
+            let _ = window.set_size(LogicalSize::new(width, height));
+            let _ = window.app_handle().emit_to(LABEL, "quick-entry://sized", json!({ "fixed": true }));
+        }
+    }
     *held = chat;
     let mut last = locked(&state.last_used);
     if used {
@@ -708,6 +787,27 @@ mod tests {
         assert_eq!(pinned_placement(Some((1920, 0)), &monitors), None);
         // Never moved.
         assert_eq!(pinned_placement(None, &monitors), None);
+    }
+
+    #[test]
+    fn only_a_size_the_shell_did_not_set_is_the_persons_resize() {
+        // Rounding moves the shell's own size by a pixel or two.
+        assert!(!is_users_resize(Some((1020, 900)), (1021, 899)));
+        assert!(is_users_resize(Some((1020, 900)), (1200, 900)));
+        assert!(is_users_resize(Some((1020, 900)), (1020, 600)));
+        // Before the shell set any size (the window being built): not the person.
+        assert!(!is_users_resize(None, (500, 500)));
+    }
+
+    #[test]
+    fn a_resized_box_keeps_its_size_while_it_shows_a_chat() {
+        // Never resized: the default width, the height follows the card.
+        assert_eq!(box_size(None, true, 400.0, 648.0), (WIDTH, 400.0));
+        assert_eq!(box_size(None, false, 10.0, 648.0), (WIDTH, HEIGHT));
+        // Resized: the person's size with a chat, whatever the card asks.
+        assert_eq!(box_size(Some((900.0, 700.0)), true, 300.0, 648.0), (900.0, 700.0));
+        // The empty box keeps the width only.
+        assert_eq!(box_size(Some((900.0, 700.0)), false, 10.0, 648.0), (900.0, HEIGHT));
     }
 
     #[test]

@@ -5,6 +5,8 @@
 // opens at once (NFR-1).
 
 import { invoke } from "@tauri-apps/api/core";
+import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
+import { buildPrompt, releaseAttachment } from "@/features/chat";
 import { installErrorLogging, log } from "@/lib/db";
 import { useEngineStore, type OpenTarget } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -44,8 +46,20 @@ function tellShell(chat: string | null, used: boolean) {
   void invoke("quick_entry_chat", { chat, used }).catch(() => undefined);
 }
 
-/** A new chat with `text` as its first message, as **New chat** would; its id. */
-export async function startChat(text: string): Promise<string | null> {
+/**
+ * Send `text` with its pictures and files (FR-24), as the main window's
+ * Enter does: a turn, or read at the agent's next step while one runs.
+ */
+async function deliver(text: string, files: PromptAttachment[]): Promise<void> {
+  const prompt = await buildPrompt(text, files);
+  const engine = useEngineStore.getState();
+  if (engine.transcript.busy) await engine.queueMessage(prompt.text, prompt.images, "steer");
+  else await engine.sendPrompt(prompt.text, prompt.images);
+  files.forEach(releaseAttachment);
+}
+
+/** A new chat with `text` (and `files`) as its first message, as **New chat** would; its id. */
+export async function startChat(text: string, files: PromptAttachment[] = []): Promise<string | null> {
   await bootBox();
   // The main window may have shown another workspace since the box loaded.
   await useSessionStore.getState().reloadShownWorkspace();
@@ -54,7 +68,7 @@ export async function startChat(text: string): Promise<string | null> {
   const chat = useEngineStore.getState().activeId;
   if (!chat) return null;
   tellShell(chat, true);
-  await useEngineStore.getState().sendPrompt(text);
+  await deliver(text, files);
   return chat;
 }
 
@@ -65,12 +79,12 @@ export async function showChat(chat: string): Promise<void> {
   await useEngineStore.getState().selectSession(chat);
 }
 
-/** A follow-up in the box's chat (queued while a turn runs, as in the main window). */
-export async function followUp(text: string): Promise<void> {
+/** A follow-up in the box's chat (read at the next step while a turn runs, as in the main window). */
+export async function followUp(text: string, files: PromptAttachment[] = []): Promise<void> {
   const chat = useEngineStore.getState().activeId;
   if (!chat) return;
   tellShell(chat, true);
-  await useEngineStore.getState().sendPrompt(text);
+  await deliver(text, files);
 }
 
 /** Empty the box: let go of its chat, which runs on while it has work. */

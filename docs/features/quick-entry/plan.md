@@ -411,6 +411,35 @@ Views inside replies run in `widget-frame`'s sandbox as in the main window.
   Mica filled the box's transparent margin (seen in the first trial).
 - The header drags the box whether it is pinned or not (spec FR-17, changed
   after the first trial); only a pinned box keeps its position.
+- Resizing (spec FR-23, added after the first trial): the window is
+  resizable only while it shows a chat (`quick_entry_chat` turns it on and
+  off), using Tauri's own edge handles for frameless windows; the 12 px
+  transparent margin is where they sit. The shell tells its own size
+  changes from the person's by the size it last set (`expected`); a size
+  the person gives is kept (`user_size`), `quick_entry_resize` then keeps it
+  instead of following the card, and `quick-entry://shown` /
+  `quick-entry://sized` tell the page to fill the window.
+- No margin around the card (after the second trial): the 12 px transparent
+  margin that held the drawn shadow took clicks and, once the window could
+  be resized, got a system border, so the person felt an invisible frame.
+  The window is now the card (656 × 48 logical px with one line) with the
+  system's shadow (`shadow(true)`; rounded corners on Windows 11), and the
+  resize handles sit on its edge.
+- Attachments (spec FR-24): the box uses the main composer's own helpers
+  (`attachmentsFromTransfer`, `attachmentsFromPaths`, `buildPrompt`,
+  `releaseAttachment` from `features/chat/composer-input.ts`, through
+  `features/chat/index.ts`), loaded with the conversation. A paste copies
+  the clipboard's files at once, because the clipboard is gone once the
+  event returns and the module may still be loading. Drops are the page's
+  HTML `drop` events, read the same way: the box's window turns off the
+  shell's drop handler (`disable_drag_drop_handler`), which, in a window
+  built hidden, found no WebView2 window to attach to and still turned
+  WebView2's own drops off, so nothing took a file (found when the person
+  dragged a file from Explorer). A follow-up while a
+  turn runs is delivered as the main window's Enter does (`steer`).
+- The box's turn list reads a constant empty list while the store has not
+  selected the box's chat yet (a fresh `[]` on every read made React render
+  without end after a reload of the page).
 - The notice click (`notices::open_chat` → `quick_entry::notice_clicked`)
   and the pending target are glue without a unit test of their own; `route`
   has one.

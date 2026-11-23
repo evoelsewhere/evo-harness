@@ -10,6 +10,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Kbd } from "@/components/ui/kbd";
 import { StatusDot } from "@/components/status-dot";
+import { cn } from "@/lib/utils";
 import { AssistantMessage, ApprovalPanel, QuestionsPanel, UserMessage, type PermissionRequest, type Turn } from "@/features/chat";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -18,6 +19,8 @@ import { openInEvo } from "./box";
 
 /** "This computer", as the sidebar calls chats outside a workspace. */
 const LOCAL_NAME = "This computer";
+const NO_TURNS: Turn[] = [];
+
 /** The header, the field and the card's padding around the turns (px). */
 const CHROME = 150;
 
@@ -147,8 +150,10 @@ function BoxQuestion({ chat, permission }: { chat: string; permission: Permissio
 }
 
 /** The turns, following the latest text while the person is near the end (FR-11). */
-function BoxTurns({ chat }: { chat: string }) {
-  const turns = useEngineStore((s) => (s.activeId === chat ? s.transcript.turns : []));
+function BoxTurns({ chat, fill }: { chat: string; fill: boolean }) {
+  // A stable empty list while the store has not shown this chat yet: a new
+  // array on every read would make React render again and again.
+  const turns = useEngineStore((s) => (s.activeId === chat ? s.transcript.turns : NO_TURNS));
   const scroller = React.useRef<HTMLDivElement | null>(null);
   const follow = React.useRef(true);
   const maxHeight = Math.max(160, Math.floor((window.screen?.availHeight ?? 900) * 0.6) - CHROME);
@@ -163,8 +168,9 @@ function BoxTurns({ chat }: { chat: string }) {
         const element = event.currentTarget;
         follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
       }}
-      style={{ maxHeight }}
-      className="scrollbar-slim flex flex-col gap-5 overflow-y-auto px-4 py-3 [--chat-width:100%]"
+      // A box the person resized fills its window; otherwise it grows up to its limit (FR-11, FR-23).
+      style={fill ? undefined : { maxHeight }}
+      className={cn("scrollbar-slim flex flex-col gap-5 overflow-y-auto px-4 py-3 [--chat-width:100%]", fill && "min-h-0 flex-1")}
     >
       {turns.map((turn) => (
         <BoxTurn key={turn.id} turn={turn} chat={chat} />
@@ -177,11 +183,14 @@ export function QuickConversation({
   chat,
   pinned,
   visible,
+  fill = false,
   field,
   onNewChat,
 }: {
   chat: string;
   pinned: boolean;
+  /** The person resized the box: fill it (FR-23). */
+  fill?: boolean;
   /** Hidden: the stores keep the streamed text, nothing is drawn (NFR-3). */
   visible: boolean;
   /** The follow-up field, owned by the box's page (FR-22). */
@@ -200,7 +209,7 @@ export function QuickConversation({
   return (
     <ThemeProvider>
       <TooltipProvider delay={400}>
-        <div className="flex min-h-0 flex-col">
+        <div className={cn("flex min-h-0 flex-col", fill && "flex-1")}>
           <BoxHeader
             chat={chat}
             pinned={pin}
@@ -209,7 +218,7 @@ export function QuickConversation({
             onClose={() => void invoke("quick_entry_hide").catch(() => undefined)}
           />
           <React.Activity mode={visible ? "visible" : "hidden"}>
-            <BoxTurns chat={chat} />
+            <BoxTurns chat={chat} fill={fill} />
           </React.Activity>
           <div className="flex flex-col gap-2 border-t border-border/60 px-3 py-2.5">
             {permission && <BoxQuestion chat={chat} permission={permission} />}

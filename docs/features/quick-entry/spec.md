@@ -43,7 +43,8 @@ FR-22.
 
 - Choosing the agent, workspace, model or approval mode in the box: the new
   chat starts as the main window's **New chat** would.
-- Attachments, screenshots or dictation in the box.
+- Taking screenshots or dictation in the box (pictures and files are
+  attached by pasting or dropping them, FR-24).
 - Slash commands and mentions in the box: the text is sent as typed.
 - A list or search of past chats in the box: earlier chats are in the main
   window's sidebar; the box shows one chat at a time.
@@ -256,6 +257,8 @@ Acceptance scenarios:
 | FR-19 | When the box's chat finishes a turn or needs the person while the box is hidden and the main window does not show that chat in front, Evo notifies as the app does for a chat (following the notification settings). Clicking the notification opens the box on that chat, or the main window when what is needed is not answered in the box (FR-14). | Ask a long task, click away; when it ends, a notification shows; clicking it opens the box on the chat. |
 | FR-20 | When the chat fails (no model set up, provider error, engine stopped), the box shows the same readable error and next step the main window shows, with **Open in Evo**. | With no provider set up, send from the box: the error and its next step show in the box. |
 | FR-21 | The box can be used with the keyboard alone: Enter, Shift+Enter, Ctrl+Enter, Ctrl+O, Ctrl+N and Esc as above (⌘ for Ctrl on macOS), Tab through the header, the steps' links and the approval choices, and the app's Stop shortcut stops a running turn. The reply is announced to screen readers as it completes, not word by word. | Manual check with the keyboard only and with a screen reader. |
+| FR-23 | While the box shows a chat, the person can resize it by its edges, down to 420 × 240 logical px. Once resized it keeps that size (it no longer grows with the reply), the turns fill it and scroll, and it opens at that size again until the app quits. The empty box keeps the chosen width. | Resize the box with a chat to a larger size: the turns fill it; a longer reply scrolls inside it; hide and show: same size. |
+| FR-24 | The box takes pictures and files as the main window's message box does: pasted (pictures and files from the clipboard; very long text becomes an attachment) or dropped onto the box from the system. They show as chips above the field, each with a picture's thumbnail and a button to remove it, and are sent with the message — a new chat's first one or a follow-up (at most 4 pictures in one message). | Paste a screenshot and drop a file on the box, press Enter: the reply speaks of both; the chat shows the picture. |
 | FR-22 | Opening the box always shows the field focused: on a chat, the follow-up field with its caret at the end. | Open the box on a chat: typing goes into the follow-up field. |
 
 ### 4.2 Non-functional
@@ -334,6 +337,9 @@ n/a — no open questions.
   still applies.
 - A-6 The pin and the pinned position are not kept across a restart of the
   app — because a pin is for the task at hand.
+- A-8 A size the person gives the box is kept until the app quits, like
+  the pin (A-6), and applies only while the box shows a chat; the empty box
+  keeps only its width — because a one-line box should stay one line.
 - A-7 The box's height limit is 60 % of its monitor's height — tall enough
   for a useful answer, short enough to leave the work beside it visible.
 
@@ -357,3 +363,8 @@ n/a — no open questions.
   header now drags it whether pinned or not (FR-17).
 - 2026-11-23 — The person asked to allow the app's own permission requests
   in the box as well (FR-14 changed, 6.2).
+- 2026-11-23 — The person asked to paste pictures and files into the box
+  and drop files on it (FR-24; the non-goal on attachments narrowed).
+- 2026-11-23 — The person asked to resize the box (FR-23), and felt an
+  invisible frame around it: the window lost its transparent margin and is
+  now the card itself, with the system's shadow.

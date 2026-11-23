@@ -151,6 +151,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Resized(size) = event {
                 window::on_resized(window, *size);
+                quick_entry::on_resized(window, *size);
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 system::on_close_requested(window, api);
