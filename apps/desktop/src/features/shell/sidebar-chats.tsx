@@ -27,7 +27,7 @@ import { LOCAL_GROUP, UNTITLED, useSessionStore, type SessionSummary } from "@/s
 import { useSchedulerStore } from "@/stores/scheduler-store";
 import { ChatMenuItems, useChatMenuKeys } from "./chat-menu";
 import { ConfirmDialog } from "./confirm-dialog";
-import { foldRuns, groupByTime, needsYou, TIME_GROUP_LABEL } from "./sidebar-model";
+import { foldRuns, groupByTime, needsYou, rollUp, TIME_GROUP_LABEL } from "./sidebar-model";
 import { useChatStates } from "./use-chat-states";
 import { ChangeIconDialog, WorkspaceIcon } from "./workspace-icon";
 import { RemoveWorkspaceDialog, WorkspaceMenuItems, type RailGroup } from "./workspace-rail";
@@ -527,6 +527,98 @@ export function WorkspaceChats({
 
 function TimeLabel({ children }: { children: React.ReactNode }) {
   return <div className="px-2.5 pt-2 pb-0.5 text-[11px] text-muted-foreground">{children}</div>;
+}
+
+/**
+ * The List layout's group for one workspace: its icon and name (a click folds
+ * it), the state of its chats while folded, New chat and the workspace menu,
+ * then its chats newest first with scheduled runs folded
+ * (docs/features/workspace-rail/spec.md, FR-17).
+ */
+export function WorkspaceGroup({ group, chats }: { group: RailGroup; chats: SessionSummary[] }) {
+  const collapsed = useSessionStore((s) => s.collapsed.includes(group.id));
+  const toggleCollapsed = useSessionStore((s) => s.toggleCollapsed);
+  const newChat = useEngineStore((s) => s.newChat);
+  const currentId = useEngineStore((s) => s.activeId);
+  const tasks = useSchedulerStore((s) => s.tasks);
+  const states = useChatStates();
+  // The roll-up of a folded group covers the sessions its chats started.
+  const index = useSessionStore((s) => childrenByParent(s.sessions));
+  const family = chats.flatMap((chat) => [chat, ...(index.get(chat.id) ?? NO_CHILDREN)]);
+  const total = rollUp(family, states);
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const [changeIcon, setChangeIcon] = React.useState(false);
+  useMinuteTick();
+  const names = new Set(tasks.map((task) => task.name));
+  const isRun = (chat: SessionSummary) => !chat.draft && (chat.scheduled || names.has(chat.title));
+  const items = foldRuns(chats, isRun);
+
+  return (
+    <Collapsible open={!collapsed} onOpenChange={() => toggleCollapsed(group.id)}>
+      <SidebarGroup className="group/workspace py-0.5">
+        <SidebarGroupLabel
+          title={group.path ?? group.name}
+          render={<CollapsibleTrigger />}
+          className="h-7 w-full gap-1.5 pr-14 text-[13px] font-semibold text-sidebar-accent-foreground hover:bg-sidebar-accent"
+        >
+          <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+            <WorkspaceIcon group={group} size="sm" />
+          </span>
+          <span className="truncate">{group.name}</span>
+          <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")} />
+        </SidebarGroupLabel>
+        {collapsed && (total.waiting > 0 || total.running > 0 || total.unread > 0) && (
+          <span className="pointer-events-none absolute top-2.5 right-16 flex items-center">
+            {total.waiting ? (
+              <StatusDot tone="warn" pulse label="Waiting for you" />
+            ) : total.running ? (
+              <Spinner className="size-3.5 text-muted-foreground" aria-label="Running" />
+            ) : (
+              <StatusDot tone="info" label="Unread replies" />
+            )}
+          </span>
+        )}
+        {group.path && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <SidebarGroupAction
+                  className="top-1.5 right-8 opacity-0 group-hover/workspace:opacity-100 aria-expanded:opacity-100"
+                  title={`${group.name} actions`}
+                />
+              }
+            >
+              <MoreHorizontalIcon />
+              <span className="sr-only">{group.name} actions</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <WorkspaceMenuItems group={group} onRemove={() => setConfirmRemove(true)} onChangeIcon={() => setChangeIcon(true)} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <SidebarGroupAction
+          title={`New chat in ${group.name}`}
+          onClick={() => void newChat(group.id === LOCAL_GROUP ? null : group.id)}
+          className="top-1.5"
+        >
+          <PlusIcon />
+          <span className="sr-only">New chat in {group.name}</span>
+        </SidebarGroupAction>
+        <CollapsibleContent>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {items.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">No chats yet</p>}
+              {items.map((item) => (
+                <ChatWithRuns key={item.chat.id} chat={item.chat} runs={item.runs} currentId={currentId} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </SidebarGroup>
+      {group.path && <RemoveWorkspaceDialog group={group} open={confirmRemove} onOpenChange={setConfirmRemove} />}
+      {group.path && <ChangeIconDialog group={group} open={changeIcon} onOpenChange={setChangeIcon} />}
+    </Collapsible>
+  );
 }
 
 /** Archived chats, loaded when opened. */

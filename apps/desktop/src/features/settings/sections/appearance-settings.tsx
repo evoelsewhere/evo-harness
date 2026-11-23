@@ -6,7 +6,9 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { useShallow } from "zustand/react/shallow";
 import {
   CheckIcon,
+  ListIcon,
   MonitorIcon,
+  PanelLeftIcon,
   MoonIcon,
   PaletteIcon,
   PipetteIcon,
@@ -35,6 +37,7 @@ import {
   useAppearanceStore,
   type ChatWidth,
   type MotionPreference,
+  type SidebarLayout,
   type SchemeMode,
 } from "@/stores/appearance-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -104,6 +107,104 @@ function SchemePreview({ scheme }: { scheme: "light" | "dark" | "split" }) {
         pane(scheme === "dark")
       )}
     </div>
+  );
+}
+
+/**
+ * A small picture of the sidebar in one layout, in the shown scheme and
+ * background (docs/features/workspace-rail/spec.md, FR-17).
+ */
+function LayoutPreview({ layout }: { layout: SidebarLayout }) {
+  const { resolved } = useTheme();
+  const dark = resolved === "dark";
+  const background = useAppearanceStore((s) => shownBackground(s, dark ? "dark" : "light"));
+  const surfaces = previewSurfaces(dark ? "dark" : "light", background);
+  const strong = dark ? "bg-white/30" : "bg-black/25";
+  const line = dark ? "bg-white/15" : "bg-black/10";
+  const tile = dark ? "bg-white/15" : "bg-black/10";
+  const bar = (width: string, tone = line) => <div className={cn("h-1 rounded-full", width, tone)} />;
+  return (
+    <div className="flex h-20 w-full gap-1 overflow-hidden rounded-md p-1.5 shadow-hairline" style={{ background: surfaces.window }}>
+      {layout === "rail" ? (
+        <>
+          {/* The rail: the shown workspace tinted, the others plain. */}
+          <div className="flex w-3 flex-col items-center gap-1">
+            <div className="size-2.5 rounded-[3px] bg-brand/40" />
+            <div className={cn("size-2.5 rounded-[3px]", tile)} />
+            <div className={cn("size-2.5 rounded-[3px]", tile)} />
+            <div className={cn("size-2.5 rounded-[3px]", tile)} />
+          </div>
+          <div className="flex w-2/5 flex-col gap-1 pt-0.5">
+            {bar("w-1/2", strong)}
+            {bar("w-4/5")}
+            {bar("w-3/5")}
+            {bar("w-4/5")}
+            {bar("w-2/3")}
+          </div>
+        </>
+      ) : (
+        /* Every workspace one under another, each with its chats. */
+        <div className="flex w-[46%] flex-col gap-1 pt-0.5">
+          {bar("w-1/2", strong)}
+          {bar("w-4/5")}
+          {bar("w-3/5")}
+          {bar("w-2/5", strong)}
+          {bar("w-3/4")}
+          {bar("w-1/2", strong)}
+          {bar("w-2/3")}
+        </div>
+      )}
+      <div className="flex flex-1 flex-col justify-end gap-1 rounded-sm p-1" style={{ background: surfaces.card }}>
+        {bar("w-4/5")}
+        <div className="h-1.5 w-1/3 self-end rounded-full bg-brand" />
+      </div>
+    </div>
+  );
+}
+
+const LAYOUTS: { value: SidebarLayout; label: string; icon: LucideIcon }[] = [
+  { value: "rail", label: "Rail", icon: PanelLeftIcon },
+  { value: "list", label: "List", icon: ListIcon },
+];
+
+/** Rail or List, picked from pictures like the colour scheme (FR-17). */
+function SidebarLayoutRow() {
+  const sidebarLayout = useAppearanceStore((s) => s.sidebarLayout);
+  const setSidebarLayout = useAppearanceStore((s) => s.setSidebarLayout);
+  return (
+    <SettingsRow
+      labelId="sidebar-layout-label"
+      label="Workspaces in sidebar"
+      description="Rail: workspaces as icons on the left, one workspace's chats at a time. List: every workspace one under another, each folding open."
+    >
+      <RadioGroup
+        value={sidebarLayout}
+        onValueChange={(value) => setSidebarLayout(value as SidebarLayout)}
+        aria-labelledby="sidebar-layout-label"
+        className="grid grid-cols-2 gap-3 sm:max-w-sm"
+      >
+        {LAYOUTS.map(({ value, label, icon: Icon }) => (
+          <Radio.Root
+            key={value}
+            value={value}
+            aria-label={label}
+            className={cn(
+              "group/layout flex flex-col gap-2 rounded-lg p-1.5 text-left outline-none transition-colors",
+              "hover:bg-accent/60 data-checked:bg-brand/5",
+              "focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]",
+            )}
+          >
+            <div className="rounded-md ring-offset-2 ring-offset-card group-data-checked/layout:ring-2 group-data-checked/layout:ring-brand">
+              <LayoutPreview layout={value} />
+            </div>
+            <span className="flex items-center gap-1.5 px-0.5 text-[13px] font-medium text-muted-foreground group-data-checked/layout:text-foreground">
+              <Icon className="size-3.5" />
+              {label}
+            </span>
+          </Radio.Root>
+        ))}
+      </RadioGroup>
+    </SettingsRow>
   );
 }
 
@@ -470,14 +571,23 @@ function Layout() {
   const setMotion = useAppearanceStore((s) => s.setMotion);
   const railNames = useAppearanceStore((s) => s.railNames);
   const setRailNames = useAppearanceStore((s) => s.setRailNames);
+  const sidebarLayout = useAppearanceStore((s) => s.sidebarLayout);
 
   return (
     <SettingsGroup title="Layout & motion">
+      <SidebarLayoutRow />
       <SettingsRow
         labelId="rail-names-label"
         label="Workspace names"
-        description="Show each workspace's name under its icon on the sidebar's rail. Off, the rail shows icons only and takes less room."
-        control={<Switch aria-labelledby="rail-names-label" checked={railNames} onCheckedChange={setRailNames} />}
+        description="Show each workspace's name under its icon on the rail. Off, the rail shows icons only and takes less room."
+        control={
+          <Switch
+            aria-labelledby="rail-names-label"
+            checked={railNames}
+            disabled={sidebarLayout !== "rail"}
+            onCheckedChange={setRailNames}
+          />
+        }
       />
       <SettingsRow
         labelId="width-label"

@@ -41,6 +41,14 @@ Done when: the rail shows names and each workspace's icon, and Change icon works
 - [x] T12 [FR-13, FR-14] Icon store: chosen icons, logo lookup — `apps/desktop/src/stores/workspace-icon-store.ts` — check: typecheck
 - [x] T13 [FR-12 – FR-15] `WorkspaceIcon`, icon set, Change icon dialog; rail names; Needs you icons — `apps/desktop/src/features/shell/workspace-icon.tsx`, `workspace-rail.tsx`, `sidebar-chats.tsx`, `stores/ui-store.ts` — check: manual in the dev app
 
+### Phase 5 — Layout choice
+
+Done when: Settings switches the sidebar between Rail and List at once.
+
+- [x] T14 [FR-17] `sidebarLayout` in the appearance store and the Workspaces in sidebar control — `apps/desktop/src/stores/appearance-store.ts`, `features/settings/sections/appearance-settings.tsx` — check: typecheck
+- [x] T15 [FR-17] Collapsed state back in the session store; `WorkspaceGroup` for List — `apps/desktop/src/stores/session-store.ts`, `features/shell/sidebar-chats.tsx` — check: typecheck
+- [x] T16 [FR-17] List layout in the sidebar — `apps/desktop/src/features/shell/app-sidebar.tsx` — check: manual, both layouts
+
 ## 2. Verification
 
 | Requirement | Test or check | Result |
@@ -61,6 +69,7 @@ Done when: the rail shows names and each workspace's icon, and Change icon works
 | FR-14 | Manual: Change icon…, restart keeps it | passed (2026-11-23) — dialog and saved icon and emoji read at load (sample data); a real restart not tried |
 | FR-15 | Manual: Needs you rows show the icon | passed (2026-11-23) — sample data |
 | FR-16 | Manual: switch Workspace names off in Settings → Appearance | passed (2026-11-23) — sample data: off 56 px and no names; on again from the switch, 72 px with names |
+| FR-17 | Manual: switch Rail ↔ List in Settings → Appearance; collapse a workspace in List | passed (2026-11-23) — sample data: List has no rail, every workspace listed, folding hides its chats, Workspace names disabled; Rail back from the setting |
 | NFR-1 | `git diff --stat` touches `apps/desktop/src` and docs only | passed (2026-11-23) |
 | NFR-2 | `bun test src/features/shell/sidebar-model.test.ts` | passed (2026-11-23) |
 | NFR-3 | Manual: light and dark; keyboard focus on rail icons | not run — light and dark checked; keyboard focus not tried |

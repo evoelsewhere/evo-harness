@@ -1,6 +1,6 @@
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { MoonIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquarePenIcon, SunIcon } from "lucide-react";
+import { FolderPlusIcon, MoonIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquarePenIcon, SunIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,11 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import {
   Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuBadge,
@@ -22,9 +27,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { inTauri, isMac, modKey } from "@/lib/platform";
 import { cn } from "@/lib/utils";
+import { useAppearanceStore } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { LOCAL_GROUP, useSessionStore, type SessionSummary } from "@/stores/session-store";
-import { ArchivedGroup, NeedsYou, WorkspaceChats } from "./sidebar-chats";
+import { ArchivedGroup, ChatList, NeedsYou, WorkspaceChats, WorkspaceGroup } from "./sidebar-chats";
 import { LOCAL_NAME, WorkspaceRail, type RailGroup } from "./workspace-rail";
 import { useUiStore } from "@/stores/ui-store";
 import { EditSidebarDialog } from "./edit-sidebar-dialog";
@@ -66,10 +72,11 @@ function IconButton({
 }
 
 /**
- * Navigation on the system material (Mica / vibrancy): the workspace rail on
- * the left; beside it search, new chat, tools, "Needs you" across workspaces,
- * the shown workspace's chats, the archive and the footer
- * (docs/features/workspace-rail/spec.md). The right edge drags to resize.
+ * Navigation on the system material (Mica / vibrancy): search, new chat,
+ * tools, "Needs you" across workspaces, then the workspaces in the layout
+ * picked in Settings → Appearance — the rail with one workspace's chats, or
+ * every workspace one under another — and the archive
+ * (docs/features/workspace-rail/spec.md, FR-17). The right edge drags to resize.
  */
 export function AppSidebar() {
   const workspaces = useSessionStore((s) => s.workspaces);
@@ -81,6 +88,7 @@ export function AppSidebar() {
   const setCommandOpen = useUiStore((s) => s.setCommandOpen);
   const openSettings = useUiStore((s) => s.openSettings);
   const { resolved, setTheme } = useTheme();
+  const rail = useAppearanceStore((s) => s.sidebarLayout) === "rail";
   // Page rows: the items the person shows; the others are in More (docs/features/sidebar-items/spec.md).
   const saved = useUiStore((s) => s.sidebarShown);
   const items = useSidebarItems();
@@ -105,6 +113,9 @@ export function AppSidebar() {
     ? { id: shownSpace.id, name: shownSpace.name, path: shownSpace.path }
     : { id: LOCAL_GROUP, name: LOCAL_NAME };
   const shownChats = topLevel.filter((chat) => groupOf(chat) === shown.id).sort(byUpdated);
+  // The List layout: one shared Pinned section, then each workspace's other chats.
+  const pinned = topLevel.filter((chat) => chat.pinned).sort(byUpdated);
+  const unpinned = topLevel.filter((chat) => !chat.pinned).sort(byUpdated);
 
   // The rail follows the open chat; picking a rail icon alone does not move it
   // (docs/features/workspace-rail/spec.md, FR-4).
@@ -133,25 +144,27 @@ export function AppSidebar() {
         <TitleBarActions />
       </div>
       <div className="flex min-h-0 flex-1">
-        <WorkspaceRail
-          onAddWorkspace={() => void addWorkspace()}
-          footer={
-            <>
-              <IconButton
-                label={resolved === "dark" ? "Light theme" : "Dark theme"}
-                onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
-                tooltipSide="right"
-              >
-                {resolved === "dark" ? <SunIcon /> : <MoonIcon />}
-              </IconButton>
-              <IconButton label={`Settings (${modKey} ,)`} onClick={() => openSettings()} tooltipSide="right">
-                <SettingsIcon />
-              </IconButton>
-            </>
-          }
-        />
+        {rail && (
+          <WorkspaceRail
+            onAddWorkspace={() => void addWorkspace()}
+            footer={
+              <>
+                <IconButton
+                  label={resolved === "dark" ? "Light theme" : "Dark theme"}
+                  onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
+                  tooltipSide="right"
+                >
+                  {resolved === "dark" ? <SunIcon /> : <MoonIcon />}
+                </IconButton>
+                <IconButton label={`Settings (${modKey} ,)`} onClick={() => openSettings()} tooltipSide="right">
+                  <SettingsIcon />
+                </IconButton>
+              </>
+            }
+          />
+        )}
         <div className="flex min-w-0 flex-1 flex-col">
-          <SidebarHeader className="gap-2 pt-0 pl-0">
+          <SidebarHeader className={cn("gap-2 pt-0", rail && "pl-0")}>
             <button
               type="button"
               onClick={() => setCommandOpen(true)}
@@ -201,11 +214,56 @@ export function AppSidebar() {
             <EditSidebarDialog open={editOpen} onOpenChange={setEditOpen} />
           </SidebarHeader>
 
-          {/* Needs you and the workspace header stay put; the chats scroll. */}
+          {/* Needs you (and the rail's workspace header) stay put; the chats scroll. */}
           <NeedsYou />
-          <WorkspaceChats key={shown.id} group={shown} chats={shownChats}>
-            <ArchivedGroup />
-          </WorkspaceChats>
+          {rail ? (
+            <WorkspaceChats key={shown.id} group={shown} chats={shownChats}>
+              <ArchivedGroup />
+            </WorkspaceChats>
+          ) : (
+            <>
+              <SidebarContent className="gap-0">
+                {pinned.length > 0 && (
+                  <SidebarGroup className="py-0.5">
+                    <SidebarGroupLabel className="h-7 text-xs font-normal text-muted-foreground">Pinned</SidebarGroupLabel>
+                    <SidebarGroupContent>
+                      <ChatList chats={pinned} />
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                )}
+                <div className="flex items-center justify-between px-4 pt-2 pb-1">
+                  <span className="text-xs text-muted-foreground">Workspaces</span>
+                  <IconButton label="Add workspace" onClick={() => void addWorkspace()} className="size-6 text-muted-foreground">
+                    <FolderPlusIcon />
+                  </IconButton>
+                </div>
+                {workspaces.map((workspace) => (
+                  <WorkspaceGroup
+                    key={workspace.id}
+                    group={{ id: workspace.id, name: workspace.name, path: workspace.path }}
+                    chats={unpinned.filter((chat) => groupOf(chat) === workspace.id)}
+                  />
+                ))}
+                <WorkspaceGroup
+                  group={{ id: LOCAL_GROUP, name: LOCAL_NAME }}
+                  chats={unpinned.filter((chat) => groupOf(chat) === LOCAL_GROUP)}
+                />
+                <ArchivedGroup />
+              </SidebarContent>
+              <SidebarFooter className="flex-row items-center gap-1">
+                <IconButton label={`Settings (${modKey} ,)`} onClick={() => openSettings()}>
+                  <SettingsIcon />
+                </IconButton>
+                <div className="flex-1" />
+                <IconButton
+                  label={resolved === "dark" ? "Light theme" : "Dark theme"}
+                  onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
+                >
+                  {resolved === "dark" ? <SunIcon /> : <MoonIcon />}
+                </IconButton>
+              </SidebarFooter>
+            </>
+          )}
         </div>
       </div>
 

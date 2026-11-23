@@ -117,6 +117,7 @@ Acceptance scenarios:
 | FR-13 | A workspace's icon must be, in order: the icon the person chose for it; else the project's logo found in its folder; else its initials. "This computer" keeps the computer icon. | Given a folder with `public/favicon.svg` and no chosen icon, then the rail shows that image. |
 | FR-14 | The workspace menu (rail right-click and the list header's "…") must have **Change icon…**: a dialog to pick one of a set of icons, an emoji, the project's logo (when one is found) or the initials, and to go back to automatic. The choice is remembered across restarts and applies at once. | Given the person picks the rocket icon for B, then B's rail icon is a rocket, also after a restart. |
 | FR-16 | Settings → Appearance must have **Workspace names** (on by default): off, the rail shows icons only and is narrower. The choice is kept on this machine. | Given it is switched off, then no names show under the rail icons and the rail narrows, also after a restart. |
+| FR-17 | Settings → Appearance must have **Workspaces in sidebar**: **Rail** (FR-1 – FR-12, the default) or **List**. List shows the earlier layout: no rail; Needs you on top; one shared Pinned section; then every workspace one under another, each collapsible (its collapsed state remembered), with its icon, name, New chat and menu, and its chats newest first with scheduled runs folded (FR-10); then This computer and Archived; Settings and the theme switch in the footer. **Workspace names** applies to Rail only. The choice is kept on this machine and applies at once. | Given List is picked, then the rail is gone and every workspace is listed with its chats; given Rail again, then the rail is back. |
 | FR-15 | Rows in **Needs you** must show the workspace's icon (small) instead of its initials. | Given a waiting chat of a workspace with a logo, then its Needs you row shows the logo. |
 
 ### 4.2 Non-functional
@@ -162,8 +163,8 @@ None.
 - A-3 Initials: the first letters of the first two words of the workspace
   name (split on spaces, `-`, `_`, `.` and camel case), else its first two
   letters; "This computer" shows a computer icon.
-- A-4 The per-workspace collapsed state is no longer used by the sidebar;
-  its saved values stay in the database, unused.
+- A-4 The per-workspace collapsed state is used by the List layout only
+  (FR-17); the Rail layout ignores it.
 - A-5 "Previous 7 days" counts calendar days in the person's time zone.
 - A-6 The rail takes 72 px with names under the icons, so the sidebar's
   default width grows from 272 to 328 px (minimum 272, maximum 480); a width
@@ -190,3 +191,6 @@ None.
   or hovered), 11 px names ("Local" for
   This computer), the list header reads "Chats".
 - 2026-11-23 — Owner asked for a setting to hide the rail's names (FR-16).
+- 2026-11-23 — Owner asked for a choice between the rail and the earlier
+  stacked list (FR-17); answers: Needs you stays in both, chats stay flat
+  in List (runs still folded), Pinned is one shared section in List.

@@ -75,6 +75,8 @@ render from these.
 | desktop UI | `apps/desktop/src/stores/workspace-icon-store.ts` | Chosen icons (setting `sidebar.workspaceIcons`), project logos found per workspace (blob URLs, this run only) | FR-13, FR-14 |
 | desktop UI | `apps/desktop/src/lib/project-logo.ts` (+ `.test.ts`) | Candidate logo paths, image type by extension | FR-13 |
 | desktop UI | `apps/desktop/src/features/shell/workspace-icon.tsx` | `WorkspaceIcon` (chosen / logo / initials), the icon set, the Change icon dialog | FR-12 – FR-15 |
+| desktop UI | `apps/desktop/src/stores/appearance-store.ts`, `features/settings/sections/appearance-settings.tsx` | `sidebarLayout` (`rail` / `list`, in `evo.appearance`) and its control | FR-17 |
+| desktop UI | `apps/desktop/src/features/shell/sidebar-chats.tsx` `WorkspaceGroup`, `stores/session-store.ts` `collapsed` | The List layout's collapsible group per workspace, folded state saved as before (`workspace_set_collapsed`, `sidebar.localCollapsed`) | FR-17 |
 | docs | `apps/desktop/README.md` | UI map row for the sidebar | — |
 
 ### 3.3 Interfaces

@@ -126,6 +126,9 @@ export function chatColumnPx(width: ChatWidth, available: number): number {
 
 export type MotionPreference = "system" | "reduced" | "full";
 
+/** How the sidebar shows workspaces: a rail, or stacked groups (docs/features/workspace-rail/spec.md, FR-17). */
+export type SidebarLayout = "rail" | "list";
+
 interface AppearanceStore {
   /** An `ACCENTS` id or `CUSTOM_ACCENT`. */
   accent: string;
@@ -149,6 +152,7 @@ interface AppearanceStore {
   translucency: boolean;
   /** Show each workspace's name under its icon on the rail (docs/features/workspace-rail/spec.md, FR-16). */
   railNames: boolean;
+  sidebarLayout: SidebarLayout;
   setAccent(id: string): void;
   setCustomAccent(hex: string): void;
   setBackground(mode: SchemeMode, id: string): void;
@@ -159,6 +163,7 @@ interface AppearanceStore {
   setMotion(motion: MotionPreference): void;
   setTranslucency(on: boolean): void;
   setRailNames(on: boolean): void;
+  setSidebarLayout(layout: SidebarLayout): void;
   reset(): void;
 }
 
@@ -175,6 +180,7 @@ export const APPEARANCE_DEFAULTS = {
   motion: "system" as MotionPreference,
   translucency: true,
   railNames: true,
+  sidebarLayout: "rail" as SidebarLayout,
 };
 
 export const useAppearanceStore = create<AppearanceStore>()(
@@ -196,6 +202,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
       setMotion: (motion) => set({ motion }),
       setTranslucency: (translucency) => set({ translucency }),
       setRailNames: (railNames) => set({ railNames }),
+      setSidebarLayout: (sidebarLayout) => set({ sidebarLayout }),
       reset: () => set(APPEARANCE_DEFAULTS),
     }),
     {
@@ -213,6 +220,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
         motion,
         translucency,
         railNames,
+        sidebarLayout,
       }) => ({
         accent,
         customAccent,
@@ -226,6 +234,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
         motion,
         translucency,
         railNames,
+        sidebarLayout,
       }),
     },
   ),
