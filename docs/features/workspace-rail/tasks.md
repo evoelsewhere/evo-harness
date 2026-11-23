@@ -60,6 +60,7 @@ Done when: the rail shows names and each workspace's icon, and Change icon works
 | FR-13 | `project-logo.test.ts`; manual: evo-harness shows its app icon | passed (2026-11-23) — tests, and a sample logo found and shown; the real folders not checked |
 | FR-14 | Manual: Change icon…, restart keeps it | passed (2026-11-23) — dialog and saved icon and emoji read at load (sample data); a real restart not tried |
 | FR-15 | Manual: Needs you rows show the icon | passed (2026-11-23) — sample data |
+| FR-16 | Manual: switch Workspace names off in Settings → Appearance | passed (2026-11-23) — sample data: off 56 px and no names; on again from the switch, 72 px with names |
 | NFR-1 | `git diff --stat` touches `apps/desktop/src` and docs only | passed (2026-11-23) |
 | NFR-2 | `bun test src/features/shell/sidebar-model.test.ts` | passed (2026-11-23) |
 | NFR-3 | Manual: light and dark; keyboard focus on rail icons | not run — light and dark checked; keyboard focus not tried |

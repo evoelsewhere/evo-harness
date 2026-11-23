@@ -147,6 +147,8 @@ interface AppearanceStore {
    * the window paints the picked background everywhere.
    */
   translucency: boolean;
+  /** Show each workspace's name under its icon on the rail (docs/features/workspace-rail/spec.md, FR-16). */
+  railNames: boolean;
   setAccent(id: string): void;
   setCustomAccent(hex: string): void;
   setBackground(mode: SchemeMode, id: string): void;
@@ -156,6 +158,7 @@ interface AppearanceStore {
   setChatWidth(width: ChatWidth): void;
   setMotion(motion: MotionPreference): void;
   setTranslucency(on: boolean): void;
+  setRailNames(on: boolean): void;
   reset(): void;
 }
 
@@ -171,6 +174,7 @@ export const APPEARANCE_DEFAULTS = {
   chatWidth: "default" as ChatWidth,
   motion: "system" as MotionPreference,
   translucency: true,
+  railNames: true,
 };
 
 export const useAppearanceStore = create<AppearanceStore>()(
@@ -191,6 +195,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
       setChatWidth: (chatWidth) => set({ chatWidth }),
       setMotion: (motion) => set({ motion }),
       setTranslucency: (translucency) => set({ translucency }),
+      setRailNames: (railNames) => set({ railNames }),
       reset: () => set(APPEARANCE_DEFAULTS),
     }),
     {
@@ -207,6 +212,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
         chatWidth,
         motion,
         translucency,
+        railNames,
       }) => ({
         accent,
         customAccent,
@@ -219,6 +225,7 @@ export const useAppearanceStore = create<AppearanceStore>()(
         chatWidth,
         motion,
         translucency,
+        railNames,
       }),
     },
   ),

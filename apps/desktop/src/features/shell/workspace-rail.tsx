@@ -7,6 +7,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdow
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useAppearanceStore } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { LOCAL_GROUP, useSessionStore, type SessionSummary } from "@/stores/session-store";
 import { ConfirmDialog } from "./confirm-dialog";
@@ -119,11 +120,14 @@ function RailItem({
   chats,
   states,
   shown,
+  named,
 }: {
   group: RailGroup;
   chats: SessionSummary[];
   states: Record<string, ChatState>;
   shown: boolean;
+  /** Show the name under the icon (Settings → Appearance, FR-16). */
+  named: boolean;
 }) {
   const showWorkspace = useSessionStore((s) => s.showWorkspace);
   const [confirmRemove, setConfirmRemove] = React.useState(false);
@@ -163,15 +167,17 @@ function RailItem({
           </TooltipContent>
         </Tooltip>
         {/* The name, so a workspace reads without its tooltip (FR-12). */}
-        <span
-          aria-hidden
-          className={cn(
-            "w-[64px] truncate text-center text-[11px] leading-tight",
-            shown ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground",
-          )}
-        >
-          {group.id === LOCAL_GROUP ? LOCAL_SHORT : group.name}
-        </span>
+        {named && (
+          <span
+            aria-hidden
+            className={cn(
+              "w-[64px] truncate text-center text-[11px] leading-tight",
+              shown ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground",
+            )}
+          >
+            {group.id === LOCAL_GROUP ? LOCAL_SHORT : group.name}
+          </span>
+        )}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
         <WorkspaceMenuItems group={group} onRemove={() => setConfirmRemove(true)} onChangeIcon={() => setChangeIcon(true)} />
@@ -191,6 +197,7 @@ export function WorkspaceRail({ onAddWorkspace, footer }: { onAddWorkspace(): vo
   const sessions = useSessionStore((s) => s.sessions);
   const shown = useSessionStore((s) => s.shownWorkspace);
   const states = useChatStates();
+  const named = useAppearanceStore((s) => s.railNames);
   const known = new Set(workspaces.map((w) => w.id));
   const groupOf = (chat: SessionSummary) => (chat.workspaceId && known.has(chat.workspaceId) ? chat.workspaceId : LOCAL_GROUP);
   const live = sessions.filter((chat) => !chat.draft);
@@ -199,8 +206,11 @@ export function WorkspaceRail({ onAddWorkspace, footer }: { onAddWorkspace(): vo
     { id: LOCAL_GROUP, name: LOCAL_NAME },
   ];
   return (
-    <div className="flex w-[72px] shrink-0 flex-col">
-      <nav aria-label="Workspaces" className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto pt-1 pb-2">
+    <div className={cn("flex shrink-0 flex-col", named ? "w-[72px]" : "w-14")}>
+      <nav
+        aria-label="Workspaces"
+        className={cn("flex min-h-0 flex-1 flex-col items-center overflow-y-auto pt-1 pb-2", named ? "gap-3" : "gap-2")}
+      >
         {groups.map((group) => (
           <RailItem
             key={group.id}
@@ -208,6 +218,7 @@ export function WorkspaceRail({ onAddWorkspace, footer }: { onAddWorkspace(): vo
             chats={live.filter((chat) => groupOf(chat) === group.id)}
             states={states}
             shown={shown === group.id}
+          named={named}
           />
         ))}
         <Tooltip>

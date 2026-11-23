@@ -116,6 +116,7 @@ Acceptance scenarios:
 | FR-12 | Each rail icon must show the workspace's name under it, cut with "…" when it does not fit. | Given "evo-harness", then its rail icon reads "evo-harness" below it. |
 | FR-13 | A workspace's icon must be, in order: the icon the person chose for it; else the project's logo found in its folder; else its initials. "This computer" keeps the computer icon. | Given a folder with `public/favicon.svg` and no chosen icon, then the rail shows that image. |
 | FR-14 | The workspace menu (rail right-click and the list header's "…") must have **Change icon…**: a dialog to pick one of a set of icons, an emoji, the project's logo (when one is found) or the initials, and to go back to automatic. The choice is remembered across restarts and applies at once. | Given the person picks the rocket icon for B, then B's rail icon is a rocket, also after a restart. |
+| FR-16 | Settings → Appearance must have **Workspace names** (on by default): off, the rail shows icons only and is narrower. The choice is kept on this machine. | Given it is switched off, then no names show under the rail icons and the rail narrows, also after a restart. |
 | FR-15 | Rows in **Needs you** must show the workspace's icon (small) instead of its initials. | Given a waiting chat of a workspace with a logo, then its Needs you row shows the logo. |
 
 ### 4.2 Non-functional
@@ -188,3 +189,4 @@ None.
 - 2026-11-23 — Polish: every rail icon in a 36 px tile (no fill unless shown
   or hovered), 11 px names ("Local" for
   This computer), the list header reads "Chats".
+- 2026-11-23 — Owner asked for a setting to hide the rail's names (FR-16).

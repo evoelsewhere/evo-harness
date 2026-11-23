@@ -468,9 +468,17 @@ function Layout() {
   const setChatWidth = useAppearanceStore((s) => s.setChatWidth);
   const motion = useAppearanceStore((s) => s.motion);
   const setMotion = useAppearanceStore((s) => s.setMotion);
+  const railNames = useAppearanceStore((s) => s.railNames);
+  const setRailNames = useAppearanceStore((s) => s.setRailNames);
 
   return (
     <SettingsGroup title="Layout & motion">
+      <SettingsRow
+        labelId="rail-names-label"
+        label="Workspace names"
+        description="Show each workspace's name under its icon on the sidebar's rail. Off, the rail shows icons only and takes less room."
+        control={<Switch aria-labelledby="rail-names-label" checked={railNames} onCheckedChange={setRailNames} />}
+      />
       <SettingsRow
         labelId="width-label"
         label="Conversation width"

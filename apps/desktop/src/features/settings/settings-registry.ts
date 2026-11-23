@@ -36,7 +36,7 @@ export const settingsPages: SettingsPage[] = [
     title: "Appearance",
     icon: PaletteIcon,
     group: "Application",
-    keywords: ["theme", "dark", "light", "color", "accent", "font", "typography", "size", "zoom", "motion", "animation", "width"],
+    keywords: ["theme", "dark", "light", "color", "accent", "font", "typography", "size", "zoom", "motion", "animation", "width", "workspace", "rail", "names", "sidebar"],
     component: AppearanceSettings,
   },
   {
