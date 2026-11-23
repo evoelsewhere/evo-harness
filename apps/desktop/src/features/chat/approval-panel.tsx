@@ -37,7 +37,20 @@ const rejects = (option: { title: string; permission?: string }) =>
  * Confirmation). It sits outside the thread because it is a prompt, not
  * activity.
  */
-export function ApprovalPanel({ permission }: { permission: PermissionRequest }) {
+export function ApprovalPanel({
+  permission,
+  compact = false,
+  extra,
+}: {
+  permission: PermissionRequest;
+  /**
+   * The quick entry box: the request in one line, no details or diff, the
+   * same choices (docs/features/quick-entry/spec.md, FR-14).
+   */
+  compact?: boolean;
+  /** Shown beside the hint line (the box's **Review in Evo**). */
+  extra?: React.ReactNode;
+}) {
   const answerPermission = usePaneEngine((s) => s.answerPermission);
   // Requests waiting behind this one.
   const waiting = usePaneEngine((s) => Math.max(0, (s.transcript.permissions?.length ?? 0) - 1));
@@ -85,11 +98,12 @@ export function ApprovalPanel({ permission }: { permission: PermissionRequest })
               <Kbd className="ml-2">Esc</Kbd> {permission.options[rejectIndex].title.toLowerCase()}
             </>
           )}
+          {extra}
         </span>
       </div>
       <Confirmation
         title={title}
-        description={permission.description}
+        description={compact ? undefined : permission.description}
         mono={permission.approval?.kind === "command"}
         options={permission.options}
         onAnswer={(_, index) => answer(index)}

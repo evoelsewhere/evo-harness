@@ -1,6 +1,7 @@
 //! Quick entry: a small message box that opens over any app from a global
-//! shortcut or the tray icon; Enter starts a new chat with the text in the
-//! main window (docs/features/quick-entry/spec.md, FR-1–FR-9; plan 3.5).
+//! shortcut or the tray icon. Enter answers in the box; Ctrl+Enter starts a
+//! new chat with the text in the main window
+//! (docs/features/quick-entry/spec.md, FR-1–FR-22; plan 3.5).
 //!
 //! * The box is its own window (`quick-entry`, page `quick-entry.html`):
 //!   frameless, transparent, always on top, out of the taskbar. It is built
@@ -14,11 +15,17 @@
 //!   engine store talks to engines: the box never does.
 //! * Settings › General turns it on and off and records the shortcut; both
 //!   apply at once (FR-9).
+//! * Answers in the box: the box is a viewer window of one chat at a time
+//!   (ADR 0018). The shell keeps that chat, its last use, the pin and the
+//!   pinned position, decides on every show whether the box keeps its chat
+//!   ([`keep_chat`], FR-18), hands a chat to the main window at a target
+//!   (`quick_entry_open`, FR-15) and sends notice clicks for the box's chat
+//!   to the box (`quick-entry://notice`, FR-19).
 
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use evo_store::logs::NewLog;
 use serde_json::{json, Value};
@@ -31,12 +38,19 @@ use crate::db::Db;
 pub const LABEL: &str = "quick-entry";
 const ENABLED_KEY: &str = "system.quickEntry";
 const SHORTCUT_KEY: &str = "system.quickEntryShortcut";
+/// Minutes after which the box opens empty; null is Never (FR-18).
+const NEW_CHAT_KEY: &str = "system.quickEntryNewChatAfter";
+/// The default of [`NEW_CHAT_KEY`].
+pub const NEW_CHAT_AFTER: u64 = 15;
 /// The window's logical width; the card inside leaves room for its shadow.
 const WIDTH: f64 = 680.0;
 /// The window's logical height with one line of text.
 const HEIGHT: f64 = 84.0;
-/// The window grows with the text up to this, then the field scrolls (FR-8).
+/// The window grows with the text up to this, then the field scrolls (FR-8),
+/// and never stops below it once it shows a chat.
 const MAX_HEIGHT: f64 = 320.0;
+/// A box with a chat grows up to this share of its monitor's height (FR-11).
+const MONITOR_SHARE: f64 = 0.6;
 /// How far down the monitor the box's top sits.
 const TOP_SHARE: f64 = 0.22;
 /// Focus changes right after showing are the show's own (a tray click).
@@ -56,6 +70,17 @@ pub struct QuickEntryState {
     blurred_at: Mutex<Option<Instant>>,
     /// Text sent while there was no main window, for the one being built.
     pending: Mutex<Option<String>>,
+    /// The chat the box shows; `None`: empty (FR-11, FR-18).
+    chat: Mutex<Option<String>>,
+    /// When the box's chat was last used (ms since the epoch): a message
+    /// sent or a reply finished (FR-18).
+    last_used: Mutex<Option<u64>>,
+    /// Minutes unused after which the box opens empty; `None`: Never.
+    new_chat_after: Mutex<Option<u64>>,
+    /// Pinned: blur does not hide the box (FR-17).
+    pinned: AtomicBool,
+    /// Where a pinned box was left (physical px), until it is unpinned.
+    position: Mutex<Option<(i32, i32)>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -111,13 +136,68 @@ pub fn prompt_text(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_string())
 }
 
-/// The window's logical height for a page asking for `height` (FR-8).
-pub fn window_height(height: f64) -> f64 {
+/// The window's logical height for a page asking for `height`, up to
+/// `limit` (FR-8, FR-11).
+pub fn window_height(height: f64, limit: f64) -> f64 {
+    let limit = limit.max(HEIGHT);
     if height.is_finite() {
-        height.clamp(HEIGHT, MAX_HEIGHT)
+        height.clamp(HEIGHT, limit)
     } else {
         HEIGHT
     }
+}
+
+/// How tall the box may grow on a monitor `monitor_height` logical pixels
+/// tall: [`MONITOR_SHARE`] of it, never less than the field's limit (FR-11).
+pub fn height_limit(monitor_height: Option<f64>) -> f64 {
+    match monitor_height {
+        Some(height) if height.is_finite() && height > 0.0 => (height * MONITOR_SHARE).max(MAX_HEIGHT),
+        _ => MAX_HEIGHT,
+    }
+}
+
+/// Whether the box opens on its chat rather than empty (FR-18): the chat
+/// still `exists` (not deleted or archived); one that is `busy` (running or
+/// waiting for the person) is always kept; otherwise it is kept while it was
+/// used no longer than `after` minutes ago (`None`: Never starts anew).
+pub fn keep_chat(exists: bool, busy: bool, last_used: Option<u64>, now: u64, after: Option<u64>) -> bool {
+    if !exists {
+        return false;
+    }
+    if busy {
+        return true;
+    }
+    match (after, last_used) {
+        (None, _) | (_, None) => true,
+        (Some(minutes), Some(used)) => now.saturating_sub(used) <= minutes.saturating_mul(60_000),
+    }
+}
+
+/// Where a pinned box left at `position` opens: there while a monitor
+/// (`origin`, `size`, physical px) still holds that point, else nowhere and
+/// the usual placement is used (FR-4, FR-17).
+pub fn pinned_placement(position: Option<(i32, i32)>, monitors: &[((i32, i32), (u32, u32))]) -> Option<(i32, i32)> {
+    let (x, y) = position?;
+    monitors
+        .iter()
+        .any(|&((left, top), (width, height))| {
+            x >= left && y >= top && i64::from(x) < i64::from(left) + i64::from(width) && i64::from(y) < i64::from(top) + i64::from(height)
+        })
+        .then_some((x, y))
+}
+
+/// The saved **Start a new chat after**: missing is the default, null is
+/// Never, a number is minutes (at least one) (FR-9, FR-18).
+pub fn new_chat_after(saved: Option<&Value>) -> Option<u64> {
+    match saved {
+        None => Some(NEW_CHAT_AFTER),
+        Some(Value::Null) => None,
+        Some(value) => Some(value.as_u64().unwrap_or(NEW_CHAT_AFTER).max(1)),
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 // ── The app ─────────────────────────────────────────────────────────────────
@@ -186,6 +266,8 @@ pub fn setup(app: &AppHandle) {
     let db = app.state::<Db>();
     let state = app.state::<QuickEntryState>();
     *locked(&state.shortcut) = saved_text(&db, SHORTCUT_KEY).unwrap_or_else(|| default_shortcut().to_string());
+    let saved = db.with(|conn| evo_store::settings::all(conn)).ok();
+    *locked(&state.new_chat_after) = new_chat_after(saved.as_ref().and_then(|all| all.get(NEW_CHAT_KEY)));
     if !crate::system::saved_flag(&db, ENABLED_KEY, true) {
         return;
     }
@@ -196,12 +278,24 @@ pub fn setup(app: &AppHandle) {
     register_saved(app);
 }
 
-/// Quick entry's settings: on, the shortcut, and whether it is registered.
-pub fn settings(app: &AppHandle) -> (bool, String, bool) {
+/// Quick entry's settings: on, the shortcut, whether it is registered, and
+/// the minutes after which the box starts a new chat (`None`: Never).
+pub fn settings(app: &AppHandle) -> (bool, String, bool, Option<u64>) {
     let state = app.state::<QuickEntryState>();
     let enabled = state.enabled.load(Ordering::Acquire);
     let shortcut = locked(&state.shortcut).clone();
-    (enabled, shortcut, !enabled || state.registered.load(Ordering::Acquire))
+    let after = *locked(&state.new_chat_after);
+    (enabled, shortcut, !enabled || state.registered.load(Ordering::Acquire), after)
+}
+
+/// Set **Start a new chat after** (`None`: Never); applies on the next show
+/// (FR-9, FR-18).
+pub fn set_new_chat_after(app: &AppHandle, minutes: Option<u64>) -> Result<(), String> {
+    let minutes = minutes.map(|m| m.max(1));
+    let value = minutes.map_or(Value::Null, |m| json!(m));
+    app.state::<Db>().with(|conn| evo_store::settings::set(conn, NEW_CHAT_KEY, &value))?;
+    *locked(&app.state::<QuickEntryState>().new_chat_after) = minutes;
+    Ok(())
 }
 
 /// Turn quick entry on or off, at once (FR-9).
@@ -274,18 +368,65 @@ fn place(app: &AppHandle, window: &tauri::WebviewWindow) {
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
+/// Put a pinned box where it was left, when a monitor still holds that
+/// point; otherwise the usual placement (FR-4, FR-17).
+fn place_pinned(app: &AppHandle, window: &tauri::WebviewWindow) -> bool {
+    let state = app.state::<QuickEntryState>();
+    if !state.pinned.load(Ordering::Acquire) {
+        return false;
+    }
+    let monitors: Vec<((i32, i32), (u32, u32))> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| ((m.position().x, m.position().y), (m.size().width, m.size().height)))
+        .collect();
+    let Some((x, y)) = pinned_placement(*locked(&state.position), &monitors) else {
+        return false;
+    };
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+    true
+}
+
+/// The chat the box opens on: its own, unless it is gone, archived, or
+/// unused for longer than the set time while not busy (FR-18).
+fn chat_to_show(app: &AppHandle) -> Option<String> {
+    let state = app.state::<QuickEntryState>();
+    let chat = locked(&state.chat).clone()?;
+    let row = app.state::<Db>().with(|conn| evo_store::chats::get_chat(conn, &chat)).ok().flatten();
+    let exists = row.is_some_and(|row| row.archived_at.is_none());
+    let busy = exists
+        && app
+            .state::<crate::supervisor::EngineSupervisor>()
+            .working(&crate::supervisor::AppHost(app.clone()), &chat);
+    let kept = keep_chat(exists, busy, *locked(&state.last_used), now_ms(), *locked(&state.new_chat_after));
+    if !kept {
+        *locked(&state.chat) = None;
+        *locked(&state.last_used) = None;
+    }
+    kept.then_some(chat)
+}
+
 fn show(app: &AppHandle, window: &tauri::WebviewWindow) {
-    place(app, window);
-    *locked(&app.state::<QuickEntryState>().shown_at) = Some(Instant::now());
+    if !place_pinned(app, window) {
+        place(app, window);
+    }
+    let state = app.state::<QuickEntryState>();
+    *locked(&state.shown_at) = Some(Instant::now());
+    let chat = chat_to_show(app);
+    let pinned = state.pinned.load(Ordering::Acquire);
     let _ = window.show();
     let _ = window.set_focus();
-    // The page puts the caret in the field and reads the theme again.
-    let _ = app.emit_to(LABEL, "quick-entry://shown", ());
+    // The page shows the chat (or empties), puts the caret in the field and
+    // reads the theme again (FR-18, FR-22).
+    let _ = app.emit_to(LABEL, "quick-entry://shown", json!({ "chat": chat, "pinned": pinned }));
 }
 
 fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(LABEL) {
         let _ = window.hide();
+        // The page stops drawing its chat while hidden (NFR-3).
+        let _ = app.emit_to(LABEL, "quick-entry://hidden", ());
     }
 }
 
@@ -324,18 +465,47 @@ pub fn tray_clicked(app: &AppHandle) {
     }
 }
 
-/// The box lost focus: it hides, keeping its text (FR-7).
+/// The box lost focus: it hides, keeping its text and its chat, unless it
+/// is pinned (FR-7, FR-17).
 pub fn on_focus_lost(window: &tauri::Window) {
     if window.label() != LABEL {
         return;
     }
     let state = window.state::<QuickEntryState>();
+    if state.pinned.load(Ordering::Acquire) {
+        return;
+    }
     let just_shown = locked(&state.shown_at).is_some_and(|at| at.elapsed() < BLUR_GRACE);
     if just_shown || !window.is_visible().unwrap_or(false) {
         return;
     }
     *locked(&state.blurred_at) = Some(Instant::now());
     let _ = window.hide();
+    let _ = window.app_handle().emit_to(LABEL, "quick-entry://hidden", ());
+}
+
+/// A pinned box was dragged: it opens there next time (FR-17).
+pub fn on_moved(window: &tauri::Window, position: PhysicalPosition<i32>) {
+    if window.label() != LABEL || !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let state = window.state::<QuickEntryState>();
+    if state.pinned.load(Ordering::Acquire) {
+        *locked(&state.position) = Some((position.x, position.y));
+    }
+}
+
+/// A notification of `chat` was clicked: when the box shows that chat, it
+/// decides between itself and the main window (`quick-entry://notice`);
+/// false when the box does not hold it (FR-19).
+pub fn notice_clicked(app: &AppHandle, chat: &str) -> bool {
+    if app.get_webview_window(LABEL).is_none() {
+        return false;
+    }
+    if locked(&app.state::<QuickEntryState>().chat).as_deref() != Some(chat) {
+        return false;
+    }
+    app.emit_to(LABEL, "quick-entry://notice", json!({ "chat": chat })).is_ok()
 }
 
 /// The box sends its text: it hides, and the main window starts a new chat
@@ -361,12 +531,71 @@ pub fn quick_entry_hide(app: AppHandle) {
     hide(&app);
 }
 
-/// The box's field grew or shrank to `height` logical pixels (FR-8).
+/// The box's card grew or shrank to `height` logical pixels (FR-8, FR-11).
 #[tauri::command]
 pub fn quick_entry_resize(window: tauri::WebviewWindow, height: f64) {
-    if window.label() == LABEL {
-        let _ = window.set_size(LogicalSize::new(WIDTH, window_height(height)));
+    if window.label() != LABEL {
+        return;
     }
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| monitor.size().height as f64 / monitor.scale_factor());
+    let _ = window.set_size(LogicalSize::new(WIDTH, window_height(height, height_limit(monitor))));
+}
+
+/// The box now holds `chat` (`None`: empty); `used`: a message was sent or a
+/// reply finished just now (FR-18).
+#[tauri::command]
+pub fn quick_entry_chat(state: State<'_, QuickEntryState>, window: tauri::Window, chat: Option<String>, used: bool) {
+    if window.label() != LABEL {
+        return;
+    }
+    let mut held = locked(&state.chat);
+    let changed = *held != chat;
+    *held = chat;
+    let mut last = locked(&state.last_used);
+    if used {
+        *last = Some(now_ms());
+    } else if changed {
+        *last = None;
+    }
+}
+
+/// Pin or unpin the box; unpinning forgets where it was left (FR-17).
+#[tauri::command]
+pub fn quick_entry_pin(state: State<'_, QuickEntryState>, window: tauri::WebviewWindow, pinned: bool) {
+    if window.label() != LABEL {
+        return;
+    }
+    state.pinned.store(pinned, Ordering::Release);
+    let mut position = locked(&state.position);
+    *position = if pinned {
+        window.outer_position().ok().map(|p| (p.x, p.y))
+    } else {
+        None
+    };
+}
+
+/// Show the box (after a notice click the box answers itself, FR-19).
+#[tauri::command]
+pub fn quick_entry_show(app: AppHandle) {
+    if crate::system::quitting(&app) {
+        return;
+    }
+    if let Some(window) = app.get_webview_window(LABEL) {
+        show(&app, &window);
+    }
+}
+
+/// Hide the box (pinned too) and show `chat` in the main window at `target`
+/// (a question, a turn, a side panel tab); the chat keeps running and the
+/// box keeps it (FR-6, FR-12, FR-14, FR-15).
+#[tauri::command]
+pub fn quick_entry_open(app: AppHandle, chat: String, target: Option<Value>) {
+    hide(&app);
+    crate::system::open_in_main_at(&app, &chat, target);
 }
 
 /// Text sent while there was no main window: the one built again starts a
@@ -429,10 +658,65 @@ mod tests {
 
     #[test]
     fn the_box_grows_with_its_text_up_to_a_limit() {
-        assert_eq!(window_height(10.0), HEIGHT);
-        assert_eq!(window_height(150.0), 150.0);
-        assert_eq!(window_height(5000.0), MAX_HEIGHT);
-        assert_eq!(window_height(f64::NAN), HEIGHT);
+        assert_eq!(window_height(10.0, MAX_HEIGHT), HEIGHT);
+        assert_eq!(window_height(150.0, MAX_HEIGHT), 150.0);
+        assert_eq!(window_height(5000.0, MAX_HEIGHT), MAX_HEIGHT);
+        assert_eq!(window_height(f64::NAN, MAX_HEIGHT), HEIGHT);
+        // A limit below one line still leaves one line.
+        assert_eq!(window_height(150.0, 10.0), HEIGHT);
+    }
+
+    // Answers in the box (T8).
+
+    #[test]
+    fn a_box_with_a_chat_grows_up_to_sixty_percent_of_its_monitor() {
+        // A 1080 px tall monitor: 648 px.
+        assert_eq!(height_limit(Some(1080.0)), 648.0);
+        assert_eq!(window_height(5000.0, height_limit(Some(1080.0))), 648.0);
+        // A short monitor never drops below the field's own limit.
+        assert_eq!(height_limit(Some(400.0)), MAX_HEIGHT);
+        // No monitor known: the field's limit.
+        assert_eq!(height_limit(None), MAX_HEIGHT);
+        assert_eq!(height_limit(Some(f64::NAN)), MAX_HEIGHT);
+    }
+
+    #[test]
+    fn the_box_keeps_its_chat_until_the_set_time_passes() {
+        let minute = 60_000;
+        let now = 100 * minute;
+        // Used 10 minutes ago, 15 minutes set: kept; 16 minutes ago: anew.
+        assert!(keep_chat(true, false, Some(now - 10 * minute), now, Some(15)));
+        assert!(keep_chat(true, false, Some(now - 15 * minute), now, Some(15)));
+        assert!(!keep_chat(true, false, Some(now - 16 * minute), now, Some(15)));
+        // Never: always kept.
+        assert!(keep_chat(true, false, Some(0), now, None));
+        // Running or waiting for the person: kept however old.
+        assert!(keep_chat(true, true, Some(0), now, Some(5)));
+        // Gone or archived: never kept, busy or not.
+        assert!(!keep_chat(false, true, Some(now), now, None));
+        // Held but never used (just attached): kept.
+        assert!(keep_chat(true, false, None, now, Some(5)));
+    }
+
+    #[test]
+    fn a_pinned_box_opens_where_it_was_left_while_a_monitor_holds_it() {
+        let monitors = [((0, 0), (1920, 1080)), ((-2560, 0), (2560, 1440))];
+        assert_eq!(pinned_placement(Some((100, 200)), &monitors), Some((100, 200)));
+        assert_eq!(pinned_placement(Some((-1000, 900)), &monitors), Some((-1000, 900)));
+        // The monitor it was on is gone: the usual placement.
+        assert_eq!(pinned_placement(Some((4000, 100)), &monitors), None);
+        assert_eq!(pinned_placement(Some((1920, 0)), &monitors), None);
+        // Never moved.
+        assert_eq!(pinned_placement(None, &monitors), None);
+    }
+
+    #[test]
+    fn start_a_new_chat_after_defaults_to_fifteen_minutes() {
+        assert_eq!(new_chat_after(None), Some(15));
+        assert_eq!(new_chat_after(Some(&Value::Null)), None);
+        assert_eq!(new_chat_after(Some(&json!(30))), Some(30));
+        assert_eq!(new_chat_after(Some(&json!(0))), Some(1));
+        assert_eq!(new_chat_after(Some(&json!("x"))), Some(15));
     }
 
     #[test]

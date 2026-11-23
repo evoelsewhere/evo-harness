@@ -78,6 +78,16 @@ function ThreadScroller() {
     const frame = requestAnimationFrame(() => scrollToMessage(`${lastTurn}-prompt`, { align: "start", behavior: "smooth" }));
     return () => cancelAnimationFrame(frame);
   }, [chatId, lastTurn]);
+  // Quick entry's Open in Evo / Review in Evo: go to the turn, or to the
+  // latest one for a question, which shows by the composer (quick-entry FR-15).
+  const openTarget = useEngineStore((s) => (s.openTarget && s.openTarget.chat === chatId ? s.openTarget : null));
+  React.useEffect(() => {
+    if (!openTarget || openTarget.kind === "panel") return;
+    const turn = openTarget.kind === "turn" ? openTarget.id : lastTurn;
+    if (!turn) return;
+    const frame = requestAnimationFrame(() => scrollToMessage(`${turn}-prompt`, { align: "start", behavior: "smooth" }));
+    return () => cancelAnimationFrame(frame);
+  }, [openTarget?.at]);
   return (
     <MessageScroller>
       <MessageScrollerViewport>

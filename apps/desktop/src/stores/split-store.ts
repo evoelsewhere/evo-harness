@@ -7,7 +7,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { chatWindowId } from "@/lib/windows";
+import { viewerWindow } from "@/lib/windows";
 import { useEngineStore } from "./engine-store";
 import { useSessionStore } from "./session-store";
 import {
@@ -52,7 +52,7 @@ export const useSplitStore = create<SplitStore>()(
         ...NO_SPLIT,
 
         async open(chat, at) {
-          if (chatWindowId) return;
+          if (viewerWindow) return;
           const next = openPane(get(), engine().activeId, chat, at);
           if (next === get()) return;
           // The new chat's engine is attached before its pane shows.
@@ -98,7 +98,7 @@ export const useSplitStore = create<SplitStore>()(
     {
       name: "evo-split",
       // A chat window shows one chat: it never splits, and keeps nothing.
-      partialize: (state) => (chatWindowId ? {} : { panes: state.panes, focus: state.focus, ratio: state.ratio, rowRatio: state.rowRatio }),
+      partialize: (state) => (viewerWindow ? {} : { panes: state.panes, focus: state.focus, ratio: state.ratio, rowRatio: state.rowRatio }),
     },
   ),
 );
@@ -138,7 +138,7 @@ let started = false;
  * shown (FR-10).
  */
 export function startSplit(): void {
-  if (started || chatWindowId) return;
+  if (started || viewerWindow) return;
   started = true;
   useEngineStore.subscribe((state, previous) => {
     if (state.activeId === previous.activeId) return;
@@ -159,7 +159,7 @@ export function startSplit(): void {
 
 /** Show the saved panes again: the other panes' chats are attached beside the active one (FR-10). */
 export async function restoreSplit(): Promise<void> {
-  if (chatWindowId) return;
+  if (viewerWindow) return;
   const split = useSplitStore.getState();
   if (!split.panes) return;
   const sessions = useSessionStore.getState().sessions;

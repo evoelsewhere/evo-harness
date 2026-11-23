@@ -8,7 +8,7 @@ import { persist } from "zustand/middleware";
 import { isConflict, readFile, samePath, statFile, writeFile, type FileContent } from "@/features/files/fs";
 import { buildDecorations, type GitDecorations } from "@/features/files/git-state";
 import { git } from "@/lib/git";
-import { useUiStore } from "./ui-store";
+import { forwardPanel, useUiStore } from "./ui-store";
 
 export interface OpenFile {
   path: string;
@@ -153,6 +153,8 @@ export const useFilesStore = create<FilesStore>()(
         },
 
         async open(path, line) {
+          // The quick entry box opens files in the main window (quick-entry FR-12).
+          if (forwardPanel("files", undefined, path)) return;
           const key = openKey(get().tabs, path) ?? path;
           const known = get().files[key];
           set((s) => ({

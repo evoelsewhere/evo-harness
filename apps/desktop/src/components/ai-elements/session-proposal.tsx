@@ -3,7 +3,7 @@ import { ArrowUpRightIcon, Columns2Icon, MessagesSquareIcon } from "lucide-react
 import { Button } from "@/components/ui/button";
 import type { ToolPart } from "@/features/chat/transcript";
 import { roleLabel, type SessionRole } from "@/lib/db";
-import { chatWindowId } from "@/lib/windows";
+import { viewerWindow } from "@/lib/windows";
 import { usePaneEngine } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -106,7 +106,7 @@ export function SessionProposal({ part }: { part: ToolPart }) {
   const brief = briefOf(part, proposal);
   // A started session can be shown beside its parent: Open beside, or drag
   // the card onto the chat area (docs/features/chat-split-view/spec.md, FR-14).
-  const besideable = started && !gone && Boolean(row) && row?.archivedAt == null && !chatWindowId;
+  const besideable = started && !gone && Boolean(row) && row?.archivedAt == null && !viewerWindow;
 
   async function start() {
     if (!chat || !proposal?.proposalId) return;
@@ -182,7 +182,7 @@ export function SessionProposal({ part }: { part: ToolPart }) {
       {started ? (
         gone ? (
           <p className="text-[13px] text-muted-foreground">This session was deleted.</p>
-        ) : chatWindowId ? (
+        ) : viewerWindow ? (
           // A chat window shows only its own chat.
           <p className="text-[13px] text-muted-foreground">Open it from the main window's sidebar.</p>
         ) : (

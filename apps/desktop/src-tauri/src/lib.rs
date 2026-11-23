@@ -158,6 +158,9 @@ pub fn run() {
             if let tauri::WindowEvent::Focused(false) = event {
                 quick_entry::on_focus_lost(window);
             }
+            if let tauri::WindowEvent::Moved(position) = event {
+                quick_entry::on_moved(window, *position);
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
                 // A window's terminals end with it.
@@ -278,6 +281,11 @@ pub fn run() {
             quick_entry::quick_entry_hide,
             quick_entry::quick_entry_resize,
             quick_entry::quick_entry_pending,
+            quick_entry::quick_entry_chat,
+            quick_entry::quick_entry_pin,
+            quick_entry::quick_entry_show,
+            quick_entry::quick_entry_open,
+            system::system_set_new_chat_after,
             mcp::mcp_state,
             mcp::mcp_upsert,
             mcp::mcp_remove,

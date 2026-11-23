@@ -25,7 +25,18 @@ interface SystemSettings {
   quickEntryShortcut: string;
   /** False when another app holds the shortcut. */
   quickEntryShortcutOk: boolean;
+  /** Minutes after which the box starts a new chat; null is Never (FR-18). */
+  quickEntryNewChatAfter: number | null;
 }
+
+/** **Start a new chat after**'s choices (quick-entry FR-9, FR-18). */
+const NEW_CHAT_AFTER: { value: string; label: string }[] = [
+  { value: "5", label: "5 minutes" },
+  { value: "15", label: "15 minutes" },
+  { value: "30", label: "30 minutes" },
+  { value: "60", label: "1 hour" },
+  { value: "never", label: "Never" },
+];
 
 type Key = "runOnStartup" | "tray" | "keepAwake" | "quickEntry";
 
@@ -76,6 +87,16 @@ export function GeneralSettings() {
   }
 
   const toggle = (id: Key) => <Toggle id={id} settings={settings} pending={pending} onChange={change} />;
+
+  /** How long the box keeps its chat (quick-entry FR-18). */
+  async function changeNewChatAfter(value: string) {
+    const minutes = value === "never" ? null : Number(value);
+    try {
+      setSettings(await invoke<SystemSettings>("system_set_new_chat_after", { minutes }));
+    } catch (error) {
+      notify({ source: "settings", level: "error", title: "Could not change the setting", body: String(error) });
+    }
+  }
 
   /** Record a quick entry shortcut; a refused one keeps the old (FR-9). */
   async function changeShortcut(shortcut: string): Promise<boolean> {
@@ -157,7 +178,7 @@ export function GeneralSettings() {
         <SettingsRow
           labelId="setting-quickEntry"
           label="Quick entry"
-          description={`A small message box that opens over any app with the shortcut below${settings?.tray === false ? "" : ` or a click on the ${TRAY} icon`}. Press Enter to start a new chat with what you typed; Esc closes it and keeps your text.`}
+          description={`A small message box that opens over any app with the shortcut below${settings?.tray === false ? "" : ` or a click on the ${TRAY} icon`}. Press Enter and Evo answers in the box, where you can ask follow-ups; Ctrl+Enter opens the chat in Evo instead. Esc or a click elsewhere hides it and keeps your text and the chat.`}
           control={toggle("quickEntry")}
         />
         <SettingsRow
@@ -175,6 +196,30 @@ export function GeneralSettings() {
               disabled={!settings || !settings.quickEntry}
               onChange={changeShortcut}
             />
+          }
+        />
+        <SettingsRow
+          labelId="setting-quickEntryNewChatAfter"
+          label="Start a new chat after"
+          description="When you open the box this long after you last used its chat, it starts empty. The earlier chat stays in the sidebar, and a chat still working or waiting for you is kept."
+          control={
+            <Select
+              value={settings ? (settings.quickEntryNewChatAfter == null ? "never" : String(settings.quickEntryNewChatAfter)) : "15"}
+              items={NEW_CHAT_AFTER}
+              disabled={!settings || !settings.quickEntry}
+              onValueChange={(next) => next && void changeNewChatAfter(String(next))}
+            >
+              <SelectTrigger aria-labelledby="setting-quickEntryNewChatAfter" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false} align="end">
+                {NEW_CHAT_AFTER.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           }
         />
       </SettingsGroup>

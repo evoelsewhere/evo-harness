@@ -3,7 +3,7 @@
 // (built from `src/lib/webbridge-chat.ts`) both use, so a turn reads the same
 // in both (docs/features/browser-bridge/spec.md, FR-10).
 
-import { activity, toolKind } from "@/components/ai-elements/tool-labels";
+import { activity, toolHeader, toolKind } from "@/components/ai-elements/tool-labels";
 import { formatCost, formatDuration, formatTokens } from "@/lib/format";
 import type { NoteKind, Part, ReasoningPart, ToolPart, Turn } from "./transcript";
 
@@ -134,6 +134,18 @@ export function seconds(ms: number): string {
 /** "Thinking" while it streams, "Thought for 4s" after. */
 export function reasoningTitle(part: Pick<ReasoningPart, "streaming" | "startedAt" | "endedAt">): string {
   return part.streaming ? "Thinking" : part.endedAt ? `Thought for ${seconds(part.endedAt - part.startedAt)}` : "Thought";
+}
+
+/**
+ * One step as a single line, for the quick entry box: the tool's own line
+ * (its words, file or command), running or failed; reasoning only while it
+ * streams (docs/features/quick-entry/spec.md, FR-13). `running`: the turn
+ * still runs.
+ */
+export function stepLine(part: ReasoningPart | ToolPart, running: boolean): { label: string; status?: "running" | "error" } | null {
+  if (part.kind === "reasoning") return part.streaming ? { label: "Thinking", status: "running" } : null;
+  const header = toolHeader(part, running);
+  return { label: header.label, status: header.failed ? "error" : header.live ? "running" : undefined };
 }
 
 /** The step a running turn is on, for "Working for 12s · running commands". */

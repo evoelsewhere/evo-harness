@@ -25,7 +25,7 @@ import { replyMarkdown } from "./message-text";
 import { SentFiles, type SentFile } from "@/components/ai-elements/sent-files";
 import { KeptWorktree, childRun } from "@/components/ai-elements/agent-run";
 import { noteKind, turnReply, type NoteKind, type ToolPart, type Turn } from "./transcript";
-import { groupTitle, noteLabel, runningInBackground, runningStep, segments, turnMetaLine, type Process } from "./turn-view";
+import { groupTitle, noteLabel, runningInBackground, runningStep, segments, stepLine, turnMetaLine, type Process } from "./turn-view";
 
 // One turn, mapped the way DeepSeek Harness maps it, on shadcn/ui AI Elements:
 // - the person's text is a Bubble (Message);
@@ -120,6 +120,30 @@ const ProcessGroup = React.memo(function ProcessGroup({ parts, running, live: tu
 }, sameGroup);
 
 /**
+ * A process group in the quick entry box: one line per step, no details,
+ * output or diffs (docs/features/quick-entry/spec.md, FR-13).
+ */
+const CompactSteps = React.memo(function CompactSteps({ parts, running }: ProcessGroupProps) {
+  const lines = parts.flatMap((part) => {
+    const line = stepLine(part, running);
+    return line ? [{ key: part.key, ...line }] : [];
+  });
+  if (!lines.length) return null;
+  return (
+    <Trace className="gap-1">
+      {lines.map((line) => (
+        <div key={line.key}>
+          <TraceLine status={line.status}>
+            {line.status === "running" && <Spinner className="size-3.5" />}
+            <TraceTitle>{line.label}</TraceTitle>
+          </TraceLine>
+        </div>
+      ))}
+    </Trace>
+  );
+}, sameGroup);
+
+/**
  * "Working for 12s · running commands", ticking while the turn runs; names
  * the step that runs now (ux-polish FR-12).
  */
@@ -149,13 +173,26 @@ function RunningStatus({ startedAt, parts }: { startedAt: number; parts: Turn["p
   );
 }
 
-export function AssistantMessage({ turn }: { turn: Turn }) {
+export function AssistantMessage({
+  turn,
+  compact = false,
+  onOpenInEvo,
+}: {
+  turn: Turn;
+  /**
+   * The quick entry box: steps as single lines, nothing folds, no changes,
+   * checkpoints, worktrees or message menu (quick-entry FR-12, FR-13).
+   */
+  compact?: boolean;
+  /** Compact only: a failed turn offers to continue in the main window (FR-20). */
+  onOpenInEvo?: () => void;
+}) {
   const [copied, setCopied] = React.useState(false);
   const running = turn.status === "running";
   const all = React.useMemo(() => segments(turn.parts), [turn.parts]);
   const hasProcess = all.some((segment) => segment.kind === "process");
   // A completed turn folds its process; failed or stopped turns stay open.
-  const foldable = turn.status === "done" && hasProcess;
+  const foldable = !compact && turn.status === "done" && hasProcess;
   const [expanded, setExpanded] = React.useState(false);
   // Folded, it keeps showing a background agent that is still running.
   const shown =
@@ -194,10 +231,9 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
     return () => clearTimeout(timeout);
   }, [copied]);
 
-  return (
-    <MessageMenu turn={turn} text={reply} markdown>
+  const body = (
       <Message>
-        <MessageContent className="gap-4">
+        <MessageContent className={compact ? "gap-3" : "gap-4"}>
           {running && <RunningStatus startedAt={turn.startedAt} parts={turn.parts} />}
 
           {foldable && (
@@ -221,6 +257,8 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
               <Trace key={segment.key}>
                 <Tool part={segment.part} streaming={running} />
               </Trace>
+            ) : compact ? (
+              <CompactSteps key={segment.key} parts={segment.parts} running={running} live={false} />
             ) : (
               <ProcessGroup
                 key={segment.key}
@@ -241,9 +279,18 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
             <KeptWorktree key={part.key} part={part} />
           ))}
 
-          {!running && turn.checkpoint && <TurnChanges turn={{ ...turn, checkpoint: turn.checkpoint }} />}
+          {!compact && !running && turn.checkpoint && <TurnChanges turn={{ ...turn, checkpoint: turn.checkpoint }} />}
 
           {turn.error && <TurnError error={turn.error} provider={turn.meta.provider} prompt={turn.prompt || undefined} />}
+          {compact && turn.error && onOpenInEvo && (
+            <button
+              type="button"
+              onClick={onOpenInEvo}
+              className="w-fit text-sm text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              Open in Evo
+            </button>
+          )}
           {turn.status === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}
 
           {!running && (
@@ -259,11 +306,16 @@ export function AssistantMessage({ turn }: { turn: Turn }) {
                   {copied ? <CheckIcon /> : <CopyIcon />}
                 </MessageAction>
               )}
-              <TurnMeta turn={turn} />
+              {!compact && <TurnMeta turn={turn} />}
             </MessageFooter>
           )}
         </MessageContent>
       </Message>
+  );
+  if (compact) return body;
+  return (
+    <MessageMenu turn={turn} text={reply} markdown>
+      {body}
     </MessageMenu>
   );
 }

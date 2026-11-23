@@ -101,6 +101,11 @@ interface SessionStore {
   removeWorkspace(id: string): Promise<string[]>;
   /** Show a workspace's chats in the sidebar and remember it (FR-5). */
   showWorkspace(groupId: string): void;
+  /**
+   * Read the shown workspace again: another window (the main one) may have
+   * changed it since this one loaded (quick-entry FR-5).
+   */
+  reloadShownWorkspace(): Promise<void>;
   /** Fold or unfold a workspace's group in the List layout. */
   toggleCollapsed(groupId: string): void;
 
@@ -280,6 +285,12 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
       const saved =
         groupId === LOCAL_GROUP ? db.setSetting(LOCAL_COLLAPSED_KEY, collapsed) : db.setWorkspaceCollapsed(groupId, collapsed);
       saved.catch(report("saving the sidebar"));
+    },
+
+    async reloadShownWorkspace() {
+      const [workspaces, settings] = await Promise.all([db.workspaces(), db.settings()]);
+      const saved = settings[SHOWN_WORKSPACE_KEY];
+      set((s) => ({ workspaces, shownWorkspace: pickShown(workspaces, typeof saved === "string" ? saved : null, s.shownWorkspace) }));
     },
 
     showWorkspace(groupId) {

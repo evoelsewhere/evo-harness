@@ -14,6 +14,20 @@ declare global {
 /** The chat this window shows on its own; `null` in the main window. */
 export const chatWindowId: string | null = (typeof window !== "undefined" && window.__EVO_CHAT_WINDOW__) || null;
 
+/**
+ * This page is the quick entry box, which shows one chat at a time as a
+ * viewer (docs/features/quick-entry/spec.md, FR-11; plan 3.2).
+ */
+export const quickEntryWindow: boolean =
+  typeof window !== "undefined" && window.location.pathname.endsWith("quick-entry.html");
+
+/**
+ * Not the main window: a chat window or the quick entry box. Such a window
+ * shows chats but leaves background chats, updates, split view and the
+ * shell's requests to the main window.
+ */
+export const viewerWindow: boolean = chatWindowId !== null || quickEntryWindow;
+
 export function openChatWindow(chat: string, title: string): Promise<void> {
   return invoke("chat_window_open", { chat, title });
 }

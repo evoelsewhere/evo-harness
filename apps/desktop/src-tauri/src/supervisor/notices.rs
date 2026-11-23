@@ -122,10 +122,12 @@ pub fn system_wanted(any_window_focused: bool, muted: bool) -> bool {
     !any_window_focused && !muted
 }
 
-/// The window that adds the bell entry: the main one, else any; `None` with
-/// no window open (the entry goes to the inbox).
+/// The window that adds the bell entry: the main one, else any but the
+/// quick entry box, which has no bell (quick-entry FR-19); `None` with no
+/// such window open (the entry goes to the inbox).
 pub fn route(windows: &[String]) -> Option<String> {
-    windows.iter().find(|label| label.as_str() == "main").or_else(|| windows.iter().min()).cloned()
+    let windows: Vec<&String> = windows.iter().filter(|label| label.as_str() != crate::quick_entry::LABEL).collect();
+    windows.iter().find(|label| label.as_str() == "main").or_else(|| windows.iter().min()).map(|label| (*label).clone())
 }
 
 /// The inbox (`notifications.inbox`) with `entry` added: an older entry with
@@ -219,7 +221,16 @@ pub fn notifications_take(db: State<'_, Db>) -> Vec<BellEntry> {
 /// window, which opens it (`app://open-chat`; built again first when it was
 /// destroyed, FR-11).
 pub(crate) fn open_chat(app: &AppHandle, chat: &str) {
-    let shown = app.state::<super::EngineSupervisor>().viewers_of(chat).into_iter().find(|label| label != "main");
+    // The quick entry box's own chat: the box decides between itself and
+    // the main window (quick-entry FR-19).
+    if crate::quick_entry::notice_clicked(app, chat) {
+        return;
+    }
+    let shown = app
+        .state::<super::EngineSupervisor>()
+        .viewers_of(chat)
+        .into_iter()
+        .find(|label| label != "main" && label != crate::quick_entry::LABEL);
     if let Some(window) = shown.and_then(|label| app.get_webview_window(&label)) {
         let _ = window.show();
         let _ = window.unminimize();
@@ -287,6 +298,10 @@ mod tests {
         assert_eq!(route(&["chat-b".into(), "main".into()]), Some("main".into()));
         assert_eq!(route(&["chat-b".into(), "chat-a".into()]), Some("chat-a".into()));
         assert_eq!(route(&[]), None);
+        // Never the quick entry box (quick-entry FR-19).
+        assert_eq!(route(&["quick-entry".into(), "main".into()]), Some("main".into()));
+        assert_eq!(route(&["quick-entry".into(), "chat-z".into()]), Some("chat-z".into()));
+        assert_eq!(route(&["quick-entry".into()]), None);
     }
 
     #[test]

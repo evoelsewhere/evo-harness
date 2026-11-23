@@ -111,6 +111,11 @@ pub fn window_set_theme(
         };
         let _ = window.set_theme(theme);
     }
+    // The quick entry box is a transparent window around its card: a
+    // material would fill its margin (quick-entry FR-10).
+    if window.label() == crate::quick_entry::LABEL {
+        return;
+    }
     let mut material = state.0.lock().expect("material lock");
     if *material == Material::Mica {
         *material = apply(&window, Some(dark));

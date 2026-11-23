@@ -68,8 +68,9 @@ pub struct SystemState {
     /// The window asked "Quit anyway?", until it is answered. A main window
     /// built to ask reads it when it loads (`quit_pending`).
     quit_asked: Mutex<Option<String>>,
-    /// A chat to open in a main window being built again (`app_open_pending`).
-    open_pending: Mutex<Option<String>>,
+    /// A chat to open in a main window being built again, with where in it
+    /// (`app_open_pending`; quick-entry FR-15).
+    open_pending: Mutex<Option<OpenRequest>>,
     /// An update of the tray and the windows is on its way.
     work_scheduled: AtomicBool,
     /// What the tray and the windows last heard (`app://working`).
@@ -91,6 +92,17 @@ pub struct SystemSettings {
     quick_entry_shortcut: String,
     /// False when the shortcut could not be registered (another app has it).
     quick_entry_shortcut_ok: bool,
+    /// Minutes after which the box starts a new chat; null is Never (FR-18).
+    quick_entry_new_chat_after: Option<u64>,
+}
+
+/// A chat to show in the main window and, optionally, where in it: a
+/// question, a turn or a side panel tab (quick-entry FR-15).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OpenRequest {
+    pub chat: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<Value>,
 }
 
 pub(crate) fn saved_flag(db: &Db, key: &str, default: bool) -> bool {
@@ -480,13 +492,20 @@ pub fn show_main(app: &AppHandle) -> bool {
 /// Show `chat` in the main window (`app://open-chat`). A main window built
 /// again opens it once it has loaded (`app_open_pending`).
 pub fn open_in_main(app: &AppHandle, chat: &str) {
+    open_in_main_at(app, chat, None);
+}
+
+/// [`open_in_main`] at `target` (quick-entry FR-15). Only the main window
+/// acts on `app://open-chat`.
+pub fn open_in_main_at(app: &AppHandle, chat: &str, target: Option<Value>) {
+    let request = OpenRequest { chat: chat.to_string(), target };
     if app.get_window(MAIN).is_none() {
-        *locked(&app.state::<SystemState>().open_pending) = Some(chat.to_string());
+        *locked(&app.state::<SystemState>().open_pending) = Some(request);
         show_main(app);
         return;
     }
     show_main(app);
-    let _ = app.emit("app://open-chat", json!({ "chat": chat }));
+    let _ = app.emit_to(MAIN, "app://open-chat", json!(request));
 }
 
 /// Ask "Quit anyway?" in window `label` (FR-11).
@@ -694,7 +713,7 @@ pub fn quit_pending(app: AppHandle, window: tauri::Window) -> Option<usize> {
 /// The chat a main window built again opens first (a notification or the
 /// tray asked for it while there was none); taken once.
 #[tauri::command]
-pub fn app_open_pending(state: State<'_, SystemState>, window: tauri::Window) -> Option<String> {
+pub fn app_open_pending(state: State<'_, SystemState>, window: tauri::Window) -> Option<OpenRequest> {
     if window.label() != MAIN {
         return None;
     }
@@ -702,7 +721,8 @@ pub fn app_open_pending(state: State<'_, SystemState>, window: tauri::Window) ->
 }
 
 fn current(app: &AppHandle, state: &SystemState) -> SystemSettings {
-    let (quick_entry, quick_entry_shortcut, quick_entry_shortcut_ok) = crate::quick_entry::settings(app);
+    let (quick_entry, quick_entry_shortcut, quick_entry_shortcut_ok, quick_entry_new_chat_after) =
+        crate::quick_entry::settings(app);
     SystemSettings {
         run_on_startup: app.autolaunch().is_enabled().unwrap_or(false),
         tray: state.tray.load(Ordering::Relaxed),
@@ -710,6 +730,7 @@ fn current(app: &AppHandle, state: &SystemState) -> SystemSettings {
         quick_entry,
         quick_entry_shortcut,
         quick_entry_shortcut_ok,
+        quick_entry_new_chat_after,
     }
 }
 
@@ -768,6 +789,16 @@ pub fn system_set(
 pub fn system_set_shortcut(app: AppHandle, state: State<'_, SystemState>, shortcut: String) -> Result<SystemSettings, String> {
     crate::quick_entry::set_shortcut(&app, &shortcut)?;
     app.state::<Db>().log(NewLog::new("info", "shell", format!("quick entry shortcut set to {}", shortcut.trim())));
+    Ok(current(&app, &state))
+}
+
+/// Set quick entry's **Start a new chat after** in minutes (null: Never)
+/// (quick-entry FR-9, FR-18).
+#[tauri::command]
+pub fn system_set_new_chat_after(app: AppHandle, state: State<'_, SystemState>, minutes: Option<u64>) -> Result<SystemSettings, String> {
+    crate::quick_entry::set_new_chat_after(&app, minutes)?;
+    let shown = minutes.map_or_else(|| "never".to_string(), |m| format!("{m} min"));
+    app.state::<Db>().log(NewLog::new("info", "shell", format!("quick entry new chat after {shown}")));
     Ok(current(&app, &state))
 }
 

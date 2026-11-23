@@ -1,10 +1,11 @@
 // View state that is not owned by the engine.
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { emit } from "@tauri-apps/api/event";
 import type { ApprovalMode } from "@/engine/protocol";
 import { db, log } from "@/lib/db";
+import { quickEntryWindow } from "@/lib/windows";
 
 export type BuiltinPanelId = "terminal" | "browser" | "files" | "source-control" | "side-chat" | "memory";
 /** A built-in tool, or a plugin's panel (`plugin:<plugin id>/<view id>`; docs/features/plugin-ui/spec.md, FR-5). */
@@ -225,6 +226,36 @@ export const PINNED_MODELS_KEY = "models.pinned";
 
 const clampWidth = (width: number) => Math.round(Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, width)));
 
+/** Reads `localStorage`, writes nothing (the quick entry box's view of it). */
+const readOnlyStorage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = {
+  getItem: (name) => {
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: () => undefined,
+  removeItem: () => undefined,
+};
+
+/**
+ * Where a window without a side panel sends what would open in it: the
+ * quick entry box hands the chat to the main window at that tab
+ * (docs/features/quick-entry/plan.md, 3.2). Returns true when it took it.
+ */
+type PanelForwarder = (panel: PanelId, chat: string | null | undefined, item?: string) => boolean;
+let panelForwarder: PanelForwarder | null = null;
+
+export function forwardPanelsTo(forwarder: PanelForwarder | null): void {
+  panelForwarder = forwarder;
+}
+
+/** Hand `panel` (and `item`, a file path or a page address) to the forwarder, if any. */
+export function forwardPanel(panel: PanelId, chat?: string | null, item?: string): boolean {
+  return panelForwarder ? panelForwarder(panel, chat, item) : false;
+}
+
 export const useUiStore = create<UiStore>()(
   persist(
     (set, get) => ({
@@ -353,7 +384,10 @@ export const useUiStore = create<UiStore>()(
       setSidebarWidth: (width) => set({ sidebarWidth: clampWidth(width) }),
       setSidePanelWidth: (width) => set({ sidePanelWidth: Math.max(SIDE_PANEL_WIDTH.min, Math.round(width)) }),
       toggleRightPanel: (open) => set({ rightPanelOpen: open ?? !get().rightPanelOpen }),
-      openPanel: (panel, chat) =>
+      openPanel: (panel, chat) => {
+        // The quick entry box has no side panel: the main window opens it
+        // (docs/features/quick-entry/spec.md, FR-12).
+        if (panel && forwardPanel(panel, chat)) return;
         set((s) => {
           if (chat && s.panelChat && chat !== s.panelChat) {
             // Another chat's tabs: it sees the tab when it shows again.
@@ -366,7 +400,8 @@ export const useUiStore = create<UiStore>()(
             rightPanelOpen: true,
             openTabs: panel && !s.openTabs.includes(panel) ? [...s.openTabs, panel] : s.openTabs,
           };
-        }),
+        });
+      },
       forgetChat: (chat) =>
         set((s) => {
           if (!(chat in s.panelsByChat)) return s;
@@ -461,6 +496,9 @@ export const useUiStore = create<UiStore>()(
     }),
     {
       name: STORAGE_KEY,
+      // The quick entry box reads the saved state but never writes it: its
+      // copy would overwrite what the main window saved since.
+      storage: createJSONStorage(() => (quickEntryWindow ? readOnlyStorage : localStorage)),
       merge: (persisted, current) => {
         // `approval`, `autoStartSessions` and `chatConnectorsOff` lived here in earlier builds: they are app settings now.
         const { approval: _moved, autoStartSessions: _auto, chatConnectorsOff: _off, ...saved } = (persisted ?? {}) as Partial<UiStore>;

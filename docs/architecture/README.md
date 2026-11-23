@@ -156,6 +156,9 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   chat, or an open question. Windows are viewers: they attach to the engine
   of the chat they show (`engine_attach`) and detach when they show another
   chat, close or reload, which never stops an engine that has work. The
+  viewers are the main window, chat windows and the quick entry box, which
+  shows one chat at a time ([quick entry](../features/quick-entry/spec.md)
+  FR-11). The
   person's **Stop** (`engine_stop`) still stops a chat and its work.
   Settings, credential and customization changes reach every engine, viewed
   or not; idle engines reload or restart, and the app itself never restarts

@@ -64,15 +64,27 @@ function promptPayload(text: string, images: PromptImage[] = []): Record<string,
 }
 import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log, type SessionRole } from "@/lib/db";
-import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow } from "@/lib/windows";
+import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow, quickEntryWindow, viewerWindow } from "@/lib/windows";
 import { worktrees } from "@/lib/worktrees";
-import { APPROVAL_CHANGED, useUiStore, worktreeKey } from "@/stores/ui-store";
+import { APPROVAL_CHANGED, useUiStore, worktreeKey, type PanelId } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
 import { UNTITLED, useSessionStore } from "@/stores/session-store";
 import { forgetPane, restoreSplit } from "@/stores/split-store";
 import { paneView } from "@/stores/pane-view";
+
+/**
+ * Where in a chat the main window is asked to go
+ * (docs/features/quick-entry/plan.md, 3.3).
+ */
+export type OpenTarget =
+  | { kind: "question"; id: string }
+  | { kind: "turn"; id: string }
+  | { kind: "panel"; panel: PanelId; item?: string };
+
+/** A chat to show in the main window, maybe at a target (`app://open-chat`). */
+export type OpenRequest = { chat: string; target?: OpenTarget | null };
 
 export type EngineStatus = "idle" | "starting" | "ready" | "exited" | "error";
 
@@ -118,6 +130,12 @@ interface EngineStore extends Mirrored {
   runtimes: Record<string, ChatRuntime>;
   /** Chats running in another window (whose engine this window does not hold). */
   busyElsewhere: Record<string, true>;
+  /**
+   * Where the main window was asked to go in a chat (quick-entry FR-15): the
+   * chat view scrolls to the question or turn, the side panel opens the item.
+   * `at` tells two requests for the same place apart.
+   */
+  openTarget: (OpenTarget & { chat: string; at: number }) | null;
   /** Chats of this window with a subagent still working (their engine must stay up). */
   agentsRunning: Record<string, true>;
   logs: LogLine[];
@@ -145,6 +163,12 @@ interface EngineStore extends Mirrored {
    * usual). docs/features/chat-split-view/spec.md, FR-4.
    */
   focusPane(id: string): void;
+  /**
+   * Let go of the active chat: this window stops showing it and detaches
+   * from its engine, which runs on while it has work. The quick entry box
+   * empties with it (docs/features/quick-entry/spec.md, FR-18).
+   */
+  letGo(): void;
   /**
    * Split view: attach `id` to this window (starting its engine when none
    * runs) without making it active. A chat in a window of its own moves here
@@ -986,7 +1010,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
    * to Customize → Code intelligence.
    */
   const suggestCodeIntelligence = async (chat: string) => {
-    if (!client || chatRow(chat)?.parentChatId || chatWindowId) return;
+    if (!client || chatRow(chat)?.parentChatId || viewerWindow) return;
     type Listing = {
       folder: string;
       detected: { server: string; files: number }[];
@@ -1041,8 +1065,30 @@ export const useEngineStore = create<EngineStore>((set, get) => {
    * where New chat would, and send the text as its first message
    * (docs/features/quick-entry/spec.md, FR-5, FR-6).
    */
+  /**
+   * Show the chat a notification, the tray or quick entry asked for, and go
+   * to its target: a question, a turn, or a side panel tab
+   * (docs/features/quick-entry/spec.md, FR-12, FR-14, FR-15).
+   */
+  const openRequested = async (request: OpenRequest | null | undefined) => {
+    if (!request || typeof request.chat !== "string") return;
+    await get().selectSession(request.chat);
+    const target = request.target;
+    if (!target) return;
+    if (target.kind === "panel") {
+      const item = target.item;
+      if (target.panel === "files" && item) {
+        // Loaded on demand: the Files store reads this store.
+        void import("@/stores/files-store").then(({ openFile }) => openFile(item));
+      }
+      useUiStore.getState().openPanel(target.panel, request.chat);
+      return;
+    }
+    set({ openTarget: { chat: request.chat, ...target, at: Date.now() } });
+  };
+
   const startFromQuickEntry = async (text: string) => {
-    if (chatWindowId || !text.trim()) return;
+    if (viewerWindow || !text.trim()) return;
     const ui = useUiStore.getState();
     if (ui.settingsOpen) ui.closeSettings();
     await get().newChat();
@@ -1050,7 +1096,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
   };
 
   const adoptRunning = async () => {
-    if (!client || chatWindowId) return;
+    if (!client || viewerWindow) return;
     const running = await client.running().catch((): string[] => []);
     const saved = new Set(useSessionStore.getState().sessions.filter((s) => !s.draft).map((s) => s.id));
     for (const chat of running) {
@@ -1075,7 +1121,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       // The window that showed it closed while it runs (FR-2): the main
       // window follows its runs, as it does any chat's engine the shell runs.
       const saved = useSessionStore.getState().sessions.some((s) => s.id === chat && !s.draft);
-      if (!rt && !chatWindowId && saved) void launch(chat, undefined, true, true);
+      if (!rt && !viewerWindow && saved) void launch(chat, undefined, true, true);
       return;
     }
     if (status === "ready") return;
@@ -1088,7 +1134,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       return;
     }
     if (!rt) {
-      if (!chatWindowId && (reason === "mail" || reason === "restart" || reason === "schedule")) adopt(chat, restore ?? true);
+      if (!viewerWindow && (reason === "mail" || reason === "restart" || reason === "schedule")) adopt(chat, restore ?? true);
       return;
     }
     if (reason === "settings") {
@@ -1285,6 +1331,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     activeId: null,
     runtimes: {},
     busyElsewhere: {},
+    openTarget: null,
     agentsRunning: {},
     logs: [],
     compactingChats: {},
@@ -1368,12 +1415,13 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         const id = appApprovals.delete(shell) ? shell : payload.requestId;
         dispatch(payload.chat, { type: "engine", message: { type: "ui_dialog_closed", requestId: id } });
       });
-      // A notification or the tray asks to show a chat (the shell showed this window).
-      if (!chatWindowId) {
-        void listen<{ chat: string }>("app://open-chat", ({ payload }) => {
+      // A notification, the tray or quick entry asks to show a chat, maybe at a
+      // target (the shell showed this window; quick-entry FR-15).
+      if (!viewerWindow) {
+        void listen<OpenRequest>("app://open-chat", ({ payload }) => {
           const ui = useUiStore.getState();
           if (ui.settingsOpen) ui.closeSettings();
-          void get().selectSession(payload.chat);
+          void openRequested(payload);
         });
         // Quick entry sent a request: a new chat starts with it, as New chat
         // would (docs/features/quick-entry/spec.md, FR-5).
@@ -1398,6 +1446,8 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         await get().selectSession(chatWindowId);
         return;
       }
+      // The quick entry box shows the chat the shell gives it on each opening.
+      if (quickEntryWindow) return;
       // A notification or the tray asked for a chat while there was no main
       // window: the shell built this one to show it (shell-hosted-engines FR-11).
       // Quick entry sent a request while there was no main window: this one
@@ -1407,9 +1457,13 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         await startFromQuickEntry(quick);
         return;
       }
-      const pending = await invoke<string | null>("app_open_pending").catch(() => null);
+      const pending = await invoke<OpenRequest | null>("app_open_pending").catch(() => null);
       const known = (id: string) => useSessionStore.getState().sessions.some((s) => s.id === id && !s.draft);
-      const last = pending && known(pending) ? pending : useSessionStore.getState().lastChatId;
+      if (pending && known(pending.chat)) {
+        await openRequested(pending);
+        return;
+      }
+      const last = useSessionStore.getState().lastChatId;
       if (last) {
         await get().selectSession(last);
         // The other chat of a split saved with this window (chat-split-view FR-10).
@@ -1501,6 +1555,19 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       await activate(id, cwd, !chat.draft);
     },
 
+    letGo() {
+      const id = get().activeId;
+      if (!id) return;
+      // Overtakes selections still on their way.
+      selection++;
+      flushDeltas();
+      const sessions = useSessionStore.getState();
+      const row = sessions.sessions.find((s) => s.id === id);
+      if (row?.draft) sessions.discardDraft(id);
+      release(id);
+      set({ activeId: null, ...mirror(undefined) });
+    },
+
     focusPane(id) {
       if (id === get().activeId) return;
       if (!get().runtimes[id]) {
@@ -1517,7 +1584,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     },
 
     async showChat(id) {
-      if (chatWindowId) return;
+      if (viewerWindow) return;
       const chat = useSessionStore.getState().sessions.find((s) => s.id === id);
       if (!chat || chat.draft) return;
       // A chat shown in a window of its own moves into the pane (FR-11).
@@ -1567,7 +1634,7 @@ export const useEngineStore = create<EngineStore>((set, get) => {
 
     async openInNewWindow(id) {
       const chat = useSessionStore.getState().sessions.find((s) => s.id === id);
-      if (!chat || chat.draft || chatWindowId) return;
+      if (!chat || chat.draft || viewerWindow) return;
       const remaining = forgetPane(id);
       if (runtime(id)) release(id);
       if (id === get().activeId) {
