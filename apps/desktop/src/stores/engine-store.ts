@@ -1421,10 +1421,10 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       useUiStore.getState().closeCustomize();
       if (chatWindowId) return;
       const sessions = useSessionStore.getState();
-      const target =
-        workspaceId === undefined
-          ? sessions.workspaceOf(sessions.currentId)
-          : (sessions.workspaces.find((w) => w.id === workspaceId) ?? null);
+      // No folder given: the workspace the sidebar shows, which follows the
+      // open chat (docs/features/workspace-rail/spec.md, FR-4, FR-6).
+      const wanted = workspaceId === undefined ? sessions.shownWorkspace : workspaceId;
+      const target = sessions.workspaces.find((w) => w.id === wanted) ?? null;
       const targetId = target?.id ?? null;
       const ticket = ++selection;
       // Reuse an untouched draft in that folder instead of stacking empty chats.

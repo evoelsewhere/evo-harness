@@ -56,7 +56,20 @@ export function workByChat(list: readonly WorkingChat[] | null | undefined): Rec
 }
 
 const LAST_CHAT_KEY = "ui.lastChat";
-const LOCAL_COLLAPSED_KEY = "sidebar.localCollapsed";
+const SHOWN_WORKSPACE_KEY = "sidebar.workspace";
+
+/**
+ * The workspace the sidebar shows: `preferred` when it still exists, else
+ * `fallback`'s, else the first workspace, else "This computer"
+ * (docs/features/workspace-rail/plan.md, 3.5).
+ */
+function pickShown(workspaces: Workspace[], preferred: string | null | undefined, fallback?: string | null): string {
+  const exists = (id: string | null | undefined): id is string =>
+    id === LOCAL_GROUP || (id != null && workspaces.some((w) => w.id === id));
+  if (exists(preferred)) return preferred;
+  if (exists(fallback)) return fallback;
+  return workspaces[0]?.id ?? LOCAL_GROUP;
+}
 
 interface SessionStore {
   loaded: boolean;
@@ -68,8 +81,11 @@ interface SessionStore {
   currentId: string | null;
   /** The chat that was open when the app last closed. */
   lastChatId: string | null;
-  /** Workspace ids (and "local") whose chat list is collapsed. */
-  collapsed: string[];
+  /**
+   * The workspace whose chats the sidebar lists: a workspace id or "local"
+   * (docs/features/workspace-rail/spec.md, FR-3 – FR-6).
+   */
+  shownWorkspace: string;
   /**
    * Chats that work or wait for the person in the shell, also those no window
    * holds (NFR-5): the sidebar shows them working. Kept current by the shell.
@@ -80,7 +96,8 @@ interface SessionStore {
   ensureWorkspace(path: string): Promise<Workspace>;
   workspaceOf(sessionId: string | null): Workspace | null;
   removeWorkspace(id: string): Promise<string[]>;
-  toggleCollapsed(groupId: string): void;
+  /** Show a workspace's chats in the sidebar and remember it (FR-5). */
+  showWorkspace(groupId: string): void;
 
   /** Show a new, unsaved chat and make it current. */
   addDraft(id: string, workspaceId: string | null): SessionSummary;
@@ -163,7 +180,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
     archived: [],
     currentId: null,
     lastChatId: null,
-    collapsed: [],
+    shownWorkspace: LOCAL_GROUP,
     work: {},
 
     async load() {
@@ -197,15 +214,19 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         });
       }
       const [workspaces, chats, settings] = await Promise.all([db.workspaces(), db.chats(false), db.settings()]);
-      const collapsed = workspaces.filter((w) => w.collapsed).map((w) => w.id);
-      if (settings[LOCAL_COLLAPSED_KEY] === true) collapsed.push(LOCAL_GROUP);
       const last = typeof settings[LAST_CHAT_KEY] === "string" ? (settings[LAST_CHAT_KEY] as string) : null;
+      const lastChat = chats.find((c) => c.id === last);
+      const saved = settings[SHOWN_WORKSPACE_KEY];
       set({
         loaded: true,
         workspaces,
         sessions: chats,
-        collapsed,
-        lastChatId: chats.some((c) => c.id === last) ? last : null,
+        shownWorkspace: pickShown(
+          workspaces,
+          typeof saved === "string" ? saved : null,
+          lastChat ? (lastChat.workspaceId ?? LOCAL_GROUP) : null,
+        ),
+        lastChatId: lastChat ? last : null,
       });
     },
 
@@ -232,20 +253,23 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
         list
           .filter((session) => session.workspaceId !== id)
           .map((session) => (session.parentChatId && gone.has(session.parentChatId) ? { ...session, parentChatId: null } : session));
-      set((s) => ({
-        workspaces: s.workspaces.filter((w) => w.id !== id),
-        sessions: keep(s.sessions),
-        archived: keep(s.archived),
-      }));
+      set((s) => {
+        const workspaces = s.workspaces.filter((w) => w.id !== id);
+        return {
+          workspaces,
+          sessions: keep(s.sessions),
+          archived: keep(s.archived),
+          shownWorkspace: pickShown(workspaces, s.shownWorkspace),
+        };
+      });
       return removed;
     },
 
-    toggleCollapsed(groupId) {
-      const collapsed = !get().collapsed.includes(groupId);
-      set((s) => ({ collapsed: collapsed ? [...s.collapsed, groupId] : s.collapsed.filter((g) => g !== groupId) }));
-      const saved =
-        groupId === LOCAL_GROUP ? db.setSetting(LOCAL_COLLAPSED_KEY, collapsed) : db.setWorkspaceCollapsed(groupId, collapsed);
-      saved.catch(report("saving the sidebar"));
+    showWorkspace(groupId) {
+      const shown = pickShown(get().workspaces, groupId);
+      if (shown === get().shownWorkspace) return;
+      set({ shownWorkspace: shown });
+      void db.setSetting(SHOWN_WORKSPACE_KEY, shown).catch(report("saving the sidebar"));
     },
 
     addDraft(id, workspaceId) {
@@ -274,8 +298,8 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
       set((s) => ({
         sessions: [draft, ...s.sessions],
         currentId: id,
-        collapsed: s.collapsed.filter((g) => g !== (workspaceId ?? LOCAL_GROUP)),
       }));
+      get().showWorkspace(workspaceId ?? LOCAL_GROUP);
       return draft;
     },
 

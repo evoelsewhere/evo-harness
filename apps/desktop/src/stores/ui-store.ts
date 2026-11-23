@@ -79,7 +79,8 @@ export function parseSidebarShown(value: unknown): Record<string, boolean> {
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"));
 }
 
-export const SIDEBAR_WIDTH ={ min: 220, default: 272, max: 420 } as const;
+// The workspace rail takes 72 px of it (docs/features/workspace-rail/spec.md, A-6).
+export const SIDEBAR_WIDTH = { min: 272, default: 328, max: 480 } as const;
 export const SIDE_PANEL_WIDTH = { min: 300, default: 440 } as const;
 
 interface UiStore {

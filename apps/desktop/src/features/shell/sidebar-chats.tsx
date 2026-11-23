@@ -1,29 +1,12 @@
 import * as React from "react";
 import { useShallow } from "zustand/react/shallow";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import {
-  ArchiveIcon,
-  ChevronRightIcon,
-  FolderOpenIcon,
-  GhostIcon,
-  MoreHorizontalIcon,
-  PinIcon,
-  PlusIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { ArchiveIcon, ChevronRightIcon, GhostIcon, MoreHorizontalIcon, PinIcon, PlusIcon } from "lucide-react";
 import { StatusDot } from "@/components/status-dot";
-import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
+  SidebarContent,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -41,7 +24,13 @@ import { startDrag } from "@/features/split/drag";
 import { useDisplayTitle } from "@/hooks/use-display-title";
 import { plainText } from "@/lib/plain-text";
 import { LOCAL_GROUP, UNTITLED, useSessionStore, type SessionSummary } from "@/stores/session-store";
+import { useSchedulerStore } from "@/stores/scheduler-store";
 import { ChatMenuItems, useChatMenuKeys } from "./chat-menu";
+import { ConfirmDialog } from "./confirm-dialog";
+import { foldRuns, groupByTime, needsYou, TIME_GROUP_LABEL } from "./sidebar-model";
+import { useChatStates } from "./use-chat-states";
+import { ChangeIconDialog, WorkspaceIcon } from "./workspace-icon";
+import { RemoveWorkspaceDialog, WorkspaceMenuItems, type RailGroup } from "./workspace-rail";
 
 // The sidebar's chat lists: a row per chat with what it is doing (running,
 // waiting for approval, unread, how long ago), and its actions (see
@@ -67,48 +56,6 @@ function useMinuteTick() {
     const timer = window.setInterval(() => setTick((t) => t + 1), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-}
-
-function ConfirmDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  action,
-  onConfirm,
-}: {
-  open: boolean;
-  onOpenChange(open: boolean): void;
-  title: string;
-  description: string;
-  action: string;
-  onConfirm(): void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="destructive"
-            autoFocus
-            onClick={() => {
-              onOpenChange(false);
-              onConfirm();
-            }}
-          >
-            {action}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function RenameInput({ chat, onDone }: { chat: SessionSummary; onDone(): void }) {
@@ -143,7 +90,7 @@ function RenameInput({ chat, onDone }: { chat: SessionSummary; onDone(): void })
  * it runs. A chat the shell runs with no window shows as working or waiting too
  * (docs/features/shell-hosted-engines/spec.md, NFR-5).
  */
-export function ChatItem({ chat, active }: { chat: SessionSummary; active: boolean }) {
+export function ChatItem({ chat, active, tag }: { chat: SessionSummary; active: boolean; tag?: React.ReactNode }) {
   const shellWork = useSessionStore((s) => s.work[chat.id]);
   const busy =
     useEngineStore((s) => Boolean(s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id])) ||
@@ -221,6 +168,8 @@ ${preview}` : shownTitle}
         >
           {shownTitle}
         </span>
+        {/* Needs you: the chat's workspace (docs/features/workspace-rail/spec.md, FR-7). */}
+        {tag && <span className="ml-auto flex shrink-0 items-center text-muted-foreground">{tag}</span>}
       </SidebarMenuButton>
       {status && (
         <span
@@ -300,7 +249,7 @@ function childrenByParent(sessions: SessionSummary[]): Map<string, SessionSummar
  * waiting and unread ones first, then the most recent; the rest fold into
  * "N more nested sessions · M running · K unread".
  */
-function NestedChats({ parentId, currentId }: { parentId: string; currentId: string | null }) {
+export function NestedChats({ parentId, currentId }: { parentId: string; currentId: string | null }) {
   const children = useSessionStore(useShallow((s) => childrenByParent(s.sessions).get(parentId) ?? NO_CHILDREN));
   // Working with no window counts too (NFR-5).
   const work = useSessionStore((s) => s.work);
@@ -378,103 +327,206 @@ export function ChatList({ chats, empty, nested = true }: { chats: SessionSummar
   );
 }
 
-/** One collapsible workspace: name, activity dot, "+" for a new chat and a menu, then its chats. */
-export function WorkspaceGroup({
-  id,
-  name,
-  path,
-  chats,
-}: {
-  id: string;
-  name: string;
-  path?: string;
-  chats: SessionSummary[];
-}) {
-  const collapsed = useSessionStore((s) => s.collapsed.includes(id));
-  const toggleCollapsed = useSessionStore((s) => s.toggleCollapsed);
-  const removeWorkspace = useSessionStore((s) => s.removeWorkspace);
-  const { newChat, forgetChats } = useEngineStore.getState();
-  // The roll-up of a collapsed group covers the nested sessions drawn under
-  // its chats, and chats running in another window.
-  const index = useSessionStore((s) => childrenByParent(s.sessions));
-  const family = chats.flatMap((chat) => [chat, ...(index.get(chat.id) ?? NO_CHILDREN)]);
-  const work = useSessionStore((s) => s.work);
-  const running = useEngineStore((s) =>
-    family.some((chat) => s.runtimes[chat.id]?.transcript.busy || s.busyElsewhere[chat.id] || work[chat.id]),
+/** Rows shown in "Needs you" before the rest fold into "N more" (FR-7). */
+const NEEDS_YOU_SHOWN = 6;
+
+/**
+ * Chats across every workspace that wait for the person, have an unread reply
+ * or run — most urgent first, each with its workspace's initials. Hidden when
+ * empty (docs/features/workspace-rail/spec.md, FR-7).
+ */
+export function NeedsYou() {
+  const sessions = useSessionStore((s) => s.sessions);
+  const workspaces = useSessionStore((s) => s.workspaces);
+  const currentId = useEngineStore((s) => s.activeId);
+  const states = useChatStates();
+  const [expanded, setExpanded] = React.useState(false);
+  useMinuteTick();
+  const chats = needsYou(sessions, states);
+  if (chats.length === 0) return null;
+  const byId = new Map(workspaces.map((w) => [w.id, w]));
+  // The workspace's own icon (FR-15), its name in the tooltip.
+  const tag = (chat: SessionSummary) => {
+    const workspace = chat.workspaceId ? byId.get(chat.workspaceId) : undefined;
+    return workspace ? (
+      <span title={workspace.name} className="flex size-4 items-center justify-center">
+        <WorkspaceIcon group={{ id: workspace.id, name: workspace.name, path: workspace.path }} size="sm" />
+      </span>
+    ) : undefined;
+  };
+  const shown = expanded ? chats : chats.filter((chat, index) => index < NEEDS_YOU_SHOWN || chat.id === currentId);
+  const hidden = chats.length - shown.length;
+  return (
+    <SidebarGroup className="max-h-[40%] shrink-0 overflow-y-auto py-0.5">
+      <SidebarGroupLabel className="h-7 text-xs font-normal text-muted-foreground">Needs you</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {shown.map((chat) => (
+            <ChatItem key={chat.id} chat={chat} active={chat.id === currentId} tag={tag(chat)} />
+          ))}
+          {(hidden > 0 || expanded) && chats.length > NEEDS_YOU_SHOWN && (
+            <li>
+              <FoldButton onClick={() => setExpanded((value) => !value)}>{expanded ? "Show fewer" : `${hidden} more`}</FoldButton>
+            </li>
+          )}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
-  const unread = family.some((s) => s.unread);
+}
+
+function FoldButton({ onClick, children, open }: { onClick(): void; children: React.ReactNode; open?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={open}
+      className="flex h-6 w-full items-center gap-1 rounded-md px-2 text-left text-xs text-muted-foreground hover:text-sidebar-accent-foreground"
+    >
+      {open !== undefined && <ChevronRightIcon className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")} />}
+      {children}
+    </button>
+  );
+}
+
+/**
+ * A chat row with the sessions it started and, for a scheduled task's latest
+ * run, its earlier runs behind "N earlier runs" (FR-10, FR-11).
+ */
+function ChatWithRuns({ chat, runs, currentId }: { chat: SessionSummary; runs: SessionSummary[]; currentId: string | null }) {
+  const [open, setOpen] = React.useState(false);
+  const holdsCurrent = runs.some((run) => run.id === currentId);
+  const expanded = open || holdsCurrent;
+  return (
+    <>
+      <ChatItem chat={chat} active={chat.id === currentId} />
+      <NestedChats parentId={chat.id} currentId={currentId} />
+      {runs.length > 0 && (
+        <SidebarMenuSub className="mr-0 ml-3.5 gap-0 pr-0 pl-1.5">
+          {expanded && runs.map((run) => <ChatItem key={run.id} chat={run} active={run.id === currentId} />)}
+          <li>
+            <FoldButton open={expanded} onClick={() => setOpen(!expanded)}>
+              {runs.length} earlier {runs.length === 1 ? "run" : "runs"}
+            </FoldButton>
+          </li>
+        </SidebarMenuSub>
+      )}
+    </>
+  );
+}
+
+/**
+ * The shown workspace's chats: a header (name, New chat, menu), its pinned
+ * chats, then Today / Yesterday / Previous 7 days / Older, Older folded and
+ * scheduled runs folded (FR-3, FR-8 – FR-10).
+ */
+export function WorkspaceChats({
+  group,
+  chats,
+  children,
+}: {
+  group: RailGroup;
+  chats: SessionSummary[];
+  /** Shown after the chats, in the same scrolling area (the archive). */
+  children?: React.ReactNode;
+}) {
+  const currentId = useEngineStore((s) => s.activeId);
+  const newChat = useEngineStore((s) => s.newChat);
+  const tasks = useSchedulerStore((s) => s.tasks);
+  const [olderOpen, setOlderOpen] = React.useState(false);
   const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const [changeIcon, setChangeIcon] = React.useState(false);
+  useMinuteTick();
+  // Another workspace starts with Older folded again.
+  React.useEffect(() => setOlderOpen(false), [group.id]);
+
+  const names = new Set(tasks.map((task) => task.name));
+  const isRun = (chat: SessionSummary) => !chat.draft && (chat.scheduled || names.has(chat.title));
+  const byUpdated = (a: SessionSummary, b: SessionSummary) => b.updatedAt - a.updatedAt;
+  const pinned = chats.filter((chat) => chat.pinned).sort(byUpdated);
+  const rest = foldRuns(chats.filter((chat) => !chat.pinned).sort(byUpdated), isRun);
+  const groups = groupByTime(rest, (item) => item.chat.updatedAt);
 
   return (
-    <Collapsible open={!collapsed} onOpenChange={() => toggleCollapsed(id)}>
-      <SidebarGroup className="group/workspace py-0.5">
-        <SidebarGroupLabel
-          title={path}
-          render={<CollapsibleTrigger />}
-          className="h-7 w-full gap-1 pr-14 text-[13px] font-semibold text-sidebar-accent-foreground hover:bg-sidebar-accent"
-        >
-          <span className="truncate">{name}</span>
-          <ChevronRightIcon
-            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", !collapsed && "rotate-90")}
-          />
+    <>
+      {/* The header stays put while the chats scroll under it. */}
+      <SidebarGroup className="group/workspace shrink-0 py-0.5">
+        {/* The workspace's name is on the rail already (FR-3). */}
+        <SidebarGroupLabel title={group.path ?? group.name} className="h-7 pr-14 text-xs font-normal text-muted-foreground">
+          Chats
         </SidebarGroupLabel>
-        {collapsed && (running || unread) && (
-          <span className="pointer-events-none absolute top-2.5 right-16 flex items-center">
-            {running ? (
-              <Spinner className="size-3.5 text-muted-foreground" aria-label="Running" />
-            ) : (
-              <StatusDot tone="info" label="Unread replies" />
-            )}
-          </span>
-        )}
-        {path && (
+        {group.path && (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <SidebarGroupAction
-                  className="top-1.5 right-8 opacity-0 group-hover/workspace:opacity-100 aria-expanded:opacity-100"
-                  title={`${name} actions`}
+                  className="top-1.5 right-8"
+                  title={`${group.name} actions`}
                 />
               }
             >
               <MoreHorizontalIcon />
-              <span className="sr-only">{name} actions</span>
+              <span className="sr-only">{group.name} actions</span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-52">
-              <DropdownMenuItem onClick={() => void revealItemInDir(path).catch(() => undefined)}>
-                <FolderOpenIcon />
-                Show in folder
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={() => setConfirmRemove(true)}>
-                <Trash2Icon />
-                Remove workspace…
-              </DropdownMenuItem>
+              <WorkspaceMenuItems group={group} onRemove={() => setConfirmRemove(true)} onChangeIcon={() => setChangeIcon(true)} />
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        <SidebarGroupAction title={`New chat in ${name}`} onClick={() => void newChat(id === LOCAL_GROUP ? null : id)} className="top-1.5">
+        <SidebarGroupAction
+          title={`New chat in ${group.name}`}
+          onClick={() => void newChat(group.id === LOCAL_GROUP ? null : group.id)}
+          className="top-1.5"
+        >
           <PlusIcon />
-          <span className="sr-only">New chat in {name}</span>
+          <span className="sr-only">New chat in {group.name}</span>
         </SidebarGroupAction>
-        <CollapsibleContent>
-          <SidebarGroupContent>
-            <ChatList chats={chats} empty="No chats yet" />
-          </SidebarGroupContent>
-        </CollapsibleContent>
+        {group.path && <RemoveWorkspaceDialog group={group} open={confirmRemove} onOpenChange={setConfirmRemove} />}
+        {group.path && <ChangeIconDialog group={group} open={changeIcon} onOpenChange={setChangeIcon} />}
       </SidebarGroup>
-      {path && (
-        <ConfirmDialog
-          open={confirmRemove}
-          onOpenChange={setConfirmRemove}
-          title={`Remove ${name}?`}
-          description="The workspace and its chats are removed from Evo. The folder and its files stay on disk."
-          action="Remove"
-          onConfirm={() => void removeWorkspace(id).then((ids) => forgetChats(ids))}
-        />
-      )}
-    </Collapsible>
+      <SidebarContent className="gap-0">
+        <SidebarGroup className="pt-0 pb-0.5">
+          <SidebarGroupContent>
+            {chats.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">No chats yet</p>}
+            {pinned.length > 0 && (
+              <>
+                <TimeLabel>Pinned</TimeLabel>
+                <ChatList chats={pinned} />
+              </>
+            )}
+            {groups.map(({ group: time, items }) => {
+              const older = time === "older";
+              const holdsCurrent = items.some((item) => item.chat.id === currentId || item.runs.some((run) => run.id === currentId));
+              const open = !older || olderOpen || holdsCurrent;
+              return (
+                <React.Fragment key={time}>
+                  {older ? (
+                    <FoldButton open={open} onClick={() => setOlderOpen(!open)}>
+                      {TIME_GROUP_LABEL.older} · {items.length}
+                    </FoldButton>
+                  ) : (
+                    <TimeLabel>{TIME_GROUP_LABEL[time]}</TimeLabel>
+                  )}
+                  {open && (
+                    <SidebarMenu>
+                      {items.map((item) => (
+                        <ChatWithRuns key={item.chat.id} chat={item.chat} runs={item.runs} currentId={currentId} />
+                      ))}
+                    </SidebarMenu>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </SidebarGroupContent>
+        </SidebarGroup>
+        {children}
+      </SidebarContent>
+    </>
   );
+}
+
+function TimeLabel({ children }: { children: React.ReactNode }) {
+  return <div className="px-2.5 pt-2 pb-0.5 text-[11px] text-muted-foreground">{children}</div>;
 }
 
 /** Archived chats, loaded when opened. */
