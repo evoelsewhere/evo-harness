@@ -262,7 +262,7 @@ export function Tool({
     <TraceLine status={live ? "running" : failed ? "error" : undefined}>
       <TraceIcon>
         {kind === "agent" ? (
-          <AgentIcon agentType={child?.agentType} background={child?.background} live={live} />
+          <AgentIcon agentType={child?.agentType} background={child?.background} live={live} tinted />
         ) : (
           <Icon />
         )}

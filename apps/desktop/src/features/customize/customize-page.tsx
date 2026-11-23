@@ -21,7 +21,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { AgentIcon } from "@/components/icons/agent-icon";
+import { AgentIcon, agentHueStyle, agentTint } from "@/components/icons/agent-icon";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -619,8 +619,11 @@ function AgentDetail({ agent }: { agent: AgentInfo }) {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex items-start gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12 text-brand">
-          <AgentIcon agentType={agent.name} className="size-5" />
+        <span
+          className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", agentTint.bg)}
+          style={agentHueStyle(agent.name)}
+        >
+          <AgentIcon agentType={agent.name} tinted className="size-5" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -687,7 +690,7 @@ function AgentsSection({ query, scope }: { query: string; scope: Scope }) {
                   key={agent.name}
                   selected={current?.name === agent.name}
                   onSelect={() => setSelected(agent.name)}
-                  icon={<AgentIcon agentType={agent.name} />}
+                  icon={<AgentIcon agentType={agent.name} tinted />}
                   title={agent.name}
                   description={agent.description}
                 />

@@ -540,7 +540,8 @@ function SubagentRow({ agent, chat }: { agent: SubagentEntry; chat: string | nul
         agentType={agent.agentType}
         background={agent.background}
         live={live}
-        className={cn("mt-0.5 size-4", live ? "text-brand" : "text-muted-foreground")}
+        tinted
+        className={cn("mt-0.5 size-4", !live && agent.status !== "done" && "opacity-60")}
       />
       <div className="min-w-0 flex-1">
         <p

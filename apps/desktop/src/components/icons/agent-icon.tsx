@@ -123,6 +123,30 @@ function lookFor(name: string): Look {
   return { body: shape.body, eyes, tilt: tilts[(h >>> 16) % tilts.length] };
 }
 
+// Each agent has a colour of its own, so it is known at a glance wherever it
+// shows: a hue on a fixed lightness and chroma that reads on both themes.
+const builtinHues = { general: 250, explore: 165, plan: 70, background: 295 };
+const hues = [20, 45, 95, 135, 185, 210, 235, 270, 320, 345];
+
+/** The agent's hue (OKLCH degrees): fixed for the built-ins, from the name for any other. */
+export function agentHue(agentType?: string, background?: boolean): number {
+  if (background) return builtinHues.background;
+  if (!agentType || agentType === "general" || agentType === "general-purpose") return builtinHues.general;
+  if (agentType === "explore" || agentType === "plan") return builtinHues[agentType];
+  return hues[(hash(agentType) >>> 20) % hues.length];
+}
+
+/** Sets `--agent-hue` for the agent; pair it with `agentTint` classes. */
+export function agentHueStyle(agentType?: string, background?: boolean): React.CSSProperties {
+  return { "--agent-hue": agentHue(agentType, background) } as React.CSSProperties;
+}
+
+/** Text and soft background in the agent's colour, read from `--agent-hue`. */
+export const agentTint = {
+  text: "text-[oklch(0.6_0.16_var(--agent-hue))] dark:text-[oklch(0.75_0.14_var(--agent-hue))]",
+  bg: "bg-[oklch(0.6_0.16_var(--agent-hue)/0.13)] dark:bg-[oklch(0.75_0.14_var(--agent-hue)/0.16)]",
+};
+
 function lookOf(agentType?: string, background?: boolean): Look {
   if (background) return builtins.background;
   if (!agentType || agentType === "general") return builtins.general;
@@ -134,9 +158,13 @@ export function AgentIcon({
   agentType,
   background,
   live,
+  tinted,
   className,
+  style,
   ...props
 }: React.SVGProps<SVGSVGElement> & {
+  /** Drawn in the agent's own colour instead of the text colour. */
+  tinted?: boolean;
   /** `general`, `explore`, `plan` have their own looks; any other name gets one of its own. */
   agentType?: string;
   /** A background agent's calm look. */
@@ -155,7 +183,8 @@ export function AgentIcon({
       height="24"
       fill="currentColor"
       aria-hidden="true"
-      className={cn("shrink-0", className)}
+      className={cn("shrink-0", className, tinted && agentTint.text)}
+      style={tinted ? { ...agentHueStyle(agentType, background), ...style } : style}
       {...props}
     >
       <defs>
