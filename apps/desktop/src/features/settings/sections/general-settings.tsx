@@ -20,9 +20,14 @@ interface SystemSettings {
   runOnStartup: boolean;
   tray: boolean;
   keepAwake: boolean;
+  /** Quick entry (docs/features/quick-entry/spec.md, FR-9). */
+  quickEntry: boolean;
+  quickEntryShortcut: string;
+  /** False when another app holds the shortcut. */
+  quickEntryShortcutOk: boolean;
 }
 
-type Key = keyof SystemSettings;
+type Key = "runOnStartup" | "tray" | "keepAwake" | "quickEntry";
 
 /** Where the icon lives: the menu bar on macOS, the tray elsewhere. */
 const TRAY = isMac ? "menu bar" : "system tray";
@@ -71,6 +76,17 @@ export function GeneralSettings() {
   }
 
   const toggle = (id: Key) => <Toggle id={id} settings={settings} pending={pending} onChange={change} />;
+
+  /** Record a quick entry shortcut; a refused one keeps the old (FR-9). */
+  async function changeShortcut(shortcut: string): Promise<boolean> {
+    try {
+      setSettings(await invoke<SystemSettings>("system_set_shortcut", { shortcut }));
+      return true;
+    } catch (error) {
+      notify({ source: "settings", level: "error", title: "Could not use that shortcut", body: String(error) });
+      return false;
+    }
+  }
 
   // Files: open a document the agent creates (app setting `files.autoOpenGenerated`, read when one appears).
   const agentCards = useUiStore((s) => s.agentCards);
@@ -137,6 +153,31 @@ export function GeneralSettings() {
           control={toggle("keepAwake")}
         />
       </SettingsGroup>
+      <SettingsGroup title="Quick entry">
+        <SettingsRow
+          labelId="setting-quickEntry"
+          label="Quick entry"
+          description={`A small message box that opens over any app with the shortcut below${settings?.tray === false ? "" : ` or a click on the ${TRAY} icon`}. Press Enter to start a new chat with what you typed; Esc closes it and keeps your text.`}
+          control={toggle("quickEntry")}
+        />
+        <SettingsRow
+          labelId="setting-quickEntryShortcut"
+          label="Shortcut"
+          description={
+            settings && settings.quickEntry && !settings.quickEntryShortcutOk
+              ? "Another app is using this shortcut, so it does nothing. Record a different one."
+              : "Opens and closes the box from any app. Click to record a new one."
+          }
+          control={
+            <ShortcutRecorder
+              labelledBy="setting-quickEntryShortcut"
+              value={settings?.quickEntryShortcut ?? null}
+              disabled={!settings || !settings.quickEntry}
+              onChange={changeShortcut}
+            />
+          }
+        />
+      </SettingsGroup>
       <SettingsGroup title="Context">
         <SettingsRow
           labelId="setting-autoCompact"
@@ -189,6 +230,77 @@ export function GeneralSettings() {
         />
       </SettingsGroup>
     </div>
+  );
+}
+
+/** A shortcut as the person reads it: "Ctrl+Alt+Space", "⌥ Space" on macOS. */
+function shortcutLabel(shortcut: string): string {
+  const names: Record<string, string> = isMac
+    ? { CTRL: "⌃", CONTROL: "⌃", ALT: "⌥", OPTION: "⌥", SHIFT: "⇧", SUPER: "⌘", CMD: "⌘", COMMAND: "⌘", COMMANDORCONTROL: "⌘" }
+    : { CTRL: "Ctrl", CONTROL: "Ctrl", ALT: "Alt", OPTION: "Alt", SHIFT: "Shift", SUPER: "Win", CMD: "Win", COMMAND: "Win", COMMANDORCONTROL: "Ctrl" };
+  const parts = shortcut.split("+").map((part) => {
+    const key = part.trim();
+    return names[key.toUpperCase()] ?? key.replace(/^Key(?=[A-Z]$)/, "").replace(/^Digit(?=\d$)/, "");
+  });
+  return parts.join(isMac ? " " : "+");
+}
+
+/** The shortcut for a key press: its modifiers, then the key's code; null without a modifier or a key. */
+function shortcutOf(event: React.KeyboardEvent): string | null {
+  if (["Control", "Alt", "Shift", "Meta", "AltGraph", "OS"].includes(event.key)) return null;
+  const mods = [
+    event.ctrlKey && "Ctrl",
+    event.altKey && "Alt",
+    event.shiftKey && "Shift",
+    event.metaKey && "Super",
+  ].filter(Boolean);
+  if (mods.length === 0 || !event.code) return null;
+  return [...mods, event.code].join("+");
+}
+
+/** A button that shows the shortcut and records a new one when clicked. */
+function ShortcutRecorder({
+  labelledBy,
+  value,
+  disabled,
+  onChange,
+}: {
+  labelledBy: string;
+  value: string | null;
+  disabled: boolean;
+  onChange(shortcut: string): Promise<boolean>;
+}) {
+  const [recording, setRecording] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    if (!recording) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      setRecording(false);
+      return;
+    }
+    const shortcut = shortcutOf(event);
+    if (!shortcut) return;
+    setRecording(false);
+    setSaving(true);
+    void onChange(shortcut).finally(() => setSaving(false));
+  }
+
+  return (
+    <button
+      type="button"
+      aria-labelledby={labelledBy}
+      disabled={disabled || saving}
+      onClick={() => setRecording((on) => !on)}
+      onBlur={() => setRecording(false)}
+      onKeyDown={onKeyDown}
+      className="h-8 min-w-36 rounded-md bg-background px-3 font-mono text-[13px] shadow-hairline disabled:opacity-50 data-[recording=true]:text-muted-foreground"
+      data-recording={recording}
+    >
+      {recording ? "Press the keys…" : value ? shortcutLabel(value) : "—"}
+    </button>
   );
 }
 

@@ -27,6 +27,7 @@ mod plugin_runtime;
 mod plugin_settings;
 mod plugin_ui;
 mod plugins;
+mod quick_entry;
 mod shell_integration;
 mod source_control;
 mod supervisor;
@@ -56,6 +57,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        // Quick entry's shortcut, registered by quick_entry.rs; the webview has
+        // no global-shortcut permission (docs/features/quick-entry, FR-2).
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        quick_entry::toggle(app);
+                    }
+                })
+                .build(),
+        )
         // App updates, driven from Rust only (updates.rs): the webview has no
         // updater permission.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -74,6 +86,7 @@ pub fn run() {
         })
         .manage(window::MaterialState(Mutex::new(window::Material::None)))
         .manage(system::SystemState::default())
+        .manage(quick_entry::QuickEntryState::default())
         .manage(terminal::TerminalState::default())
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
@@ -102,6 +115,8 @@ pub fn run() {
             // The main window starts hidden (tauri.conf.json) and shows here,
             // unless evo was started at sign-in into the tray.
             system::setup(app.handle());
+            // Quick entry: the hidden box and its shortcut (docs/features/quick-entry).
+            quick_entry::setup(app.handle());
             // The plugin host API, before plugins' code starts (plugin-settings FR-26).
             if let Err(error) = plugin_host::start(std::sync::Arc::new(plugin_host::AppBacking(app.handle().clone()))) {
                 eprintln!("[warn] {error}");
@@ -139,6 +154,9 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 system::on_close_requested(window, api);
+            }
+            if let tauri::WindowEvent::Focused(false) = event {
+                quick_entry::on_focus_lost(window);
             }
             if let tauri::WindowEvent::Destroyed = event {
                 let label = window.label().to_string();
@@ -255,6 +273,11 @@ pub fn run() {
             system::quit_dismissed,
             system::quit_pending,
             system::app_open_pending,
+            system::system_set_shortcut,
+            quick_entry::quick_entry_submit,
+            quick_entry::quick_entry_hide,
+            quick_entry::quick_entry_resize,
+            quick_entry::quick_entry_pending,
             mcp::mcp_state,
             mcp::mcp_upsert,
             mcp::mcp_remove,

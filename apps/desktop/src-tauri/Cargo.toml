@@ -28,6 +28,8 @@ tauri-plugin-notification = "2"
 # Settings → General: run on startup, and one running copy of the app.
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+# Quick entry: the shortcut that opens the box from any app (src/quick_entry.rs).
+tauri-plugin-global-shortcut = "2"
 window-vibrancy = "0.8"
 serde = { version = "1", features = ["derive"] }
 # The app database (schema, migrations, chats, logs), shared with the engine.

@@ -46,7 +46,7 @@ const TRAY_KEY: &str = "system.tray";
 const AWAKE_KEY: &str = "system.keepAwake";
 const TRAY_ID: &str = "main";
 /// The main window's label (`tauri.conf.json`).
-const MAIN: &str = "main";
+pub(crate) const MAIN: &str = "main";
 /// Waiting chats the tray's menu lists, at most.
 pub const TRAY_WAITING_SHOWN: usize = 5;
 /// A chat's title in the tray's menu, at most this many characters.
@@ -86,9 +86,14 @@ pub struct SystemSettings {
     run_on_startup: bool,
     tray: bool,
     keep_awake: bool,
+    /// Quick entry (docs/features/quick-entry/spec.md, FR-9).
+    quick_entry: bool,
+    quick_entry_shortcut: String,
+    /// False when the shortcut could not be registered (another app has it).
+    quick_entry_shortcut_ok: bool,
 }
 
-fn saved_flag(db: &Db, key: &str, default: bool) -> bool {
+pub(crate) fn saved_flag(db: &Db, key: &str, default: bool) -> bool {
     db.with(|conn| evo_store::settings::all(conn))
         .ok()
         .and_then(|settings| settings.get(key).and_then(Value::as_bool))
@@ -433,6 +438,11 @@ fn build_main(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Quitting was decided: nothing opens a window any more.
+pub fn quitting(app: &AppHandle) -> bool {
+    app.state::<SystemState>().quitting.load(Ordering::Acquire)
+}
+
 /// Bring the main window back (tray, second launch, dock icon, a
 /// notification); built again when it was destroyed (FR-11). True when a new
 /// one is being built: its page has not loaded yet.
@@ -498,6 +508,8 @@ pub fn request_quit(app: &AppHandle) {
     let windows: Vec<WindowView> = app
         .windows()
         .into_iter()
+        // The quick entry box never asks.
+        .filter(|(label, _)| label != crate::quick_entry::LABEL)
         .map(|(label, window)| WindowView {
             label,
             visible: window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false),
@@ -539,8 +551,15 @@ pub fn setup(app: &AppHandle) {
 /// there; the last window with the tray off asks first while chats work (FR-11).
 pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) {
     let app = window.app_handle();
+    // The quick entry box only hides: it is kept ready (quick-entry FR-1).
+    if window.label() == crate::quick_entry::LABEL {
+        api.prevent_close();
+        let _ = window.hide();
+        return;
+    }
     let tray = window.state::<SystemState>().tray.load(Ordering::Relaxed);
-    let open = app.windows().len();
+    // The hidden quick entry box is not a window the person has open.
+    let open = app.windows().keys().filter(|label| label.as_str() != crate::quick_entry::LABEL).count();
     // Only the last window with the tray off needs the count.
     let working = if !tray && open <= 1 { work_count(app) } else { 0 };
     match close_step(window.label(), tray, open, working) {
@@ -548,7 +567,15 @@ pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) 
             api.prevent_close();
             let _ = window.hide();
         }
-        CloseStep::Close => {}
+        CloseStep::Close => {
+            // The last window with the tray off: the box goes too, so the
+            // app exits as it did before quick entry.
+            if !tray && open <= 1 {
+                if let Some(quick) = app.get_webview_window(crate::quick_entry::LABEL) {
+                    let _ = quick.destroy();
+                }
+            }
+        }
         CloseStep::Ask => {
             api.prevent_close();
             ask_quit(app, window.label(), working);
@@ -583,7 +610,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip(tray_tooltip(name, &list))
         .menu(&tray_menu(app, &list)?)
-        // Left click opens the window; the menu is on right click.
+        // Left click opens quick entry, or the window with it off; the
+        // menu is on right click (quick-entry FR-3).
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match tray_target(event.id().as_ref(), &shown_work(app)) {
             Some(TrayTarget::Main) => {
@@ -595,7 +623,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                show_main(tray.app_handle());
+                crate::quick_entry::tray_clicked(tray.app_handle());
             }
         });
     if let Some(icon) = app.default_window_icon() {
@@ -674,10 +702,14 @@ pub fn app_open_pending(state: State<'_, SystemState>, window: tauri::Window) ->
 }
 
 fn current(app: &AppHandle, state: &SystemState) -> SystemSettings {
+    let (quick_entry, quick_entry_shortcut, quick_entry_shortcut_ok) = crate::quick_entry::settings(app);
     SystemSettings {
         run_on_startup: app.autolaunch().is_enabled().unwrap_or(false),
         tray: state.tray.load(Ordering::Relaxed),
         keep_awake: state.awake.lock().expect("awake lock").is_some(),
+        quick_entry,
+        quick_entry_shortcut,
+        quick_entry_shortcut_ok,
     }
 }
 
@@ -686,8 +718,8 @@ pub fn system_settings(app: AppHandle, state: State<'_, SystemState>) -> SystemS
     current(&app, &state)
 }
 
-/// Turn one setting on or off (`runOnStartup`, `tray`, `keepAwake`); returns
-/// all three as they now are.
+/// Turn one setting on or off (`runOnStartup`, `tray`, `keepAwake`,
+/// `quickEntry`); returns them all as they now are.
 #[tauri::command]
 pub fn system_set(
     app: AppHandle,
@@ -723,9 +755,19 @@ pub fn system_set(
             drop(hold);
             db.with(|conn| evo_store::settings::set(conn, AWAKE_KEY, &Value::Bool(enabled)))?;
         }
+        "quickEntry" => crate::quick_entry::set_enabled(&app, enabled)?,
         other => return Err(format!("unknown setting {other}")),
     }
     db.log(NewLog::new("info", "shell", format!("{key} turned {}", if enabled { "on" } else { "off" })));
+    Ok(current(&app, &state))
+}
+
+/// Use `shortcut` to open quick entry; refused, keeping the old one, when it
+/// is not a shortcut or another app holds it (quick-entry FR-9).
+#[tauri::command]
+pub fn system_set_shortcut(app: AppHandle, state: State<'_, SystemState>, shortcut: String) -> Result<SystemSettings, String> {
+    crate::quick_entry::set_shortcut(&app, &shortcut)?;
+    app.state::<Db>().log(NewLog::new("info", "shell", format!("quick entry shortcut set to {}", shortcut.trim())));
     Ok(current(&app, &state))
 }
 

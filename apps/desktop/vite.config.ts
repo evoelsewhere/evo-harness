@@ -27,5 +27,12 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari15",
     minify: !process.env.TAURI_ENV_DEBUG,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    rollupOptions: {
+      input: {
+        main: path.resolve(import.meta.dirname, "index.html"),
+        // The quick entry box: its own small page (docs/features/quick-entry, NFR-1).
+        "quick-entry": path.resolve(import.meta.dirname, "quick-entry.html"),
+      },
+    },
   },
 });

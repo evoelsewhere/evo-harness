@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-entry",
+  "description": "Permissions for the quick entry box: events and its own window only (docs/features/quick-entry/plan.md, 3.7).",
+  "windows": [
+    "quick-entry"
+  ],
+  "permissions": [
+    "core:default"
+  ]
+}

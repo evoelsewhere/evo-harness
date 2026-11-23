@@ -1036,6 +1036,19 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     });
 
   /** The engines that run with no runtime here (the shell hosted them for mail before this window loaded). */
+  /**
+   * Quick entry's request: leave Settings and any full page, start a new chat
+   * where New chat would, and send the text as its first message
+   * (docs/features/quick-entry/spec.md, FR-5, FR-6).
+   */
+  const startFromQuickEntry = async (text: string) => {
+    if (chatWindowId || !text.trim()) return;
+    const ui = useUiStore.getState();
+    if (ui.settingsOpen) ui.closeSettings();
+    await get().newChat();
+    await get().sendPrompt(text);
+  };
+
   const adoptRunning = async () => {
     if (!client || chatWindowId) return;
     const running = await client.running().catch((): string[] => []);
@@ -1362,6 +1375,11 @@ export const useEngineStore = create<EngineStore>((set, get) => {
           if (ui.settingsOpen) ui.closeSettings();
           void get().selectSession(payload.chat);
         });
+        // Quick entry sent a request: a new chat starts with it, as New chat
+        // would (docs/features/quick-entry/spec.md, FR-5).
+        void listen<{ text: string }>("app://quick-entry", ({ payload }) => {
+          if (typeof payload?.text === "string") void startFromQuickEntry(payload.text);
+        });
       }
       // Plugins changed: the shell has every engine re-read them (FR-8);
       // Customize shows the new lists.
@@ -1382,6 +1400,13 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       }
       // A notification or the tray asked for a chat while there was no main
       // window: the shell built this one to show it (shell-hosted-engines FR-11).
+      // Quick entry sent a request while there was no main window: this one
+      // was built to start a chat with it (quick-entry FR-6).
+      const quick = await invoke<string | null>("quick_entry_pending").catch(() => null);
+      if (quick) {
+        await startFromQuickEntry(quick);
+        return;
+      }
       const pending = await invoke<string | null>("app_open_pending").catch(() => null);
       const known = (id: string) => useSessionStore.getState().sessions.some((s) => s.id === id && !s.draft);
       const last = pending && known(pending) ? pending : useSessionStore.getState().lastChatId;
