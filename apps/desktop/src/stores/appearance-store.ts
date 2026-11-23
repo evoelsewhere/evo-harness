@@ -180,7 +180,7 @@ export const APPEARANCE_DEFAULTS = {
   motion: "system" as MotionPreference,
   translucency: true,
   railNames: true,
-  sidebarLayout: "rail" as SidebarLayout,
+  sidebarLayout: "list" as SidebarLayout,
 };
 
 export const useAppearanceStore = create<AppearanceStore>()(
