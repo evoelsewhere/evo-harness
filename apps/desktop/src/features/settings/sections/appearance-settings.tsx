@@ -576,19 +576,15 @@ function Layout() {
   return (
     <SettingsGroup title="Layout & motion">
       <SidebarLayoutRow />
-      <SettingsRow
-        labelId="rail-names-label"
-        label="Workspace names"
-        description="Show each workspace's name under its icon on the rail. Off, the rail shows icons only and takes less room."
-        control={
-          <Switch
-            aria-labelledby="rail-names-label"
-            checked={railNames}
-            disabled={sidebarLayout !== "rail"}
-            onCheckedChange={setRailNames}
-          />
-        }
-      />
+      {/* Only the rail has names to hide; List always shows them (FR-16, FR-17). */}
+      {sidebarLayout === "rail" && (
+        <SettingsRow
+          labelId="rail-names-label"
+          label="Workspace names"
+          description="Show each workspace's name under its icon on the rail. Off, the rail shows icons only and takes less room."
+          control={<Switch aria-labelledby="rail-names-label" checked={railNames} onCheckedChange={setRailNames} />}
+        />
+      )}
       <SettingsRow
         labelId="width-label"
         label="Conversation width"
