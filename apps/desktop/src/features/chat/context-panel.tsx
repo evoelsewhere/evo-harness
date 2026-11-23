@@ -1,6 +1,6 @@
 import * as React from "react";
 import { ChevronRightIcon, LoaderCircleIcon } from "lucide-react";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { CompactionSlider, CompactionSwitch } from "@/components/compaction-control";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -156,9 +156,10 @@ function Breakdown({ breakdown }: { breakdown: ContextBreakdown }) {
 }
 
 /**
- * The context window (shadcn/ui AI Elements · Context): a Hover Card on a
+ * The context window (shadcn/ui AI Elements · Context): a popover on a
  * small button, opening onto what fills the window, category by category.
- * It opens on hover like the pattern, and on click so Compact is reachable.
+ * It opens on click and stays open until a click outside or Esc, so the
+ * slider and Compact can be reached without keeping the pointer on it.
  */
 export function ContextPanel({ className }: { className?: string }) {
   const breakdown = useEngineStore((s) => s.contextBreakdown);
@@ -174,11 +175,8 @@ export function ContextPanel({ className }: { className?: string }) {
   const percentUsed = Math.round((used / window) * 100);
 
   return (
-    <HoverCard open={open} onOpenChange={setOpen}>
-      <HoverCardTrigger
-        delay={10}
-        closeDelay={100}
-        onClick={() => setOpen((value) => !value)}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
         render={
           <Button
             variant="ghost"
@@ -189,8 +187,8 @@ export function ContextPanel({ className }: { className?: string }) {
         }
       >
         <UsageRing percent={percentUsed} />
-      </HoverCardTrigger>
-      <HoverCardContent align="end" className="w-80 p-0">
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 overflow-y-auto p-0 text-sm">
         {breakdown ? (
           <Breakdown breakdown={breakdown} />
         ) : (
@@ -198,8 +196,8 @@ export function ContextPanel({ className }: { className?: string }) {
             <LoaderCircleIcon className="size-3.5 animate-spin" /> Measuring the context window…
           </p>
         )}
-      </HoverCardContent>
-    </HoverCard>
+      </PopoverContent>
+    </Popover>
   );
 }
 
