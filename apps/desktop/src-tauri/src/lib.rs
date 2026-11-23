@@ -17,6 +17,7 @@ mod computer;
 mod db;
 mod engine;
 mod files;
+mod frames;
 mod mcp;
 mod memory_index;
 mod mesh;
@@ -91,6 +92,7 @@ pub fn run() {
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
         .manage(browser::BrowserState::default())
+        .manage(frames::FrameSinks::default())
         .manage(webbridge::Webbridge::default())
         .manage(plugin_ui::PluginUiState::default())
         .manage(plugin_runtime::RuntimeState::default())
@@ -167,6 +169,7 @@ pub fn run() {
                 // A window's terminals end with it.
                 window.app_handle().state::<terminal::TerminalState>().kill_window(&label);
                 window.app_handle().state::<browser::BrowserState>().close_window(window.app_handle(), &label);
+                window.app_handle().state::<frames::FrameSinks>().window_closed(&label);
                 plugin_ui::views::window_closed(window.app_handle(), &label);
                 // A window is a viewer: its chat's engine goes on while it has
                 // work (docs/features/shell-hosted-engines/spec.md, FR-2).
@@ -347,6 +350,7 @@ pub fn run() {
             browser::browser_bounds,
             browser::browser_visible,
             browser::browser_stage,
+            frames::stage_frames,
             browser::browser_navigate,
             browser::browser_history,
             browser::browser_url,

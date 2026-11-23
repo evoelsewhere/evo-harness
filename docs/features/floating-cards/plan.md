@@ -90,7 +90,7 @@ shell emits `browser://driven` once per page).
 
 | Layer | Path | Responsibility | Requirements |
 | --- | --- | --- | --- |
-| shell | `src-tauri/src/browser.rs`, `browser/stage.rs` (new) | `browser_stage(tab, on, fps)`: park a visible 1280×800 webview off-screen (or take it off the stage) and start / change / stop the screencast; ack frames, cap to the wanted rate, emit `browser://frame` to the owner window; stop when the tab closes. | FR-9, FR-10 |
+| shell | `src-tauri/src/browser.rs`, `browser/stage.rs` (new) | `browser_stage(tab, on, fps)`: park a visible 1280×800 webview off-screen (or take it off the stage) and start / change / stop the screencast; ack frames, cap to the wanted rate, send `browser://frame` to the owner window (as JPEG bytes down its `stage_frames` channel, `frames.rs`; the event only until the window has handed one over); stop when the tab closes. | FR-9, FR-10 |
 | shell | `src-tauri/src/browser/tabs.rs`, `browser.rs` | Emit `browser://driven` the first time a tool marks a page. | FR-1, FR-15 |
 | shell | `src-tauri/src/agent_tools/mod.rs` | Emit `agent://activity { chat, kind, id, tool, phase }` around every browser and terminal tool call (the tab it resolved to). | FR-2 |
 | shell | `src-tauri/src/agent_tools/browser/viewport.rs` | No change: the stage's real 1280×800 size is what a reset returns to; a size set by the tool is an override that wins. | FR-9 |

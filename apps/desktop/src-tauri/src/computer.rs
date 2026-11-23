@@ -79,7 +79,8 @@ pub fn settings_changed(app: &AppHandle, key: &str, value: &Value) {
 // ── The card's pictures (FR-10, NFR-8) ──────────────────────────────────────
 
 /// `computer://frame`: `{surface, seq, data (base64 JPEG), width, height}`,
-/// the shape of `browser://frame` with the card's surface for its tab.
+/// the shape of `browser://frame` with the card's surface for its tab. A window that
+/// paints frames gets them as bytes instead (`crate::frames`).
 pub const FRAME_EVENT: &str = "computer://frame";
 /// The widest picture sent to the card.
 const FRAME_WIDTH: u32 = 1280;
@@ -134,7 +135,9 @@ pub fn computer_stage(app: AppHandle, chat: String, on: bool, fps: Option<u32>) 
                         if last != Some(hash) {
                             last = Some(hash);
                             seq += 1;
-                            let _ = app.emit(
+                            crate::frames::send(
+                                &app,
+                                crate::frames::To::All,
                                 FRAME_EVENT,
                                 json!({
                                     "surface": surface,

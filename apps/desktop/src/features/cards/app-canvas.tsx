@@ -5,7 +5,7 @@ import { useComputerStore } from "@/stores/computer-store";
 import { AgentCursor } from "./agent-cursor";
 import { appKeyInput, toFraction } from "./app-input";
 import { toPagePoint } from "./input";
-import { lastFrame, subscribeAppTitles, subscribeFrames, type Frame } from "./stage-stream";
+import { lastFrame, paintFrame, subscribeAppTitles, subscribeFrames, type Frame } from "./stage-stream";
 
 /** The person's input to one chat's app, one at a time and in order. */
 const queues = new Map<string, Promise<unknown>>();
@@ -71,28 +71,25 @@ export function AppCanvas({ chat, className }: { chat: string; className?: strin
         return;
       }
       loading = true;
-      const image = new Image();
-      image.onload = () => {
+      const done = () => {
         loading = false;
-        if (!alive) return;
-        if (element.width !== image.naturalWidth || element.height !== image.naturalHeight) {
-          element.width = image.naturalWidth;
-          element.height = image.naturalHeight;
-        }
-        size.current = { w: image.naturalWidth, h: image.naturalHeight };
-        setPicture((now) => (now.w === image.naturalWidth && now.h === image.naturalHeight ? now : { w: image.naturalWidth, h: image.naturalHeight }));
-        context.drawImage(image, 0, 0);
-        setSeen(true);
-        if (pending) {
+        if (alive && pending) {
           const next = pending;
           pending = null;
           draw(next);
         }
       };
-      image.onerror = () => {
-        loading = false;
-      };
-      image.src = `data:image/jpeg;base64,${frame.data}`;
+      void paintFrame(frame, (picture) => {
+        if (!alive) return;
+        if (element.width !== picture.width || element.height !== picture.height) {
+          element.width = picture.width;
+          element.height = picture.height;
+        }
+        size.current = { w: picture.width, h: picture.height };
+        setPicture((now) => (now.w === picture.width && now.h === picture.height ? now : { w: picture.width, h: picture.height }));
+        context.drawImage(picture, 0, 0);
+        setSeen(true);
+      }).then(done, done);
     };
     const first = lastFrame(surface);
     if (first) draw(first);

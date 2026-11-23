@@ -128,6 +128,14 @@ impl BrowserState {
         }
     }
 
+    /// A `browser://frame` for the window that owns `tab`, as bytes when it can take them.
+    fn send_frame(&self, app: &AppHandle, tab: &str, payload: Value) {
+        let owner = self.tabs.lock().expect("browser tabs lock").window_of(tab).map(str::to_string);
+        if let Some(owner) = owner {
+            crate::frames::send(app, crate::frames::To::Window(&owner), "browser://frame", payload);
+        }
+    }
+
     /// Remember that `event` is subscribed on `tab`; false when it already was.
     #[cfg_attr(not(windows), allow(dead_code))]
     fn mark_subscribed(&self, tab: &str, event: &str) -> bool {
@@ -196,7 +204,7 @@ impl BrowserState {
     fn emit_frame(&self, app: &AppHandle, tab: &str, frame: &Value) {
         let seq = self.stage.lock().expect("browser stage lock").next_seq(tab);
         if let Some(payload) = stage::frame_payload(tab, seq, frame) {
-            self.emit_owner(app, tab, "browser://frame", payload);
+            self.send_frame(app, tab, payload);
         }
     }
 
@@ -508,7 +516,7 @@ fn send_still(app: &AppHandle, tab: &str) {
             streams.next_seq(&tab)
         };
         if let Some(payload) = stage::frame_payload(&tab, seq, &shot) {
-            state.emit_owner(&app, &tab, "browser://frame", payload);
+            state.send_frame(&app, &tab, payload);
         }
     });
 }

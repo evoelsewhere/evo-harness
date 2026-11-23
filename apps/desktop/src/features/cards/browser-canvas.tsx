@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { AgentCursor } from "./agent-cursor";
 import { keyEvents, mouseParams, toPagePoint, wheelParams } from "./input";
 import { noteUserInput } from "./user-input";
-import { lastFrame, subscribeFrames, type Frame } from "./stage-stream";
+import { lastFrame, paintFrame, subscribeFrames, type Frame } from "./stage-stream";
 
 /** DevTools input of one page, one call at a time and in order. */
 const queues = new Map<string, Promise<unknown>>();
@@ -51,28 +51,25 @@ export function BrowserCanvas({ tab, interactive = true, className }: { tab: str
         return;
       }
       loading = true;
-      const image = new Image();
-      image.onload = () => {
+      const done = () => {
         loading = false;
-        if (!alive) return;
-        if (element.width !== image.naturalWidth || element.height !== image.naturalHeight) {
-          element.width = image.naturalWidth;
-          element.height = image.naturalHeight;
-        }
-        size.current = { w: image.naturalWidth, h: image.naturalHeight };
-        setPageSize((now) => (now.w === image.naturalWidth && now.h === image.naturalHeight ? now : { w: image.naturalWidth, h: image.naturalHeight }));
-        context.drawImage(image, 0, 0);
-        setSeen(true);
-        if (pending) {
+        if (alive && pending) {
           const next = pending;
           pending = null;
           draw(next);
         }
       };
-      image.onerror = () => {
-        loading = false;
-      };
-      image.src = `data:image/jpeg;base64,${frame.data}`;
+      void paintFrame(frame, (picture) => {
+        if (!alive) return;
+        if (element.width !== picture.width || element.height !== picture.height) {
+          element.width = picture.width;
+          element.height = picture.height;
+        }
+        size.current = { w: picture.width, h: picture.height };
+        setPageSize((now) => (now.w === picture.width && now.h === picture.height ? now : { w: picture.width, h: picture.height }));
+        context.drawImage(picture, 0, 0);
+        setSeen(true);
+      }).then(done, done);
     };
     const first = lastFrame(tab);
     if (first) draw(first);

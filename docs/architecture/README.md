@@ -231,7 +231,11 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
   visible desktop-size webview parked outside the window whose frames the shell
   streams (`browser://frame`) to whatever shows it, a floating card over the chat
   or the side panel; input goes back as DevTools events in page coordinates
-  (docs/features/floating-cards).
+  (docs/features/floating-cards). Frames (and an app's, `computer://frame`) go
+  as raw JPEG bytes down a channel each window hands the shell
+  (`stage_frames`, `src-tauri/src/frames.rs`), not as events: an event carries
+  the picture as base64 inside a script, which the renderer keeps until a
+  garbage collection.
 - **Another app the agent controls stays the person's program, moved off
   screen** (docs/features/computer-app-control): the shell drives it
   only through background channels. These are a DevTools pipe for web-based
