@@ -2049,12 +2049,13 @@ async fn rpc_configure_file_io(
     command: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     use evo_tools::file_io::FileIOCapabilities;
+    // `active_operation`, not `snapshot`: a snapshot reads every entry's
+    // label, which takes seconds on a long chat (run_guard_tests.rs).
     if run_active
         || lane
-            .snapshot()
+            .active_operation()
             .await
             .map_err(|e| e.to_string())?
-            .active
             .is_some()
     {
         return Err("cannot configure file I/O while a run or prompt validation is active".into());
@@ -2999,10 +3000,9 @@ async fn rpc_navigate(
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.is_empty());
     if lane
-        .snapshot()
+        .active_operation()
         .await
         .map_err(|error| error.to_string())?
-        .active
         .is_some()
     {
         return Err("cannot navigate while an operation is active".to_string());
@@ -3717,12 +3717,14 @@ async fn rpc_configure_external_tools(
     use evo_tools::tools::external::{
         create_external_tool, validate_external_tool_definitions, ExternalToolDefinition,
     };
+    // `active_operation`, not `snapshot`: a snapshot reads every entry's
+    // label, and on a long chat this took longer than the app waits for the
+    // answer, so the chat ran without the session tools (run_guard_tests.rs).
     if run_active
         || lane
-            .snapshot()
+            .active_operation()
             .await
             .map_err(|e| e.to_string())?
-            .active
             .is_some()
     {
         return Err("cannot configure external tools while a run is active".into());
@@ -4067,6 +4069,9 @@ mod native_dispatch_tests;
 #[cfg(all(test, feature = "experimental-native-store"))]
 #[path = "modes/native_persistence_tests.rs"]
 mod native_persistence_tests;
+#[cfg(test)]
+#[path = "modes/run_guard_tests.rs"]
+mod run_guard_tests;
 #[cfg(test)]
 #[path = "modes/transcript_page_tests.rs"]
 mod transcript_page_tests;
