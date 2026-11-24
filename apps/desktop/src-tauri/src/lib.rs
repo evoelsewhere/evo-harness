@@ -37,6 +37,7 @@ mod updates;
 mod worktrees;
 mod terminal;
 mod webbridge;
+mod widgets;
 mod window;
 
 use std::sync::Mutex;
@@ -76,6 +77,11 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(plugin_ui::SCHEME, |ctx, request, responder| {
             plugin_ui::serve(ctx, request, responder)
         })
+        // `show_widget` documents with their own CSP (ADR 0027).
+        .register_asynchronous_uri_scheme_protocol(widgets::SCHEME, |ctx, request, responder| {
+            widgets::serve(ctx, request, responder)
+        })
+        .manage(widgets::WidgetDocs::default())
         .manage(engine::EngineState::default())
         .manage(supervisor::EngineSupervisor::default())
         .manage(source_control::Discards::default())
@@ -171,6 +177,7 @@ pub fn run() {
                 window.app_handle().state::<browser::BrowserState>().close_window(window.app_handle(), &label);
                 window.app_handle().state::<frames::FrameSinks>().window_closed(&label);
                 plugin_ui::views::window_closed(window.app_handle(), &label);
+                window.app_handle().state::<widgets::WidgetDocs>().window_gone(&label);
                 // A window is a viewer: its chat's engine goes on while it has
                 // work (docs/features/shell-hosted-engines/spec.md, FR-2).
                 supervisor::window_gone(window.app_handle(), &label);
@@ -178,6 +185,8 @@ pub fn run() {
         })
         .invoke_handler({
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+            widgets::widget_open,
+            widgets::widget_close,
             plugin_runtime::plugin_runtime_state,
             plugin_runtime::plugin_runtime_control,
             plugin_runtime::plugin_runtime_mode,

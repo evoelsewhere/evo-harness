@@ -181,7 +181,7 @@ Acceptance scenarios:
 | FR-10 | Area edits on PPTX (Normal view, native render: shapes; exact pages: text lines and areas) and XLSX (cell grid) produce the v3 annotation items; a message carries up to 20; the chat shows the chip; sent areas shimmer until the turn ends (60 s cap). | UI tests ported from v3's composer annotation tests; manual. |
 | FR-11 | An annotated message is the skill command `/skill:office-annotation-edit <text + block>`, which the engine expands like any skill command; the skill edits only the annotated shapes/cells and reports per item. | Desktop test of the message format; manual end to end. |
 | FR-12 | Document versions: record on every settled save, dedupe by hash, max 50, undo/redo/restore, checkpoint before an annotation labels the next change, live builds skipped, mid-write files ignored. | v3 document-version tests ported. |
-| FR-13 | `show_widget` renders HTML in the chat (sandboxed, CSP, theme variables, auto height ≤ 2400 px); `sendPrompt(text)` from that widget sends `text` as a new user message; history replays widgets from the tool arguments. | UI test; manual with the pptx skill's preview step. |
+| FR-13 | `show_widget` renders HTML in the chat (sandboxed, CSP, theme variables, auto height ≤ 2400 px); `sendPrompt(text)` from that widget sends `text` as a new user message; history replays widgets from the tool arguments. Its scripts run in release builds too: the document has its own policy, not the app's ([ADR 0027](../../architecture/decisions/0027-widgets-are-served-from-their-own-scheme.md)). | UI test; manual with the pptx skill's preview step; a scripted widget runs (height, `sendPrompt`) in a release build. |
 | FR-14 | The bundled skills equal v3 except for documented renames; `office-annotation-edit` is bundled. | Diff check in CI: v3 file vs bundled file minus the rename table. |
 
 ### 4.2 Non-functional
@@ -242,3 +242,6 @@ n/a — none open.
 - 2026-11-07 — Implemented; `$` mentions replaced by `/skill:` commands; v3 bugs fixed on the
   owner's request; tested in the app by the owner.
 - 2026-11-07 — Moved to the spec / plan / tasks format.
+- 2026-11-25 — FR-13: no widget script had run in release builds (a `data:` frame inherits
+  the app's CSP; checked in 4.13.2). Widgets are now served from their own scheme with their
+  own CSP (ADR 0027); FR-13's check names a release build.

@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-07 |
+| Updated | 2026-11-25 |
 
 ## 1. Phases
 
@@ -85,6 +85,17 @@ Done when: FR-13 passes.
 - [x] T26 [FR-13, NFR-2, NFR-3] Widget frame: sandboxed `data:` document, theme variables, auto height, `sendPrompt` bridge — `apps/desktop/src/components/widget-frame.tsx` — check: `bun test` (widget document); manual
 - [x] T27 [FR-13, FR-14] Restore the pptx skill's preview step (Phase 2.5) — `crates/evo-engine/bundled-skills/pptx-official/preview.md` — check: manual with `preview.md` in the app
 
+### Phase 8 — Widget scripts in release builds (2026-11-25)
+
+No widget script ran in release builds: the `data:` frame inherited the app's CSP (ADR 0027).
+
+Done when: FR-13 passes in a release build.
+
+- [x] T28 [FR-13, NFR-2, NFR-3] Tests first: the scheme serves a document only to the window that opened it, never to a plugin view, with the widget CSP header; documents are capped and dropped oldest first — `apps/desktop/src-tauri/src/widgets.rs` — check: `bun run test:shell` fails for the right reason
+- [x] T29 [FR-13, NFR-2, NFR-3] The `evo-widget` scheme, `widget_open` / `widget_close`, the app CSP's `frame-src` — `apps/desktop/src-tauri/src/widgets.rs`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json` — check: T28 passes
+- [x] T30 [FR-13] The widget frame loads its document from `evo-widget` in Tauri, `data:` elsewhere; closes it when it goes — `apps/desktop/src/components/widget-frame.tsx` — check: `bun test` (widget document), `bun run typecheck`
+- [x] T31 [FR-13, NFR-2] A scripted widget in a release build: its script runs, the frame takes its height, `sendPrompt` reaches the chat, and the frame reaches no Tauri command — check: manual in a release build (CDP)
+
 ## 2. Verification
 
 | Requirement | Test or check | Result |
@@ -101,7 +112,8 @@ Done when: FR-13 passes.
 | FR-10 | `bun test` (annotation format, batch store, geometry) + manual in the app | passed (2026-11-07) |
 | FR-11 | `bun test` (annotation format) + manual in the app | passed (2026-11-07) |
 | FR-12 | `cargo test -p evo-office --test versions` (v3 `test_document_versions.py` ported) | passed (2026-11-07) |
-| FR-13 | `cargo test -p evo-engine visualize_tool`, `bun test` (widget document) + manual | passed (2026-11-07) |
+| FR-13 | `cargo test -p evo-engine visualize_tool`, `bun test` (widget document) + manual | passed (2026-11-07) in a debug build only; release builds ran no widget script |
+| FR-13 (2026-11-25) | `bun run test:shell widgets::` (window-only, plugin views refused, CSP header, caps); `bun test` (widget document); a build with the bundled frontend and the app CSP (`tauri build --debug --no-bundle`), over CDP: a wrapped widget from `evo-widget` ran its script, reported its height (336 px) and sent `sendPrompt`; the same document as `data:` ran nothing; the app's own inline script stayed blocked; the widget's `logs_append` through `__TAURI_INTERNALS__` got no answer and wrote nothing | passed (2026-11-25) |
 | FR-14 | rename/diff audit of every bundled skill file against v3 | passed (2026-11-07) |
 | NFR-1 | Bench test | not run |
 | NFR-2 | Review + test that scripts in a document do not run | not run |

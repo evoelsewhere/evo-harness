@@ -4,16 +4,23 @@
 // The model's HTML runs in an iframe with `sandbox="allow-scripts"` only: an
 // opaque origin, so it cannot reach the app, its storage or the engine. (v3
 // also granted `allow-same-origin`, which lets a frame's script reach its
-// parent; evo leaves it out and talks to the frame by postMessage.) The
-// document is loaded as a `data:` URL, which starts with a fresh
-// Content-Security-Policy — the v3 widget policy injected by
-// `wrapWidgetHtml` — instead of inheriting the app's. Messages are accepted
-// only from this frame's own window: `sendPrompt(text)` sends `text` as a new
-// message in the chat, and the height report sizes the frame (120–2400 px).
-// The app's theme is seeded into the document and kept in sync.
+// parent; evo leaves it out and talks to the frame by postMessage.)
+//
+// In the app the document comes from the shell's `evo-widget` scheme, which
+// sends the v3 widget policy as its header (ADR 0027). A `data:` frame would
+// inherit the app's CSP, whose `script-src` lets none of the widget's
+// scripts run. Outside Tauri (the Vite preview, tests) there is no app
+// policy, and the frame loads a `data:` URL.
+//
+// Messages are accepted only from this frame's own window: `sendPrompt(text)`
+// sends `text` as a new message in the chat, and the height report sizes the
+// frame (120–2400 px). The app's theme is seeded into the document and kept
+// in sync.
 
 import * as React from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { Spinner } from "@/components/ui/spinner";
+import { inTauri } from "@/lib/platform";
 import {
   WIDGET_RESIZE,
   WIDGET_SEND_PROMPT,
@@ -24,6 +31,48 @@ import {
 } from "@/lib/widget-document";
 import { cn } from "@/lib/utils";
 import { sendOrSteer } from "@/stores/engine-store";
+
+/** The scheme the shell serves widget documents from (`src-tauri/src/widgets.rs`). */
+const WIDGET_SCHEME = "evo-widget";
+
+/**
+ * The frame's URL for `html`, wrapped with the app's theme: the shell's
+ * `evo-widget` document in the app (closed again when the frame goes or the
+ * HTML changes), a `data:` URL elsewhere. Empty while there is none yet.
+ */
+function useWidgetSrc(html: string): string {
+  const [src, setSrc] = React.useState("");
+  React.useEffect(() => {
+    if (!html) {
+      setSrc("");
+      return;
+    }
+    const { theme, colorScheme } = appTheme();
+    const document = wrapWidgetHtml(html, theme, colorScheme);
+    if (!inTauri) {
+      setSrc(`data:text/html;charset=utf-8,${encodeURIComponent(document)}`);
+      return;
+    }
+    let id: string | undefined;
+    let gone = false;
+    setSrc("");
+    invoke<string>("widget_open", { html: document })
+      .then((opened) => {
+        id = opened;
+        if (gone) void invoke("widget_close", { id: opened }).catch(() => undefined);
+        else setSrc(convertFileSrc(opened, WIDGET_SCHEME));
+      })
+      .catch(() => {
+        // The shell refused it (too large): the frame shows it without its scripts.
+        if (!gone) setSrc(`data:text/html;charset=utf-8,${encodeURIComponent(document)}`);
+      });
+    return () => {
+      gone = true;
+      if (id) void invoke("widget_close", { id }).catch(() => undefined);
+    };
+  }, [html]);
+  return src;
+}
 
 function appTheme() {
   const root = document.documentElement;
@@ -61,11 +110,7 @@ export function WidgetFrame({
   sendRef.current = onSendPrompt;
 
   // The theme at load time is baked into the document; later changes are posted.
-  const src = React.useMemo(() => {
-    if (!html) return "";
-    const { theme, colorScheme } = appTheme();
-    return `data:text/html;charset=utf-8,${encodeURIComponent(wrapWidgetHtml(html, theme, colorScheme))}`;
-  }, [html]);
+  const src = useWidgetSrc(html);
 
   React.useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -102,7 +147,7 @@ export function WidgetFrame({
     return () => observer.disconnect();
   }, []);
 
-  if (!html) {
+  if (!html || !src) {
     return (
       <div
         className={cn("flex w-full items-center justify-center rounded-lg bg-card shadow-border", className)}

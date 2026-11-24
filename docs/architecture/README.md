@@ -514,6 +514,14 @@ Details: [app database spec](../features/app-database/spec.md).
   tab group; per-site permissions (Ask, Allow, Block) sit inside the approval
   gate, and Block holds in every mode. The browser's debugging notice, the tab
   group and Evo's in-page indicator (with Stop and Take over) show agent work.
+- **Widgets.** `show_widget` HTML is model-written script. It runs in an
+  `<iframe sandbox="allow-scripts">` (opaque origin, no capability) whose
+  document the shell serves from its own scheme, `evo-widget`, with the
+  widget CSP as the header and only to the window that opened it. It is
+  never a `data:`, `blob:` or `srcdoc` frame: those inherit the app's
+  policy, which blocks their scripts, and loosening the app's `script-src`
+  would let inline script run in the app itself
+  ([ADR 0027](decisions/0027-widgets-are-served-from-their-own-scheme.md)).
 - **Plugin views.** A plugin's views are untrusted pages. Each runs in its
   own webview at its plugin's own origin, with a CSP (no remote or inline
   scripts, no frames, fetches only to its `network:` origins), no Tauri

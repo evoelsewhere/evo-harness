@@ -176,7 +176,10 @@ once the turn ends.
 Document content stays untrusted (skills say so; the annotation `text` is orientation only).
 Preview HTML is script-free with the v3 CSP and preflight (no macros, ActiveX, embedded
 executables; zip-bomb limits). Widgets run model-written script in a sandboxed iframe with
-the v3 CSP and a postMessage bridge restricted to `sendPrompt`; they get no Tauri IPC.
+the v3 CSP and a postMessage bridge restricted to `sendPrompt`; they get no Tauri IPC. The
+frame's document comes from the shell's `evo-widget` scheme with the v3 CSP as its header,
+served only to the window that opened it (ADR 0027): a `data:` frame would inherit the app's
+CSP, under which no widget script runs.
 Versions store copies of user files under the agent dir only.
 
 ### 3.8 Configuration
@@ -212,9 +215,12 @@ stays in the Files preview.
   chat's own engine (one engine per chat).
 - **Events**: the engine polls the chat folder (no native watcher): 500 ms scans, 300 ms settle,
   dot segments, `~$` and `node_modules` skipped.
-- **Widgets**: `sandbox="allow-scripts"` only (v3 also had `allow-same-origin`), loaded as a
-  `data:` document, theme variables posted in; no streamed `widget_delta`; the app CSP allows
-  `frame-src 'self' data:`.
+- **Widgets**: `sandbox="allow-scripts"` only (v3 also had `allow-same-origin`), theme
+  variables posted in; no streamed `widget_delta`. Until 2026-11-25 the document was a `data:`
+  URL; it inherited the app's CSP, so in release builds no widget script ran (debug builds load
+  Vite, with no CSP). It is now served by `src-tauri/src/widgets.rs` from `evo-widget` with the
+  widget CSP as the header (`widget_open` / `widget_close`, in memory, per window); the app CSP
+  allows the scheme in `frame-src`. Outside Tauri the frame still uses `data:` (ADR 0027).
 - **Docs viewer**: DOCX uses the engine's native render (no `docx-preview` in the webview; see
   the spec's resolved DOCX question).
 - **Module layout**: the renderer is split further than 3.2 lists. PPTX and XLSX are module folders
