@@ -7,6 +7,7 @@
 //! atomically after the in-memory mutation succeeds.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -26,6 +27,29 @@ pub struct SqliteSessionStorage {
     db: Arc<Mutex<Connection>>,
     inner: InMemorySessionStorage,
     gate: Arc<tokio::sync::Mutex<()>>,
+    /// Writes of session rows through this connection, by any of its handles.
+    writes: Arc<AtomicU64>,
+    /// The row `inner` was parsed from, and when: reads skip parsing it
+    /// again while nothing wrote since.
+    seen: Arc<Mutex<Option<Seen>>>,
+    /// How many times the session row was parsed (tests).
+    decodes: Arc<AtomicU64>,
+}
+
+/// The session row as last read or written, and the markers that tell
+/// whether it may have changed since: `PRAGMA data_version` moves when
+/// another connection commits, `writes` when another handle on this
+/// connection does (`data_version` does not see this connection's own
+/// commits).
+///
+/// Every read used to select and parse the whole row again; it is one JSON
+/// value, often 10 MB or more on a long chat, so opening such a chat took
+/// seconds and a read per entry (labels) took longer than the app waited.
+#[derive(Clone)]
+struct Seen {
+    version: i64,
+    writes: u64,
+    json: Arc<str>,
 }
 
 impl SqliteSessionStorage {
@@ -36,12 +60,33 @@ impl SqliteSessionStorage {
         clock: Arc<dyn Clock>,
         ids: Arc<dyn IdGenerator>,
         gate: Arc<tokio::sync::Mutex<()>>,
+        writes: Arc<AtomicU64>,
     ) -> Self {
         Self {
             db,
             inner: InMemorySessionStorage::from_state(metadata, state, clock, ids),
             gate,
+            writes,
+            seen: Arc::new(Mutex::new(None)),
+            decodes: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    fn seen(&self) -> std::sync::MutexGuard<'_, Option<Seen>> {
+        self.seen
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg(test)]
+    fn decodes(&self) -> u64 {
+        self.decodes.load(Ordering::Relaxed)
+    }
+
+    fn decode(&self, state_json: &str) -> SessionResult<SessionState> {
+        self.decodes.fetch_add(1, Ordering::Relaxed);
+        serde_json::from_str(state_json)
+            .map_err(|e| SessionError::storage(format!("decode SQLite session: {e}")))
     }
 
     fn conn(&self) -> SessionResult<std::sync::MutexGuard<'_, Connection>> {
@@ -60,7 +105,7 @@ impl SqliteSessionStorage {
             params![state, metadata.id, previous],
         );
         match result {
-            Ok(1) => Ok(Cas::Written),
+            Ok(1) => Ok(Cas::Written(state)),
             Ok(_) => Ok(Cas::Conflict),
             Err(error) if busy::is_busy(&error) => Ok(Cas::Busy(error)),
             Err(error) => Err(SessionError::storage(format!(
@@ -84,6 +129,8 @@ impl SqliteSessionStorage {
         let mut backoff = busy::Backoff::new();
         loop {
             let previous = self.refresh_unlocked().await?;
+            // The reduction changes `inner`: the row read no longer describes it.
+            *self.seen() = None;
             let value = match op(self.inner.clone()).await {
                 Ok(value) => value,
                 Err(error) => {
@@ -91,8 +138,19 @@ impl SqliteSessionStorage {
                     return Err(error);
                 }
             };
-            match self.persist_cas(&previous) {
-                Ok(Cas::Written) => return Ok(value),
+            match self.persist_cas(&previous.json) {
+                Ok(Cas::Written(json)) => {
+                    // The other handles on this connection read the row again.
+                    let writes = self.writes.fetch_add(1, Ordering::SeqCst) + 1;
+                    *self.seen() = Some(Seen {
+                        // Another connection's commit since the read moved the
+                        // version: the next read parses the row again.
+                        version: previous.version,
+                        writes,
+                        json: Arc::from(json),
+                    });
+                    return Ok(value);
+                }
                 Ok(Cas::Conflict) => {
                     conflicts += 1;
                     if conflicts >= 16 {
@@ -120,27 +178,52 @@ impl SqliteSessionStorage {
         }
     }
 
-    fn restore_snapshot(&self, state_json: &str) -> SessionResult<()> {
-        let state = serde_json::from_str(state_json)
-            .map_err(|e| SessionError::storage(format!("decode SQLite session: {e}")))?;
+    /// Put `inner` back to the row `previous` read (a reduction failed or
+    /// was not written).
+    fn restore_snapshot(&self, previous: &Seen) -> SessionResult<()> {
+        let state = self.decode(&previous.json)?;
         self.inner.replace_state(state);
+        *self.seen() = Some(previous.clone());
         Ok(())
     }
 
-    async fn refresh_unlocked(&self) -> SessionResult<String> {
+    /// Bring `inner` up to the session row: parsed again only when the row
+    /// may have changed since it was last read or written. Callers hold `gate`.
+    async fn refresh_unlocked(&self) -> SessionResult<Seen> {
         let id = self.inner.metadata().id;
-        let state_json: String = busy::run(&self.db, "refresh SQLite session", |conn| {
-            conn.query_row(
+        let known = self.seen().clone();
+        let writes = self.writes.load(Ordering::SeqCst);
+        let (version, fresh) = busy::run(&self.db, "refresh SQLite session", |conn| {
+            let version: i64 = conn.query_row("PRAGMA data_version", [], |row| row.get(0))?;
+            if known
+                .as_ref()
+                .is_some_and(|known| known.version == version && known.writes == writes)
+            {
+                return Ok((version, None));
+            }
+            let json: String = conn.query_row(
                 "SELECT state_json FROM sessions WHERE id = ?1",
                 params![id],
                 |row| row.get(0),
-            )
+            )?;
+            Ok((version, Some(json)))
         })
         .await?;
-        let state = serde_json::from_str(&state_json)
-            .map_err(|e| SessionError::storage(format!("decode SQLite session: {e}")))?;
-        self.inner.replace_state(state);
-        Ok(state_json)
+        let seen = match (fresh, known) {
+            (Some(json), _) => {
+                let state = self.decode(&json)?;
+                self.inner.replace_state(state);
+                Seen {
+                    version,
+                    writes,
+                    json: Arc::from(json),
+                }
+            }
+            (None, Some(known)) => known,
+            (None, None) => unreachable!("a row is read whenever none is known"),
+        };
+        *self.seen() = Some(seen.clone());
+        Ok(seen)
     }
 
     async fn refresh_read(&self) -> SessionResult<tokio::sync::OwnedMutexGuard<()>> {
@@ -152,7 +235,8 @@ impl SqliteSessionStorage {
 
 /// How a compare-and-swap write of the session state ended.
 enum Cas {
-    Written,
+    /// The row now holds this.
+    Written(String),
     /// Another connection changed the row since it was read.
     Conflict,
     /// Another connection held the write lock past the busy timeout.
@@ -424,6 +508,8 @@ pub struct SqliteSessionRepo {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
     gate: Arc<tokio::sync::Mutex<()>>,
+    /// Session-row writes through `db` ([`Seen`]).
+    writes: Arc<AtomicU64>,
 }
 
 impl SqliteSessionRepo {
@@ -496,7 +582,20 @@ impl SqliteSessionRepo {
             clock,
             ids,
             gate: Arc::new(tokio::sync::Mutex::new(())),
+            writes: Arc::new(AtomicU64::new(0)),
         })
+    }
+
+    fn storage(&self, metadata: SessionMetadata, state: SessionState) -> SqliteSessionStorage {
+        SqliteSessionStorage::new(
+            self.db.clone(),
+            metadata,
+            state,
+            self.clock.clone(),
+            self.ids.clone(),
+            self.gate.clone(),
+            self.writes.clone(),
+        )
     }
 
     pub fn path(&self) -> &Path {
@@ -530,8 +629,15 @@ impl SqliteSessionRepo {
         Ok(())
     }
 
-    async fn load_row(&self, id: &str) -> SessionResult<Option<(SessionMetadata, SessionState)>> {
+    /// The session row, parsed, and what was read (so the opened handle's
+    /// first reads do not parse it again).
+    async fn load_row(
+        &self,
+        id: &str,
+    ) -> SessionResult<Option<(SessionMetadata, SessionState, Seen)>> {
+        let writes = self.writes.load(Ordering::SeqCst);
         busy::run(&self.db, "read SQLite session", |conn| {
+            let version: i64 = conn.query_row("PRAGMA data_version", [], |row| row.get(0))?;
             conn.query_row(
                 "SELECT id, created_at, parent_session_id, state_json FROM sessions WHERE id = ?1",
                 params![id],
@@ -549,7 +655,12 @@ impl SqliteSessionRepo {
                             Box::new(e),
                         )
                     })?;
-                    Ok((metadata, state))
+                    let seen = Seen {
+                        version,
+                        writes,
+                        json: Arc::from(state_json),
+                    };
+                    Ok((metadata, state, seen))
                 },
             )
             .optional()
@@ -570,28 +681,16 @@ impl SessionRepo for SqliteSessionRepo {
         };
         let state = SessionState::new();
         self.insert(&metadata, &state).await?;
-        Ok(SqliteSessionStorage::new(
-            self.db.clone(),
-            metadata,
-            state,
-            self.clock.clone(),
-            self.ids.clone(),
-            self.gate.clone(),
-        ))
+        Ok(self.storage(metadata, state))
     }
 
     async fn open(&self, metadata: &SessionMetadata) -> SessionResult<Self::Storage> {
-        let (metadata, state) = self.load_row(&metadata.id).await?.ok_or_else(|| {
+        let (metadata, state, seen) = self.load_row(&metadata.id).await?.ok_or_else(|| {
             SessionError::not_found(format!("Session not found: {}", metadata.id))
         })?;
-        Ok(SqliteSessionStorage::new(
-            self.db.clone(),
-            metadata,
-            state,
-            self.clock.clone(),
-            self.ids.clone(),
-            self.gate.clone(),
-        ))
+        let storage = self.storage(metadata, state);
+        *storage.seen() = Some(seen);
+        Ok(storage)
     }
 
     async fn list(&self) -> SessionResult<Vec<SessionMetadata>> {
@@ -622,6 +721,8 @@ impl SessionRepo for SqliteSessionRepo {
             conn.execute("DELETE FROM sessions WHERE id = ?1", params![metadata.id])
         })
         .await?;
+        // Its open handles read the row again, and find it gone.
+        self.writes.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -646,14 +747,7 @@ impl SessionRepo for SqliteSessionRepo {
         )?;
         let state = forked.snapshot_state();
         self.insert(&metadata, &state).await?;
-        Ok(SqliteSessionStorage::new(
-            self.db.clone(),
-            metadata,
-            state,
-            self.clock.clone(),
-            self.ids.clone(),
-            self.gate.clone(),
-        ))
+        Ok(self.storage(metadata, state))
     }
 }
 
@@ -1054,5 +1148,108 @@ mod tests {
         assert!(session.get_entry("rejected").await.unwrap().is_none());
         let reopened = repo.open(&session.metadata()).await.unwrap();
         assert!(reopened.get_entry("rejected").await.unwrap().is_none());
+    }
+
+    fn user_entry(id: &str, at: i64) -> ProvisionedEntry {
+        ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Message {
+                message: AgentMessage::from(evo_ai::types::UserMessage::new(id, at)),
+                terminate: None,
+            },
+        }
+    }
+
+    fn create(id: &str) -> SessionCreateOptions {
+        SessionCreateOptions {
+            id: Some(id.into()),
+            parent_session_id: None,
+            metadata: None,
+        }
+    }
+
+    async fn count(storage: &SqliteSessionStorage) -> usize {
+        storage
+            .find_entries(&EntryQuery::default())
+            .await
+            .unwrap()
+            .len()
+    }
+
+    // Every read used to parse the whole session row again: on a long chat a
+    // label read per entry took 16 s and opening the chat seconds.
+    #[tokio::test]
+    async fn reads_reuse_the_parsed_state_until_it_changes() {
+        let (repo, _dir) = repo();
+        let session = repo.create(&create("cache")).await.unwrap();
+        for index in 0..20 {
+            session
+                .append_entry(user_entry(&format!("m{index}"), index), "main")
+                .await
+                .unwrap();
+        }
+        let reopened = repo.open(&session.metadata()).await.unwrap();
+        let before = reopened.decodes();
+        for index in 0..20 {
+            reopened.get_label(&format!("m{index}")).await.unwrap();
+        }
+        assert_eq!(count(&reopened).await, 20);
+        assert_eq!(
+            reopened.decodes(),
+            before,
+            "reads with no write in between must not parse the state again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_write_through_another_connection_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sessions.db");
+        let open = || {
+            SqliteSessionRepo::with_clock_ids(
+                &path,
+                Arc::new(FakeClock::new()),
+                Arc::new(CounterIdGenerator::new()),
+            )
+            .unwrap()
+        };
+        let (one, other) = (open(), open());
+        let mine = one.create(&create("shared")).await.unwrap();
+        mine.append_entry(user_entry("m0", 0), "main")
+            .await
+            .unwrap();
+        let theirs = other.open(&mine.metadata()).await.unwrap();
+        assert_eq!(count(&theirs).await, 1);
+        mine.append_entry(user_entry("m1", 1), "main")
+            .await
+            .unwrap();
+        assert_eq!(count(&theirs).await, 2);
+        theirs
+            .append_entry(user_entry("m2", 2), "main")
+            .await
+            .unwrap();
+        assert_eq!(count(&mine).await, 3);
+    }
+
+    #[tokio::test]
+    async fn a_write_through_another_handle_on_the_same_connection_is_read() {
+        let (repo, _dir) = repo();
+        let first = repo.create(&create("handles")).await.unwrap();
+        first
+            .append_entry(user_entry("m0", 0), "main")
+            .await
+            .unwrap();
+        let second = repo.open(&first.metadata()).await.unwrap();
+        assert_eq!(count(&second).await, 1);
+        first
+            .append_entry(user_entry("m1", 1), "main")
+            .await
+            .unwrap();
+        assert_eq!(count(&second).await, 2);
+        second
+            .append_entry(user_entry("m2", 2), "main")
+            .await
+            .unwrap();
+        assert_eq!(count(&first).await, 3);
     }
 }
