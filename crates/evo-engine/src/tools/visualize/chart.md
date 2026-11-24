@@ -16,17 +16,16 @@
 ```
 
 ### Basic Chart
+A canvas cannot read `var(--…)`: read each color with `themeColor(name)`
+(provided by Evo) and redraw on the `evo:themechange` event, which fires when
+the person changes the theme, accent or background.
 ```javascript
 const ctx = document.getElementById('chart').getContext('2d');
-new Chart(ctx, {
+const chart = new Chart(ctx, {
   type: 'bar', // line, pie, doughnut, etc.
   data: {
     labels: ['Jan', 'Feb', 'Mar'],
-    datasets: [{
-      label: 'Sales',
-      data: [10, 20, 30],
-      backgroundColor: 'var(--color-accent)',
-    }]
+    datasets: [{ label: 'Sales', data: [10, 20, 30] }]
   },
   options: {
     responsive: true,
@@ -36,6 +35,14 @@ new Chart(ctx, {
     }
   }
 });
+function paint() {
+  Chart.defaults.color = themeColor('--color-text-secondary');
+  Chart.defaults.borderColor = themeColor('--color-border');
+  chart.data.datasets[0].backgroundColor = themeColor('--color-accent');
+  chart.update();
+}
+paint();
+window.addEventListener('evo:themechange', paint);
 ```
 
 ### Number Formatting
@@ -69,12 +76,13 @@ new Chart(ctx, {
 ```
 
 ### Chart Colors
-Use the accent color palette:
-- Primary: `var(--color-accent)`
-- Secondary: `var(--color-success)`
-- Tertiary: `var(--color-warning)`
-- Quaternary: `var(--color-error)`
+Use the accent color palette (in canvas code through `themeColor(...)`):
+- Primary: `--color-accent`
+- Secondary: `--color-success`
+- Tertiary: `--color-warning`
+- Quaternary: `--color-error`
 
-### Dark Mode
-Chart.js respects CSS variables automatically when using the color system.
-Ensure all colors use variables, not hardcoded values.
+### Dark Mode, accent and background
+These variables follow the app's theme, accent and background color. HTML and
+SVG using `var(--…)` update by themselves; canvas charts must repaint on
+`evo:themechange` as above. Never hardcode colors.

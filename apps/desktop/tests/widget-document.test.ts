@@ -59,6 +59,19 @@ describe("widget document", () => {
     expect(html).not.toContain("</style><script>bad()");
   });
 
+  test("the app's theme is set inline on <html>, so a widget's own :root palette cannot override it", () => {
+    const html = wrapWidgetHtml("<style>:root{--color-background:#ffffff}</style>", { "--color-background": "#0a0a0a" }, "dark");
+    expect(html).toContain('s.setProperty(k,t[k])');
+    expect(html).toContain('{"--color-background":"#0a0a0a"}');
+    expect(html).toContain("classList.add('dark')");
+    // Canvas charts read colours with themeColor() and repaint on theme, accent or background changes.
+    expect(html).toContain("window.themeColor");
+    expect(html).toContain("new Event('evo:themechange')");
+    // A value cannot close the seeding script either.
+    const hostile = wrapWidgetHtml("", { "--font-sans": "x</script><script>bad()</script>" });
+    expect(hostile).not.toContain("</script><script>bad()");
+  });
+
   test("heights stay within 120–2400 px", () => {
     expect(clampWidgetHeight(10)).toBe(120);
     expect(clampWidgetHeight(500)).toBe(500);

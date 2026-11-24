@@ -85,14 +85,19 @@ export function WidgetFrame({
   }, []);
 
   // The frame's document does not inherit the app's variables: post them
-  // whenever the appearance changes (class or style on <html> or <body>).
+  // whenever the appearance changes — theme (`class`), accent and fonts
+  // (`style`), background colour and material (`data-bg-*`, `data-material`),
+  // see stores/appearance-store.ts.
   React.useEffect(() => {
     const sync = () => {
       const { theme, colorScheme } = appTheme();
       frameRef.current?.contentWindow?.postMessage({ type: WIDGET_THEME, theme, colorScheme }, "*");
     };
     const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-bg-light", "data-bg-dark", "data-material"],
+    });
     if (document.body) observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
     return () => observer.disconnect();
   }, []);

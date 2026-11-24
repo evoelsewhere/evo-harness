@@ -22,6 +22,8 @@ export const clampWidgetHeight = (height: number) => Math.min(Math.max(height, M
 export const WIDGET_SEND_PROMPT = "widget_send_prompt";
 export const WIDGET_RESIZE = "widget_resize";
 export const WIDGET_THEME = "evo_widget_theme";
+/** The event a widget's window gets after the app's theme, accent or background changed. */
+export const WIDGET_THEME_EVENT = "evo:themechange";
 
 export function buildWidgetCsp(): string {
   const scriptSrc = ["'self'", "blob:", "data:", ...ALLOWED_CDNS, "'unsafe-inline'", "'unsafe-eval'"];
@@ -143,7 +145,23 @@ export function buildWidgetThemeCss(theme: WidgetTheme): string {
  * serif face), so a widget that sets no font of its own would not match the
  * app. The widget's styles come later and override these.
  */
-export const WIDGET_BASE_CSS = "html { font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif); font-size: 14px; line-height: 1.5; color: var(--color-text, CanvasText); }";
+export const WIDGET_BASE_CSS =
+  "html { font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif); font-size: 14px; line-height: 1.5; color: var(--color-text, CanvasText); background: var(--bg-page, Canvas); }" +
+  // Media never pushes the page wider than the chat column.
+  " img, video, canvas { max-width: 100%; } svg[viewBox] { max-width: 100%; height: auto; }";
+
+/**
+ * Sets the theme as inline style on `<html>`. The visualize guide shows a
+ * `:root { --color-background: #ffffff; … }` palette and models copy it into
+ * the widget's own `<style>`, which comes after ours and would win: inline
+ * style beats any stylesheet rule on the root, so the app's theme holds and
+ * the widget's palette is only a fallback.
+ */
+function themeSeedScript(theme: WidgetTheme, colorScheme?: "light" | "dark"): string {
+  const json = JSON.stringify(theme).replace(/</g, "\\u003c");
+  const dark = colorScheme === "dark" ? "document.documentElement.classList.add('dark');" : "";
+  return `<script>(function(t){var s=document.documentElement.style;for(var k in t)s.setProperty(k,t[k]);${dark}})(${json});</script>`;
+}
 
 /** Keep `</style>` and friends from closing the element a value is written into. */
 const inert = (text: string) => text.replace(/</g, "\\3c ");
@@ -193,8 +211,13 @@ const THEME_LISTENER = `<script>(function(){
       if (/^--[a-z0-9-]+$/.test(key) && typeof data.theme[key] === 'string') style.setProperty(key, data.theme[key]);
     }
     if (data.colorScheme === 'dark' || data.colorScheme === 'light') style.colorScheme = data.colorScheme;
+    // Canvas charts cannot read CSS variables: they listen for this and redraw.
+    window.dispatchEvent(new Event('${WIDGET_THEME_EVENT}'));
   });
 })();</script>`;
+
+// A theme variable's current value, for canvas code (Chart.js) that cannot use `var()`.
+const THEME_COLOR = `<script>window.themeColor = function(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); };</script>`;
 
 /** The widget's HTML as a full document with the CSP, theme, storage shim and bridges. */
 export function wrapWidgetHtml(html: string, theme: WidgetTheme, colorScheme?: "light" | "dark"): string {
@@ -203,9 +226,8 @@ export function wrapWidgetHtml(html: string, theme: WidgetTheme, colorScheme?: "
   const themeCss = buildWidgetThemeCss(theme);
   const scheme = colorScheme ? `:root { color-scheme: ${colorScheme}; }` : "";
   const themeStyle = `<style id="evo-widget-theme">${inert(`${scheme}${themeCss}${WIDGET_BASE_CSS}`)}</style>`;
-  // The guidelines' `.dark { ... }` palette applies when the app is dark.
-  const darkClass = colorScheme === "dark" ? "<script>document.documentElement.classList.add('dark');</script>" : "";
-  const head = `${cspMeta}${themeStyle}${darkClass}${STORAGE_SHIM}${SEND_PROMPT}${RESIZE}${THEME_LISTENER}`;
+  // Inline theme, plus the `dark` class the guidelines' `.dark { ... }` palette keys on.
+  const head = `${cspMeta}${themeStyle}${themeSeedScript(theme, colorScheme)}${STORAGE_SHIM}${SEND_PROMPT}${RESIZE}${THEME_LISTENER}${THEME_COLOR}`;
   if (/<head\b[^>]*>/i.test(html)) {
     return html.replace(/<head\b[^>]*>/i, (match) => `${match}${head}`);
   }

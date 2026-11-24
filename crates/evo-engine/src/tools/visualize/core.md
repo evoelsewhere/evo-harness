@@ -22,8 +22,19 @@ This ensures useful content appears early, even before scripts execute.
 - **CSS variables for all colors** — ensures dark mode compatibility
 - **Dark mode is mandatory** — every color must work in both themes
 
+## Layout
+- The widget fills the chat column, whose width changes with the window:
+  use fluid widths (`width: 100%`, `max-width: 100%`), never a fixed page width
+- Grids of cards or charts: `grid-template-columns: repeat(auto-fit, minmax(160px, 1fr))`
+  so they wrap on narrow widths instead of overflowing
+- Leave the page background transparent; cards use `var(--bg-card)`
+
 ## Color System
-Use CSS variables for all colors:
+Evo sets these variables from the app's theme (light or dark) and they
+override any values the widget declares. Use them for all colors; the values
+below are only fallbacks, do not copy them into the widget. They follow the
+person's theme, accent and background color live; canvas code reads them with
+`themeColor('--color-accent')` and repaints on the `evo:themechange` event:
 ```css
 :root {
   --color-text-primary: #1a1a1a;

@@ -285,9 +285,11 @@ export function Tool({
     const args = (part.args && typeof part.args === "object" ? part.args : {}) as Record<string, unknown>;
     const html = phase !== "preparing" && typeof args.widget_code === "string" ? args.widget_code : "";
     const loading = widgetLoading(part);
+    // The line sits in its own div: a Trace child holding a trace-line
+    // directly is sized to fit that line, which would squeeze the widget.
     return (
-      <div className="flex flex-col gap-2">
-        {line}
+      <div className="flex w-full min-w-0 flex-col gap-2">
+        <div className="flex min-w-0">{line}</div>
         <WidgetFrame
           html={html}
           title={typeof args.title === "string" && args.title ? args.title : "Widget"}
