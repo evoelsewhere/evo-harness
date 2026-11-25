@@ -10,6 +10,7 @@
 //! (docs/features/shell-hosted-engines/spec.md, FR-1, FR-2).
 
 mod agent_tools;
+mod app_identity;
 mod apps;
 mod browser;
 mod chat_flags;
@@ -47,10 +48,12 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         // First: a second launch (Start menu, dock, sign-in) shows this one instead.
-        // The main window comes back, built again if it was destroyed
-        // (docs/features/shell-hosted-engines/spec.md, FR-11).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            system::show_main(app);
+        // The front end it names comes forward: Evo Mates for `--app mates`,
+        // else the main window, built again if it was destroyed
+        // (docs/features/shell-hosted-engines/spec.md, FR-11;
+        // docs/features/evo-mates/spec.md, FR-2).
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            app_identity::on_second_launch(app, &args);
         }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -185,6 +188,7 @@ pub fn run() {
         })
         .invoke_handler({
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+            app_identity::app_open,
             widgets::widget_open,
             widgets::widget_close,
             plugin_runtime::plugin_runtime_state,

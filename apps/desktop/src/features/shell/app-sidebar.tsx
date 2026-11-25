@@ -1,6 +1,15 @@
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderPlusIcon, MoonIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquarePenIcon, SunIcon } from "lucide-react";
+import {
+  FolderPlusIcon,
+  MoonIcon,
+  MoreHorizontalIcon,
+  SearchIcon,
+  SettingsIcon,
+  SquarePenIcon,
+  SunIcon,
+  UsersRoundIcon,
+} from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +34,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { openApp } from "@/lib/apps";
 import { inTauri, isMac, modKey } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useAppearanceStore } from "@/stores/appearance-store";
@@ -149,6 +159,10 @@ export function AppSidebar() {
             onAddWorkspace={() => void addWorkspace()}
             footer={
               <>
+                {/* The other front end of the app (docs/features/evo-mates/spec.md, FR-3). */}
+                <IconButton label="Switch to Evo Mates" onClick={() => void openApp("mates")} tooltipSide="right">
+                  <UsersRoundIcon />
+                </IconButton>
                 <IconButton
                   label={resolved === "dark" ? "Light theme" : "Dark theme"}
                   onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
@@ -253,6 +267,10 @@ export function AppSidebar() {
               <SidebarFooter className="flex-row items-center gap-1">
                 <IconButton label={`Settings (${modKey} ,)`} onClick={() => openSettings()}>
                   <SettingsIcon />
+                </IconButton>
+                {/* The other front end of the app (docs/features/evo-mates/spec.md, FR-3). */}
+                <IconButton label="Switch to Evo Mates" onClick={() => void openApp("mates")}>
+                  <UsersRoundIcon />
                 </IconButton>
                 <div className="flex-1" />
                 <IconButton

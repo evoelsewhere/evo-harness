@@ -21,12 +21,15 @@ export const chatWindowId: string | null = (typeof window !== "undefined" && win
 export const quickEntryWindow: boolean =
   typeof window !== "undefined" && window.location.pathname.endsWith("quick-entry.html");
 
+/** This page is the Evo Mates window (docs/features/evo-mates/spec.md, FR-1). */
+export const matesWindow: boolean = typeof window !== "undefined" && window.location.pathname.endsWith("mates.html");
+
 /**
- * Not the main window: a chat window or the quick entry box. Such a window
- * shows chats but leaves background chats, updates, split view and the
- * shell's requests to the main window.
+ * Not the main window: a chat window, the quick entry box or Evo Mates. Such
+ * a window shows chats but leaves background chats, updates, split view and
+ * the shell's requests to the main window.
  */
-export const viewerWindow: boolean = chatWindowId !== null || quickEntryWindow;
+export const viewerWindow: boolean = chatWindowId !== null || quickEntryWindow || matesWindow;
 
 export function openChatWindow(chat: string, title: string): Promise<void> {
   return invoke("chat_window_open", { chat, title });

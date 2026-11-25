@@ -32,6 +32,8 @@ export default defineConfig({
         main: path.resolve(import.meta.dirname, "index.html"),
         // The quick entry box: its own small page (docs/features/quick-entry, NFR-1).
         "quick-entry": path.resolve(import.meta.dirname, "quick-entry.html"),
+        // Evo Mates: the second front end's window (docs/features/evo-mates, FR-1; ADR 0028).
+        mates: path.resolve(import.meta.dirname, "mates.html"),
       },
     },
   },

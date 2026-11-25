@@ -1,0 +1,613 @@
+# Evo Mates: AI teammates in a second app on the same core — Plan
+
+| | |
+| --- | --- |
+| Spec | [spec.md](spec.md) · UX: [ux.md](ux.md) · Behaviour: [behaviour.md](behaviour.md) |
+| Tasks | [tasks.md](tasks.md) |
+| Updated | 2026-11-25 |
+| ADD sections | [4. Process view](../../architecture/README.md#4-process-view), [5.2 Desktop app](../../architecture/README.md#52-desktop-app), [6.2 Sessions talking to sessions](../../architecture/README.md#62-sessions-talking-to-sessions), [7. Data view](../../architecture/README.md#7-data-view), [10. Deployment view](../../architecture/README.md#10-deployment-view) |
+| ADRs | [0028 Evo Harness and Evo Mates are two front ends in one app process](../../architecture/decisions/0028-two-front-ends-in-one-app-process.md), [0018 The shell hosts engines](../../architecture/decisions/0018-the-shell-hosts-engines-windows-attach.md), [0010 The engine enforces the approval mode](../../architecture/decisions/0010-engine-enforces-approval-mode.md), [0007 One transcript file per chat](../../architecture/decisions/0007-one-transcript-file-per-chat.md) |
+
+## 1. Context and constraints
+
+What Evo Mates builds on, all of it already in the repository:
+
+- **One app process, several pages.** The desktop builds `index.html` and
+  `quick-entry.html` as Vite inputs (`apps/desktop/vite.config.ts`).
+  Chat windows (`window.rs::chat_window_open`, `src/lib/windows.ts`) run
+  the whole app page as a viewer of one chat; about fifteen guards read
+  `chatWindowId` to skip what only the main window does.
+- **Single instance.** `tauri_plugin_single_instance` in
+  `apps/desktop/src-tauri/src/lib.rs` hands a second launch's arguments to
+  the running app, which today always calls `system::show_main`.
+- **The shell hosts engines** (`supervisor.rs`, ADR 0018): it starts an
+  engine per chat, sets up its model and tools at `ready`, keeps it running
+  while the chat has work, follows its mesh events, records turns, sends
+  notices and keeps open questions (`supervisor/questions.rs`) that any
+  window can answer.
+- **Roles.** A chat row's `role` column (migration `0013_chat_roles.sql`)
+  holds a resolved `SessionRole` (`crates/evo-mesh/src/wire.rs`): name,
+  instructions, tools, access, provider, model, thinking. The shell writes it
+  to `--role-file` at every start (`engine.rs::role_args`) and the engine
+  applies it (`crates/evo-engine/src/session_roles.rs`): narrowed tools and
+  an instructions block in the system prompt.
+- **Nested sessions and mail.** A session starts nested sessions with a
+  role; mail (`send_message`, `ask`, `reply`) flows between parent,
+  children and siblings across engines through the shell's hub
+  (`crates/evo-mesh/src/hub.rs`, `mesh.rs`). Mail never crosses root trees
+  (session mesh spec 2.2), and pub/sub topics do not exist.
+- **Memory** (`crates/evo-engine/src/memory.rs`): `personal` topics in
+  `<agent dir>/memory/`, `project` topics in
+  `<agent dir>/projects/<folder slug>/memory/`. The scope comes from the
+  chat's folder.
+- **Approval mode** is one app setting (`approvalMode`, `engine.rs`) that
+  the shell passes to every engine (`set_approval_mode`) and that its own
+  app tools read (`agent_tools/mod.rs::approval_mode`). The engine enforces
+  it (ADR 0010).
+- **Usage** rows (`usage_events`) carry a `chat_id` and a `source`
+  (`chat`, `subagent`, `plugin`, `side`, `memory`; rebuilt in migration
+  `0012`). Migration `0014_plugin_ai.sql` is the last one.
+- **Needs you** and the sidebar (`features/shell/app-sidebar.tsx`,
+  `sidebar-chats.tsx`) list chats from `session-store`, with state from the
+  supervisor's `work`.
+- **models.dev** entries carry `tool_call` and `cost`
+  (`crates/evo-runtime/src/models_dev.rs`).
+- **Packaging.** `tauri.conf.json` builds one product, "Evo Harness"
+  (`com.evoelsewhere.evo`), with NSIS on Windows, a `.app`/`.dmg` on macOS and
+  `.deb`/`.rpm`/AppImage on Linux (`.github/workflows/desktop-packages.yml`).
+
+External constraints:
+
+- **Windows taskbar identity** is per window through the window's
+  `System.AppUserModel.ID` property (`SHGetPropertyStoreForWindow`), and a
+  Start menu shortcut groups with the window only when the shortcut carries
+  the same ID. NSIS can create the shortcut; setting its ID needs a small
+  call from the app itself.
+- **macOS** shows one Dock icon per process. A second entry in Applications
+  is a separate, tiny bundle that opens the main app.
+- **Linux AppImage** carries one desktop entry; `.deb` and `.rpm` can ship
+  two.
+
+## 2. Architecture check
+
+| Rule | Result | Notes |
+| --- | --- | --- |
+| The engine owns agent logic; the shell relays and provides native features | ok | Routing, the reply rules, hand-off limits and the Auto pick run in the channel's engine (3.5). The shell stores mates and channels, writes roles, opens windows and imports or exports team files; it decides nothing about what an agent does. |
+| Layers point down; library crates stay free of engine/desktop concerns | ok | `evo-mesh` gains optional role fields (data only). The team file format lives in the shell. No library crate learns about windows. |
+| Protocol changes update `evo-protocol`, the engine and the desktop together | ok | `SessionRole` gains optional `mate`, `memoryDir` and `channel` (3.3); the shell, engine and UI change in the same phase. Older engines ignore the fields; an older shell never writes them. |
+| Models come from models.dev; no hardcoded model facts | ok | A mate stores a model the person picked from the catalogue; the team file stores a need (`fast`, `capable`), resolved against models.dev on import; the router's default is computed from `tool_call` and `cost` (FR-28). |
+| Real engine in the app; settings and credentials reload live | ok | Mates are real engine sessions. A profile change rewrites the role and the shell reconfigures the engine at its next idle point, as for connector changes (FR-10). |
+| Untrusted input stays untrusted; permissions, sandbox and project trust stay in the path | ok | See 3.7: other mates' messages reach a mate as marked channel data; team files are previewed and create nothing until confirmed; approvals stay enforced by the engine per mate; project folders go through project trust (FR-23). |
+| Desktop UI structure and `DESIGN.md` | ok | A third page reuses `engine-store`, `session-store` and shared components; `features/mates/*` holds Mates-only UI and imports no other feature's internals. Avatars are the only added colour (NFR-7). |
+| ADD: one app process, one database, the shell owns engine lifecycles | ok | Kept by ADR 0028. The ADD's process, desktop, data and deployment views are updated with this plan. |
+| ADD: mail never crosses root trees | ok | A channel is one root tree: its members are nested sessions of the channel's root (3.5). A mate's direct conversation and its channel seats are different sessions that share only the mate's memory and profile. |
+
+## 3. Design
+
+### 3.1 Overview
+
+```text
+                      evo-desktop (one process)
+ ┌───────────────────────────────────────────────────────────────────────┐
+ │ window "main"  (index.html)     window "mates"  (mates.html)          │
+ │   Evo Harness                     Evo Mates: roster, DM, channels     │
+ │        └─────────── engine-store · session-store · mates-store ───────┤
+ │ shell: supervisor · mesh hub · mates.rs (mates, channels, team files) │
+ │        app_identity.rs (launch target, taskbar ID)  · evo.db          │
+ └───────┬──────────────────────┬───────────────────────────┬────────────┘
+         │                      │                           │
+  engine: mate DM          engine: channel root        engines: channel seats
+  role {mate, memoryDir}   role {channel: rule,        (nested sessions of the
+  cwd = mate folder        members, lead, limit}       root) role {mate, memoryDir}
+                           coordinator, no tools       cwd = channel or mate folder
+```
+
+A **mate** is a row in `mates` plus one root chat of kind `mate`: its
+direct conversation. A **channel** is a row in `channels` plus one root
+chat of kind `channel`, whose engine runs the channel coordinator instead
+of a model loop. Each member has a **seat**: a nested session of the
+channel's root, running as the mate's role. The coordinator delivers the
+person's messages to seats by mail, watches seats' replies and mail between
+them, writes them into the channel's transcript, and enforces the reply
+rule and the hand-off limit. All mates' sessions read and write the mate's
+own memory folder, wherever they run.
+
+### 3.2 Components
+
+| Layer | Path | Responsibility | Requirements |
+| --- | --- | --- | --- |
+| desktop shell | `apps/desktop/src-tauri/src/app_identity.rs` (new) | Launch target from arguments (`--app mates`); single-instance routing to the right window; Windows AppUserModelID per window and the Start menu shortcut's ID; the macOS reopen event | FR-1, FR-2, FR-3, NFR-4 |
+| desktop shell | `apps/desktop/src-tauri/src/window.rs`, `system.rs` | Build, show and focus the `mates` window; tray menu entries for both apps; app keeps running while any window or the tray is on | FR-3, FR-4, FR-5, NFR-1 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/mod.rs` (new) | Tauri commands for mates and channels: list, create, update, delete, pin, hide, duplicate; writes chat rows and roles; creates mate folders | FR-6, FR-7, FR-10, FR-13, FR-14, FR-25 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/team_file.rs` (new) | Team file parse, validate, preview and write; model needs resolved against models.dev | FR-20, FR-21, FR-27 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/templates/*.md` (new) | Built-in role templates, in the team file format | FR-8 |
+| desktop shell | `apps/desktop/src-tauri/src/supervisor.rs`, `supervisor/settings.rs` | Per-chat approval mode for mate chats; the limit on running mate engines with a queue; reconfigure on profile change | FR-10, NFR-5, NFR-6 |
+| desktop shell | `apps/desktop/src-tauri/src/agent_tools/mod.rs` | App tools read the chat's approval mode, not only the app's | NFR-5 |
+| desktop shell | `apps/desktop/src-tauri/src/supervisor/notices.rs` | Notices of mate and channel chats open the Mates window | FR-12 |
+| crate | `crates/evo-mesh/src/wire.rs` | `SessionRole` gains optional `mate`, `memory_dir`, `channel` | FR-9 – FR-11, FR-14 – FR-18 |
+| crate | `crates/evo-store/src/migrations/0015_mates.sql`, `src/mates.rs` (new), `src/chats.rs`, `src/usage.rs` | `mates`, `channels`, `channel_members`; `chats.kind`, `chats.mate_id`; usage source `mates`; queries that exclude mate chats from Harness lists | FR-6, FR-13, FR-14, FR-22, FR-24, NFR-8 |
+| engine | `crates/evo-engine/src/memory.rs`, `session_roles.rs` | With a role's `memory_dir`, the `project` scope resolves to it and the system prompt names it the mate's memory; personal topics stay | FR-11, FR-26 |
+| engine | `crates/evo-engine/src/channel/` (new) | The channel coordinator: deliver, route, Auto pick, hand-off counting and stop, channel transcript entries | FR-15 – FR-19, FR-28 |
+| engine | `crates/evo-engine/src/host.rs` | Run the coordinator instead of the agent loop when the role has `channel` | FR-14 |
+| desktop UI | `apps/desktop/mates.html`, `src/mates/main.tsx` (new), `vite.config.ts` | The third page and its bootstrap (`appKind = "mates"`) | FR-1, FR-3 |
+| desktop UI | `apps/desktop/src/stores/mates-store.ts` (new) | Mates and channels from the shell; roster state from `session-store` and supervisor work | FR-6, FR-13 |
+| desktop UI | `apps/desktop/src/features/mates/*` (new) | Roster, gallery, profile, direct conversation, channel view, channel settings, import preview, memory list | FR-6 – FR-21, FR-25, FR-26 |
+| desktop UI | `apps/desktop/src/components/mate-face/` (new): `mate-face.tsx`, `definitions/*.json`, `palette.ts` | Mate faces drawn by the `open-bot-avatar` package (MIT, pinned to an exact version, no dependencies): `mountAvatar` for live faces, `renderAvatarSvg` for lists; Evo's own definitions; state, mood, gaze and `still` mapped as ux.md 6; hue from an `agentHue`-style palette; `reducedMotion` honoured | FR-33, NFR-7 |
+| packaging | `NOTICE`, `apps/desktop/package.json`, `bun.lock` | The `open-bot-avatar` dependency and its MIT notice (copyright Dominik Scholz) | FR-33 |
+| desktop UI | `apps/desktop/src/features/mates/{sidebar,roster-row,pinned-tiles,header-pill,mate-panel}.tsx` | The messaging layout of ux.md 2 with its folding rules | FR-29, FR-32 |
+| desktop UI | `apps/desktop/src/features/mates/{bubbles,activity-chips,memory-chip,route-line,handoff-line,mention-menu}.tsx` | Bubbles with joined runs and tint; plain-word step chips built from the chat's step groups (`features/chat/turn-view.ts`); Saved to memory chip from the `memory` tool's result; channel lines; `@` list | FR-30, FR-31, FR-35, FR-36 |
+| desktop UI | `apps/desktop/src/features/mates/{gallery,shortcuts}.tsx` | Role gallery with categories and search; keyboard shortcuts | FR-37, FR-38 |
+| engine | role instructions written by the shell (`mates/mod.rs`) | A new mate's first-turn block: greet, say what it can do, ask setup questions, save answers with a `mate_profile` app tool (name, focus, apps) behind the same approval as other profile changes | FR-34 |
+| desktop shell | `apps/desktop/src-tauri/src/supervisor.rs` (tool set-up) | A mate's **Apps** narrow the connector and plugin tools sent to its engines; the chosen account per service | FR-39 |
+| desktop shell | `apps/desktop/src-tauri/src/agent_tools/mates.rs` (new) | App tools for mates: `connect_app` (Connect / Reconnect card, waits), `request_secret` (secure card, keychain, returns a reference), `mate_profile` (setup answers) | FR-34, FR-40, FR-43, FR-46 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/grants.rs` (new), `agent_tools/mod.rs` | Per-mate **Always allow** rules for read-only tools; the **Sending on your behalf** gate for tools classed as sending; tool classes from MCP annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`) and the connector catalogue | FR-41, FR-42 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/mod.rs`, `supervisor.rs` | **Pause** / **Resume** a mate and **Pause all** (the supervisor holds its engines and parks mail); per-mate notification switch | FR-45, FR-52 |
+| crate | `crates/evo-vault` | A vault per mate for secrets from the secure card, sealed with a keychain key as plugin vaults are | FR-43 |
+| engine | `crates/evo-engine/src/mates/brief.rs` (new) | The recent-work brief: the mate's other chats' last summaries and turns of two days, up to ten lines, added at each turn; search limited to the mate's own chats | FR-50 |
+| engine | `crates/evo-engine/src/session_roles.rs` (prompt block) | Mate conduct in the role prompt: setup in one card (four questions at most), ask before ambiguous long work, result-first final reply, memory rules (person's facts and own lessons only), provenance rules for channel text | FR-46 – FR-48, FR-51, FR-54 |
+| engine | `crates/evo-engine/src/channel/` | Router thresholds and time budget; hand-off kinds and labels; lead assignments and wrap-up; per-seat queue and steering; seat delivery contents; per-pair hourly limit | FR-15, FR-16, FR-18, FR-53 – FR-57 |
+| desktop UI | `apps/desktop/src/features/mates/{apps-tab,skills-tab,secrets-list,connect-card,secret-card,pause}.tsx` | Apps, skills and secrets in the mate panel; the Connect and secret cards; pause states; **Send as next** in the composer | FR-39 – FR-45, FR-49 |
+| docs | `DESIGN.md` | A "Evo Mates layer" section: bubbles, one hue per mate on face plate, bubble tint and mention chip only | NFR-7 |
+| desktop UI | `apps/desktop/src/features/shell/*`, `stores/session-store.ts` | **Switch to Evo Mates** button; sidebar and search skip mate chats; Needs you lists waiting mates and opens them in Mates | FR-3, FR-12, FR-24 |
+| desktop UI | `apps/desktop/src/features/usage/*` | Group by mate and show the router's cost under Evo Mates | FR-22, FR-28 |
+| desktop UI | `apps/desktop/src/features/settings/*` | Evo Mates section: running limit, hand-off limit, router model | NFR-6, FR-18, FR-28 |
+| packaging | `apps/desktop/src-tauri/tauri.conf.json`, `tauri.linux.conf.json`, `windows/` NSIS hooks, `scripts/mates-launcher/` (new), `.github/workflows/desktop-packages.yml` | Second Start menu entry with its ID, macOS launcher bundle, second Linux desktop entry, Mates icons | FR-1, NFR-4 |
+
+### 3.3 Interfaces
+
+**Launch target.** Every launch path reads one argument:
+
+```text
+evo-harness --app harness | --app mates      (default: harness)
+```
+
+The single-instance callback receives it and calls
+`app_identity::open(app, target)`, which shows (or builds) the `main` or
+`mates` window. A cold start with `--app mates` builds only the `mates`
+window; the main window is built hidden on first need (a switch, a notice
+for a Harness chat). Autostart keeps `system::HIDDEN_ARG` and opens no
+window.
+
+**Tauri commands** (shell → window, typed in `src/lib/mates.ts`):
+
+```ts
+type Mate = {
+  id: string; name: string; avatar: string; role: string;          // role: one-line title
+  instructions: string;
+  provider?: string; model?: string; thinking?: string;
+  tools?: string[]; connectors?: string[]; skills?: string[];
+  approvalMode: "ask" | "edits" | "auto";
+  folder: string; projectFolder?: string;
+  chatId: string;                                                  // the direct conversation
+  pinned: boolean; hidden: boolean; template?: string;
+};
+type Channel = {
+  id: string; name: string; instructions: string;
+  replyRule: "auto" | "lead" | "everyone" | "mentioned";
+  lead?: string; members: string[]; folder?: string;
+  chatId: string; pinned: boolean; hidden: boolean;
+};
+mates_list(): { mates: Mate[]; channels: Channel[] }
+mates_create(input: Partial<Mate> & { template?: string }): Mate
+mates_update(id: string, patch: Partial<Mate>): Mate
+mates_delete(id: string): void            // stops its sessions first
+mates_duplicate(id: string): Mate
+channels_create(input: Omit<Channel, "id" | "chatId" | "pinned" | "hidden">): Channel
+channels_update(id: string, patch: Partial<Channel>): Channel
+channels_delete(id: string): void
+mates_templates(): TemplateSummary[]
+team_export(target: { mate: string } | { channel: string }, path: string): void
+team_preview(path: string): TeamPreview    // creates nothing
+team_import(path: string, accept: { skip: string[] }): { mates: Mate[]; channels: Channel[] }
+app_open(target: "harness" | "mates", chat?: string, at?: string): void
+```
+
+Events: `mates://changed` (any row), so every window refreshes.
+
+**Session role** (`crates/evo-mesh/src/wire.rs`), new optional fields; all
+default to absent, so an older engine reads the file as before:
+
+```rust
+pub struct SessionRole {
+    // … existing fields …
+    /// This session speaks as a mate.
+    pub mate: Option<MateIdentity>,          // { id, name, avatar }
+    /// The memory folder the `project` scope uses instead of the folder's.
+    pub memory_dir: Option<String>,
+    /// This session is a channel's coordinator.
+    pub channel: Option<ChannelRole>,
+}
+pub struct ChannelRole {
+    pub channel_id: String,
+    pub rule: String,                        // "auto" | "lead" | "everyone" | "mentioned"
+    pub lead: Option<String>,                // mate id
+    pub members: Vec<ChannelMember>,         // { mate_id, name, role, seat_chat: Option<String> }
+    pub instructions: String,
+    pub handoff_limit: u32,
+    pub router: Option<RouterModel>,         // { provider, model } or None: no Auto
+}
+```
+
+**Coordinator ↔ seats** use the existing mesh: `start_session` with the
+mate's role (once per member, reused afterwards), `send_message` to a seat
+for a delivery, and the seats' reports and sibling mail, which the
+coordinator observes as its own children's events. A delivery's body is:
+
+```text
+<channel name="…" message="m-42">
+  <from person="true">…the person's text…</from>
+  <recent>…messages since this seat's last turn, each with its author…</recent>
+</channel>
+```
+
+**Channel transcript entries** (the root's transcript, read by the UI):
+`channel_message { author: "person" | mate_id, text, at, reply_to? }`,
+`channel_route { message, picked: [mate_id], rule, reason }`,
+`channel_handoff { from, to, text }`, `channel_notice { kind: "limit" |
+"stopped" | "no_lead" | "member_gone", text }`. They ride on the engine's
+existing custom-entry stream, so older clients skip them.
+
+**Engine RPC.** `set_approval_mode` already exists per engine; the shell
+now sends the mate's mode to mate and seat engines instead of the app's.
+
+### 3.4 Data and storage
+
+Migration `0015_mates.sql` (new; never edit an applied one):
+
+```sql
+ALTER TABLE chats ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'
+  CHECK (kind IN ('chat', 'mate', 'channel', 'seat'));
+ALTER TABLE chats ADD COLUMN mate_id TEXT;          -- mate and seat chats
+
+CREATE TABLE mates (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL, avatar TEXT NOT NULL, role TEXT NOT NULL,  -- avatar: JSON {definition, hue, material} or a picture path
+  instructions TEXT NOT NULL,
+  provider TEXT, model TEXT, thinking TEXT,
+  tools TEXT, connectors TEXT, skills TEXT,           -- JSON arrays or NULL
+  approval_mode TEXT NOT NULL CHECK (approval_mode IN ('ask', 'edits', 'auto')),
+  apps TEXT,                                          -- NULL: all; JSON [{service, account?}]
+  sending TEXT NOT NULL DEFAULT 'ask' CHECK (sending IN ('ask', 'send')),
+  notifications INTEGER NOT NULL DEFAULT 1,
+  paused INTEGER NOT NULL DEFAULT 0,
+  folder TEXT NOT NULL, project_folder TEXT,
+  chat_id TEXT NOT NULL REFERENCES chats (id),
+  template TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0, hidden INTEGER NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+) STRICT;
+
+CREATE TABLE channels (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL, instructions TEXT NOT NULL DEFAULT '',
+  reply_rule TEXT NOT NULL CHECK (reply_rule IN ('auto', 'lead', 'everyone', 'mentioned')),
+  lead_mate_id TEXT REFERENCES mates (id) ON DELETE SET NULL,
+  folder TEXT,
+  chat_id TEXT NOT NULL REFERENCES chats (id),
+  pinned INTEGER NOT NULL DEFAULT 0, hidden INTEGER NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+) STRICT;
+
+-- Always-allow rules of a mate: read-only tools only (FR-41).
+CREATE TABLE mate_grants (
+  mate_id TEXT NOT NULL REFERENCES mates (id) ON DELETE CASCADE,
+  tool TEXT NOT NULL,                                 -- server/tool or built-in name
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (mate_id, tool)
+) STRICT;
+
+CREATE TABLE channel_members (
+  channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+  mate_id TEXT NOT NULL REFERENCES mates (id) ON DELETE CASCADE,
+  seat_chat_id TEXT,                                  -- set when first started
+  position INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (channel_id, mate_id)
+) STRICT;
+```
+
+`usage_events.source` gains `mates` (the router's picks), by the same table
+rebuild as `0012`. Usage per mate joins `usage_events.chat_id` to
+`chats.mate_id`. Existing chats keep `kind = 'chat'` (NFR-8).
+
+Files under the agent directory:
+
+```text
+~/.evo/agent/mates/<mate id>/
+  work/       the mate's own folder (FR-25), opened from its profile
+  memory/     the mate's private memory topics (FR-11, FR-26)
+  vault       the mate's sealed secrets (FR-43), key in the OS keychain
+```
+
+Settings keys (app database, `settings` table): see 3.8.
+
+### 3.5 Behaviour
+
+**Open Evo Mates.** A launcher or the tray runs `--app mates`. A running
+app gets the argument through single-instance and shows the `mates`
+window; a cold start builds only that window. The window's first paint
+reads `mates_list`; with no mate it shows the gallery (FR-3, A-5).
+
+**Direct conversation.** Opening a mate attaches the `mates` window to the
+mate's chat (`engine_attach`), exactly as the main window does for a chat.
+The supervisor's `ensure` writes the mate's role (`mate`, `memory_dir`,
+instructions, tools, model, thinking), uses the mate's folder (or project
+folder) as the chat's folder, and sends the mate's approval mode. The chat
+is never closed; auto-compaction keeps it within the model's window, and
+the transcript keeps every message for scrolling and search (FR-9). A
+profile change rewrites the role; the supervisor reconfigures the engine
+when its run settles, so the change applies from the next turn (FR-10).
+
+**Channel message.**
+
+```mermaid
+sequenceDiagram
+  participant UI as Mates window
+  participant Root as Channel root engine (coordinator)
+  participant Hub as Shell mesh hub
+  participant A as Seat A (mate A)
+  participant B as Seat B (mate B)
+  UI->>Root: prompt "@A draft the intro"
+  Root->>Root: route (rule, mentions, Auto pick)
+  Root-->>UI: channel_route {picked:[A]}
+  Root->>Hub: send_message → seat A (delivery + recent)
+  Hub->>A: mail (host A's engine if stopped)
+  A->>Hub: ask → seat B "check the numbers"
+  Hub->>B: mail
+  Root-->>UI: channel_handoff {A→B} (observed child mail)
+  B->>Hub: reply → A
+  A->>Hub: report (turn ends)
+  Root-->>UI: channel_message {author:A, text}
+```
+
+- **Routing** (FR-15, FR-16): mentions first — every mentioned member is
+  picked. Without a mention: `mentioned` picks nobody and the coordinator
+  posts a notice suggesting a mention; `lead` picks the lead; `auto` asks
+  the router model one structured question (members' names and roles, the
+  message, the last few messages) and takes its pick when its confidence
+  is high, else the lead. No router configured or available → `lead`
+  (FR-28).
+- **Seats** start on first delivery with `start_session` (role = the
+  mate's, `memory_dir` = the mate's, folder = the channel's folder or the
+  mate's) and are reused afterwards; their ids go to `channel_members`.
+- **Hand-offs** (FR-17, FR-18): seats talk with the existing sibling mail.
+  The coordinator counts mail between seats per message of the person; at
+  `handoff_limit` it stops every seat of that message and posts a
+  `limit` notice. The existing per-pair mail limit stays as a second guard.
+- **Stop** (FR-19): stopping the root stops every seat (existing nested
+  session cascade). Stopping one mate stops its seat only.
+- **Running limit** (NFR-6): the supervisor counts running mate, seat and
+  channel engines; above `mates.maxRunning` a new delivery waits in the hub
+  (it is mail) and the roster shows **Queued**. Harness chats are not
+  counted.
+
+**Needs you and notices** (FR-12, FR-24). The supervisor's questions and
+`work` already cover every chat. Harness's sidebar, history and search
+filter `kind = 'chat'`; its Needs you keeps mate, channel and seat chats
+that wait for the person, drawn with the mate's avatar, and a click calls
+`app_open("mates", chat)`. Notices of those chats route to the `mates`
+window.
+
+**Team files** (FR-20, FR-21, FR-27). Export reads rows, never memory,
+transcripts or secrets, and writes:
+
+```markdown
+---
+evoTeam: 1
+channel:
+  name: Launch room
+  replyRule: auto
+  lead: Planner
+  instructions: Ship the product page by Friday.
+mates:
+  - name: Planner
+    role: Plans work and checks progress
+    avatar: compass
+    model: capable            # need, not a model ID
+    approvalMode: ask
+    tools: [read, write, web_search]
+    connectors: [linear]
+    skills: []
+---
+## Planner
+You plan work in small steps …
+```
+
+Import parses into a preview (mates, channel, instructions, tools,
+connectors, unknown entries); nothing is written until the person accepts.
+A need resolves to the person's connected models through models.dev
+(`fast`: cheapest with `tool_call`; `capable`: the app's default model).
+`evoTeam` above the supported version is refused (FR-27).
+
+**Look and feel** (FR-29 – FR-38). [ux.md](ux.md) is the reference for
+layout, sizes, states, words and motion. The Mates page reuses Evo's
+tokens, menus, dialogs, approval and question components; it adds the
+bubble layout and the mate face. Activity chips come from the same step
+groups Harness's turns use, with plain-word labels per tool class, so no
+tool name reaches the UI. The "Saved to memory" chip is drawn when a
+`memory` tool call with `save` succeeds in the turn. Setup in chat
+(FR-34): the shell writes a first-turn block into a new mate's role; the
+mate asks its questions and calls `mate_profile` to store the answers in
+its row (an app tool in the shell, ADR 0014), and the profile change
+reconfigures the mate at settle like any other edit.
+
+**Apps, sends and secrets** (FR-39 – FR-45; [behaviour.md](behaviour.md)
+section 1).
+
+- At `ready` and on every change the supervisor sends a mate's engines
+  only the connector and plugin tools its **Apps** allow (with the chosen
+  account where a plugin has several). A seat uses its own mate's Apps,
+  never the channel's or the lead's.
+- `connect_app {service, reason}` shows the Connect card in the
+  conversation, opens Evo's usual sign-in on click, and returns when the
+  connection is live or the person dismisses it. A connector call failing
+  with an expired sign-in returns a result that tells the mate to call
+  `connect_app` with `reconnect: true`.
+- Approval cards from a mate's chat carry **Always allow for this mate**
+  when the tool is read-only; a chosen rule goes to `mate_grants` and the
+  supervisor sends it to the mate's engines with their tools.
+- After the approval mode allows a call, the shell's sending gate asks
+  when the tool is classed as sending and the mate's `sending` is `ask`.
+- `request_secret {service, name, reason}` shows the secure card; the value
+  goes to the mate's vault; the tool returns `secret://<mate>/<name>`.
+- **Pause** sets `paused`, stops the mate's engines (direct chat and
+  seats) through the supervisor's hold, and parks new mail; the roster and
+  composer show the paused line; **Resume** releases the hold.
+
+**Conversation conduct** (FR-46 – FR-52; behaviour.md section 2). The
+role prompt block for a mate holds the conduct rules (setup card,
+ask before ambiguous long work, result-first replies, memory rules). Each
+turn the engine adds the recent-work brief from `brief.rs`, read from the
+mate's other chats' index summaries and last turns in `evo.db`. A message
+sent while the mate works uses the engine's steering queue; **Send as next**
+uses its follow-up queue. Notices follow FR-52: the shell skips "finished"
+for seats working on another mate's assignment and for mates whose
+notifications are off.
+
+**Channel conduct** (FR-15, FR-16, FR-18, FR-53 – FR-57; behaviour.md
+section 3).
+
+- Routing order: `@everyone` → every member; mentions → those members;
+  else the rule: `everyone` → every member, `lead` → the lead,
+  `mentioned` → nobody (hint notice), `auto` → the router (inputs and
+  thresholds of FR-53, 1.5 s budget, fallback to the lead).
+- Hand-offs: a seat's `ask` mail is **asks**, `send_message` with
+  `kind: "assign"` is **assigns** (the receiver reports back with
+  `reply`), plain `send_message` is **tells**. The coordinator writes a
+  `channel_handoff` entry with the kind; the receiving seat's delivery
+  wraps the text as
+  `<from mate="Planner" kind="assigns" request="m-42" instruction="false">`.
+- The lead's role prompt in a channel adds: split work into assignments,
+  then post one wrap-up when every assignment has reported. Seats other
+  than the lead cannot address the lead with `assigns` (the coordinator
+  refuses it with a note to the seat).
+- Each seat has a queue in the coordinator: deliveries wait while the seat
+  works, except a message from the person that mentions only that mate,
+  which goes in as steering. Every `channel_message` from a seat carries
+  `reply_to`.
+- Limits: the per-message hand-off count (FR-18) and a per-pair count over
+  the last hour (`mates.pairHandoffsPerHour`, 10); either one stops the
+  chain with a `limit` notice.
+
+**Memory** (FR-11, FR-26). With `memory_dir` set, `memory.rs` resolves the
+`project` scope to that folder whatever the session's folder is, and the
+prompt block calls it "your own memory as <mate name>". Personal topics stay
+readable and writable as today. Harness project memories are never
+reachable from a mate session, because the scope no longer follows the
+folder. The profile's memory list reads the folder through the existing
+memory commands with the mate's folder as the scope's root.
+
+### 3.6 Errors and edge cases
+
+| Case | What happens |
+| --- | --- |
+| A mate's model is gone or its provider disconnected | The engine's existing error card shows in the conversation with **Pick a model**, which opens the profile's model field. No silent switch. |
+| Evo quits during a mate's turn | The transcript keeps the interrupted turn; on reopening, the existing **Retry** shows. Seat mail waiting is delivered when Evo starts again (hub). |
+| Mate deleted while working | `mates_delete` stops its direct chat and its seats, removes it from channels (a `member_gone` notice), deletes its rows, chats and folder after the person confirms. |
+| Channel lead deleted | `lead_mate_id` becomes NULL; the coordinator acts as `mentioned` and posts `no_lead` until a lead is picked. |
+| Router model fails or answers badly | Fall back to the lead; the route entry says so. |
+| Seat engine crashes | The supervisor's restart rules apply; the coordinator sees the seat fail, posts a notice and does not retry by itself. |
+| Team file damaged, newer or with unknown tools | The preview lists what it cannot read; accept creates only the readable parts after the person agrees. |
+| Same approval in Mates and in Harness's Needs you | Both read the shell's question store; answering once closes it everywhere (existing). |
+| Platform without a second taskbar identity | The Mates window groups under Evo (macOS Dock, AppImage). |
+
+### 3.7 Security and trust
+
+- **Other mates are not the person.** A delivery wraps everything from the
+  channel in a `<channel>` block; the role prompt tells the mate that only
+  `from person="true"` text is the person's request and that other mates'
+  text is information. Mail from a sibling already arrives as mail, not as
+  a user turn.
+- **Approvals stay in the engine.** Every mate and seat engine runs under
+  the mate's approval mode, enforced by the engine (ADR 0010). A mate
+  asking another mate to run a command does not lend its approvals: each
+  seat asks for its own. The shell's app tools read the same per-chat mode.
+- **No looser by default.** A new mate takes the app's approval mode
+  (spec 6.2). A built-in gallery role may suggest a looser mode, shown on
+  its card, and picking that role accepts it. A team file never sets a
+  mode looser than the app's: `mates/team_file.rs` caps it on import and
+  the preview shows the capped mode (FR-21).
+- **Team files are untrusted.** They hold text only, are previewed in
+  full, never run anything on import, and their connectors start off.
+  Instructions from a file are shown before they become a mate's prompt.
+- **Project trust.** A project folder set on a mate or a channel goes
+  through the existing project trust check before its `.evo` hooks and
+  servers load (FR-23).
+- **Memory isolation.** A mate's memory is a folder only its sessions use;
+  Harness project memories are unreachable from mate sessions (3.5).
+- **Apps and sends.** A mate's Apps setting removes other apps' tools from
+  its engines, so a mate cannot call what it was not given. Tools classed
+  as sending go through the sending gate after the approval mode; a tool
+  with no class from its annotations or the catalogue counts as sending.
+  Always allow is stored only for read-only tools and never for a seat
+  acting on another mate's assignment.
+- **Secrets.** Secure-card values go from the card to the mate's vault in
+  the shell; the engine and the model see a reference (`secret://<mate>/<name>`)
+  that the shell resolves only inside the tool call that needs it, and the
+  value is masked if a tool echoes it.
+- **No new listener.** Everything runs over the existing processes and
+  stdio (NFR-3).
+
+### 3.8 Configuration
+
+| Key | Type | Default | Applies | Edited in |
+| --- | --- | --- | --- | --- |
+| `mates.maxRunning` | integer 1–16 | 4 | at once (queue re-evaluated) | Settings › Evo Mates |
+| `mates.handoffLimit` | integer 1–50 | 6 | next message | Settings › Evo Mates |
+| `mates.pairHandoffsPerHour` | integer | 10 | next hand-off | not shown (fixed in this release) |
+| `mates.routerModel` | `{provider, model}` or null | null: computed default (FR-28) | next message | Settings › Evo Mates |
+
+A mate's own settings (model, tools, approval mode, folders) are columns of
+its row, edited on its profile; they apply from its next turn.
+
+## 4. Alternatives considered
+
+| Option | Why not |
+| --- | --- |
+| Two separate desktop apps on the shared crates | Rejected in ADR 0028: two owners of `evo.db` and engines. |
+| One engine session playing every mate of a channel | One model and one approval mode for all; no per-mate tools or memory; a mate's identity becomes prompt text only. |
+| The shell routes channel messages | Routing is an agent decision; the engine owns agent logic (AGENTS.md). |
+| Mates as plain agent type files under `~/.evo/agent/agents/` | No place for avatar, approval mode, folders or channel membership; Harness would offer mates as subagent types. Team files stay close to the agent type format instead. |
+| A pub/sub topic in the mesh for channels | The mesh has no topics (session mesh 2.2); a coordinator over existing mail gives the same result without a new mesh feature. |
+| Mate memory as the `project` scope of the mate's folder | Breaks as soon as a mate works in a channel's project folder: it would read that project's Harness memories (FR-11). |
+| Use another product's avatar artwork or mascot | Their owners' artwork and trademarks; faces use the MIT open-bot-avatar engine with Evo's own definitions (spec 6.2). |
+| Draw faces with Evo's agent icon only | The owner chose open-bot-avatar (spec 6.2): it already has volume, moods, gaze and states that match a mate's. The agent icon stays for Harness agents. |
+| A setup form before the first message | Slower to a first reply (SC-1) and unlike the reference apps; the mate panel keeps every field for later edits (FR-34). |
+| Reuse the chat's title row as the mate (no `mates` table) | Profile fields, membership and ordering need their own rows; overloading `chats` mixes two lifecycles. |
+
+## 5. As-built notes
+
+Phase 1 (2026-11-25):
+
+- **Start menu entry on Windows.** NSIS cannot give a shortcut its own
+  application user model ID, so an installed (release) build makes the
+  "Evo Mates" shortcut itself on start when it is missing
+  (`app_identity::win::ensure_start_menu_entry`, `FOLDERID_Programs`), with
+  the Mates window's ID; the installer's `NSIS_HOOK_POSTUNINSTALL` deletes
+  it. The window sets its ID, relaunch command, relaunch name and icon
+  (`icons/mates.ico`, a bundle resource) through its property store.
+- **Icons.** `scripts/mates-icons.py` draws the Evo Mates icon (two mates
+  in Evo's dark frame) into `src-tauri/icons/mates/*.png`, `mates.ico` and
+  `mates.icns`; the window uses the 128 px PNG (`include_image!`).
+- **macOS.** The launcher bundle runs `open -n -b <identifier> --args --app
+  mates`: `-n` starts a second process, whose arguments single-instance
+  hands to the running Evo. CI builds it into the DMG's folder before the
+  image is made, signed with the release identity when signing is on; the
+  checks that look for the app bundle skip it. The Mates window copies the
+  main window's macOS frame (overlay title bar, traffic lights).
+- **Linux.** `.deb` and `.rpm` ship `evo-mates.desktop` and its icons
+  (`tauri.linux.conf.json`); the AppImage keeps one entry. The Mates window
+  is opaque on Linux, as the main window is.
+- **Building the window at start.** A cold start with `--app mates`
+  builds the Mates window on the setup thread (`open_at_start`): built
+  off-thread at the same moment as the main window's webview, WebView2
+  refused it ("the requested resource is in use", 0x800700AA) and setup
+  panicked. Later opens build it off the event loop's thread as before.
+- **Window properties.** `windows` 0.62's `PROPVARIANT` clears itself on
+  drop; a variant pointing at a Rust buffer is wrapped in `ManuallyDrop`,
+  else `PropVariantClear` frees it with `CoTaskMemFree` (0xC0000374).
+- **Closing.** With the tray off, the last *visible* window counts as the
+  last window: closing Evo Mates while the main window is hidden (Evo Mates
+  started alone) closes the hidden windows too, so the app quits or asks
+  as before (`system::on_close_requested`).

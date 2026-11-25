@@ -38,7 +38,8 @@
       "binaries/evo-bridge-host"
     ],
     "resources": {
-      "../../../extensions/evo-webbridge/": "evo-webbridge/"
+      "../../../extensions/evo-webbridge/": "evo-webbridge/",
+      "icons/mates.ico": "icons/mates.ico"
     },
     "icon": [
       "icons/32x32.png",

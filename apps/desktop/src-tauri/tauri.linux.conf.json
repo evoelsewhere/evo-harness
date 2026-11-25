@@ -13,5 +13,23 @@
         "transparent": false
       }
     ]
+  },
+  "bundle": {
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/applications/evo-mates.desktop": "linux/evo-mates.desktop",
+          "/usr/share/icons/hicolor/256x256/apps/evo-mates.png": "icons/mates/256x256.png",
+          "/usr/share/icons/hicolor/128x128/apps/evo-mates.png": "icons/mates/128x128.png"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/applications/evo-mates.desktop": "linux/evo-mates.desktop",
+          "/usr/share/icons/hicolor/256x256/apps/evo-mates.png": "icons/mates/256x256.png",
+          "/usr/share/icons/hicolor/128x128/apps/evo-mates.png": "icons/mates/128x128.png"
+        }
+      }
+    }
   }
 }

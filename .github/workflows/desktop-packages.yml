@@ -358,6 +358,18 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run tauri build --bundles app --verbose --config "$TAURI_BUNDLE_CONFIG"
 
+      # The "Evo Mates" entry in Applications, beside the app in the DMG
+      # (docs/features/evo-mates/spec.md, FR-1, NFR-4).
+      - name: Add the Evo Mates launcher
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          SIGN_IDENTITY: ${{ steps.mac_signing.outputs.enabled == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+        run: |
+          set -euo pipefail
+          config="$TAURI_DIR/tauri.conf.json"
+          "$DESKTOP_DIR/scripts/mates-launcher/make-macos-launcher.sh"             "$BUNDLE_DIR/macos"             "$(jq -r .identifier "$config")"             "$TAURI_DIR/icons/mates.icns"             "$(jq -r .version "$config")"
+
       - name: Create DMG without mounting a volume
         if: runner.os == 'macOS'
         id: create_dmg
@@ -371,7 +383,7 @@ jobs:
           dmg_dir="$BUNDLE_DIR/dmg"
           dmg_path="$dmg_dir/${product_name}_${version}_${{ matrix.dmg_architecture }}.dmg"
 
-          app_path="$(find "$source_dir" -maxdepth 1 -name '*.app' -print -quit)"
+          app_path="$(find "$source_dir" -maxdepth 1 -name '*.app' ! -name 'Evo Mates.app' -print -quit)"
           if [[ -z "$app_path" ]]; then
             echo "Tauri completed without producing an app bundle." >&2
             exit 1
@@ -470,6 +482,10 @@ jobs:
             echo "DEB is missing the evo-engine sidecar." >&2
             exit 1
           }
+          [[ -f "$package_root/usr/share/applications/evo-mates.desktop" ]] || {
+            echo "DEB is missing the Evo Mates desktop entry." >&2
+            exit 1
+          }
 
       - name: Smoke-test Linux DEB launch
         if: runner.os == 'Linux'
@@ -553,7 +569,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app_path="$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' -print -quit)"
+          app_path="$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' ! -name 'Evo Mates.app' -print -quit)"
           dmg_path="$(find "$BUNDLE_DIR/dmg" -maxdepth 1 -name '*.dmg' -print -quit)"
           if [[ -z "$app_path" || -z "$dmg_path" ]]; then
             echo "Tauri completed without producing both an app and a DMG." >&2

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Evo Mates
+Comment=AI teammates on Evo
+Exec=evo-harness --app mates
+Icon=evo-mates
+Terminal=false
+Categories=Office;Development;
+StartupWMClass=evo-harness

@@ -43,3 +43,10 @@
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro EVO_STOP_APP_AND_ENGINES
 !macroend
+
+; Evo Mates' Start menu entry is made by the app on its first start, with the
+; Mates window's taskbar ID (src-tauri/src/app_identity.rs); it goes with the
+; app (docs/features/evo-mates/spec.md, FR-1).
+!macro NSIS_HOOK_POSTUNINSTALL
+  Delete "$SMPROGRAMS\Evo Mates.lnk"
+!macroend

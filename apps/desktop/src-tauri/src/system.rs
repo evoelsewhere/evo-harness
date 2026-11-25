@@ -212,6 +212,8 @@ pub fn tray_tooltip(name: &str, list: &[WorkingChat]) -> String {
 pub enum TrayTarget {
     /// Show the main window.
     Main,
+    /// Show the Evo Mates window (docs/features/evo-mates/spec.md, FR-5).
+    Mates,
     /// Show this chat.
     Chat(String),
     Quit,
@@ -222,6 +224,7 @@ pub enum TrayTarget {
 pub fn tray_target(id: &str, list: &[WorkingChat]) -> Option<TrayTarget> {
     match id {
         "tray-open" | "tray-working" => Some(TrayTarget::Main),
+        "tray-open-mates" => Some(TrayTarget::Mates),
         "tray-quit" => Some(TrayTarget::Quit),
         "tray-waiting" => Some(
             list.iter()
@@ -385,7 +388,10 @@ pub fn work_changed(app: &AppHandle) {
 fn tray_menu(app: &AppHandle, list: &[WorkingChat]) -> tauri::Result<Menu<tauri::Wry>> {
     let name = crate::window::app_name();
     let menu = Menu::new(app)?;
+    // Both front ends of the one app (docs/features/evo-mates/spec.md, FR-5).
     menu.append(&MenuItem::with_id(app, "tray-open", format!("Open {name}"), true, None::<&str>)?)?;
+    let mates = crate::app_identity::mates_name();
+    menu.append(&MenuItem::with_id(app, "tray-open-mates", format!("Open {mates}"), true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     for line in tray_lines(list) {
         menu.append(&MenuItem::with_id(app, line.id, line.text, line.enabled, None::<&str>)?)?;
@@ -560,9 +566,13 @@ pub fn setup(app: &AppHandle) {
             Err(error) => db.log(NewLog::new("warn", "shell", format!("could not keep the computer awake: {error}"))),
         }
     }
+    // The front end this launch names: Evo Mates opens alone, the main
+    // window staying hidden until something needs it
+    // (docs/features/evo-mates/spec.md, FR-2).
+    let front = crate::app_identity::setup(app);
     let hidden = std::env::args().any(|arg| arg == HIDDEN_ARG);
     if !(hidden && state.tray.load(Ordering::Relaxed)) {
-        show_main(app);
+        crate::app_identity::open_at_start(app, front);
     }
 }
 
@@ -577,8 +587,16 @@ pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) 
         return;
     }
     let tray = window.state::<SystemState>().tray.load(Ordering::Relaxed);
-    // The hidden quick entry box is not a window the person has open.
-    let open = app.windows().keys().filter(|label| label.as_str() != crate::quick_entry::LABEL).count();
+    // The hidden quick entry box is not a window the person has open, nor is
+    // a hidden main window (Evo Mates started alone; evo-mates FR-4).
+    let open = app
+        .windows()
+        .iter()
+        .filter(|(label, other)| {
+            label.as_str() != crate::quick_entry::LABEL
+                && (label.as_str() == window.label() || other.is_visible().unwrap_or(true))
+        })
+        .count();
     // Only the last window with the tray off needs the count.
     let working = if !tray && open <= 1 { work_count(app) } else { 0 };
     match close_step(window.label(), tray, open, working) {
@@ -587,11 +605,13 @@ pub fn on_close_requested(window: &tauri::Window, api: &tauri::CloseRequestApi) 
             let _ = window.hide();
         }
         CloseStep::Close => {
-            // The last window with the tray off: the box goes too, so the
-            // app exits as it did before quick entry.
+            // The last window with the tray off: the box and a hidden main
+            // window go too, so the app exits as it did before quick entry.
             if !tray && open <= 1 {
-                if let Some(quick) = app.get_webview_window(crate::quick_entry::LABEL) {
-                    let _ = quick.destroy();
+                for (label, other) in app.windows() {
+                    if label != window.label() {
+                        let _ = other.destroy();
+                    }
                 }
             }
         }
@@ -636,6 +656,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             Some(TrayTarget::Main) => {
                 show_main(app);
             }
+            Some(TrayTarget::Mates) => crate::app_identity::show_mates(app),
             Some(TrayTarget::Chat(chat)) => notices::open_chat(app, &chat),
             Some(TrayTarget::Quit) => request_quit(app),
             None => {}
@@ -1069,6 +1090,7 @@ mod tests {
         assert_eq!(tray_target("tray-waiting", &[]), Some(TrayTarget::Main));
         assert_eq!(tray_target("tray-quit", &list), Some(TrayTarget::Quit));
         assert_eq!(tray_target("tray-open", &list), Some(TrayTarget::Main));
+        assert_eq!(tray_target("tray-open-mates", &list), Some(TrayTarget::Mates));
         assert_eq!(tray_target("other", &list), None);
     }
 }

@@ -106,6 +106,13 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
                                        queued by the shell, one at a time
 ```
 
+- **Two front ends, one process** (planned with
+  [Evo Mates](../features/evo-mates/plan.md),
+  [ADR 0028](decisions/0028-two-front-ends-in-one-app-process.md)). The same process shows Evo Harness (the `main` window) and
+  Evo Mates (the `mates` window), each its own page and launcher entry. A
+  mate's conversation, a channel's coordinator and each channel seat are
+  ordinary `--mode rpc` engines of the list above.
+
 - **Plugin views are child webviews of a window** (`plugin-<n>`), served
   from their plugin's folder by the `evo-plugin://` scheme at one origin
   per plugin. They reach no Tauri command; their only way in is
@@ -323,6 +330,12 @@ patterns), `features/<feature>/` (one folder per feature), `engine/`
 `components/*` but not each other's internals. The full UI map is in
 [apps/desktop/README.md](../../apps/desktop/README.md).
 
+Pages: `index.html` (Evo Harness, also chat windows), `quick-entry.html`
+(the quick entry box) and, planned with Evo Mates, `mates.html` (the Evo
+Mates window). Every page shares `stores/` and `components/`; a page skips
+what only another page does by its window kind, never by importing another
+feature's internals ([ADR 0028](decisions/0028-two-front-ends-in-one-app-process.md)).
+
 ## 6. Runtime view
 
 ### 6.1 A prompt
@@ -359,6 +372,12 @@ has a local router for its in-process nodes. When the hub needs an engine
 that does not run (a new session, mail for a stopped chat), it asks the
 engine supervisor, not a window ([6.3](#63-hosting-an-engine)). Design:
 [session mesh spec](../features/session-mesh-protocol/spec.md).
+
+Planned with [Evo Mates](../features/evo-mates/plan.md): a channel of mates
+is one root tree. Its root engine runs a coordinator (no model loop) that
+routes the person's messages to **seats**, nested sessions running as each
+mate's role, and watches the mail between them; mail still never crosses
+root trees.
 
 ### 6.3 Hosting an engine
 
@@ -423,6 +442,8 @@ sequenceDiagram
 | OS keychain, service `evo.plugins` (Credential Manager, Keychain, Secret Service), and `~/.evo/agent/plugins/vault/<plugin>.vault` | one 32-byte key per plugin in the keychain; the plugin's secret settings, tokens, refresh tokens and cookies sealed with it (AES-256-GCM); both removed on uninstall | shell only (`evo-vault`, [ADR 0022](decisions/0022-plugin-code-runs-under-evos-runtimes-with-a-sealed-vault.md)) |
 | `~/.evo/agent/runtimes/{deno-<v>,uv-<v>,deno-cache,python}`, `plugins/data/<plugin>/` | Deno and uv for plugin backends, Deno's module cache, uv's Python; each plugin's data folder (with a Python plugin's `venv/`) | shell (`plugin_runtime/`) |
 | `~/.evo/agent/codegraph/<hash of the project path>.db` (SQLite, WAL) | one project's code graph index: files with hashes, symbols, references, implementations, the precise layer's per-file hashes, each language's last index result; versioned and rebuilt, not migrated | written by `evo-engine --mode codegraph-index` and by chat engines (changed files' syntax rows); the shell lists and deletes them (`evo-codegraph`, [ADR 0026](decisions/0026-code-graph-indexing-in-a-short-lived-engine-process.md)) |
+| `evo.db` tables `mates`, `channels`, `channel_members`, `chats.kind` and `chats.mate_id` (migration 0015, planned) | mates' profiles, channels and their members; which chats are mates' conversations, channel roots or seats, so Evo Harness lists only `kind = 'chat'` | shell (`mates/`), [Evo Mates plan](../features/evo-mates/plan.md) |
+| `~/.evo/agent/mates/<mate id>/{work,memory}` (planned) | a mate's own working folder and private memory topics, used by its sessions wherever they run | shell creates; engines of that mate read and write |
 | `~/.evo/agent/AGENTS.md` | personal instructions for every chat | engine |
 | `~/.evo/agent/{runtimes,cache/office,bundled-skills,document-versions/<chat>}` | LibreOffice runtime, Office preview cache (native HTML, exact PDFs), extracted Office skills, copies of Office files saved in a chat (versions) | engine (`office.rs`, `evo-office`); the shell removes a chat's versions with the chat |
 | `<project>/AGENTS.md`, `<project>/.evo/`, `.mcp.json` | project instructions, commands, agents, settings, connectors | the user (read by the engine after trust) |
@@ -592,7 +613,10 @@ Details: [app database spec](../features/app-database/spec.md).
 - CI (`.github/workflows/ci.yml`): rustfmt, clippy, build and test on
   Linux/Windows/macOS, MSRV check, desktop type-check and build.
 - One running copy of the app (single-instance); a second launch focuses the
-  first.
+  first. Planned with Evo Mates ([ADR 0028](decisions/0028-two-front-ends-in-one-app-process.md)): a launch names its front end (`--app harness|mates`) and the
+  running copy opens that window; installers add an Evo Mates entry (a
+  Start menu shortcut with its own taskbar ID on Windows, a launcher bundle
+  on macOS, a second desktop entry in `.deb`/`.rpm`).
 - Plugin runtimes are not shipped: Deno and uv are downloaded into
   `~/.evo/agent/runtimes` the first time a plugin needs them, from their
   GitHub releases, at versions and SHA-256 sums pinned in the app
