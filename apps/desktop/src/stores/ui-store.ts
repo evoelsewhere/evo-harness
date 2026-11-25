@@ -162,14 +162,6 @@ interface UiStore {
   loadApproval(): Promise<void>;
   /** The mode changed in another window: show it (nothing is written). */
   syncApproval(mode: ApprovalMode): void;
-  /**
-   * Who owns the composer's approval mode instead of the app setting: Evo
-   * Mates gives each mate its own (docs/features/evo-mates/spec.md, FR-7,
-   * NFR-5). With an owner, picking a mode calls it and the app's mode is
-   * neither shown nor written.
-   */
-  approvalOwner: ((mode: ApprovalMode) => void) | null;
-  setApprovalOwner(owner: ((mode: ApprovalMode) => void) | null, mode?: ApprovalMode): void;
   /** The one-time "approvals now apply" note was dismissed or acted on. */
   approvalNoteSeen: boolean;
   dismissApprovalNote(): void;
@@ -333,7 +325,6 @@ export const useUiStore = create<UiStore>()(
       settingsSection: "general",
       approval: "ask",
       loadApproval: async () => {
-        if (get().approvalOwner) return;
         try {
           const saved = (await db.settings())[APPROVAL_MODE_KEY];
           if (isApprovalMode(saved)) {
@@ -348,11 +339,7 @@ export const useUiStore = create<UiStore>()(
           log("warn", "ui", `could not read the approval mode: ${String(error)}`);
         }
       },
-      syncApproval: (approval) => {
-        if (!get().approvalOwner) set({ approval });
-      },
-      approvalOwner: null,
-      setApprovalOwner: (approvalOwner, mode) => set(mode ? { approvalOwner, approval: mode } : { approvalOwner }),
+      syncApproval: (approval) => set({ approval }),
       // New installs have nothing to be told about.
       approvalNoteSeen: !legacy.existing,
       dismissApprovalNote: () => set({ approvalNoteSeen: true }),
@@ -481,11 +468,6 @@ export const useUiStore = create<UiStore>()(
       setApproval: (approval) => {
         if (approval === get().approval) return;
         set({ approval });
-        const owner = get().approvalOwner;
-        if (owner) {
-          owner(approval);
-          return;
-        }
         // Saved first: an engine that starts now reads the new mode; then
         // every window tells its running engines.
         void db

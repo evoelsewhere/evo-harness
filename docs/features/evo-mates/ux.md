@@ -82,6 +82,14 @@ menus: the model is in the bar, approvals in the profile.
 
 ## 3. Messages
 
+As built (2026-11-25), like a phone messaging app: the person's bubbles are
+the brand blue with white text, the mate's grey; hovering a bubble shows
+six reactions, Reply and Copy (right-click shows the same); a reaction is a
+badge on the bubble's corner; a reply shows its quote above the bubble and
+above the box; the box is a pill with + on its left and a round send button
+that appears with text.
+
+
 - **Bubbles**, 18 px radius. The person's on the right, neutral ink fill;
   a mate's on the left, tinted with the mate's colour at low strength. In a
   run of bubbles from one sender the corner on the sender's side tightens to

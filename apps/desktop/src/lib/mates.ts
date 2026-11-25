@@ -78,6 +78,16 @@ export type MatePatch = Partial<
   projectFolder?: string | null;
 };
 
+/** The reactions a person gives a message (FR-60). */
+export type ReactionKind = "heart" | "like" | "dislike" | "laugh" | "emphasis" | "question";
+
+export interface Reaction {
+  message: string;
+  reaction: ReactionKind;
+  excerpt: string;
+  atMs: number;
+}
+
 export const matesApi = {
   list: () => invoke<Mate[]>("mates_list"),
   templates: () => invoke<MateTemplate[]>("mates_templates"),
@@ -86,4 +96,8 @@ export const matesApi = {
   duplicate: (id: string) => invoke<Mate>("mates_duplicate", { id }),
   remove: (id: string) => invoke<void>("mates_delete", { id }),
   folder: (id: string) => invoke<string>("mates_folder", { id }),
+  reactions: (chat: string) => invoke<Reaction[]>("mates_reactions", { chat }),
+  react: (chat: string, message: string, reaction: ReactionKind | null, excerpt: string) =>
+    invoke<void>("mates_react", { chat, message, reaction, excerpt }),
+  takeReactions: (chat: string) => invoke<Reaction[]>("mates_take_reactions", { chat }),
 };

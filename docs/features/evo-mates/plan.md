@@ -660,3 +660,23 @@ Phase 2, second slice (2026-11-25), after the owner's reference screenshots:
   a notice of a mate's chat opens Evo Mates (`notices::open_chat`), which
   reads a chat asked for before it loaded (`mates_open_pending`).
 - `Chat.kind` reads as `chat` from JSON without it (older rows).
+
+Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
+
+- **Own thread and box.** Evo Mates no longer shows Harness's chat view:
+  `features/mates/thread.tsx` draws the turns of the engine store as
+  bubbles (the person's in the brand blue on the right, the mate's grey on
+  the left with Harness's Markdown), runs with a tail on the last, a time
+  line after 15 minutes, a typing bubble with the current step, the steps
+  in plain words, "Saved to memory", "Delivered", Harness's `TurnError`.
+  `composer.tsx` is the pill box (attach, a field growing to six lines,
+  send or stop); approvals and questions are Harness's cards
+  (`conversation.tsx`). The persona added to Harness's chat view in the
+  second slice is gone; Harness keeps only the new `ChatModelPill`.
+- **Replies and reactions travel in the sent text.** A reply adds
+  `<evo-mates-reply from="…">quote</evo-mates-reply>` and reactions the
+  mate has not heard of an `<evo-mates-note>…</evo-mates-note>` before the
+  message (`message-markup.ts`); the thread shows the quote and hides the
+  note, so both survive a restart in the transcript. Reactions are rows of
+  `mate_reactions` (migration 0016), keyed by the turn's entry and side.
+

@@ -44,6 +44,7 @@ Needs you and Usage.
 - [ ] T19 [FR-12, FR-24] Harness: sidebar, history and search skip mate kinds; Needs you lists waiting mates with avatars and opens them in Mates; notices of mate chats go to the Mates window — `src/stores/session-store.ts`, `src/features/shell/*`, `supervisor/notices.rs` — check: manual with a mate waiting and the Mates window closed
 - [ ] T20 [P] [FR-22] Usage grouped by mate — `crates/evo-store/src/usage.rs`, `src/features/usage/*` — check: `cargo test -p evo-store usage`; manual
 - [ ] T21 [FR-4] A mate keeps working with its window closed — check: manual: send, close Mates, reopen after the reply
+- [x] T54 [FR-58, FR-59, FR-60, FR-61, FR-62] Messaging thread for mates: new `thread.tsx`, `composer.tsx`, `conversation.tsx`, `message-markup.ts` (reply and reactions note in the sent text), migration 0016 and `mates_react` / `mates_reactions` / `mates_take_reactions`; Harness's chat view is no longer used in Evo Mates — `src/features/mates/`, `crates/evo-store` — check: markup and store tests, the app on a copy of real data
 - [ ] T41 [FR-39] Tests, then code: a mate's Apps narrow the connector and plugin tools its engines get, with the chosen account — `src-tauri/src/supervisor.rs` — check: shell test with All, Only these and None
 - [ ] T42 [FR-40] `connect_app` app tool and the Connect / Reconnect card; expired sign-in results point to it — `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/connect-card.tsx` — check: shell test; manual with a missing mail connector
 - [ ] T43 [FR-41, FR-42] Tool classes from MCP annotations and the catalogue (unknown counts as sending); per-mate Always allow for read-only tools in `mate_grants`; the sending gate — `src-tauri/src/mates/grants.rs`, `agent_tools/mod.rs` — check: shell tests for each class and setting
@@ -156,6 +157,11 @@ Done when: every row below is `passed` with its date.
 | FR-55 | Engine tests T52 | not run |
 | FR-56 | Engine tests T53 | not run |
 | FR-57 | Engine tests T53; manual | not run |
+| FR-58 | Visual review in the app | partly (2026-11-25): blue right bubbles, grey left bubbles with Markdown, tails on the last of a run, a time line, steps in plain words, details behind an info button; dark theme and a 16-minute gap: not run |
+| FR-59 | Manual: a running turn | passed (2026-11-25): three-dot typing bubble while the mate works, Stop in the box |
+| FR-60 | `bun test src/features/mates` (markup), `cargo test -p evo-store reactions`; manual | tests passed (2026-11-25); reacting in the app: not run |
+| FR-61 | `bun test src/features/mates` (markup); manual | markup tests passed (2026-11-25); a reply in the app: not run |
+| FR-62 | Manual | partly (2026-11-25): pill box, + attach, send and stop buttons, Enter sends, no inner focus ring; attach and Shift+Enter: not run |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |

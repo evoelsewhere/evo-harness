@@ -431,6 +431,91 @@ pub fn remove_grant(conn: &Connection, mate: &str, tool: &str) -> Result<(), DbE
     Ok(())
 }
 
+/// The reactions a person can give (FR-60).
+pub const REACTIONS: [&str; 6] = ["heart", "like", "dislike", "laugh", "emphasis", "question"];
+
+/// A reaction on a message of a mate's conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Reaction {
+    pub message: String,
+    pub reaction: String,
+    pub excerpt: String,
+    pub at_ms: i64,
+}
+
+/// Set (or with `None`, remove) the person's reaction to `message`.
+pub fn set_reaction(
+    conn: &Connection,
+    chat: &str,
+    message: &str,
+    reaction: Option<&str>,
+    excerpt: &str,
+) -> Result<(), DbError> {
+    match reaction {
+        None => {
+            conn.execute(
+                "DELETE FROM mate_reactions WHERE chat_id = ?1 AND message = ?2",
+                params![chat, message],
+            )?;
+        }
+        Some(reaction) => {
+            if !REACTIONS.contains(&reaction) {
+                return Err(DbError::Invalid(format!("unknown reaction \"{reaction}\"")));
+            }
+            let excerpt: String = excerpt.chars().take(160).collect();
+            conn.execute(
+                "INSERT INTO mate_reactions (chat_id, message, reaction, excerpt, at_ms, told)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0)
+                 ON CONFLICT (chat_id, message) DO UPDATE SET reaction = ?3, excerpt = ?4, at_ms = ?5, told = 0",
+                params![chat, message, reaction, excerpt, now_ms()],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Every reaction in a mate's conversation.
+pub fn list_reactions(conn: &Connection, chat: &str) -> Result<Vec<Reaction>, DbError> {
+    let mut statement = conn.prepare(
+        "SELECT message, reaction, excerpt, at_ms FROM mate_reactions WHERE chat_id = ?1 ORDER BY at_ms",
+    )?;
+    let rows = statement.query_map([chat], |row| {
+        Ok(Reaction {
+            message: row.get(0)?,
+            reaction: row.get(1)?,
+            excerpt: row.get(2)?,
+            at_ms: row.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// The reactions the mate has not heard of yet, now marked as heard.
+pub fn take_untold_reactions(conn: &mut Connection, chat: &str) -> Result<Vec<Reaction>, DbError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let untold: Vec<Reaction> = {
+        let mut statement = tx.prepare(
+            "SELECT message, reaction, excerpt, at_ms FROM mate_reactions WHERE chat_id = ?1 AND told = 0 ORDER BY at_ms",
+        )?;
+        let rows = statement.query_map([chat], |row| {
+            Ok(Reaction {
+                message: row.get(0)?,
+                reaction: row.get(1)?,
+                excerpt: row.get(2)?,
+                at_ms: row.get(3)?,
+            })
+        })?;
+        rows.collect::<Result<_, _>>()?
+    };
+    tx.execute(
+        "UPDATE mate_reactions SET told = 1 WHERE chat_id = ?1",
+        [chat],
+    )?;
+    tx.commit()?;
+    Ok(untold)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -618,6 +703,50 @@ mod tests {
             list_grants(&conn, "m1").unwrap(),
             vec!["web_search".to_string()]
         );
+    }
+
+    #[test]
+    fn reactions_are_set_changed_removed_and_told_once() {
+        let (_dir, mut conn) = db();
+        create_mate(&mut conn, &writer("m1"), "ask").unwrap();
+        set_reaction(
+            &conn,
+            "chat-m1",
+            "e1:reply",
+            Some("like"),
+            "Here is the draft",
+        )
+        .unwrap();
+        set_reaction(
+            &conn,
+            "chat-m1",
+            "e1:reply",
+            Some("heart"),
+            "Here is the draft",
+        )
+        .unwrap();
+        set_reaction(
+            &conn,
+            "chat-m1",
+            "e2:reply",
+            Some("question"),
+            "Shall I send it?",
+        )
+        .unwrap();
+        assert!(set_reaction(&conn, "chat-m1", "e3:reply", Some("fire"), "x").is_err());
+        let all = list_reactions(&conn, "chat-m1").unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].reaction, "heart", "a second pick changes it");
+        let told = take_untold_reactions(&mut conn, "chat-m1").unwrap();
+        assert_eq!(told.len(), 2);
+        assert!(
+            take_untold_reactions(&mut conn, "chat-m1")
+                .unwrap()
+                .is_empty(),
+            "told once"
+        );
+        set_reaction(&conn, "chat-m1", "e2:reply", None, "").unwrap();
+        assert_eq!(list_reactions(&conn, "chat-m1").unwrap().len(), 1);
     }
 
     #[test]

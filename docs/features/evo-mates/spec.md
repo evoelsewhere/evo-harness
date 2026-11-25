@@ -313,6 +313,11 @@ Acceptance scenarios:
 | FR-55 | A channel's lead may split a request into assignments to members and must post a wrap-up reply when they report back; members never assign work to the lead. | Given a lead-answered request that needs two members, then two assignment lines and one wrap-up show. |
 | FR-56 | Each mate must take a channel's messages in order: a message for a busy mate waits ("Next: …") unless it comes from the person and addresses only that mate, which steers it; each reply is tied to the message it answers. | Given two messages for a busy mate, then the second waits; each reply shows which message it answers. |
 | FR-57 | In a channel a mate must get only the channel's instructions, the lines since its last turn with their authors, and its recent-work brief; it never reads other mates' direct conversations and never speaks unless picked, mentioned or handed work. | Engine test of a seat's delivery contents; manual: no unprompted reply over a day of use. |
+| FR-58 | A mate's conversation must read like a phone messaging app: the person's messages right-aligned in accent-coloured bubbles with light text, the mate's left in neutral bubbles; consecutive bubbles from one side grouped with a tail only on the last; a centred time line when more than 15 minutes pass between messages ("Today 3:02 PM"); "Delivered" under the person's last message until the mate answers; a reply's model, time and cost behind its info button, not under every bubble. | Visual review against ux.md 3 in light and dark; a gap of 16 minutes shows a time line. |
+| FR-59 | While a mate works with no text yet, a typing bubble with three moving dots shows on its side, with its current step in one plain line under it ("Reading 3 files…"); reduced motion holds the dots still. | Given a running turn before its first text, then the typing bubble and step line show; they go when text streams. |
+| FR-60 | The person can react to any bubble with one of six reactions (heart, thumbs up, thumbs down, laugh, emphasis, question) from a hover bar or right-click; a reaction shows as a badge on the bubble's corner, a second pick changes it, the same pick removes it. Reactions are kept across restarts, and the mate is told of new reactions to its messages at the start of its next turn, as information. | Given a reaction, then the badge shows after a restart; the next turn's input carries the note "The person reacted … to your message: …". |
+| FR-61 | The person can reply to a specific bubble: Reply shows the quoted text above the message box (Esc removes it); the sent bubble shows the quote above it, and the mate receives the quoted text with the message. | Given a reply to a mate's bubble, then the quote shows above the sent bubble and the mate's answer refers to it. |
+| FR-62 | The message box is a rounded pill: an attach button on the left, a field that grows to six lines, and a round send button in the accent colour that appears when there is text (a stop button while the mate works); Enter sends, Shift+Enter starts a new line. | Manual check of each control and key. |
 
 ### 4.2 Non-functional
 
@@ -350,6 +355,12 @@ None.
 
 ### 6.2 Resolved
 
+- 2026-11-25 — Q: How should a mate's conversation look and behave? → A:
+  the owner asked for a phone messaging app's chat: bubbles on two sides,
+  reactions, replying to a message and a pill message box (FR-58 – FR-62).
+  Taken with the agent's recommended details: six reactions, the mate is
+  told of reactions as information at its next turn, a reply quotes the
+  text to the mate.
 - 2026-11-25 — Q: May Evo Mates break DESIGN.md's "achromatic, one accent"
   rule with tinted bubbles and a colour per mate? → A: yes, as a written
   Evo Mates exception in DESIGN.md, limited to the face and its plate, the
@@ -455,3 +466,4 @@ None.
 - 2026-11-25 — Owner chose open-bot-avatar for faces and asked for the reference apps' behaviour: behaviour.md written, FR-39 – FR-57 added, FR-15, FR-16, FR-18, FR-21, FR-33 changed; 6.1 now holds four questions.
 - 2026-11-25 — The four open questions answered as proposed (6.2); FR-7 and FR-8 changed. No clarification left; spec ready for gate A.
 - 2026-11-25 — Gates A and B: the owner accepted the spec and the plan; status Accepted, then In progress with phase 1.
+- 2026-11-25 — Owner asked for a phone messaging app's chat UI: FR-58 – FR-62 added (6.2).

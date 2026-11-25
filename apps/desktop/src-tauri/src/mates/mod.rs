@@ -316,6 +316,25 @@ pub async fn mates_delete(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// The reactions in a mate's conversation (FR-60).
+#[tauri::command]
+pub fn mates_reactions(app: AppHandle, chat: String) -> Result<Vec<mates::Reaction>, String> {
+    app.state::<Db>().with(|conn| mates::list_reactions(conn, &chat))
+}
+
+/// Set or (`None`) remove the person's reaction to a message.
+#[tauri::command]
+pub fn mates_react(app: AppHandle, chat: String, message: String, reaction: Option<String>, excerpt: String) -> Result<(), String> {
+    app.state::<Db>().with(|conn| mates::set_reaction(conn, &chat, &message, reaction.as_deref(), &excerpt))
+}
+
+/// The reactions the mate has not heard of, now marked heard: the window
+/// puts them in the mate's next message as a note (FR-60).
+#[tauri::command]
+pub fn mates_take_reactions(app: AppHandle, chat: String) -> Result<Vec<mates::Reaction>, String> {
+    app.state::<Db>().with(|conn| mates::take_untold_reactions(conn, &chat))
+}
+
 /// Open a mate's folder in the system's file manager.
 #[tauri::command]
 pub fn mates_folder(app: AppHandle, id: String) -> Result<String, String> {
