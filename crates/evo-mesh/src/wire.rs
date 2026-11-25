@@ -666,6 +666,26 @@ pub struct SessionRole {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+    /// The mate this session speaks as: its direct conversation or a seat in
+    /// a channel (docs/features/evo-mates/spec.md, FR-10). Written by the
+    /// shell from the mate's profile, never by a model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mate: Option<MateIdentity>,
+    /// The folder of this session's `project` memory scope, whatever folder
+    /// the session works in: a mate's own memory (FR-11, FR-26).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_dir: Option<String>,
+}
+
+/// Who a mate is, as its sessions present themselves.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MateIdentity {
+    pub id: String,
+    pub name: String,
+    /// One line: what the mate does.
+    #[serde(default)]
+    pub role: String,
 }
 
 fn full_access() -> String {
@@ -676,6 +696,11 @@ impl SessionRole {
     /// Whether the session may not change files.
     pub fn is_read_only(&self) -> bool {
         self.access == "read-only"
+    }
+
+    /// Whether the session is a mate's (Evo Mates).
+    pub fn is_mate(&self) -> bool {
+        self.mate.is_some()
     }
 
     /// What a card or a start note shows: the role without its instructions.

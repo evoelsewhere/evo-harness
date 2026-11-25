@@ -5,6 +5,7 @@
 // into the same file by its engine.
 
 import { invoke } from "@tauri-apps/api/core";
+import { matesWindow } from "@/lib/windows";
 
 export interface DbWorkspace {
   id: string;
@@ -46,6 +47,13 @@ export interface DbChat {
   scheduled: boolean;
   /** The role a nested session runs as (docs/features/session-roles-and-mail/spec.md, FR-1). */
   role?: SessionRole | null;
+  /**
+   * `chat` (Evo Harness) or an Evo Mates chat: `mate`, `channel` or `seat`
+   * (docs/features/evo-mates/spec.md, FR-24). Missing from older rows: `chat`.
+   */
+  kind?: "chat" | "mate" | "channel" | "seat";
+  /** The mate a `mate` or `seat` chat belongs to. */
+  mateId?: string | null;
 }
 
 /** An agent type, model and thinking level a nested session runs as, resolved when it started. */
@@ -233,7 +241,8 @@ export const db = {
   setWorkspaceCollapsed: (id: string, collapsed: boolean) => invoke<void>("workspace_set_collapsed", { id, collapsed }),
   removeWorkspace: (id: string) => invoke<string[]>("workspace_remove", { id }),
 
-  chats: (archived = false) => invoke<DbChat[]>("chats_list", { archived }),
+  // The Evo Mates window lists its mates' chats; every other window Evo Harness's.
+  chats: (archived = false) => invoke<DbChat[]>("chats_list", { archived, kind: matesWindow ? "mates" : null }),
   searchChats: (query: string) => invoke<DbChat[]>("chats_search", { query }),
   createChat: (chat: {
     id: string;

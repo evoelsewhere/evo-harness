@@ -31,14 +31,14 @@ folder, memory, model and approval mode, talks to it in one lasting
 conversation, edits its profile, and Harness shows none of it except in
 Needs you and Usage.
 
-- [ ] T9 [FR-6, FR-13, FR-24, NFR-8] Write migration tests: upgrade from schema 14 keeps every chat as `kind = 'chat'`; mates, channels, members round-trip; Harness chat queries skip other kinds — `crates/evo-store/tests/` — check: `cargo test -p evo-store` fails for the right reason
-- [ ] T10 [FR-6, FR-13, FR-22, FR-24, NFR-8] Migration `0015_mates.sql` (tables, chat kinds, usage source `mates` by table rebuild) and `evo-store` `mates.rs`; `chats.rs` filters by kind — `crates/evo-store/src/` — check: T9 passes
-- [ ] T11 [FR-9, FR-10, FR-11] `SessionRole` gains `mate`, `memory_dir`, `channel` with serde defaults; a test that an old role file still parses — `crates/evo-mesh/src/wire.rs` — check: `cargo test -p evo-mesh`
-- [ ] T12 [FR-11, FR-26] Tests, then code: with `memory_dir`, the `project` scope resolves to it whatever the folder; prompt names it the mate's memory; Harness project topics unreachable — `crates/evo-engine/src/memory.rs`, `session_roles.rs` — check: `cargo test -p evo-engine memory`
-- [ ] T13 [FR-7, FR-10, FR-13, FR-25] Shell `mates` commands: create (folder under `mates/<id>/work`, direct chat of kind `mate`, role written), update (role rewritten, reconfigure at settle), duplicate, pin, hide, delete (stop sessions, confirm, remove) — `src-tauri/src/mates/mod.rs`, `supervisor.rs` — check: shell tests for each command
-- [ ] T14 [NFR-5] Per-chat approval mode: mate chats get the mate's mode at `ready`; app tools read the chat's mode — `supervisor.rs`, `supervisor/settings.rs`, `agent_tools/mod.rs` — check: shell test; manual: a mate on "ask" asks while Harness is on "auto"
-- [ ] T15 [P] [FR-8] Built-in role templates in the team file format, and `mates_templates` — `src-tauri/src/mates/templates/*.md`, `mates/mod.rs` — check: test that every template parses and creates a mate
-- [ ] T16 [P] [FR-6, FR-7, FR-13] `mates-store` and the roster with states, row menu, gallery and **Start from scratch** — `src/stores/mates-store.ts`, `src/features/mates/roster*.tsx`, `gallery.tsx` — check: `bun run typecheck`; manual
+- [x] T9 [FR-6, FR-13, FR-24, NFR-8] Write migration tests: upgrade from schema 14 keeps every chat as `kind = 'chat'`; mates, channels, members round-trip; Harness chat queries skip other kinds — `crates/evo-store/tests/` — check: `cargo test -p evo-store` fails for the right reason
+- [x] T10 [FR-6, FR-13, FR-22, FR-24, NFR-8] Migration `0015_mates.sql` (tables, chat kinds, usage source `mates` by table rebuild) and `evo-store` `mates.rs`; `chats.rs` filters by kind — `crates/evo-store/src/` — check: T9 passes
+- [x] T11 [FR-9, FR-10, FR-11] `SessionRole` gains `mate`, `memory_dir`, `channel` with serde defaults; a test that an old role file still parses — `crates/evo-mesh/src/wire.rs` — check: `cargo test -p evo-mesh`
+- [x] T12 [FR-11, FR-26] Tests, then code: with `memory_dir`, the `project` scope resolves to it whatever the folder; prompt names it the mate's memory; Harness project topics unreachable — `crates/evo-engine/src/memory.rs`, `session_roles.rs` — check: `cargo test -p evo-engine memory`
+- [x] T13 [FR-7, FR-10, FR-13, FR-25] Shell `mates` commands: create (folder under `mates/<id>/work`, direct chat of kind `mate`, role written), update (role rewritten, reconfigure at settle), duplicate, pin, hide, delete (stop sessions, confirm, remove) — `src-tauri/src/mates/mod.rs`, `supervisor.rs` — check: shell tests for each command
+- [x] T14 [NFR-5] Per-chat approval mode: mate chats get the mate's mode at `ready`; app tools read the chat's mode — `supervisor.rs`, `supervisor/settings.rs`, `agent_tools/mod.rs` — check: shell test; manual: a mate on "ask" asks while Harness is on "auto"
+- [x] T15 [P] [FR-8] Built-in role templates in the team file format, and `mates_templates` — `src-tauri/src/mates/templates/*.md`, `mates/mod.rs` — check: test that every template parses and creates a mate
+- [x] T16 [P] [FR-6, FR-7, FR-13] `mates-store` and the roster with states, row menu, gallery and **Start from scratch** — `src/stores/mates-store.ts`, `src/features/mates/roster*.tsx`, `gallery.tsx` — check: `bun run typecheck`; manual
 - [ ] T17 [FR-9, FR-10] Direct conversation view on the shared chat components, with the mate's name and avatar on replies, and search in the conversation — `src/features/mates/mate-chat.tsx` — check: manual; NFR-2 measured with a generated 10,000-message transcript
 - [ ] T18 [FR-7, FR-10, FR-25, FR-26] Profile: identity, instructions, model and thinking from models.dev, tools, connectors, skills, approval mode, folders, memory list with edit and forget — `src/features/mates/profile*.tsx` — check: manual; forgetting a memory changes the next answer
 - [ ] T19 [FR-12, FR-24] Harness: sidebar, history and search skip mate kinds; Needs you lists waiting mates with avatars and opens them in Mates; notices of mate chats go to the Mates window — `src/stores/session-store.ts`, `src/features/shell/*`, `supervisor/notices.rs` — check: manual with a mate waiting and the Mates window closed
@@ -104,12 +104,12 @@ Done when: every row below is `passed` with its date.
 | FR-3 | Manual switch both ways (T4) | passed (2026-11-25): Switch to Evo Harness shows main, Mates stays; Switch to Evo Mates reopens a closed Mates window |
 | FR-4 | Manual T21 | partly: with the tray off, closing Evo Mates while main is hidden quits the app (exit 0) — passed (2026-11-25); a mate working on with its window closed: not run (phase 2) |
 | FR-5 | Manual tray menu (T5) | `tray_target` test passed (2026-11-25); menu clicked in the app: not run |
-| FR-6 | Manual roster states (T16) | not run |
-| FR-7 | Manual create from template and from scratch | not run |
-| FR-8 | Template parse test (T15) | not run |
+| FR-6 | Manual roster states (T16) | partly (2026-11-25): rows with face, name, last line and time, pinned tiles, unread/needs-you dot; states from the shell's work list. Queued and error words: not run |
+| FR-7 | Manual create from template and from scratch | from a template — passed (2026-11-25, Researcher created and opened on its conversation); from scratch: not run |
+| FR-8 | Template parse test (T15) | passed (2026-11-25): `mates::template::tests::every_gallery_role_reads`; gallery shows 8 roles |
 | FR-9 | Manual: conversation past the context window; search finds the first message | not run |
-| FR-10 | Manual: model change applies next turn | not run |
-| FR-11 | `cargo test -p evo-engine memory` (T12); manual across DM and channel | not run |
+| FR-10 | Manual: model change applies next turn | partly (2026-11-25): the mate answers as itself from its role ("Hi! I'm Researcher, one of your mates…"); restart on a profile change is coded, not run |
+| FR-11 | `cargo test -p evo-engine memory` (T12); manual across DM and channel | `a_mates_prompt_names_its_own_memory` passed (2026-11-25); the role carries the mate's memory folder (checked in the DB); manual: not run |
 | FR-12 | Manual T19 | not run |
 | FR-13 | Shell tests T13; manual row menu | not run |
 | FR-14 | Shell tests T26; manual | not run |
@@ -122,7 +122,7 @@ Done when: every row below is `passed` with its date.
 | FR-21 | Team file tests T31; manual T33 | not run |
 | FR-22 | `cargo test -p evo-store usage`; manual | not run |
 | FR-23 | Manual with an untrusted project folder | not run |
-| FR-24 | Manual T19 | not run |
+| FR-24 | Manual T19 | partly (2026-11-25): `harness_lists_and_searches_only_its_own_chats` passed; the Harness window does not list a mate's chat. Needs you: not run (T19) |
 | FR-25 | Shell tests T13, T26; manual | not run |
 | FR-26 | Manual T18 | not run |
 | FR-27 | Team file tests T31 | not run |
@@ -163,4 +163,4 @@ Done when: every row below is `passed` with its date.
 | NFR-5 | Manual T30 | not run |
 | NFR-6 | Shell test T27 | not run |
 | NFR-7 | Design review against DESIGN.md and ux.md; string check T40 | not run |
-| NFR-8 | Migration test T9; Harness CI checks | not run |
+| NFR-8 | Migration test T9; Harness CI checks | `mates_upgrade_keeps_chats_as_harness_chats_and_usage_rows` passed (2026-11-25); a copy of a real schema-14 database upgraded to 15 in the app |

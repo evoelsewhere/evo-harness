@@ -19,6 +19,7 @@ mod db;
 mod engine;
 mod files;
 mod frames;
+mod mates;
 mod mcp;
 mod memory_index;
 mod mesh;
@@ -97,6 +98,7 @@ pub fn run() {
         .manage(window::MaterialState(Mutex::new(window::Material::None)))
         .manage(system::SystemState::default())
         .manage(quick_entry::QuickEntryState::default())
+        .manage(mates::MatesState::default())
         .manage(terminal::TerminalState::default())
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
@@ -189,6 +191,13 @@ pub fn run() {
         .invoke_handler({
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             app_identity::app_open,
+            mates::mates_list,
+            mates::mates_templates,
+            mates::mates_create,
+            mates::mates_update,
+            mates::mates_duplicate,
+            mates::mates_delete,
+            mates::mates_folder,
             widgets::widget_open,
             widgets::widget_close,
             plugin_runtime::plugin_runtime_state,

@@ -64,7 +64,7 @@ function promptPayload(text: string, images: PromptImage[] = []): Record<string,
 }
 import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log, type SessionRole } from "@/lib/db";
-import { chatWindowId, closeChatWindow, focusChatWindow, openChatWindow, quickEntryWindow, viewerWindow } from "@/lib/windows";
+import { chatWindowId, closeChatWindow, focusChatWindow, matesWindow, openChatWindow, quickEntryWindow, viewerWindow } from "@/lib/windows";
 import { worktrees } from "@/lib/worktrees";
 import { APPROVAL_CHANGED, useUiStore, worktreeKey, type PanelId } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
@@ -1448,6 +1448,9 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       }
       // The quick entry box shows the chat the shell gives it on each opening.
       if (quickEntryWindow) return;
+      // Evo Mates opens a mate's conversation when the person picks one
+      // (docs/features/evo-mates/spec.md, FR-6).
+      if (matesWindow) return;
       // A notification or the tray asked for a chat while there was no main
       // window: the shell built this one to show it (shell-hosted-engines FR-11).
       // Quick entry sent a request while there was no main window: this one

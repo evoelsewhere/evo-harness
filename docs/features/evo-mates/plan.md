@@ -176,7 +176,7 @@ type Mate = {
   instructions: string;
   provider?: string; model?: string; thinking?: string;
   tools?: string[]; connectors?: string[]; skills?: string[];
-  approvalMode: "ask" | "edits" | "auto";
+  approvalMode: "ask" | "auto-edits" | "auto";
   folder: string; projectFolder?: string;
   chatId: string;                                                  // the direct conversation
   pinned: boolean; hidden: boolean; template?: string;
@@ -265,7 +265,7 @@ CREATE TABLE mates (
   instructions TEXT NOT NULL,
   provider TEXT, model TEXT, thinking TEXT,
   tools TEXT, connectors TEXT, skills TEXT,           -- JSON arrays or NULL
-  approval_mode TEXT NOT NULL CHECK (approval_mode IN ('ask', 'edits', 'auto')),
+  approval_mode TEXT NOT NULL CHECK (approval_mode IN ('ask', 'auto-edits', 'auto')),
   apps TEXT,                                          -- NULL: all; JSON [{service, account?}]
   sending TEXT NOT NULL DEFAULT 'ask' CHECK (sending IN ('ask', 'send')),
   notifications INTEGER NOT NULL DEFAULT 1,
@@ -611,3 +611,29 @@ Phase 1 (2026-11-25):
   last window: closing Evo Mates while the main window is hidden (Evo Mates
   started alone) closes the hidden windows too, so the app quits or asks
   as before (`system::on_close_requested`).
+
+Phase 2, first slice (2026-11-25):
+
+- **Approval modes are the engine's words**: `ask`, `auto-edits`, `auto`
+  (not `edits`); `mates.approval_mode` checks them. A mate's chat gets its
+  mode at engine start (`engine::chat_approval_mode`), the shell's app
+  tools read it per chat, and a change of the app's mode skips engines
+  whose row has a mode of its own (`Row::own_approval`).
+- **Each window lists its own front end's chats.** `chats_list` takes
+  `kind: "mates"` in the Mates window (`chats::list_chats_of`), and the
+  session store drops rows of the other front end from `chat://updated`
+  (`chatOfThisApp`), so a mate's chat is selectable in Evo Mates and never
+  listed in Harness. Past-chat search and memory indexing read `chat` rows
+  only.
+- **A role change restarts the engine when idle.** The role is read at
+  engine start (`--role-file`), so `mates_update` rewrites it and stops an
+  idle engine; a working one is stopped once the shell's work list says it
+  settled (`mates::apply_pending` from `system::work_changed`).
+- **Gallery roles** are Markdown files with `key: value` front matter
+  (`mates/template.rs`), not yet the full team file format of phase 4. No
+  role narrows tools yet: a wrong tool name would take tools away.
+- **The conversation reuses Harness's chat view** (`ChatView`) under the
+  mate's header pill until the bubble layout (T37) lands.
+- **Faces**: `open-bot-avatar` 0.4.0 (exact), Evo's eight definitions in
+  `components/mate-face/faces.ts`; lists draw the static SVG, the header and
+  the panel mount the live avatar.

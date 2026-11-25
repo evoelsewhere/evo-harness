@@ -285,6 +285,16 @@ pub fn compaction_config(db: &Db) -> Option<Value> {
         .and_then(|settings| settings.get(COMPACTION_KEY).filter(|value| value.is_object()).cloned())
 }
 
+/// The approval mode `chat` runs under: a mate's own, else the app's
+/// (docs/features/evo-mates/spec.md, FR-7, NFR-5).
+pub fn chat_approval_mode(db: &Db, chat: &str) -> String {
+    db.with(|conn| evo_store::mates::mate_of_chat(conn, chat))
+        .ok()
+        .flatten()
+        .map(|mate| mate.approval_mode)
+        .unwrap_or_else(|| approval_mode(db).to_string())
+}
+
 /// The saved approval mode; `ask` when none is saved or the value is unknown.
 pub fn approval_mode(db: &Db) -> &'static str {
     let saved = db
@@ -483,7 +493,8 @@ pub(crate) async fn start_process(
         .arg("--sandbox-config")
         .arg(sandbox_config(&db).to_string())
         // Which tool calls wait for the person (the composer's Approvals menu).
-        .args(["--approval-mode", approval_mode(&db)])
+        .arg("--approval-mode")
+        .arg(chat_approval_mode(&db, &chat))
         // `run_code` for the agent (Settings → Experimental → Code mode).
         .args(code_mode(&db).then_some("--code-mode"))
         // Auto-compact: when a chat compacts (Settings → General, the context panel).

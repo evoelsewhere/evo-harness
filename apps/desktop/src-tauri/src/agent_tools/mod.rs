@@ -518,8 +518,9 @@ impl ToolCtx {
     }
 
     /// The approval mode now (`ask`, `auto-edits`, `auto`): read on every call, so a change applies at once.
+    /// A mate's chat has its own (docs/features/evo-mates/spec.md, NFR-5).
     pub fn approval_mode(&self) -> String {
-        crate::engine::approval_mode(&self.app.state::<Db>()).to_string()
+        crate::engine::chat_approval_mode(&self.app.state::<Db>(), &self.chat)
     }
 
     /// Send an event to every window.

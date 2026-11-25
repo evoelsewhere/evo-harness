@@ -129,6 +129,10 @@ impl EngineSupervisor {
             let ready = status == Status::Ready;
             match &change {
                 Change::Approval(mode) => {
+                    // A mate keeps its own mode (docs/features/evo-mates/spec.md, NFR-5).
+                    if host.row(&chat).is_some_and(|row| row.own_approval.is_some()) {
+                        continue;
+                    }
                     // An engine applies it from its next tool call, also in a run.
                     if ready {
                         self.send_approval(host, &chat, mode).await;
@@ -464,6 +468,19 @@ mod tests {
         let mode = log.iter().position(|line| line == r#"request c set_approval_mode {"mode":"auto"}"#).expect("c got the mode");
         let hosted = log.iter().position(|line| line == "hosted c").unwrap();
         assert!(mode < hosted, "{log:?}");
+    }
+
+    // docs/features/evo-mates/spec.md (FR-7, NFR-5): a mate keeps its own mode.
+    #[tokio::test]
+    async fn the_apps_approval_mode_does_not_reach_a_mate() {
+        let mate = crate::supervisor::Row { own_approval: Some("ask".into()), ..top(None) };
+        let fake = Fake::default().with_row("chat", top(None)).with_row("mate", mate);
+        let supervisor = EngineSupervisor::default();
+        set_up(&fake, &supervisor, "chat").await;
+        set_up(&fake, &supervisor, "mate").await;
+        supervisor.setting_changed(&fake, Change::Approval("auto".into())).await;
+        assert_eq!(fake.lines("request chat set_approval_mode"), [r#"request chat set_approval_mode {"mode":"auto"}"#]);
+        assert!(fake.lines("request mate set_approval_mode").is_empty());
     }
 
     // docs/features/code-mode/spec.md (FR-2).

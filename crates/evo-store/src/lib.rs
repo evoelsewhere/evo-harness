@@ -55,6 +55,7 @@ pub mod chats;
 pub mod computer;
 pub mod logs;
 pub mod mail;
+pub mod mates;
 pub mod memory_log;
 pub mod plugin_ai;
 pub mod settings;
@@ -137,6 +138,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "plugin_ai",
         sql: include_str!("migrations/0014_plugin_ai.sql"),
     },
+    Migration {
+        version: 15,
+        name: "mates",
+        sql: include_str!("migrations/0015_mates.sql"),
+    },
 ];
 
 /// `application_id` stamped on the file ("evo1"), so tools and evo itself can
@@ -171,6 +177,9 @@ pub enum DbError {
     Tampered { version: i64, name: String },
     #[error("{0:?} is not a valid chat id")]
     InvalidId(String),
+    /// A value the caller passed is not allowed (an unknown mode, an empty name).
+    #[error("{0}")]
+    Invalid(String),
     #[error("{path} already exists")]
     Exists { path: PathBuf },
     #[error("{path}: {source}")]
@@ -736,6 +745,49 @@ mod tests {
         assert_eq!(version(&connection), MIGRATIONS.len() as i64);
         let chat = crate::chats::get_chat(&connection, "c").unwrap().unwrap();
         assert_eq!(chat.role, None, "an existing chat has no role");
+    }
+
+    // docs/features/evo-mates/spec.md (FR-24, NFR-8).
+    #[test]
+    fn mates_upgrade_keeps_chats_as_harness_chats_and_usage_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evo.db");
+        let mut connection = Connection::open(&path).unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        migrate(&mut connection, &path, &MIGRATIONS[..14]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO chats (id, title, created_at, updated_at) VALUES ('c', 'C', 0, 0)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO usage_events (at_ms, chat_id, source, provider_id, model_id, cost_usd, duration_ms, plugin_id)
+                 VALUES (5, 'c', 'plugin', 'p', 'm', 0.25, 30, 'pl')",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+        let connection = open_at(&path).unwrap();
+        assert_eq!(version(&connection), MIGRATIONS.len() as i64);
+        let chat = crate::chats::get_chat(&connection, "c").unwrap().unwrap();
+        assert_eq!(chat.kind, "chat");
+        assert_eq!(chat.mate_id, None);
+        assert_eq!(
+            crate::chats::list_chats(&connection, false).unwrap().len(),
+            1
+        );
+        let (cost, duration, plugin): (f64, i64, String) = connection
+            .query_row(
+                "SELECT cost_usd, duration_ms, plugin_id FROM usage_events WHERE chat_id = 'c'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((cost, duration, plugin.as_str()), (0.25, 30, "pl"));
     }
 
     // docs/features/memory-topics-and-chat-recall/spec.md (FR-6, FR-19, FR-27, FR-29, FR-30).

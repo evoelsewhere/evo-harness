@@ -1,0 +1,114 @@
+// "Meet your first mate" (docs/features/evo-mates/ux.md 5; spec FR-7, FR-8,
+// FR-37): gallery roles by category with search, each card with its face,
+// name, one line and Add; Start from scratch opens a conversation, no form.
+
+import * as React from "react";
+import { PlusIcon, SearchIcon } from "lucide-react";
+import { MateFace } from "@/components/mate-face/mate-face";
+import { Button } from "@/components/ui/button";
+import type { MateTemplate } from "@/lib/mates";
+import { cn } from "@/lib/utils";
+import { useMatesStore } from "@/stores/mates-store";
+
+const ALL = "All";
+
+const MODE_WORD: Record<string, string> = { "auto-edits": "Approves edits", auto: "Approves for you" };
+
+function RoleCard({ role, busy, onAdd }: { role: MateTemplate; busy: boolean; onAdd(): void }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl bg-card p-4 shadow-[0_0_0_1px_var(--border)]">
+      <div className="flex items-center gap-3">
+        <MateFace avatar={role.avatar} size={48} label={role.name} />
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-foreground">{role.name}</div>
+          <div className="truncate text-xs text-muted-foreground">{role.role}</div>
+        </div>
+      </div>
+      <p className="line-clamp-2 min-h-10 text-[13px] text-muted-foreground">{role.description}</p>
+      <div className="flex items-center gap-2">
+        {role.approval && MODE_WORD[role.approval] && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{MODE_WORD[role.approval]}</span>
+        )}
+        <Button size="sm" className="ml-auto" disabled={busy} onClick={onAdd}>
+          Add
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function Gallery() {
+  const templates = useMatesStore((s) => s.templates);
+  const hasMates = useMatesStore((s) => s.mates.length > 0);
+  const create = useMatesStore((s) => s.create);
+  const [category, setCategory] = React.useState(ALL);
+  const [query, setQuery] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const categories = [ALL, ...Array.from(new Set(templates.map((t) => t.category)))];
+  const needle = query.trim().toLowerCase();
+  const shown = templates.filter(
+    (t) =>
+      (category === ALL || t.category === category) &&
+      (!needle || [t.name, t.role, t.description, t.category].some((text) => text.toLowerCase().includes(needle))),
+  );
+
+  const add = async (template?: string) => {
+    setBusy(true);
+    await create(template ? { template } : {});
+    setBusy(false);
+  };
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex max-w-4xl flex-col gap-6 px-8 py-10">
+        <header className="flex flex-col items-center gap-2 text-center">
+          <img src="/mates.png" alt="" className="size-16 rounded-2xl" draggable={false} />
+          <h1 className="text-xl font-semibold text-foreground">{hasMates ? "Add a mate" : "Meet your first mate"}</h1>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Pick a role to start. Your mate will introduce itself and ask a few questions to settle in.
+          </p>
+        </header>
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="tablist" className="flex flex-wrap gap-1">
+            {categories.map((name) => (
+              <button
+                key={name}
+                role="tab"
+                type="button"
+                aria-selected={category === name}
+                onClick={() => setCategory(name)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-[13px] text-muted-foreground transition-colors hover:bg-accent",
+                  category === name && "bg-accent text-foreground",
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <label className="ml-auto flex h-8 w-56 items-center gap-2 rounded-lg bg-muted px-2.5 text-sm">
+            <SearchIcon className="size-4 shrink-0 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search roles"
+              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+          {shown.map((role) => (
+            <RoleCard key={role.id} role={role} busy={busy} onAdd={() => void add(role.id)} />
+          ))}
+        </div>
+        {shown.length === 0 && <p className="text-center text-sm text-muted-foreground">No role matches.</p>}
+        <div className="flex justify-center">
+          <Button variant="outline" disabled={busy} onClick={() => void add()}>
+            <PlusIcon />
+            Start from scratch
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

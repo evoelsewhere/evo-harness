@@ -360,6 +360,11 @@ fn work_count(app: &AppHandle) -> usize {
 /// or closed, an engine started or stopped): the tray and the windows'
 /// sidebars hear it (`app://working`), at most every [`WORK_SETTLE`].
 pub fn work_changed(app: &AppHandle) {
+    // A mate whose profile changed while it worked restarts once idle
+    // (docs/features/evo-mates/spec.md, FR-10).
+    if app.try_state::<crate::mates::MatesState>().is_some() {
+        crate::mates::apply_pending(app);
+    }
     let Some(state) = app.try_state::<SystemState>() else {
         return;
     };

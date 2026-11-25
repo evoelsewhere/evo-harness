@@ -277,6 +277,10 @@ pub fn enrich(mut args: Value, parent: &Parent, types: &[AgentType]) -> Result<V
                 .ok()
                 .and_then(|v| v.as_str().map(str::to_string))
         }),
+        // A session an agent starts never speaks as a mate: the shell alone
+        // writes a mate's role (docs/features/evo-mates/spec.md, FR-10).
+        mate: None,
+        memory_dir: None,
     };
     object.insert(
         "role".into(),

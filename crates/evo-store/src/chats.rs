@@ -72,6 +72,12 @@ pub struct Chat {
     /// level resolved when it started, as JSON; `None` for a chat without one
     /// (docs/features/session-roles-and-mail/spec.md, FR-1, NFR-4).
     pub role: Option<serde_json::Value>,
+    /// `chat` (Evo Harness), or an Evo Mates chat: `mate` (a mate's direct
+    /// conversation), `channel` or `seat` (docs/features/evo-mates/spec.md,
+    /// FR-24). Harness lists and searches only `chat`.
+    pub kind: String,
+    /// The mate a `mate` or `seat` chat belongs to.
+    pub mate_id: Option<String>,
 }
 
 /// A chat to create.
@@ -99,6 +105,11 @@ pub struct NewChat {
     /// The resolved role of a nested session started with one (FR-1).
     #[serde(default)]
     pub role: Option<serde_json::Value>,
+    /// `chat` when unset; Evo Mates' chats name theirs (FR-24).
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub mate_id: Option<String>,
 }
 
 /// Fields to change on a chat; `None` leaves a field as it is.
@@ -133,11 +144,11 @@ pub struct TurnRecord {
 const WORKSPACE_COLUMNS: &str = "id, path, name, collapsed, position, created_at, opened_at";
 const CHAT_COLUMNS: &str = "id, workspace_id, title, title_source, preview, provider, model, pinned, unread, \
      archived_at, turn_count, cost_usd, tokens, created_at, updated_at, parent_chat_id, origin, worktree_path, \
-     memory_off, incognito, scheduled, role";
+     memory_off, incognito, scheduled, role, kind, mate_id";
 
 /// How many columns [`CHAT_COLUMNS`] names; a query that selects more reads
 /// its own from this index on.
-const CHAT_COLUMN_COUNT: usize = 22;
+const CHAT_COLUMN_COUNT: usize = 24;
 
 /// [`CHAT_COLUMNS`] for a query where `chats` is aliased `c`.
 fn chat_columns_of_c() -> String {
@@ -184,6 +195,8 @@ fn chat_row(row: &Row<'_>) -> rusqlite::Result<Chat> {
         incognito: row.get(19)?,
         scheduled: row.get(20)?,
         role: role_column(row.get::<_, Option<String>>(21)?),
+        kind: row.get(22)?,
+        mate_id: row.get(23)?,
     })
 }
 
@@ -288,13 +301,41 @@ pub fn remove_workspace(conn: &mut Connection, id: &str) -> Result<Vec<String>, 
     Ok(ids)
 }
 
-/// Every chat, pinned first then most recently active; `archived` selects
-/// the archive instead of the live list.
+/// A chat of Evo Harness; every other kind is Evo Mates' (FR-24).
+pub const KIND_CHAT: &str = "chat";
+
+/// Every Evo Harness chat, pinned first then most recently active;
+/// `archived` selects the archive instead of the live list. Evo Mates'
+/// chats are not listed (docs/features/evo-mates/spec.md, FR-24).
 pub fn list_chats(conn: &Connection, archived: bool) -> Result<Vec<Chat>, DbError> {
+    list_chats_of(conn, archived, &[KIND_CHAT])
+}
+
+/// The chat kinds Evo Mates lists: mates' direct chats and channels.
+pub const MATES_KINDS: [&str; 2] = ["mate", "channel"];
+
+/// [`list_chats`] for the chats of `kinds` (`chat`, `mate`, `channel`, `seat`).
+pub fn list_chats_of(
+    conn: &Connection,
+    archived: bool,
+    kinds: &[&str],
+) -> Result<Vec<Chat>, DbError> {
+    if kinds.is_empty()
+        || kinds
+            .iter()
+            .any(|kind| !["chat", "mate", "channel", "seat"].contains(kind))
+    {
+        return Err(DbError::Invalid(format!("unknown chat kinds {kinds:?}")));
+    }
+    let kinds = kinds
+        .iter()
+        .map(|kind| format!("'{kind}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let filter = if archived {
-        "archived_at IS NOT NULL ORDER BY archived_at DESC"
+        format!("kind IN ({kinds}) AND archived_at IS NOT NULL ORDER BY archived_at DESC")
     } else {
-        "archived_at IS NULL ORDER BY pinned DESC, updated_at DESC"
+        format!("kind IN ({kinds}) AND archived_at IS NULL ORDER BY pinned DESC, updated_at DESC")
     };
     let mut statement =
         conn.prepare(&format!("SELECT {CHAT_COLUMNS} FROM chats WHERE {filter}"))?;
@@ -325,8 +366,8 @@ pub fn create_chat(conn: &Connection, chat: &NewChat) -> Result<Chat, DbError> {
     };
     conn.execute(
         "INSERT INTO chats (id, workspace_id, title, title_source, provider, model, created_at, updated_at, parent_chat_id, origin, worktree_path,
-                            memory_off, incognito, scheduled, role)
-         VALUES (?1, ?2, ?3, 'auto', ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                            memory_off, incognito, scheduled, role, kind, mate_id)
+         VALUES (?1, ?2, ?3, 'auto', ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT (id) DO NOTHING",
         params![
             chat.id,
@@ -342,7 +383,9 @@ pub fn create_chat(conn: &Connection, chat: &NewChat) -> Result<Chat, DbError> {
             chat.memory_off || chat.incognito,
             chat.incognito,
             chat.scheduled,
-            chat.role.as_ref().map(|role| role.to_string())
+            chat.role.as_ref().map(|role| role.to_string()),
+            chat.kind.as_deref().unwrap_or(KIND_CHAT),
+            chat.mate_id
         ],
     )?;
     get_chat(conn, &chat.id)?.ok_or_else(|| DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
@@ -620,7 +663,7 @@ pub fn search_chats(
     let columns = chat_columns_of_c();
     let mut statement = conn.prepare(&format!(
         "SELECT {columns} FROM chats c LEFT JOIN chat_search s ON s.chat_id = c.id
-         WHERE c.incognito = 0
+         WHERE c.incognito = 0 AND c.kind = 'chat'
            AND (c.title LIKE ?1 ESCAPE '\\' OR c.preview LIKE ?1 ESCAPE '\\' OR s.body LIKE ?1 ESCAPE '\\')
          ORDER BY c.updated_at DESC LIMIT ?2"
     ))?;
@@ -699,7 +742,8 @@ fn like_pattern(text: &str) -> String {
 /// The chats of one project a query may return: never an incognito chat or
 /// the asking chat, inside the time window. `?1` workspace, `?2` asking chat,
 /// `?3` after, `?4` before.
-const FIND_SCOPE: &str = "c.incognito = 0 AND c.workspace_id IS ?1 AND c.id IS NOT ?2
+const FIND_SCOPE: &str =
+    "c.incognito = 0 AND c.kind = 'chat' AND c.workspace_id IS ?1 AND c.id IS NOT ?2
      AND (?3 IS NULL OR c.updated_at >= ?3) AND (?4 IS NULL OR c.created_at < ?4)";
 
 /// Past chats of one project for an agent: with words, the best matches first;
@@ -891,6 +935,7 @@ pub fn index_candidates(
         "SELECT {columns}, i.indexed_through FROM chats c
          LEFT JOIN chat_index i ON i.chat_id = c.id
          WHERE c.incognito = 0 AND c.memory_off = 0 AND c.parent_chat_id IS NULL AND c.turn_count > 0
+           AND c.kind = 'chat'
            AND (?1 IS NULL OR c.updated_at >= ?1)
            AND (?2 IS NULL OR c.updated_at < ?2)
            AND (?3 IS NULL OR c.updated_at <= ?3)

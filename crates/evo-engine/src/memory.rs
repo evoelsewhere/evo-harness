@@ -183,8 +183,29 @@ pub fn dir_in(agent_dir: &Path, scope: Scope, cwd: &Path) -> PathBuf {
 }
 
 pub(crate) fn dir(scope: Scope, cwd: &Path) -> Result<PathBuf, String> {
+    if let (Scope::Project, Some(own)) = (scope, own_dir()) {
+        return Ok(own);
+    }
     let agent = crate::config::agent_dir().map_err(|e| e.to_string())?;
     Ok(dir_in(&agent, scope, cwd))
+}
+
+/// A mate's own memory folder: with it, the `project` scope is the mate's
+/// memory wherever the session works, and never the folder's project
+/// memory (docs/features/evo-mates/spec.md, FR-11, FR-26).
+fn own_dir() -> Option<PathBuf> {
+    crate::session_roles::current()
+        .and_then(|role| role.memory_dir.as_deref())
+        .filter(|dir| !dir.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+/// The mate this engine speaks as, for the memory prompt.
+fn own_name() -> Option<String> {
+    crate::session_roles::current()
+        .filter(|role| role.memory_dir.is_some())
+        .and_then(|role| role.mate.as_ref())
+        .map(|mate| mate.name.clone())
 }
 
 /// `Prefers Tabs!` → `prefers-tabs`.
@@ -523,17 +544,44 @@ pub(crate) fn index_lines(memories: &[Memory]) -> String {
 
 /// What the system prompt says about memory, for the given switches and
 /// lists. `personal` is `None` when this project does without personal topics.
+#[cfg(test)]
 pub(crate) fn prompt_text(
     cwd: &Path,
     personal: Option<&[Memory]>,
     project: &[Memory],
     sensitive: bool,
 ) -> String {
-    let scopes = if personal.is_some() {
-        "Use scope `personal` for what holds in every project and `project` for this one."
-    } else {
-        "This project keeps its own memory: use scope `project` only (personal topics are \
+    prompt_text_as(cwd, personal, project, sensitive, None)
+}
+
+/// [`prompt_text`], for a mate when `mate` names it: its `project` scope is
+/// its own memory (docs/features/evo-mates/spec.md, FR-11, FR-51).
+pub(crate) fn prompt_text_as(
+    cwd: &Path,
+    personal: Option<&[Memory]>,
+    project: &[Memory],
+    sensitive: bool,
+    mate: Option<&str>,
+) -> String {
+    let only_own = "Save only what the person states or what your own work showed, never another mate's claims.";
+    let scopes = match (mate, personal.is_some()) {
+        (Some(name), true) => format!(
+            "Use scope `personal` for what holds about the person everywhere, and `project` for your own \
+memory as {name}: what the person tells you and what you learn in your work. Other mates do not see \
+your own memory. {only_own}"
+        ),
+        (Some(name), false) => format!(
+            "Use scope `project` for your own memory as {name}: what the person tells you and what you \
+learn in your work (personal topics are switched off here). {only_own}"
+        ),
+        (None, true) => "Use scope `personal` for what holds in every project and `project` for this one.".to_string(),
+        (None, false) => "This project keeps its own memory: use scope `project` only (personal topics are \
 switched off here)."
+            .to_string(),
+    };
+    let project_heading = match mate {
+        Some(name) => format!("## Your own topics as {name}"),
+        None => format!("## Topics for this project ({})", cwd.display()),
     };
     let sensitive_rule = if sensitive {
         "The person allows sensitive subjects (health, race or ethnicity, religion, political \
@@ -568,8 +616,7 @@ records. Never save identity numbers, financial account numbers, passwords, keys
 even when asked: say that you cannot keep them in memory. {sensitive_rule}\n\n\
 The lists below are names and one-line descriptions. Read a topic (`action: read`) before \
 relying on it: it may be out of date — check what it names still exists.\n\n\
-{personal_list}## Topics for this project ({})\n{}",
-        cwd.display(),
+{personal_list}{project_heading}\n{}",
         index_lines(project),
     )
 }
@@ -585,11 +632,12 @@ pub fn prompt_block(cwd: &Path) -> Option<String> {
         None
     };
     let project = list_dir(&dir(Scope::Project, cwd).ok()?);
-    Some(prompt_text(
+    Some(prompt_text_as(
         cwd,
         personal.as_deref(),
         &project,
         sensitive_enabled(),
+        own_name().as_deref(),
     ))
 }
 
@@ -1061,6 +1109,29 @@ mod tests {
         assert!(allowed.contains("`sensitive: true`"));
         assert!(!allowed.contains("Do not save sensitive subjects"));
         assert!(allowed.contains(never));
+    }
+
+    // docs/features/evo-mates/spec.md (FR-11, FR-51): a mate's own memory.
+    #[test]
+    fn a_mates_prompt_names_its_own_memory() {
+        let cwd = Path::new("/work/app");
+        let text = prompt_text_as(
+            cwd,
+            Some(&[topic("prefers-tabs")]),
+            &[topic("launch")],
+            false,
+            Some("Writer"),
+        );
+        assert!(text.contains("## Your own topics as Writer"));
+        assert!(text.contains("- launch (user)"));
+        assert!(text.contains("never another mate's claims"));
+        assert!(!text.contains("Topics for this project"));
+        let plain = prompt_text(cwd, Some(&[topic("prefers-tabs")]), &[], false);
+        assert!(
+            plain.contains("## Topics for this project (/work/app)")
+                || plain.contains("## Topics for this project (")
+        );
+        assert!(!plain.contains("Your own topics"));
     }
 
     // FR-7: a project that does without personal topics.

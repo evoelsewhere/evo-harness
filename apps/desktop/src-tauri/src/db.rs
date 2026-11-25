@@ -343,8 +343,13 @@ pub async fn workspace_remove(
 }
 
 #[tauri::command]
-pub fn chats_list(db: State<'_, Db>, archived: bool) -> Result<Vec<Chat>, String> {
-    db.with(|conn| chats::list_chats(conn, archived))
+pub fn chats_list(db: State<'_, Db>, archived: bool, kind: Option<String>) -> Result<Vec<Chat>, String> {
+    // Evo Mates lists its mates' chats and channels; Evo Harness its own
+    // (docs/features/evo-mates/spec.md, FR-24).
+    match kind.as_deref() {
+        Some("mates") => db.with(|conn| chats::list_chats_of(conn, archived, &chats::MATES_KINDS)),
+        _ => db.with(|conn| chats::list_chats(conn, archived)),
+    }
 }
 
 /// Chats whose title, preview or transcript mentions `query`. Transcripts

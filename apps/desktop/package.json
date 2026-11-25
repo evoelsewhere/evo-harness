@@ -46,6 +46,7 @@
     "cn": "^0.5.2",
     "lucide-react": "^1.69.0",
     "mermaid": "^11",
+    "open-bot-avatar": "0.4.0",
     "pdfjs-dist": "^6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

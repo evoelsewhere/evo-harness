@@ -154,6 +154,9 @@ pub struct Row {
     /// No other chat started it: it gets the session tools.
     pub top_level: bool,
     pub archived: bool,
+    /// The approval mode of its own, a mate's (docs/features/evo-mates/spec.md,
+    /// FR-7, NFR-5): the app's mode does not reach it.
+    pub own_approval: Option<String>,
 }
 
 impl Row {
@@ -162,6 +165,7 @@ impl Row {
             model: chat.provider.clone().zip(chat.model.clone()),
             top_level: chat.parent_chat_id.is_none(),
             archived: chat.archived_at.is_some(),
+            own_approval: None,
         }
     }
 }
@@ -1210,6 +1214,13 @@ pub fn folder_of(conn: &Connection, chat: &str, home: &Path) -> PathBuf {
     let Ok(Some(row)) = chats::get_chat(conn, chat) else {
         return home.to_path_buf();
     };
+    // A mate's direct conversation works in its project folder, else its own
+    // folder (docs/features/evo-mates/spec.md, FR-25).
+    if row.kind == "mate" {
+        if let Ok(Some(mate)) = evo_store::mates::mate_of_chat(conn, chat) {
+            return PathBuf::from(mate.project_folder.filter(|path| !path.is_empty()).unwrap_or(mate.folder));
+        }
+    }
     if let Some(worktree) = row.worktree_path.filter(|path| !path.is_empty()) {
         return PathBuf::from(worktree);
     }
@@ -1228,7 +1239,14 @@ pub(crate) struct AppHost(pub AppHandle);
 impl Host for AppHost {
     fn row(&self, chat: &str) -> Option<Row> {
         let db = self.0.state::<Db>();
-        db.with(|conn| chats::get_chat(conn, chat)).ok().flatten().map(|row| Row::of(&row))
+        let row = db.with(|conn| chats::get_chat(conn, chat)).ok().flatten()?;
+        let own_approval = row
+            .mate_id
+            .is_some()
+            .then(|| db.with(|conn| evo_store::mates::mate_of_chat(conn, chat)).ok().flatten())
+            .flatten()
+            .map(|mate| mate.approval_mode);
+        Some(Row { own_approval, ..Row::of(&row) })
     }
 
     fn folder(&self, chat: &str) -> PathBuf {
@@ -1854,7 +1872,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn top(model: Option<(&str, &str)>) -> Row {
-        Row { model: model.map(|(p, m)| (p.into(), m.into())), top_level: true, archived: false }
+        Row { model: model.map(|(p, m)| (p.into(), m.into())), top_level: true, archived: false, own_approval: None }
     }
 
     #[tokio::test]
@@ -1961,7 +1979,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_nested_session_gets_no_session_tools_and_keeps_a_model_it_runs_on() {
-        let fake = Fake::default().with_row("n", Row { model: Some(("acme".into(), "m".into())), top_level: false, archived: false });
+        let fake = Fake::default().with_row("n", Row { model: Some(("acme".into(), "m".into())), top_level: false, archived: false, own_approval: None });
         fake.answer("get_state", Ok(json!({ "provider": "acme", "modelId": "m" })));
         let supervisor = EngineSupervisor::default();
         let started = supervisor.ensure(&fake, viewer("n", Some("/w"), false)).await.unwrap();

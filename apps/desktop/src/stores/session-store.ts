@@ -11,6 +11,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { db, log, type DbChat, type DbWorkspace, type TurnRecord } from "@/lib/db";
 import { inTauri } from "@/lib/platform";
+import { matesWindow } from "@/lib/windows";
 
 /** Chat rows changed in one window reach the others (a chat window records its own turns). */
 const CHAT_UPDATED = "chat://updated";
@@ -160,6 +161,12 @@ function put(list: SessionSummary[], id: string, chat: SessionSummary | null): S
  * Drop a deleted chat from a list. The chats it started stay, at the top
  * level: the database clears their parent, and so do the rows here.
  */
+/** Whether `chat` belongs to this window's front end: Evo Mates' or Evo Harness's. */
+export function chatOfThisApp(chat: Pick<DbChat, "kind">): boolean {
+  const kind = chat.kind ?? "chat";
+  return matesWindow ? kind === "mate" || kind === "channel" : kind === "chat";
+}
+
 function without(list: SessionSummary[], id: string): SessionSummary[] {
   if (!list.some((s) => s.id === id || s.parentChatId === id)) return list;
   return list.filter((s) => s.id !== id).map((s) => (s.parentChatId === id ? { ...s, parentChatId: null } : s));
@@ -169,6 +176,8 @@ export const useSessionStore = create<SessionStore>()((set, get) => {
   /** Apply a saved row to whichever list it belongs in, and tell the other windows. */
   const apply = (chat: DbChat | null | undefined, share = true) => {
     if (!chat) return;
+    // A chat of the other front end is not listed here (docs/features/evo-mates/spec.md, FR-24).
+    if (!chatOfThisApp(chat)) return;
     if (share && inTauri) void emit(CHAT_UPDATED, { from: WINDOW_TOKEN, chat }).catch(() => undefined);
     set((s) => {
       const row: SessionSummary = { ...chat };
