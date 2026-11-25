@@ -202,6 +202,7 @@ pub fn run() {
             mates::mates_reactions,
             mates::mates_react,
             mates::mates_take_reactions,
+            mates::mates_pause_all,
             widgets::widget_open,
             widgets::widget_close,
             plugin_runtime::plugin_runtime_state,

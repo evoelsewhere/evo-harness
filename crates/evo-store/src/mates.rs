@@ -750,6 +750,23 @@ mod tests {
     }
 
     #[test]
+    fn usage_is_summed_by_mate() {
+        let (_dir, mut conn) = db();
+        create_mate(&mut conn, &writer("m1"), "ask").unwrap();
+        for (chat, cost) in [("chat-m1", 0.25), ("chat-m1", 0.5)] {
+            conn.execute(
+                "INSERT INTO usage_events (at_ms, chat_id, source, provider_id, model_id, cost_usd) VALUES (1, ?1, 'chat', 'p', 'm', ?2)",
+                params![chat, cost],
+            )
+            .unwrap();
+        }
+        let summary = crate::usage::summary(&conn, &crate::usage::UsageQuery::default()).unwrap();
+        assert_eq!(summary.by_mate.len(), 1);
+        assert_eq!(summary.by_mate[0].name.as_deref(), Some("Writer"));
+        assert!((summary.by_mate[0].totals.cost_usd - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
     fn usage_accepts_the_mates_source() {
         let (_dir, conn) = db();
         conn.execute(

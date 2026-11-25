@@ -24,7 +24,7 @@ function useMateLine(mate: Mate) {
   const mood = mateMood(work, busy);
   return {
     mood,
-    line: moodWord(mood) ?? row?.preview ?? mate.role,
+    line: mate.paused ? "Paused" : (moodWord(mood) ?? row?.preview ?? mate.role),
     unread: Boolean(row?.unread),
     at: row?.turnCount ? row.updatedAt : null,
   };

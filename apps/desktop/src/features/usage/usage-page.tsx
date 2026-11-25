@@ -50,6 +50,7 @@ const SOURCE_LABELS: Record<UsageSource, string> = {
   plugin: "Plugin runs",
   side: "Side questions",
   memory: "Memory indexing",
+  mates: "Evo Mates routing",
 };
 
 const METRICS: { id: Metric; label: string }[] = [
@@ -270,6 +271,18 @@ function UsageReport({
                 pluginName(p.pluginId),
                 p.costUsd,
                 `${responses(p.requests)} · ${formatTokens(tokensOf(p))} tokens`,
+              ])}
+            />
+          </Panel>
+        )}
+        {(summary.byMate?.length ?? 0) > 0 && (
+          <Panel title="Evo Mates">
+            <Shares
+              total={totals.costUsd}
+              rows={(summary.byMate ?? []).map((m) => [
+                m.name ?? "A deleted mate",
+                m.costUsd,
+                `${responses(m.requests)} · ${formatTokens(tokensOf(m))} tokens`,
               ])}
             />
           </Panel>

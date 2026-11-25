@@ -3,11 +3,12 @@
 // Harness — and the empty state when no mate is open.
 
 import * as React from "react";
-import { ArrowLeftRightIcon, MoonIcon, PlusIcon, SearchIcon, SunIcon } from "lucide-react";
+import { ArrowLeftRightIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { openApp } from "@/lib/apps";
+import { matesApi } from "@/lib/mates";
 import { modKey } from "@/lib/platform";
 import { useMatesStore } from "@/stores/mates-store";
 import { Roster } from "./roster";
@@ -37,6 +38,8 @@ function IconButton({ label, onClick, children }: { label: string; onClick(): vo
 export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
   const { resolved, setTheme } = useTheme();
   const showGallery = useMatesStore((s) => s.showGallery);
+  const mates = useMatesStore((s) => s.mates);
+  const allPaused = mates.length > 0 && mates.every((m) => m.paused);
   const [query, setQuery] = React.useState("");
   const search = React.useRef<HTMLInputElement>(null);
 
@@ -96,6 +99,14 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
           Switch to Evo Harness
         </Button>
         <div className="flex-1" />
+        {mates.length > 0 && (
+          <IconButton
+            label={allPaused ? "Resume all mates" : "Pause all mates"}
+            onClick={() => void matesApi.pauseAll(!allPaused)}
+          >
+            {allPaused ? <PlayIcon /> : <PauseIcon />}
+          </IconButton>
+        )}
         <IconButton
           label={resolved === "dark" ? "Light theme" : "Dark theme"}
           onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}

@@ -20,7 +20,9 @@ import type { ApprovalMode, Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { mateMood, moodWord, useMatesStore } from "@/stores/mates-store";
+import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useUiStore } from "@/stores/ui-store";
 import { ConfirmDelete } from "./confirm";
 
 /** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
@@ -229,6 +231,19 @@ function Settings({ mate }: { mate: Mate }) {
           aria-label="Notifications"
         />
       </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[13px] font-medium text-foreground">Paused</div>
+          <div className="text-xs text-muted-foreground">
+            {mate.name} stops its work and holds new messages until you resume it.
+          </div>
+        </div>
+        <Switch
+          checked={mate.paused}
+          onCheckedChange={(checked) => void update(mate.id, { paused: checked })}
+          aria-label="Paused"
+        />
+      </div>
     </div>
   );
 }
@@ -311,6 +326,51 @@ function Memory({ mate }: { mate: Mate }) {
   );
 }
 
+/**
+ * The apps a mate may use (FR-39): every connector Evo has, switched per mate
+ * on its chat, as Harness switches them per chat (`connectors.chatOff`).
+ */
+function Apps({ mate }: { mate: Mate }) {
+  const servers = useConnectorsStore((s) => s.servers);
+  const loaded = useConnectorsStore((s) => s.loaded);
+  const off = useUiStore((s) => s.chatConnectorsOff[mate.chatId]) ?? [];
+  React.useEffect(() => {
+    if (!loaded) void useConnectorsStore.getState().load();
+  }, [loaded]);
+  if (!loaded) return <p className="text-sm text-muted-foreground">Reading…</p>;
+  if (servers.length === 0)
+    return (
+      <p className="text-sm text-muted-foreground">
+        No apps connected yet. Connect them in Evo Harness → Customize → Connectors; then choose here which ones {mate.name} may use.
+      </p>
+    );
+  const allOn = servers.every((server) => !off.includes(server.key));
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground">
+        {allOn ? `${mate.name} may use every connected app.` : `${mate.name} may use only the apps switched on.`}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {servers.map((server) => (
+          <li key={server.key} className="flex items-center gap-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-medium text-foreground">{server.server?.title ?? server.name}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {server.status === "connected" ? `${server.tools.length} tools` : server.status}
+              </div>
+            </div>
+            <Switch
+              checked={!off.includes(server.key)}
+              onCheckedChange={(on) => void useEngineStore.getState().setChatConnector(mate.chatId, server.key, on)}
+              aria-label={server.name}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Files({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
   const folder = mate.projectFolder || mate.folder;
@@ -366,6 +426,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
         <TabsList className="mx-4">
           <TabsTrigger value="about">About</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="apps">Apps</TabsTrigger>
           <TabsTrigger value="memory">Memory</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
         </TabsList>
@@ -375,6 +436,9 @@ export function MatePanel({ mate }: { mate: Mate }) {
           </TabsContent>
           <TabsContent value="settings">
             <Settings mate={mate} />
+          </TabsContent>
+          <TabsContent value="apps">
+            <Apps mate={mate} />
           </TabsContent>
           <TabsContent value="memory">
             <Memory mate={mate} />

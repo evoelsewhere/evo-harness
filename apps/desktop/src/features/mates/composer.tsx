@@ -14,6 +14,7 @@ import { log } from "@/lib/db";
 import { matesApi, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
+import { useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
 import { composePrompt, type ReplyTo } from "./message-markup";
 
@@ -87,6 +88,23 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
   // A chat with no engine yet starts one on its first message.
   const ready = status !== "starting";
   const hasText = text.trim().length > 0 || files.length > 0;
+
+  if (mate.paused) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+        <div className="flex items-center justify-center gap-3 rounded-[20px] bg-muted px-4 py-2.5 text-sm text-muted-foreground">
+          <span>{mate.name} is paused. It does no work until you resume it.</span>
+          <button
+            type="button"
+            onClick={() => void useMatesStore.getState().update(mate.id, { paused: false })}
+            className="rounded-full bg-brand px-3 py-1 text-xs font-medium text-brand-foreground"
+          >
+            Resume
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">

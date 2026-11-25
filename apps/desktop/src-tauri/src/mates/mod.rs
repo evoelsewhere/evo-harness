@@ -248,8 +248,42 @@ pub async fn mates_update(app: AppHandle, id: String, patch: MatePatch) -> Resul
         write_role(&db, &mate)?;
         restart_when_idle(&app, &mate.chat_id).await;
     }
+    // Paused: its work stops now; the window holds new messages until Resume (FR-45).
+    if patch.paused == Some(true) {
+        stop_mate(&app, &mate.id).await;
+    }
     changed(&app);
     Ok(Some(mate))
+}
+
+/// Stop every engine of a mate: its direct chat and its seats.
+async fn stop_mate(app: &AppHandle, id: &str) {
+    let chats: Vec<String> = app
+        .state::<Db>()
+        .with(|conn| {
+            let mut statement = conn.prepare("SELECT id FROM chats WHERE mate_id = ?1")?;
+            let rows = statement.query_map([id], |row| row.get(0))?;
+            Ok(rows.collect::<Result<Vec<String>, _>>()?)
+        })
+        .unwrap_or_default();
+    let engines = app.state::<crate::engine::EngineState>();
+    for chat in chats {
+        engines.stop(&chat).await;
+    }
+}
+
+/// Pause or resume every mate (FR-45): from Evo Mates' menu and the tray.
+#[tauri::command]
+pub async fn mates_pause_all(app: AppHandle, paused: bool) -> Result<(), String> {
+    let ids: Vec<String> = app.state::<Db>().with(|conn| mates::list_mates(conn))?.into_iter().map(|m| m.id).collect();
+    for id in ids {
+        app.state::<Db>().with(|conn| mates::update_mate(conn, &id, &MatePatch { paused: Some(paused), ..MatePatch::default() }))?;
+        if paused {
+            stop_mate(&app, &id).await;
+        }
+    }
+    changed(&app);
+    Ok(())
 }
 
 /// A copy of a mate: its profile, not its conversation or memory.

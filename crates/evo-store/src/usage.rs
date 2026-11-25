@@ -15,7 +15,7 @@ use crate::DbError;
 
 /// Which part of a chat made the call; `memory` is an index run reading the
 /// chat (docs/features/memory-topics-and-chat-recall/spec.md, FR-34).
-pub const SOURCES: [&str; 5] = ["chat", "subagent", "plugin", "side", "memory"];
+pub const SOURCES: [&str; 6] = ["chat", "subagent", "plugin", "side", "memory", "mates"];
 
 /// How many chats [`summary`] lists, most expensive first.
 pub const TOP_CHATS: i64 = 50;
@@ -173,6 +173,17 @@ pub struct PluginUsage {
     pub totals: UsageTotals,
 }
 
+/// One mate's use: its direct chat and channel seats (docs/features/evo-mates/spec.md, FR-22).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MateUsage {
+    pub mate_id: String,
+    /// `None` once the mate is deleted.
+    pub name: Option<String>,
+    #[serde(flatten)]
+    pub totals: UsageTotals,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSummary {
@@ -188,6 +199,8 @@ pub struct UsageSummary {
     pub by_source: Vec<SourceUsage>,
     /// Plugins' AI use, most expensive first.
     pub by_plugin: Vec<PluginUsage>,
+    /// Mates' use, most expensive first (FR-22).
+    pub by_mate: Vec<MateUsage>,
     /// The oldest row in the whole history (not just this query).
     pub first_ms: Option<i64>,
 }
@@ -425,6 +438,27 @@ pub fn summary(conn: &Connection, query: &UsageQuery) -> Result<UsageSummary, Db
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
+    // A mate's chats carry its id (chats.mate_id): its direct chat and seats.
+    let mate_filter = if filter.is_empty() {
+        "WHERE c.mate_id IS NOT NULL".to_string()
+    } else {
+        format!("{filter} AND c.mate_id IS NOT NULL")
+    };
+    let by_mate = conn
+        .prepare(&format!(
+            "SELECT c.mate_id, (SELECT name FROM mates m WHERE m.id = c.mate_id), {TOTALS}
+             FROM usage_events u JOIN chats c ON c.id = u.chat_id {mate_filter}
+             GROUP BY c.mate_id ORDER BY SUM(u.cost_usd) DESC"
+        ))?
+        .query_map(params_from_iter(values.iter()), |row| {
+            Ok(MateUsage {
+                mate_id: row.get(0)?,
+                name: row.get(1)?,
+                totals: totals_at(row, 2)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
     let first_ms = conn.query_row("SELECT MIN(at_ms) FROM usage_events", [], |row| row.get(0))?;
 
     Ok(UsageSummary {
@@ -435,6 +469,7 @@ pub fn summary(conn: &Connection, query: &UsageQuery) -> Result<UsageSummary, Db
         by_chat,
         by_source,
         by_plugin,
+        by_mate,
         first_ms,
     })
 }

@@ -690,3 +690,11 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   the Mates thread shows "Trying again (n of m)…", and the Mates box also
   treats the shell's "working" as busy, so a message joins the run. The
   thread's row logic lives in `thread-rows.ts` (pure, tested).
+- **Pause, usage, apps** (fourth slice): pausing stops the mate's engines
+  (`stop_mate`) and the box holds messages behind "<name> is paused ·
+  Resume"; `mates_pause_all` pauses or resumes every mate. Usage sums a
+  mate's chats through `chats.mate_id` (`by_mate`). The Apps tab uses
+  Harness's per-chat connector switches on the mate's chat instead of a
+  new mechanism; the `mates.apps` column stays unused until plugin
+  accounts are chosen per mate. Skills per mate wait for per-chat skill
+  switches in the engine.

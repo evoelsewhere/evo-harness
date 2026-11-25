@@ -100,4 +100,5 @@ export const matesApi = {
   react: (chat: string, message: string, reaction: ReactionKind | null, excerpt: string) =>
     invoke<void>("mates_react", { chat, message, reaction, excerpt }),
   takeReactions: (chat: string) => invoke<Reaction[]>("mates_take_reactions", { chat }),
+  pauseAll: (paused: boolean) => invoke<void>("mates_pause_all", { paused }),
 };

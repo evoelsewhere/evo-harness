@@ -125,7 +125,7 @@ export interface TurnRecord {
 }
 
 /** Which part of a chat made a model call (`crates/evo-store/src/usage.rs`). */
-export type UsageSource = "chat" | "subagent" | "plugin" | "side" | "memory";
+export type UsageSource = "chat" | "subagent" | "plugin" | "side" | "memory" | "mates";
 
 /** Which recorded responses a usage query covers; every field narrows. */
 export interface UsageQuery {
@@ -175,6 +175,8 @@ export interface UsageSummary {
   bySource: (UsageTotals & { source: UsageSource })[];
   /** Plugins' AI use (plugin-ai FR-15), most expensive first. */
   byPlugin?: (UsageTotals & { pluginId: string })[];
+  /** Evo Mates: each mate's use, its direct chat and seats (docs/features/evo-mates/spec.md, FR-22). */
+  byMate?: (UsageTotals & { mateId: string; name: string | null })[];
   /** The oldest response in the whole history. */
   firstMs: number | null;
 }
