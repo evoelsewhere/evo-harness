@@ -13,6 +13,8 @@
 //!   its work settles ([`apply_pending`]).
 //! * Gallery roles are Markdown files in `templates/` ([`template`]).
 
+pub mod grants;
+pub mod secrets;
 pub mod template;
 
 use std::collections::HashSet;
@@ -63,7 +65,11 @@ How you work as a mate:\n\
 - Speak as {name}, in the first person, warmly and briefly, like a colleague in a chat app.\n\
 - At the start of a new conversation, greet the person in one or two lines, say what you can do for them, \
 and ask at most four setup questions in one `ask_user` card (what to focus on, how they like the work done, \
-which apps you will need). Keep their answers in your memory.\n\
+which apps you will need). Save their answers with `mate_profile`.\n\
+- When you need an app that is not connected, whose sign-in expired or that is switched off for you, call \
+`connect_app` and wait; never sign in yourself or ask for a password in the chat.\n\
+- When a tool needs a key, a token or a password, ask for it with `request_secret` and use it as \
+{{{{secret:NAME}}}}; you never see its value.\n\
 - Before work that will take long or act outside your folder, ask one question card when the request is \
 ambiguous instead of guessing.\n\
 - When you finish a task, put the result first, then what you did, then the files, pages or pictures that \
@@ -338,6 +344,17 @@ pub async fn mates_delete(app: AppHandle, id: String) -> Result<(), String> {
         engines.stop(chat).await;
         db.remove_transcript(chat);
     }
+    // Its secrets: the vault's key in the keychain goes with its file.
+    let mate = id.clone();
+    if let Ok(Err(error)) =
+        tauri::async_runtime::spawn_blocking(move || secrets::forget_all(&mate)).await
+    {
+        db.log(NewLog::new(
+            "warn",
+            "mates",
+            format!("could not remove the secrets of {id}: {error}"),
+        ));
+    }
     let dir = mate_dir(&id);
     if dir.is_dir() {
         if let Err(error) = std::fs::remove_dir_all(&dir) {
@@ -367,6 +384,20 @@ pub fn mates_react(app: AppHandle, chat: String, message: String, reaction: Opti
 #[tauri::command]
 pub fn mates_take_reactions(app: AppHandle, chat: String) -> Result<Vec<mates::Reaction>, String> {
     app.state::<Db>().with(|conn| mates::take_untold_reactions(conn, &chat))
+}
+
+/// A mate's Always-allow rules: the tools it may run without asking (FR-41).
+#[tauri::command]
+pub fn mates_grants(app: AppHandle, id: String) -> Result<Vec<String>, String> {
+    app.state::<Db>().with(|conn| mates::list_grants(conn, &id))
+}
+
+#[tauri::command]
+pub fn mates_remove_grant(app: AppHandle, id: String, tool: String) -> Result<(), String> {
+    app.state::<Db>()
+        .with(|conn| mates::remove_grant(conn, &id, &tool))?;
+    changed(&app);
+    Ok(())
 }
 
 /// Open a mate's folder in the system's file manager.

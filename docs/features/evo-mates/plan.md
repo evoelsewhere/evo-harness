@@ -698,3 +698,53 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   new mechanism; the `mates.apps` column stays unused until plugin
   accounts are chosen per mate. Skills per mate wait for per-chat skill
   switches in the engine.
+- **Fifth slice: the box, notices, the mate's own tools, grants, secrets.**
+  - *Send as next* (FR-49): while the mate works, Enter queues the message
+    as a steer and **Next** (or Alt+Enter) as a follow-up, through the
+    engine store's `queueMessage`; queued messages show as faded bubbles
+    labelled "Seen while working" or "Next" until the engine takes them.
+  - *Notices* (FR-52): `supervisor/notices.rs::mate_wanted` drops every
+    notice of a mate whose **Notifications** switch is off, and a seat's
+    "reply ready" (a seat answers its channel, not the person). The rest
+    of the rule (needs you, finished while not in front, failed) is the
+    shell's existing one.
+  - *The mate's tools* are a dynamic provider (`agent_tools/mates.rs`,
+    `MateTools`), offered to a chat only when it is a mate's:
+    `mate_profile` keeps the setup answers as a block at the end of the
+    mate's instructions ("Setup answers (from the person):"), so the About
+    tab shows them and the role prompt carries them; `connect_app` finds
+    the connector by key, name or title and asks with **Connect**,
+    **Reconnect**, **Turn on** or **Open Apps**, starts that (sign-in in
+    the browser, enabling it, Harness's Customize → Connectors, the mate's
+    Apps tab) and waits, with a cancellable "Waiting for …" card, until the
+    app works for the mate (15 minutes at most); `request_secret` (below).
+  - *Grants and the sending gate* (FR-41, FR-42): a mate's connector call
+    goes through `mates/grants.rs::plan` instead of Harness's connector
+    prompt. Read-only tools (the server's `readOnlyHint`) offer Allow once,
+    Allow for this conversation (kept in memory until quit) and Always
+    allow for the mate (`mate_grants`, listed and removable in Settings);
+    every other tool counts as sending: under **Ask every time** it asks
+    on every call with Allow once or Deny only; under **Send without
+    asking** it follows the tool's permission without Always allow.
+  - *Secrets* (FR-43): `request_secret` opens a shell question whose `ui`
+    is `{kind: "secret", name, service, reason}`; the Mates window draws
+    `secret-card.tsx` (masked field) for it. The value goes from the card
+    to `mates_secret_submit`, and the answer carries only Save or Cancel,
+    so it never enters the transcript. Values live in a vault per mate
+    (`evo-vault`, keychain account = the mate's id, file in the mate's
+    folder). A connector call's `{{secret:NAME}}` gets the value only
+    inside the call (`mates/secrets.rs::resolve`); text a tool echoes back
+    has it replaced by `[secret NAME]`. The Apps tab lists the names and
+    deletes them; deleting the mate clears its vault.
+  - *Past chats* (FR-50, the search half): `session_search` and
+    `session_read` from a mate's chat see only that mate's chats
+    (`chats::find_mate_chats`); Harness chats no longer read a mate's chat.
+    The recent-work brief waits for channels and seats (phase 3): with no
+    other places yet there is nothing to brief.
+  - *Look* (review in the app): the mate's model picker is a new component
+    (`features/mates/model-picker.tsx`) on the engine's models and the
+    provider rows, laid out as ux.md 2 says (provider rail, suggested
+    models, effort); Harness keeps its own selector. The profile panel is a
+    rounded card beside the conversation instead of a ruled column, with
+    pill tabs and soft, borderless fields; a selected choice, face or
+    colour uses the accent colour; the mate bar has no rule under it.

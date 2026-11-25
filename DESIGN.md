@@ -353,6 +353,26 @@ The "swift" timing function overshoots slightly (ending value 1.1), creating a s
 
 ---
 
+### Evo Mates layer
+
+Evo Mates (docs/features/evo-mates/ux.md) is a messaging app on the same
+system: Geist, the same tokens, menus, dialogs and motion. It adds, and
+only it:
+
+- **Mate faces**: open-bot-avatar characters from Evo's own definitions
+  (`components/mate-face/`), one hue per mate from a fixed palette, drawn
+  bare in lists and on a soft plate where a face stands alone. A face is
+  the only per-item colour in Evo Mates; it holds still at rest and moves
+  only while its mate works or under the pointer.
+- **Bubbles**: the person's messages in the brand blue (`--brand`) with
+  white text, a mate's in `--muted`; 20px radius with a 6px corner on the
+  last bubble of a run, on the sender's side. No other surface in Evo uses
+  bubbles.
+- **The message box** is a pill: a 20px radius field, the brand-blue round
+  send button, focus shown on the pill (never a ring inside it).
+
+Everything else in Evo Mates stays achromatic, as in Evo Harness.
+
 ## 8. Responsive Behavior
 
 ### 45 Breakpoints: Component-Level Responsive Tuning

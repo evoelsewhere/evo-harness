@@ -46,6 +46,11 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
   // Ctrl+K searches the roster, Ctrl+N adds a mate (ux.md 5, FR-38).
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Esc closes the mate's panel (FR-38); a dialog or menu takes Esc first.
+      if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector("[role=dialog],[role=menu]")) {
+        useMatesStore.getState().setPanelOpen(false);
+        return;
+      }
       const mod = modKey === "⌘" ? event.metaKey : event.ctrlKey;
       if (!mod) return;
       if (event.key.toLowerCase() === "k") {
@@ -54,6 +59,15 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
       } else if (event.key.toLowerCase() === "n") {
         event.preventDefault();
         showGallery();
+      } else if (/^[1-9]$/.test(event.key)) {
+        // Ctrl+1 – 9 open the pinned mates, in the roster's order (FR-38).
+        const store = useMatesStore.getState();
+        const pinned = store.mates.filter((m) => m.pinned && !m.hidden);
+        const mate = pinned[Number(event.key) - 1];
+        if (mate) {
+          event.preventDefault();
+          void store.open(mate.id);
+        }
       }
     };
     window.addEventListener("keydown", onKey);

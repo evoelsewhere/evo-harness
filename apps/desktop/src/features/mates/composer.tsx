@@ -7,7 +7,7 @@
 
 import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ArrowUpIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ClockIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
 import { attachmentsFromPaths, buildPrompt, releaseAttachment } from "@/features/chat";
 import { log } from "@/lib/db";
@@ -54,7 +54,7 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     if (reply) field.current?.focus();
   }, [reply]);
 
-  const send = async () => {
+  const send = async (next = false) => {
     const typed = text.trim();
     if (!typed && files.length === 0) return;
     const engine = useEngineStore.getState();
@@ -69,7 +69,9 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     try {
       // While it works (a retry included), the message joins the run instead
       // of starting one the engine would refuse ("a run is already active").
-      if (engine.transcript.busy || working(mate.chatId)) await engine.queueMessage(full, prompt.images, "steer");
+      // Enter: read at the mate's next step ("Seen while working"); Send as
+      // next (Alt+Enter): after its turn (FR-49).
+      if (engine.transcript.busy || working(mate.chatId)) await engine.queueMessage(full, prompt.images, next ? "followUp" : "steer");
       else await engine.sendPrompt(full, prompt.images);
     } catch (error) {
       log("warn", "mates", `could not send: ${String(error)}`);
@@ -162,12 +164,24 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
                 onReplyDone();
               } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
-                void send();
+                void send(event.altKey && busy);
               }
             }}
             // The pill shows focus; the field itself draws no ring or border.
             className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none ring-0 outline-none placeholder:text-muted-foreground focus:outline-none focus-visible:shadow-none focus-visible:ring-0 focus-visible:outline-none"
           />
+          {busy && hasText && (
+            <button
+              type="button"
+              aria-label="Send as next"
+              title="Send as next (Alt+Enter): after this turn"
+              onClick={() => void send(true)}
+              className="my-1 mr-1 flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <ClockIcon className="size-3.5" />
+              Next
+            </button>
+          )}
           {busy && !hasText ? (
             <button
               type="button"

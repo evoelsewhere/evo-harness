@@ -101,4 +101,10 @@ export const matesApi = {
     invoke<void>("mates_react", { chat, message, reaction, excerpt }),
   takeReactions: (chat: string) => invoke<Reaction[]>("mates_take_reactions", { chat }),
   pauseAll: (paused: boolean) => invoke<void>("mates_pause_all", { paused }),
+  /** Tools a mate runs without asking (FR-41). */
+  grants: (id: string) => invoke<string[]>("mates_grants", { id }),
+  removeGrant: (id: string, tool: string) => invoke<void>("mates_remove_grant", { id, tool }),
+  /** A mate's saved secrets, by name (FR-43). */
+  secrets: (id: string) => invoke<string[]>("mates_secrets", { id }),
+  deleteSecret: (id: string, name: string) => invoke<void>("mates_delete_secret", { id, name }),
 };

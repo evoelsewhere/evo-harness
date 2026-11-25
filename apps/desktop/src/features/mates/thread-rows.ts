@@ -63,6 +63,10 @@ function toolWord(name: string): string | null {
   if (name === "memory") return null;
   if (name.startsWith("browser_")) return "Used the browser";
   if (name === "ask_user" || name === "update_todos") return null;
+  // Mates' own tools (FR-34, FR-40).
+  if (name === "mate_profile") return "Saved your answers";
+  if (name === "connect_app") return "Asked to connect an app";
+  if (name === "request_secret") return "Asked for a secret";
   return "Used {n} tools";
 }
 

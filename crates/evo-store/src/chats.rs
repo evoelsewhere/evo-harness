@@ -753,6 +753,12 @@ const FIND_SCOPE: &str =
     "c.incognito = 0 AND c.kind = 'chat' AND c.workspace_id IS ?1 AND c.id IS NOT ?2
      AND (?3 IS NULL OR c.updated_at >= ?3) AND (?4 IS NULL OR c.created_at < ?4)";
 
+/// [`FIND_SCOPE`] for a mate: its own chats (its direct conversation and its
+/// seats), `?1` being the mate's id (docs/features/evo-mates/spec.md, FR-50).
+const MATE_FIND_SCOPE: &str =
+    "c.incognito = 0 AND c.kind <> 'chat' AND c.mate_id IS ?1 AND c.id IS NOT ?2
+     AND (?3 IS NULL OR c.updated_at >= ?3) AND (?4 IS NULL OR c.created_at < ?4)";
+
 /// Past chats of one project for an agent: with words, the best matches first;
 /// without, the chats by time.
 ///
@@ -767,12 +773,37 @@ pub fn find_chats(
     transcripts_dir: &Path,
     query: &ChatQuery<'_>,
 ) -> Result<Vec<FoundChat>, DbError> {
+    find_in(conn, transcripts_dir, query, None)
+}
+
+/// [`find_chats`] among `mate`'s own chats only, whatever their project
+/// (`query.workspace` is not used): never the person's other chats or another
+/// mate's (docs/features/evo-mates/spec.md, FR-50).
+pub fn find_mate_chats(
+    conn: &mut Connection,
+    transcripts_dir: &Path,
+    query: &ChatQuery<'_>,
+    mate: &str,
+) -> Result<Vec<FoundChat>, DbError> {
+    find_in(conn, transcripts_dir, query, Some(mate))
+}
+
+fn find_in(
+    conn: &mut Connection,
+    transcripts_dir: &Path,
+    query: &ChatQuery<'_>,
+    mate: Option<&str>,
+) -> Result<Vec<FoundChat>, DbError> {
     use rusqlite::types::Value as SqlValue;
 
     let columns = chat_columns_of_c();
+    let scope = if mate.is_some() {
+        MATE_FIND_SCOPE
+    } else {
+        FIND_SCOPE
+    };
     let mut values: Vec<SqlValue> = vec![
-        query
-            .workspace
+        mate.or(query.workspace)
             .map_or(SqlValue::Null, |id| SqlValue::Text(id.to_string())),
         query
             .exclude
@@ -787,7 +818,7 @@ pub fn find_chats(
         values.push(SqlValue::Integer(i64::from(query.limit.max(1))));
         let mut statement = conn.prepare(&format!(
             "SELECT {columns}, i.summary FROM chats c LEFT JOIN chat_index i ON i.chat_id = c.id
-             WHERE {FIND_SCOPE} ORDER BY c.updated_at {order} LIMIT ?5"
+             WHERE {scope} ORDER BY c.updated_at {order} LIMIT ?5"
         ))?;
         let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
             Ok(FoundChat {
@@ -831,7 +862,7 @@ pub fn find_chats(
         "SELECT {columns}, i.summary, {} FROM chats c
          LEFT JOIN chat_search s ON s.chat_id = c.id
          LEFT JOIN chat_index i ON i.chat_id = c.id
-         WHERE {FIND_SCOPE} AND ({})",
+         WHERE {scope} AND ({})",
         flags.join(", "),
         matches.join(" OR ")
     ))?;
@@ -1535,6 +1566,61 @@ mod tests {
             Some("Decided to move to Postgres.")
         );
         assert_eq!(found[1].summary, None);
+    }
+
+    // evo-mates FR-50: a mate finds its own chats only.
+    #[test]
+    fn a_mate_finds_only_its_own_chats() {
+        let (dir, mut conn) = db();
+        let files = dir.path().join(transcripts::DIR_NAME);
+        let mate_chat = |id: &str, kind: &str, mate: &str| {
+            create_chat(
+                &conn,
+                &NewChat {
+                    id: id.into(),
+                    title: format!("needle {id}"),
+                    kind: Some(kind.into()),
+                    mate_id: Some(mate.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        };
+        mate_chat("ada-direct", "mate", "ada");
+        mate_chat("ada-seat", "seat", "ada");
+        mate_chat("bo-direct", "mate", "bo");
+        chat(&conn, "harness", "needle in a Harness chat", None);
+        let query = ChatQuery {
+            query: "needle",
+            exclude: Some("ada-direct"),
+            limit: 10,
+            ..Default::default()
+        };
+        assert_eq!(
+            ids(&find_mate_chats(&mut conn, &files, &query, "ada").unwrap()),
+            ["ada-seat"]
+        );
+        let listed = ChatQuery {
+            query: "",
+            ..query.clone()
+        };
+        assert_eq!(
+            ids(&find_mate_chats(&mut conn, &files, &listed, "ada").unwrap()),
+            ["ada-seat"]
+        );
+        // Harness never finds a mate's chats.
+        assert_eq!(
+            ids(&find_chats(
+                &mut conn,
+                &files,
+                &ChatQuery {
+                    exclude: None,
+                    ..query
+                }
+            )
+            .unwrap()),
+            ["harness"]
+        );
     }
 
     // FR-13: one project only; never the asking chat or an incognito chat.

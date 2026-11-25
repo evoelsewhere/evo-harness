@@ -14,6 +14,7 @@ pub mod browser;
 pub mod activity;
 pub mod computer;
 pub mod gate;
+pub mod mates;
 pub mod mcp;
 pub mod scheduler;
 pub mod terminal;
@@ -257,7 +258,7 @@ pub trait Provider: Send + Sync {
 }
 
 /// Every dynamic provider. Each module adds itself here.
-static PROVIDERS: [&dyn Provider; 1] = [&mcp::Connectors];
+static PROVIDERS: [&dyn Provider; 2] = [&mcp::Connectors, &mates::MateTools];
 
 fn providers() -> &'static [&'static dyn Provider] {
     &PROVIDERS
@@ -414,7 +415,13 @@ impl ToolCtx {
 {description}")),
             None => (title.to_string(), description.to_string()),
         };
-        ask_person(&self.app, &self.chat, &self.request_id, &self.cancel, &title, &description, options.iter().map(|o| o.to_string()).collect()).await
+        ask_person(&self.app, &self.chat, &self.request_id, &self.cancel, &title, &description, options.iter().map(|o| o.to_string()).collect(), None).await
+    }
+
+    /// [`ToolCtx::ask`] with a card of its own kind: `ui` (`{kind, …}`)
+    /// tells the window how to draw it (a mate's secret card).
+    pub async fn ask_with(&self, title: &str, description: &str, options: &[&str], ui: Value) -> i32 {
+        ask_person(&self.app, &self.chat, &self.request_id, &self.cancel, title, description, options.iter().map(|o| o.to_string()).collect(), Some(ui)).await
     }
 
     /// What "Allow for this chat" covers: the agent's calls in this chat, or
@@ -651,6 +658,7 @@ async fn ask_person(
     title: &str,
     description: &str,
     options: Vec<String>,
+    ui: Option<Value>,
 ) -> i32 {
     let state = app.state::<AgentTools>();
     let id = format!("agent-ask:{}", state.next.fetch_add(1, Ordering::Relaxed) + 1);
@@ -660,7 +668,8 @@ async fn ask_person(
     // window draws it (`engine://question`), and it is announced when no
     // window shows the chat. Only the person answers it; it never times out
     // (docs/features/shell-hosted-engines/spec.md, FR-9).
-    let question = crate::supervisor::questions::OpenQuestion::from_shell(&id, call, title, description, options, crate::supervisor::now_ms());
+    let mut question = crate::supervisor::questions::OpenQuestion::from_shell(&id, call, title, description, options, crate::supervisor::now_ms());
+    question.ui = ui;
     crate::supervisor::question_opened(app, chat, question);
     let answer = tokio::select! {
         answer = rx => answer.unwrap_or(-1),

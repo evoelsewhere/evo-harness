@@ -117,6 +117,18 @@ pub fn wanted(viewers: &[String], focused: impl Fn(&str) -> bool) -> bool {
     !viewers.iter().any(|label| focused(label))
 }
 
+/// Whether a notice of `event` in a chat of `kind` goes out, for a mate's
+/// chat whose **Notifications** switch is `switch` (evo-mates FR-52): none
+/// with the switch off; in a seat, a mate's place in a channel, only what
+/// needs the person or failed, since a seat's finished work answers the
+/// channel (or another mate), not the person. Other chats always.
+pub fn mate_wanted(kind: &str, switch: Option<bool>, event: Event) -> bool {
+    if switch == Some(false) {
+        return false;
+    }
+    !(kind == "seat" && event == Event::ReplyReady)
+}
+
 /// The OS notification goes out when no window is focused and it is not muted.
 pub fn system_wanted(any_window_focused: bool, muted: bool) -> bool {
     !any_window_focused && !muted
@@ -169,8 +181,14 @@ pub(crate) fn announce(app: &AppHandle, chat: String, event: Event) {
             return;
         }
         let db = app.state::<Db>();
-        db.log(NewLog::new("info", "shell", format!("notice: {}", event.as_str())).chat(Some(&chat)));
         let row = db.with(|conn| evo_store::chats::get_chat(conn, &chat)).ok().flatten();
+        if let Some(row) = row.as_ref().filter(|row| row.mate_id.is_some()) {
+            let mate = db.with(|conn| evo_store::mates::mate_of_chat(conn, &chat)).ok().flatten();
+            if !mate_wanted(&row.kind, mate.map(|mate| mate.notifications), event) {
+                return;
+            }
+        }
+        db.log(NewLog::new("info", "shell", format!("notice: {}", event.as_str())).chat(Some(&chat)));
         // Nothing an incognito chat says is kept, its title included.
         let name = row.filter(|row| !row.incognito).map(|row| row.title);
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -270,6 +288,41 @@ pub(crate) fn setup(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // evo-mates FR-52.
+    #[test]
+    fn mate_notices_follow_the_switch_and_skip_finished_seat_work() {
+        let all = [
+            Event::ReplyReady,
+            Event::RunFailed,
+            Event::Approval,
+            Event::Question,
+            Event::EngineStopped,
+            Event::CouldNotStart,
+            Event::KeepsStopping,
+        ];
+        for event in all {
+            assert!(
+                mate_wanted("chat", None, event),
+                "a Harness chat: {event:?}"
+            );
+            assert!(
+                mate_wanted("mate", Some(true), event),
+                "a mate, switch on: {event:?}"
+            );
+            assert!(
+                !mate_wanted("mate", Some(false), event),
+                "a mate, switch off: {event:?}"
+            );
+            assert!(
+                !mate_wanted("seat", Some(false), event),
+                "a seat, switch off: {event:?}"
+            );
+        }
+        assert!(!mate_wanted("seat", Some(true), Event::ReplyReady));
+        assert!(mate_wanted("seat", Some(true), Event::Approval));
+        assert!(mate_wanted("seat", Some(true), Event::RunFailed));
+    }
     use serde_json::json;
 
     #[test]

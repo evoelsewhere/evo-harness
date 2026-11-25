@@ -121,6 +121,26 @@ fn project_of(conn: &Connection, chat: &str) -> Option<String> {
     chats::get_chat(conn, chat).ok().flatten().and_then(|row| row.workspace_id)
 }
 
+/// The mate whose chat `chat` is, if any.
+fn mate_of(conn: &Connection, chat: &str) -> Option<String> {
+    chats::get_chat(conn, chat)
+        .ok()
+        .flatten()
+        .and_then(|row| row.mate_id)
+}
+
+/// Whether `asker` may read `chat`: a mate reads its own chats only; any
+/// other chat reads Harness chats of its project. Never an incognito chat.
+fn readable(conn: &Connection, chat: &chats::Chat, asker: &str) -> bool {
+    if chat.incognito {
+        return false;
+    }
+    match mate_of(conn, asker) {
+        Some(mate) => chat.mate_id.as_deref() == Some(mate.as_str()),
+        None => chat.mate_id.is_none() && chat.workspace_id == project_of(conn, asker),
+    }
+}
+
 fn hit_of(conn: &Connection, dir: &Path, found: FoundChat, query: &str) -> Hit {
     let FoundChat { chat, summary, .. } = found;
     let snippet = if query.is_empty() {
@@ -139,21 +159,24 @@ fn hit_of(conn: &Connection, dir: &Path, found: FoundChat, query: &str) -> Hit {
 /// The past chats of `asker`'s project that `search` asks for: with words, the
 /// best matches first; without, the chats by time. Never `asker` itself, a
 /// chat of another project or an incognito chat.
+///
+/// A mate's chat finds only that mate's other chats (evo-mates FR-50).
 pub fn search(conn: &mut Connection, dir: &Path, search: &Search, asker: &str) -> Result<Vec<Hit>, DbError> {
     let project = project_of(conn, asker);
-    let found = chats::find_chats(
-        conn,
-        dir,
-        &ChatQuery {
-            query: &search.query,
-            workspace: project.as_deref(),
-            exclude: Some(asker),
-            after_ms: search.after_ms,
-            before_ms: search.before_ms,
-            oldest_first: search.oldest_first,
-            limit: search.limit as u32,
-        },
-    )?;
+    let mate = mate_of(conn, asker);
+    let query = ChatQuery {
+        query: &search.query,
+        workspace: project.as_deref(),
+        exclude: Some(asker),
+        after_ms: search.after_ms,
+        before_ms: search.before_ms,
+        oldest_first: search.oldest_first,
+        limit: search.limit as u32,
+    };
+    let found = match &mate {
+        Some(mate) => chats::find_mate_chats(conn, dir, &query, mate)?,
+        None => chats::find_chats(conn, dir, &query)?,
+    };
     Ok(found.into_iter().map(|found| hit_of(conn, dir, found, search.query.trim())).collect())
 }
 
@@ -250,7 +273,7 @@ pub fn render_turns(turns: &[Vec<Message>], first: usize, limit: usize) -> Strin
 /// if they did not exist.
 pub fn read_chat(conn: &Connection, dir: &Path, session: &str, asker: &str, limit: usize, offset: Option<usize>) -> Result<String, String> {
     let chat = chats::get_chat(conn, session).map_err(|e| e.to_string())?;
-    let chat = chat.filter(|chat| !chat.incognito && chat.workspace_id == project_of(conn, asker));
+    let chat = chat.filter(|chat| readable(conn, chat, asker));
     let Some(chat) = chat else {
         return Err(format!("No saved chat of this project has the id {session}. Find ids with session_search."));
     };

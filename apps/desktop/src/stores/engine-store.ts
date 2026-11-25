@@ -66,7 +66,7 @@ import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log, type SessionRole } from "@/lib/db";
 import { chatWindowId, closeChatWindow, focusChatWindow, matesWindow, openChatWindow, quickEntryWindow, viewerWindow } from "@/lib/windows";
 import { worktrees } from "@/lib/worktrees";
-import { APPROVAL_CHANGED, useUiStore, worktreeKey, type PanelId } from "@/stores/ui-store";
+import { APPROVAL_CHANGED, useUiStore, worktreeKey, type CustomizeSection, type PanelId } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useCustomizeStore } from "@/stores/customize-store";
@@ -1174,7 +1174,13 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         message: {
           type: "ui_dialog_request",
           requestId: id,
-          ui: { title: question.title, description: question.body ?? "", options: question.options.map((title) => ({ title })) },
+          ui: {
+            // A card of its own kind (a mate's secret card) keeps its fields.
+            ...(question.ui && typeof question.ui === "object" ? question.ui : {}),
+            title: question.title,
+            description: question.body ?? "",
+            options: question.options.map((title) => ({ title })),
+          },
         },
       });
       return;
@@ -1418,6 +1424,10 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       // A notification, the tray or quick entry asks to show a chat, maybe at a
       // target (the shell showed this window; quick-entry FR-15).
       if (!viewerWindow) {
+        // A mate's `connect_app` asks for a connector (evo-mates FR-40).
+        void listen<{ section?: CustomizeSection }>("app://open-customize", ({ payload }) => {
+          useUiStore.getState().openCustomize(payload?.section);
+        });
         void listen<OpenRequest>("app://open-chat", ({ payload }) => {
           const ui = useUiStore.getState();
           if (ui.settingsOpen) ui.closeSettings();

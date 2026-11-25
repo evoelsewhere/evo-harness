@@ -9,6 +9,7 @@ import { log } from "@/lib/db";
 import { matesApi, type Mate, type ReactionKind } from "@/lib/mates";
 import { MateComposer } from "./composer";
 import { excerpt, type ReplyTo } from "./message-markup";
+import { SecretCard } from "./secret-card";
 import { MateThread } from "./thread";
 
 export function MateConversation({ mate, empty }: { mate: Mate; empty: React.ReactNode }) {
@@ -51,7 +52,9 @@ export function MateConversation({ mate, empty }: { mate: Mate; empty: React.Rea
       </div>
       {permission && (
         <div className="mx-auto w-full max-w-3xl px-4 pb-2">
-          {permission.kind === "questions" ? (
+          {permission.kind === "secret" ? (
+            <SecretCard key={permission.requestId} mate={mate} permission={permission} />
+          ) : permission.kind === "questions" ? (
             <QuestionsPanel key={permission.requestId} permission={permission} />
           ) : (
             <ApprovalPanel permission={permission} />

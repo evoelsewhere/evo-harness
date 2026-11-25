@@ -16,6 +16,9 @@ import { useSessionStore, type ChatWork } from "@/stores/session-store";
 /** What the conversation area shows. */
 export type MatesView = { kind: "mate"; id: string } | { kind: "gallery" } | { kind: "empty" };
 
+/** The mate panel's tabs. */
+export type MatePanelTab = "about" | "settings" | "apps" | "memory" | "files";
+
 interface MatesStore {
   loaded: boolean;
   mates: Mate[];
@@ -23,12 +26,16 @@ interface MatesStore {
   view: MatesView;
   /** The mate panel (ux.md 2) is open. */
   panelOpen: boolean;
+  panelTab: MatePanelTab;
   load(): Promise<void>;
   open(id: string): Promise<void>;
   /** Show the mate whose conversation `chat` is (a notice, Harness's Needs you). */
   openChat(chat: string): Promise<void>;
   showGallery(): void;
   setPanelOpen(open: boolean): void;
+  /** Open the panel at `tab`. */
+  openPanel(tab: MatePanelTab): void;
+  setPanelTab(tab: MatePanelTab): void;
   create(input: CreateMate): Promise<Mate | null>;
   update(id: string, patch: MatePatch): Promise<void>;
   duplicate(id: string): Promise<void>;
@@ -45,6 +52,7 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
   templates: [],
   view: { kind: "empty" },
   panelOpen: false,
+  panelTab: "about",
 
   async load() {
     if (inTauri && !listening) {
@@ -54,6 +62,12 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
         void matesApi.list().then((mates) => set({ mates }), report("reading the mates"));
       });
       void listen<{ chat: string }>("mates://open-chat", ({ payload }) => void get().openChat(payload.chat));
+      // A mate's `connect_app` asks the person to switch an app on (FR-40).
+      void listen<{ chat: string; tab: MatePanelTab }>("mates://open-panel", ({ payload }) => {
+        void get()
+          .openChat(payload.chat)
+          .then(() => get().openPanel(payload.tab));
+      });
     }
     const [mates, templates] = await Promise.all([
       matesApi.list().catch((error) => {
@@ -88,6 +102,14 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
 
   setPanelOpen(open) {
     set({ panelOpen: open });
+  },
+
+  openPanel(tab) {
+    set({ panelOpen: true, panelTab: tab });
+  },
+
+  setPanelTab(tab) {
+    set({ panelTab: tab });
   },
 
   async create(input) {

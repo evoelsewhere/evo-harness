@@ -32,7 +32,7 @@ use std::sync::{Mutex, OnceLock};
 
 use evo_mcp::Permission;
 use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{chat_folder, BoxFuture, Content, Provider, ToolCtx, ToolOutput};
 
@@ -56,6 +56,11 @@ const MAX_LIMIT: f64 = 25.0;
 fn chat_off() -> &'static Mutex<HashMap<String, HashSet<String>>> {
     static OFF: OnceLock<Mutex<HashMap<String, HashSet<String>>>> = OnceLock::new();
     OFF.get_or_init(Default::default)
+}
+
+/// The connectors (pool keys) switched off for `chat`.
+pub fn switched_off(chat: &str) -> HashSet<String> {
+    off_of(chat)
 }
 
 fn off_of(chat: &str) -> HashSet<String> {
@@ -546,7 +551,17 @@ async fn run_tool(ctx: ToolCtx, name: &str, args: Value) -> ToolOutput {
     if !tool.read_only && super::read_only_chat(&ctx.app, &ctx.chat) {
         return ToolOutput::error(super::READ_ONLY_REFUSAL.replace("{tool}", name));
     }
-    if asks(tool.permission) {
+    // A mate's call: its own grants and its sending setting (evo-mates FR-41, FR-42).
+    let mate = ctx.app.try_state::<crate::db::Db>().and_then(|db| {
+        db.with(|conn| evo_store::mates::mate_of_chat(conn, &ctx.chat))
+            .ok()
+            .flatten()
+    });
+    if let Some(mate) = &mate {
+        if let Err(output) = mate_gate(&ctx, mate, &tool, name, &args).await {
+            return output;
+        }
+    } else if asks(tool.permission) {
         let (server, tool_name) = label(name);
         let answer = ctx.ask(&format!("Allow {server} to run {tool_name}?"), &ask_description(&args), &OPTIONS).await;
         match answer_of(answer) {
@@ -571,15 +586,152 @@ async fn run_tool(ctx: ToolCtx, name: &str, args: Value) -> ToolOutput {
         return ToolOutput::error(format!("{name} is not available: its connector is off or disconnected."));
     };
     let pool = state.0.clone();
+    // A mate's `{{secret:NAME}}` gets its value only here, inside the call;
+    // a value the tool echoes is masked (evo-mates FR-43).
+    let secrets = match &mate {
+        Some(mate) => mate_secrets(&mate.id, &args).await,
+        None => Ok(Vec::new()),
+    };
+    let secrets = match secrets {
+        Ok(secrets) => secrets,
+        Err(output) => return output,
+    };
+    let args = if secrets.is_empty() {
+        args
+    } else {
+        let lookup = |name: &str| {
+            secrets
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.clone())
+        };
+        match crate::mates::secrets::resolve(&args, &lookup) {
+            Ok(resolved) => resolved,
+            Err(missing) => {
+                return ToolOutput::error(format!(
+                    "No saved secret named {}: ask for it with request_secret.",
+                    missing.join(", ")
+                ))
+            }
+        }
+    };
     let arguments: Map<String, Value> = args.as_object().cloned().unwrap_or_default();
     let call = pool.call(name, Some(arguments), Some(folder.as_path()));
     tokio::select! {
         result = call => match result {
-            Ok(result) => shape_result(&result),
-            Err(error) => ToolOutput::error(error),
+            Ok(result) => masked(shape_result(&result), &secrets),
+            Err(error) => masked(ToolOutput::error(error), &secrets),
         },
         // The engine dropped the call: nobody waits for the answer.
         _ = ctx.cancel.cancelled() => ToolOutput::text(""),
+    }
+}
+
+/// The mate's secrets when `args` refers to any (`{{secret:NAME}}`), else none.
+/// `Err`: the vault could not be read, or a name is missing.
+async fn mate_secrets(mate: &str, args: &Value) -> Result<Vec<(String, String)>, ToolOutput> {
+    let names = crate::mates::secrets::references(&args.to_string());
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mate = mate.to_string();
+    let all = tokio::task::spawn_blocking(move || crate::mates::secrets::read_all(&mate))
+        .await
+        .map_err(|e| ToolOutput::error(e.to_string()))?
+        .map_err(|e| ToolOutput::error(format!("Could not read your secrets: {e}")))?;
+    let missing: Vec<&String> = names
+        .iter()
+        .filter(|name| !all.iter().any(|(n, _)| n == *name))
+        .collect();
+    if !missing.is_empty() {
+        let missing: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
+        return Err(ToolOutput::error(format!(
+            "No saved secret named {}: ask for it with request_secret.",
+            missing.join(", ")
+        )));
+    }
+    Ok(all)
+}
+
+/// `output` with every secret value shown as `[secret NAME]`.
+fn masked(mut output: ToolOutput, secrets: &[(String, String)]) -> ToolOutput {
+    if secrets.is_empty() {
+        return output;
+    }
+    for part in output.content.iter_mut() {
+        if let Content::Text(text) = part {
+            *text = crate::mates::secrets::mask(text, secrets);
+        }
+    }
+    if let Some(structured) = output.structured.take() {
+        let text = crate::mates::secrets::mask(&structured.to_string(), secrets);
+        output.structured = serde_json::from_str(&text).ok();
+    }
+    output
+}
+
+/// Ask what a mate's call of `tool` needs ([`crate::mates::grants::plan`]).
+/// `Err`: the result to give instead of running it.
+async fn mate_gate(
+    ctx: &ToolCtx,
+    mate: &evo_store::mates::Mate,
+    tool: &ChatTool,
+    name: &str,
+    args: &Value,
+) -> Result<(), ToolOutput> {
+    use crate::mates::grants::{self, Pick, Plan};
+    let db = ctx.app.state::<crate::db::Db>();
+    let for_mate = db
+        .with(|conn| evo_store::mates::list_grants(conn, &mate.id))
+        .unwrap_or_default()
+        .iter()
+        .any(|t| t == name);
+    let plan = grants::plan(
+        tool.read_only,
+        asks(tool.permission),
+        &mate.sending,
+        for_mate,
+        grants::allowed_here(&ctx.chat, name),
+    );
+    let Plan::Ask { picks, sending } = plan else {
+        return Ok(());
+    };
+    let (server, tool_name) = label(name);
+    let title = if sending {
+        format!(
+            "Send on your behalf? {} wants {server} to run {tool_name}",
+            mate.name
+        )
+    } else {
+        format!("Allow {server} to run {tool_name}?")
+    };
+    let labels: Vec<String> = picks.iter().map(|pick| pick.label(&mate.name)).collect();
+    let options: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let answer = ctx.ask(&title, &ask_description(args), &options).await;
+    if answer < 0 {
+        return Err(ToolOutput::text(""));
+    }
+    match picks.get(answer as usize).copied().unwrap_or(Pick::Deny) {
+        Pick::Deny => Err(ToolOutput::error("The user declined this tool call.")),
+        Pick::Once => Ok(()),
+        Pick::Conversation => {
+            grants::allow_here(&ctx.chat, name);
+            Ok(())
+        }
+        Pick::Mate => {
+            if let Err(error) = db.with(|conn| evo_store::mates::add_grant(conn, &mate.id, name)) {
+                db.log(
+                    evo_store::logs::NewLog::new(
+                        "warn",
+                        "mates",
+                        format!("could not keep an Always allow: {error}"),
+                    )
+                    .chat(Some(&ctx.chat)),
+                );
+            }
+            let _ = ctx.app.emit("mates://changed", json!({}));
+            Ok(())
+        }
     }
 }
 

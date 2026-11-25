@@ -254,7 +254,8 @@ function permissionFrom(message) {
     options: options.length || questions ? options : [{ title: "Allow" }, { title: "Deny" }],
     kind: ui.kind ?? "confirm",
     questions,
-    approval: approvalFrom(ui.approval)
+    approval: approvalFrom(ui.approval),
+    secret: ui.kind === "secret" && typeof ui.name === "string" ? { name: ui.name, service: String(ui.service ?? ""), reason: String(ui.reason ?? "") } : undefined
   };
 }
 function dropPermission(state, requestId) {

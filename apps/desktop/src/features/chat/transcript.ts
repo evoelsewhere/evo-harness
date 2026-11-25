@@ -81,6 +81,8 @@ export interface PermissionRequest {
   questions?: Question[];
   /** An engine approval (a command or an edit about to run); absent for older prompts. */
   approval?: ApprovalPrompt;
+  /** `kind: "secret"`: a mate's secure card (evo-mates FR-43). Its value never comes back here. */
+  secret?: { name: string; service: string; reason: string };
 }
 
 export interface Turn {
@@ -504,6 +506,10 @@ function permissionFrom(message: EngineMessage): PermissionRequest {
     kind: ui.kind ?? "confirm",
     questions,
     approval: approvalFrom(ui.approval),
+    secret:
+      ui.kind === "secret" && typeof ui.name === "string"
+        ? { name: ui.name, service: String(ui.service ?? ""), reason: String(ui.reason ?? "") }
+        : undefined,
   };
 }
 

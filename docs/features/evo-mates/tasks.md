@@ -46,21 +46,21 @@ Needs you and Usage.
 - [ ] T21 [FR-4] A mate keeps working with its window closed — check: manual: send, close Mates, reopen after the reply
 - [x] T54 [FR-58, FR-59, FR-60, FR-61, FR-62] Messaging thread for mates: new `thread.tsx`, `composer.tsx`, `conversation.tsx`, `message-markup.ts` (reply and reactions note in the sent text), migration 0016 and `mates_react` / `mates_reactions` / `mates_take_reactions`; Harness's chat view is no longer used in Evo Mates — `src/features/mates/`, `crates/evo-store` — check: markup and store tests, the app on a copy of real data
 - [ ] T41 [FR-39] Tests, then code: a mate's Apps narrow the connector and plugin tools its engines get, with the chosen account — `src-tauri/src/supervisor.rs` — check: shell test with All, Only these and None
-- [ ] T42 [FR-40] `connect_app` app tool and the Connect / Reconnect card; expired sign-in results point to it — `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/connect-card.tsx` — check: shell test; manual with a missing mail connector
-- [ ] T43 [FR-41, FR-42] Tool classes from MCP annotations and the catalogue (unknown counts as sending); per-mate Always allow for read-only tools in `mate_grants`; the sending gate — `src-tauri/src/mates/grants.rs`, `agent_tools/mod.rs` — check: shell tests for each class and setting
-- [ ] T44 [FR-43] Per-mate vault, `request_secret` and the secure card; references resolved only inside the tool call; masking of echoed values — `crates/evo-vault`, `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/secret-card.tsx` — check: test that no value reaches the transcript or a provider request
+- [x] T42 [FR-40] `connect_app` app tool and the Connect / Reconnect card; expired sign-in results point to it — `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/connect-card.tsx` — check: shell test; manual with a missing mail connector
+- [x] T43 [FR-41, FR-42] Tool classes from MCP annotations and the catalogue (unknown counts as sending); per-mate Always allow for read-only tools in `mate_grants`; the sending gate — `src-tauri/src/mates/grants.rs`, `agent_tools/mod.rs` — check: shell tests for each class and setting
+- [x] T44 [FR-43] Per-mate vault, `request_secret` and the secure card; references resolved only inside the tool call; masking of echoed values — `crates/evo-vault`, `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/secret-card.tsx` — check: test that no value reaches the transcript or a provider request
 - [ ] T45 [P] [FR-44] Skills tab with switches; team-file and flagged skills off — `src/features/mates/skills-tab.tsx`, `src-tauri/src/mates/mod.rs` — check: manual
 - [x] T46 [FR-45] Pause / Resume / Pause all through the supervisor hold; paused line — `src-tauri/src/mates/mod.rs`, `supervisor.rs`, `system.rs`, `src/features/mates/pause.tsx` — check: shell test; manual
 - [ ] T47 [FR-46, FR-47, FR-48, FR-51] Mate conduct block in the role prompt; a fixed test set of 10 ambiguous tasks and 10 task replies — `crates/evo-engine/src/session_roles.rs`, `crates/evo-engine/tests/mates_conduct.rs` — check: test set results recorded
-- [ ] T48 [FR-49] **Send as next** and "Seen while working" in the Mates composer on the engine's steering and follow-up queues — `src/features/mates/mate-chat.tsx` — check: manual
+- [x] T48 [FR-49] **Send as next** and "Seen while working" in the Mates composer on the engine's steering and follow-up queues — `src/features/mates/mate-chat.tsx` — check: manual
 - [ ] T49 [FR-50] Recent-work brief and search limited to the mate's own chats — `crates/evo-engine/src/mates/brief.rs` — check: `cargo test -p evo-engine mates_brief`
-- [ ] T50 [FR-52] Notice rules for mates and the per-mate switch — `src-tauri/src/supervisor/notices.rs` — check: shell test for each case
+- [x] T50 [FR-52] Notice rules for mates and the per-mate switch — `src-tauri/src/supervisor/notices.rs` — check: shell test for each case
 - [ ] T35 [P] [FR-33, NFR-7] Mate faces on `open-bot-avatar` (exact version, `bun add`): Evo's own definitions, palette, state/mood/gaze/still mapping, SVG for lists and live mount for header and panel, reduced motion; MIT notice in `NOTICE` — `src/components/mate-face/`, `package.json`, `bun.lock`, `NOTICE` — check: visual review in light and dark; reduced motion stops all loops; `bun run build`
 - [ ] T36 [P] [FR-29, FR-32] Sidebar with pinned tiles, roster rows with state words, header pill, mate panel tabs, folding rules — `src/features/mates/{sidebar,roster-row,pinned-tiles,header-pill,mate-panel}.tsx` — check: design review against ux.md 2 at 1440×900 and 900×700
 - [ ] T37 [FR-30, FR-31, FR-35] Bubbles with joined runs and tint; plain-word activity chips; Saved to memory chip — `src/features/mates/{bubbles,activity-chips,memory-chip}.tsx` — check: `bun run typecheck`; manual on a turn that reads, searches and saves to memory
-- [ ] T38 [FR-34] First-turn setup block and the `mate_profile` app tool — `src-tauri/src/mates/mod.rs`, `src-tauri/src/agent_tools/` — check: shell test for the tool; manual: answers land in the profile
-- [ ] T39 [P] [FR-37, FR-38] Gallery categories and search; keyboard shortcuts — `src/features/mates/{gallery,shortcuts}.tsx` — check: manual
-- [ ] T40 [NFR-7] DESIGN.md "Evo Mates layer" section; UI string check for banned words — `DESIGN.md` — check: review; `rg -i "session|engine|agent type" src/features/mates` finds no UI string
+- [x] T38 [FR-34] First-turn setup block and the `mate_profile` app tool — `src-tauri/src/mates/mod.rs`, `src-tauri/src/agent_tools/` — check: shell test for the tool; manual: answers land in the profile
+- [x] T39 [P] [FR-37, FR-38] Gallery categories and search; keyboard shortcuts — `src/features/mates/{gallery,shortcuts}.tsx` — check: manual
+- [x] T40 [NFR-7] DESIGN.md "Evo Mates layer" section; UI string check for banned words — `DESIGN.md` — check: review; `rg -i "session|engine|agent type" src/features/mates` finds no UI string
 
 ### Phase 3 — Channels
 
@@ -133,25 +133,25 @@ Done when: every row below is `passed` with its date.
 | FR-31 | Manual T37 | not run |
 | FR-32 | Manual T36 | not run |
 | FR-33 | Visual review T35 | not run |
-| FR-34 | Shell test and manual T38 | not run |
+| FR-34 | Shell test and manual T38 | shell tests passed (2026-11-25); manual: not run |
 | FR-35 | Manual T37 | not run |
 | FR-36 | Manual T28 | not run |
 | FR-37 | Manual T39 | not run |
 | FR-38 | Manual T39 | not run |
 | FR-39 | Shell test T41 | partly (2026-11-25): the Apps tab switches each connector for the mate's chat (Harness's per-chat switches, `connectors.chatOff`); plugin accounts and template defaults off: not done |
-| FR-40 | Shell test and manual T42 | not run |
-| FR-41 | Shell tests T43 | not run |
-| FR-42 | Shell tests T43 | not run |
-| FR-43 | Leak test T44 | not run |
+| FR-40 | Shell test and manual T42 | shell tests passed (2026-11-25); manual: not run |
+| FR-41 | Shell tests T43 | passed (2026-11-25) |
+| FR-42 | Shell tests T43 | passed (2026-11-25) |
+| FR-43 | Leak test T44 | resolve and mask tests passed (2026-11-25); a check of real provider requests: not run |
 | FR-44 | Manual T45 | not done: the engine has no per-chat skill switches yet |
 | FR-45 | Shell test and manual T46 | passed (2026-11-25, in the app): Pause all marks every mate Paused, the box shows "<name> is paused" with Resume, Resume all restores them; engines stop (`stop_mate`) |
 | FR-46 | Test set T47 | not run |
 | FR-47 | Test set T47 (8 of 10) | not run |
 | FR-48 | Review T47 | not run |
 | FR-49 | Manual T48 | not run |
-| FR-50 | `cargo test -p evo-engine mates_brief` (T49) | not run |
+| FR-50 | `cargo test -p evo-engine mates_brief` (T49) | search half: `cargo test -p evo-store a_mate_finds_only_its_own_chats` passed (2026-11-25); the brief waits for channels (phase 3) |
 | FR-51 | Test set T47; manual | not run |
-| FR-52 | Shell tests T50 | not run |
+| FR-52 | Shell tests T50 | passed (2026-11-25) |
 | FR-53 | `cargo test -p evo-engine channel` (T51) | not run |
 | FR-54 | Engine tests T52; manual | not run |
 | FR-55 | Engine tests T52 | not run |
@@ -168,5 +168,5 @@ Done when: every row below is `passed` with its date.
 | NFR-4 | Manual per platform | Windows: two taskbar groups (Evo Harness, Evo Mates) — passed (2026-11-25); Start menu entry from an installed build, macOS launcher, Linux desktop entry: not run |
 | NFR-5 | Manual T30 | not run |
 | NFR-6 | Shell test T27 | not run |
-| NFR-7 | Design review against DESIGN.md and ux.md; string check T40 | not run |
+| NFR-7 | Design review against DESIGN.md and ux.md; string check T40 | string check passed: no session, engine or agent type in Mates UI strings (2026-11-25); design review: not run |
 | NFR-8 | Migration test T9; Harness CI checks | `mates_upgrade_keeps_chats_as_harness_chats_and_usage_rows` passed (2026-11-25); a copy of a real schema-14 database upgraded to 15 in the app |

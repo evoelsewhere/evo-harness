@@ -8,7 +8,7 @@
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ChatModelPill } from "@/features/chat";
+import { MateModelPicker } from "@/features/mates/model-picker";
 import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
 import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
@@ -55,8 +55,8 @@ function Conversation() {
     <div className="flex h-full min-h-0">
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* The conversation's bar, in its own row under the title row (ux.md 2). */}
-        <div className="flex h-12 shrink-0 items-center border-b border-border pr-2">
-          <MateBar mate={mate} modelPill={shown === mate.chatId ? <ChatModelPill /> : null} />
+        <div className="flex h-12 shrink-0 items-center pr-2">
+          <MateBar mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateName={mate.name} /> : null} />
         </div>
         {/* The mate's thread, once the engine store shows its chat. */}
         <div className="min-h-0 flex-1">

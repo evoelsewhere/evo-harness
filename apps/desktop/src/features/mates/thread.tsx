@@ -17,7 +17,7 @@ import type { Mate, ReactionKind } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
-import { emojiOf, REACTIONS, type ReplyTo } from "./message-markup";
+import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
 import { threadRows, timeLine, type Bubble, type Row } from "./thread-rows";
 
 function MetaInfo({ turn }: { turn: Turn }) {
@@ -235,6 +235,7 @@ export function MateThread({
 }) {
   const turns = useEngineStore((s) => s.transcript.turns);
   const busy = useEngineStore((s) => s.transcript.busy);
+  const queued = useEngineStore((s) => s.transcript.queued);
   const shellWorking = useSessionStore((s) => s.work[mate.chatId] === "working");
   const rows = React.useMemo(() => threadRows(turns, busy, shellWorking && !busy), [turns, busy, shellWorking]);
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -306,8 +307,21 @@ export function MateThread({
                   Delivered
                 </div>
               );
+            default:
+              return null;
           }
         })}
+        {/* Messages the mate has not read yet (FR-49): faded, with when it will. */}
+        {(queued ?? []).map((message) => (
+          <div key={message.entryId} className="mt-1 flex flex-col items-end px-4">
+            <div className="max-w-[72%] rounded-[20px] rounded-br-[6px] bg-brand/50 px-3.5 py-2 text-[14px] leading-5 whitespace-pre-wrap text-brand-foreground">
+              {parsePrompt(message.text).text}
+            </div>
+            <span className="mt-0.5 px-1 text-[11px] text-muted-foreground">
+              {message.deliverAs === "steer" ? "Seen while working" : "Next"}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
