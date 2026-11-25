@@ -49,7 +49,8 @@ Needs you and Usage.
 - [x] T42 [FR-40] `connect_app` app tool and the Connect / Reconnect card; expired sign-in results point to it — `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/connect-card.tsx` — check: shell test; manual with a missing mail connector
 - [x] T43 [FR-41, FR-42] Tool classes from MCP annotations and the catalogue (unknown counts as sending); per-mate Always allow for read-only tools in `mate_grants`; the sending gate — `src-tauri/src/mates/grants.rs`, `agent_tools/mod.rs` — check: shell tests for each class and setting
 - [x] T44 [FR-43] Per-mate vault, `request_secret` and the secure card; references resolved only inside the tool call; masking of echoed values — `crates/evo-vault`, `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/secret-card.tsx` — check: test that no value reaches the transcript or a provider request
-- [ ] T45 [P] [FR-44] Skills tab with switches; team-file and flagged skills off — `src/features/mates/skills-tab.tsx`, `src-tauri/src/mates/mod.rs` — check: manual
+- [x] T45 [P] [FR-44] Skills switches per mate: the role's `skills` (the names a session may use, `null` = every skill; a nested session keeps its mate's limit), the engine drops the rest (`customize::split_by_role`), and a Skills section in the mate panel's Apps tab — `crates/evo-mesh/src/wire.rs`, `crates/evo-engine/src/customize.rs`, `src/features/mates/skills-tab.tsx`, `src-tauri/src/mates/mod.rs` — check: `cargo test -p evo-engine a_role_keeps_only_the_skills_it_allows`, `skills-tab.test.ts`, manual
+- [ ] T55 [FR-44] Skills flagged by Evo's skill check arrive off for every mate, with the reason — needs a skill check, which Evo does not have yet — check: manual with a flagged skill
 - [x] T46 [FR-45] Pause / Resume / Pause all through the supervisor hold; paused line — `src-tauri/src/mates/mod.rs`, `supervisor.rs`, `system.rs`, `src/features/mates/pause.tsx` — check: shell test; manual
 - [ ] T47 [FR-46, FR-47, FR-48, FR-51] Mate conduct block in the role prompt; a fixed test set of 10 ambiguous tasks and 10 task replies — `crates/evo-engine/src/session_roles.rs`, `crates/evo-engine/tests/mates_conduct.rs` — check: test set results recorded
 - [x] T48 [FR-49] **Send as next** and "Seen while working" in the Mates composer on the engine's steering and follow-up queues — `src/features/mates/mate-chat.tsx` — check: manual
@@ -88,7 +89,7 @@ imports on another machine after a preview.
 
 - [ ] T31 [FR-20, FR-21, FR-27] Tests: export round-trip, no model ID, no secrets or messages, newer version refused, unknown entries listed — `src-tauri/src/mates/team_file.rs` (tests) — check: `bun run test:shell` fails for the right reason
 - [ ] T32 [FR-20, FR-21, FR-27] `team_file.rs`: parse, validate, preview, write; needs resolved against models.dev — check: T31 passes
-- [ ] T33 [FR-20, FR-21] Export and import UI with the preview and connectors off — `src/features/mates/team-import.tsx`, row menus — check: manual on two agent directories
+- [ ] T33 [FR-20, FR-21, FR-44] Export and import UI with the preview, connectors off and skills off (`skills: []`) — `src/features/mates/team-import.tsx`, row menus — check: manual on two agent directories
 
 ### Phase 5 — Verify
 
@@ -133,17 +134,17 @@ Done when: every row below is `passed` with its date.
 | FR-31 | Manual T37 | not run |
 | FR-32 | Manual T36 | not run |
 | FR-33 | Visual review T35 | not run |
-| FR-34 | Shell test and manual T38 | shell tests passed (2026-11-25); manual: not run |
+| FR-34 | Shell test and manual T38 | passed (2026-11-25): shell tests; in the app a mate saved four answers and they show in its profile |
 | FR-35 | Manual T37 | not run |
 | FR-36 | Manual T28 | not run |
 | FR-37 | Manual T39 | not run |
 | FR-38 | Manual T39 | not run |
 | FR-39 | Shell test T41 | partly (2026-11-25): the Apps tab switches each connector for the mate's chat (Harness's per-chat switches, `connectors.chatOff`); plugin accounts and template defaults off: not done |
-| FR-40 | Shell test and manual T42 | shell tests passed (2026-11-25); manual: not run |
+| FR-40 | Shell test and manual T42 | passed (2026-11-25): shell tests; in the app the Connect card showed for a missing mail app, Connect opened Customize → Connectors and the waiting card could be cancelled |
 | FR-41 | Shell tests T43 | passed (2026-11-25) |
 | FR-42 | Shell tests T43 | passed (2026-11-25) |
-| FR-43 | Leak test T44 | resolve and mask tests passed (2026-11-25); a check of real provider requests: not run |
-| FR-44 | Manual T45 | not done: the engine has no per-chat skill switches yet |
+| FR-43 | Leak test T44 | resolve and mask tests passed (2026-11-25); in the app a canary value typed into the secure card was found nowhere in the data folder or logs; a check of real provider requests: not run |
+| FR-44 | Manual T45; T33 (imported skills off); T55 (flagged skills) | switches passed (2026-11-25): engine and UI tests; in the app two skills switched off showed as off in the mate's engine after its restart; imported and flagged skills: not done |
 | FR-45 | Shell test and manual T46 | passed (2026-11-25, in the app): Pause all marks every mate Paused, the box shows "<name> is paused" with Resume, Resume all restores them; engines stop (`stop_mate`) |
 | FR-46 | Test set T47 | not run |
 | FR-47 | Test set T47 (8 of 10) | not run |

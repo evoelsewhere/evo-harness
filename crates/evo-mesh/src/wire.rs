@@ -675,6 +675,11 @@ pub struct SessionRole {
     /// the session works in: a mate's own memory (FR-11, FR-26).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_dir: Option<String>,
+    /// The skills this session may use, by name; `None`: every skill.
+    /// A mate's skill switches (docs/features/evo-mates/spec.md, FR-44).
+    /// A skill switched off in Customize stays off whatever this says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<Vec<String>>,
 }
 
 /// Who a mate is, as its sessions present themselves.

@@ -72,6 +72,8 @@ export type MatePatch = Partial<
     | "hidden"
   >
 > & {
+  /** The skills the mate may use; `null`: every skill (FR-44). */
+  skills?: string[] | null;
   provider?: string | null;
   model?: string | null;
   thinking?: string | null;

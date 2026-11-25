@@ -221,9 +221,28 @@ pub fn finish_skills(cwd: &Path, project_trusted: bool, skills: Vec<Skill>) -> V
         }
     }
     *SWITCHED_OFF.lock().unwrap() = off;
+    // A mate's role may allow only some skills (evo-mates FR-44).
+    let allowed = crate::session_roles::current().and_then(|role| role.skills.as_deref());
+    let (mut kept, not_here) = split_by_role(kept, allowed);
+    *OFF_HERE.lock().unwrap() = not_here;
     crate::skill_runtime::remember(&kept);
     crate::skill_runtime::fit_listing(&mut kept);
     kept
+}
+
+/// Skills this session's role does not allow: off here only, listed with
+/// their own state by [`describe`] and `offHere`.
+static OFF_HERE: Mutex<Vec<Skill>> = Mutex::new(Vec::new());
+
+/// `skills` split into the ones `allowed` names (every one with `None`) and
+/// the rest.
+pub fn split_by_role(skills: Vec<Skill>, allowed: Option<&[String]>) -> (Vec<Skill>, Vec<Skill>) {
+    match allowed {
+        None => (skills, Vec::new()),
+        Some(names) => skills
+            .into_iter()
+            .partition(|skill| names.iter().any(|name| *name == skill.name)),
+    }
 }
 
 /// Save a skill's override (`on` removes it).
@@ -427,6 +446,15 @@ pub fn describe(cwd: &Path, skills: &[Skill], templates: &[PromptTemplate]) -> V
     for skill in SWITCHED_OFF.lock().unwrap().iter() {
         list.push(skill_entry(cwd, skill, "off", &extra));
     }
+    for skill in OFF_HERE.lock().unwrap().iter() {
+        let state = overrides
+            .get(&skill.name)
+            .map(String::as_str)
+            .unwrap_or("on");
+        let mut entry = skill_entry(cwd, skill, state, &extra);
+        entry["offHere"] = json!(true);
+        list.push(entry);
+    }
     let templates: Vec<Value> = templates
         .iter()
         .map(|template| {
@@ -481,6 +509,34 @@ pub fn describe(cwd: &Path, skills: &[Skill], templates: &[PromptTemplate]) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn skill(name: &str) -> Skill {
+        Skill {
+            name: name.into(),
+            description: String::new(),
+            content: String::new(),
+            file_path: format!("/skills/{name}/SKILL.md"),
+            disable_model_invocation: None,
+            requires_tools: None,
+        }
+    }
+
+    // evo-mates FR-44: a mate's role allows only the skills it names.
+    #[test]
+    fn a_role_keeps_only_the_skills_it_allows() {
+        let names = |skills: &[Skill]| skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>();
+        let all = || vec![skill("pdf"), skill("docx"), skill("review")];
+        let (kept, off) = split_by_role(all(), None);
+        assert_eq!(names(&kept), ["pdf", "docx", "review"]);
+        assert!(off.is_empty());
+        let allowed = vec!["review".to_string(), "gone".to_string()];
+        let (kept, off) = split_by_role(all(), Some(&allowed));
+        assert_eq!(names(&kept), ["review"]);
+        assert_eq!(names(&off), ["pdf", "docx"]);
+        let (kept, off) = split_by_role(all(), Some(&[]));
+        assert!(kept.is_empty());
+        assert_eq!(off.len(), 3);
+    }
 
     #[test]
     fn a_skill_lists_the_files_of_its_folder() {

@@ -281,6 +281,9 @@ pub fn enrich(mut args: Value, parent: &Parent, types: &[AgentType]) -> Result<V
         // writes a mate's role (docs/features/evo-mates/spec.md, FR-10).
         mate: None,
         memory_dir: None,
+        // A session started from a mate's keeps the mate's skill limit: it
+        // never gets a skill the mate was not allowed (evo-mates FR-44).
+        skills: current().and_then(|role| role.skills.clone()),
     };
     object.insert(
         "role".into(),

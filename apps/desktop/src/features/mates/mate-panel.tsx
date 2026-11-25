@@ -24,6 +24,7 @@ import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { ConfirmDelete } from "./confirm";
+import { MateSkills } from "./skills-tab";
 
 /** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
 export function MateGreeting({ mate }: { mate: Mate }) {
@@ -619,6 +620,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
             </TabsContent>
             <TabsContent value="apps" className="flex flex-col gap-6">
               <Apps mate={mate} />
+              <MateSkills mate={mate} />
               <Secrets mate={mate} />
             </TabsContent>
             <TabsContent value="memory">

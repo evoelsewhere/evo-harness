@@ -1380,6 +1380,19 @@ export const useEngineStore = create<EngineStore>((set, get) => {
         if (mode !== "ask" && mode !== "auto-edits" && mode !== "auto") return;
         useUiStore.getState().syncApproval(mode);
       });
+      // The shell stopped a chat's engine on purpose (a mate's profile changed,
+      // or it was paused): the chat keeps its messages and its engine starts
+      // again with the next message, as a new chat's does (evo-mates FR-10).
+      void listen<{ chat: string }>("engine://parked", ({ payload }) => {
+        const rt = runtime(payload.chat);
+        if (!rt || rt.deferred) return;
+        shellStatus.delete(payload.chat);
+        forgetEngine(payload.chat);
+        pausedEngines.delete(payload.chat);
+        const wasBusy = rt.transcript.busy;
+        update(payload.chat, () => ({ status: "idle", deferred: true, error: undefined }));
+        if (wasBusy) dispatch(payload.chat, { type: "fail", error: "Stopped" });
+      });
       // An engine this window holds followed a changed setting: show its state.
       void listen<{ chat: string; what: string }>("engine://reloaded", ({ payload }) => {
         if (!runtime(payload.chat)) return;

@@ -696,8 +696,7 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   mate's chats through `chats.mate_id` (`by_mate`). The Apps tab uses
   Harness's per-chat connector switches on the mate's chat instead of a
   new mechanism; the `mates.apps` column stays unused until plugin
-  accounts are chosen per mate. Skills per mate wait for per-chat skill
-  switches in the engine.
+  accounts are chosen per mate. Skills per mate came later (sixth slice).
 - **Fifth slice: the box, notices, the mate's own tools, grants, secrets.**
   - *Send as next* (FR-49): while the mate works, Enter queues the message
     as a steer and **Next** (or Alt+Enter) as a follow-up, through the
@@ -748,3 +747,22 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
     rounded card beside the conversation instead of a ruled column, with
     pill tabs and soft, borderless fields; a selected choice, face or
     colour uses the accent colour; the mate bar has no rule under it.
+- **Sixth slice: skills per mate** (FR-44, T45). `mates.skills` is the list
+  of skills the mate may use (`null`: every skill), as 3.3 has it. The shell
+  writes it into the mate's role (`SessionRole.skills`), and the engine,
+  after Customize's own overrides, moves every skill the list does not name
+  out of the session (`customize::split_by_role`); `list_customizations`
+  still lists them, with their Customize state and `offHere`. A session the
+  mate's engine starts keeps the same limit. Switching one skill off turns
+  `null` into every other skill; a list that names every known skill again
+  goes back to `null`, so skills added later reach the mate. A change
+  restarts the mate's engine once idle, like its other role fields. The
+  Skills section sits in the Apps tab (ux.md's "Tools & apps"). Not done:
+  flagged skills (Evo has no skill check yet, T55) and imported skills off
+  (with team import, T33).
+  A profile change that restarts the mate's engine used to stop it with no
+  word to the window, which went on sending to it ("engine is not
+  running"). The shell now parks it (`mates::park`: stop, then
+  `engine://parked`), and the window turns the chat into a deferred one: it
+  keeps its messages and the next message starts the engine, which reads
+  the new role. Pausing parks every engine of the mate the same way.

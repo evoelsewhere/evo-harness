@@ -95,6 +95,10 @@ pub fn role_of(mate: &Mate) -> Value {
     if let Some(tools) = &mate.tools {
         object.insert("tools".into(), json!(tools));
     }
+    // Its skill switches: only the skills it names (FR-44).
+    if let Some(skills) = &mate.skills {
+        object.insert("skills".into(), json!(skills));
+    }
     if let (Some(provider), Some(model)) = (&mate.provider, &mate.model) {
         object.insert("provider".into(), json!(provider));
         object.insert("model".into(), json!(model));
@@ -114,6 +118,15 @@ fn write_role(db: &Db, mate: &Mate) -> Result<(), String> {
     db.with(|conn| evo_store::chats::set_role(conn, &mate.chat_id, Some(&role)).map(|_| ()))
 }
 
+/// Stop `chat`'s engine on purpose and tell the windows (`engine://parked`):
+/// a window that shows the chat keeps its messages and starts the engine
+/// again with the next one, which reads the mate's role afresh.
+pub async fn park(app: &AppHandle, chat: &str) {
+    if app.state::<crate::engine::EngineState>().stop(chat).await {
+        let _ = app.emit("engine://parked", json!({ "chat": chat }));
+    }
+}
+
 /// Restart `chat`'s engine so it reads its role again: now when it is idle,
 /// else once its work settles.
 async fn restart_when_idle(app: &AppHandle, chat: &str) {
@@ -122,7 +135,7 @@ async fn restart_when_idle(app: &AppHandle, chat: &str) {
     if working {
         locked(&app.state::<MatesState>().pending).insert(chat.to_string());
     } else {
-        app.state::<crate::engine::EngineState>().stop(chat).await;
+        park(app, chat).await;
     }
 }
 
@@ -149,7 +162,7 @@ pub fn apply_pending(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         for chat in idle {
-            app.state::<crate::engine::EngineState>().stop(&chat).await;
+            park(&app, &chat).await;
         }
     });
 }
@@ -248,6 +261,7 @@ pub async fn mates_update(app: AppHandle, id: String, patch: MatePatch) -> Resul
         || patch.model.is_some()
         || patch.thinking.is_some()
         || patch.tools.is_some()
+        || patch.skills.is_some()
         || patch.approval_mode.is_some()
         || patch.project_folder.is_some();
     if engine_reads {
@@ -272,9 +286,8 @@ async fn stop_mate(app: &AppHandle, id: &str) {
             Ok(rows.collect::<Result<Vec<String>, _>>()?)
         })
         .unwrap_or_default();
-    let engines = app.state::<crate::engine::EngineState>();
     for chat in chats {
-        engines.stop(&chat).await;
+        park(app, &chat).await;
     }
 }
 
@@ -458,6 +471,11 @@ mod tests {
         let parsed: evo_mesh::wire::SessionRole = serde_json::from_value(role).unwrap();
         assert_eq!(parsed.mate.unwrap().name, "Writer");
         assert!(parsed.memory_dir.is_some());
+        // Every skill unless it names some (FR-44).
+        assert_eq!(parsed.skills, None);
+        let limited = Mate { skills: Some(vec!["review".into()]), ..mate("Writer", "Drafts copy", "") };
+        let parsed: evo_mesh::wire::SessionRole = serde_json::from_value(role_of(&limited)).unwrap();
+        assert_eq!(parsed.skills, Some(vec!["review".to_string()]));
     }
 
     #[test]
