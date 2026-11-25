@@ -321,6 +321,21 @@ function applyEngine(state, message, now) {
   switch (message.type) {
     case "agent_start":
       return { ...state, busy: true };
+    case "retry_scheduled": {
+      const retry = {
+        attempt: Number(message.attempt) || 1,
+        maxRetries: Number(message.maxRetries) || 0,
+        delayMs: Number(message.delayMs) || 0,
+        error: String(message.error ?? "")
+      };
+      return updateCurrent({ ...state, busy: true }, (turn) => ({
+        ...turn,
+        status: "running",
+        error: undefined,
+        endedAt: undefined,
+        retry
+      }));
+    }
     case "agent_end":
     case "agent_settled": {
       const { aborted, failed, error } = runEnd(message);

@@ -104,6 +104,11 @@ export interface Turn {
   permission?: PermissionRequest;
   /** The files this turn changed in the chat's repository (docs/features/source-control/spec.md, FR-10). */
   checkpoint?: TurnCheckpoint;
+  /**
+   * The engine tries a failed request again after a pause (`retry_scheduled`):
+   * the run goes on, so the turn runs and the chat is busy until it settles.
+   */
+  retry?: { attempt: number; maxRetries: number; delayMs: number; error: string };
 }
 
 /** One file a turn changed. */
@@ -608,6 +613,25 @@ function applyEngine(state: TranscriptState, message: EngineMessage, now: number
   switch (message.type) {
     case "agent_start":
       return { ...state, busy: true };
+    case "retry_scheduled": {
+      // A failed attempt the engine retries on its own: an attempt's
+      // `agent_end` closed the turn as failed, but the run goes on, so a
+      // message sent now joins it rather than starting another the engine
+      // refuses ("a run is already active").
+      const retry = {
+        attempt: Number(message.attempt) || 1,
+        maxRetries: Number(message.maxRetries) || 0,
+        delayMs: Number(message.delayMs) || 0,
+        error: String(message.error ?? ""),
+      };
+      return updateCurrent({ ...state, busy: true }, (turn) => ({
+        ...turn,
+        status: "running",
+        error: undefined,
+        endedAt: undefined,
+        retry,
+      }));
+    }
     case "agent_end":
     case "agent_settled": {
       const { aborted, failed, error } = runEnd(message);

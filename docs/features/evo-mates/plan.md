@@ -680,3 +680,13 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   note, so both survive a restart in the transcript. Reactions are rows of
   `mate_reactions` (migration 0016), keyed by the turn's entry and side.
 
+- **A retried run stays busy.** The engine retries a failed provider
+  request on its own (the harness's retry policy) and says so with
+  `retry_scheduled`, after the failed attempt's `agent_end`. The shared
+  transcript (`features/chat/transcript.ts`) ignored it, so a window saw
+  the run as finished and a new message started a run the engine refused
+  ("a run is already active"); Harness had the same gap. The transcript now
+  keeps the run busy and the turn running, with the try in `turn.retry`;
+  the Mates thread shows "Trying again (n of m)…", and the Mates box also
+  treats the shell's "working" as busy, so a message joins the run. The
+  thread's row logic lives in `thread-rows.ts` (pure, tested).

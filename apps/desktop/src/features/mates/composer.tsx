@@ -14,15 +14,29 @@ import { log } from "@/lib/db";
 import { matesApi, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
+import { useSessionStore } from "@/stores/session-store";
 import { composePrompt, type ReplyTo } from "./message-markup";
 
 const MAX_LINES = 6;
+
+/** Whether the mate's chat works now: by its engine's events or the shell's work list. */
+export function useMateWorking(chat: string): boolean {
+  const busy = useEngineStore((s) => s.activeId === chat && s.transcript.busy);
+  const work = useSessionStore((s) => s.work[chat]);
+  return busy || work === "working";
+}
+
+function working(chat: string): boolean {
+  return useSessionStore.getState().work[chat] === "working";
+}
 const LINE_PX = 20;
 
 export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: ReplyTo | null; onReplyDone(): void }) {
   const [text, setText] = React.useState("");
   const [files, setFiles] = React.useState<PromptAttachment[]>([]);
-  const busy = useEngineStore((s) => s.transcript.busy);
+  // Working by the engine store or by the shell: a run the harness retries
+  // after a failed attempt reports no new start, but the shell sees it work.
+  const busy = useMateWorking(mate.chatId);
   const status = useEngineStore((s) => s.status);
   const field = React.useRef<HTMLTextAreaElement>(null);
 
@@ -52,7 +66,9 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     onReplyDone();
     files.forEach(releaseAttachment);
     try {
-      if (engine.transcript.busy) await engine.queueMessage(full, prompt.images, "steer");
+      // While it works (a retry included), the message joins the run instead
+      // of starting one the engine would refuse ("a run is already active").
+      if (engine.transcript.busy || working(mate.chatId)) await engine.queueMessage(full, prompt.images, "steer");
       else await engine.sendPrompt(full, prompt.images);
     } catch (error) {
       log("warn", "mates", `could not send: ${String(error)}`);
