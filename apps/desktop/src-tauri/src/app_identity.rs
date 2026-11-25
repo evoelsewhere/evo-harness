@@ -83,6 +83,26 @@ pub fn mates_app_id(identifier: &str) -> String {
 /// A Mates window is being built (off the event loop's thread).
 static BUILDING: AtomicBool = AtomicBool::new(false);
 
+/// A chat Evo Mates should show once its window has loaded.
+static PENDING_CHAT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Show `chat` (a mate's conversation) in Evo Mates: from Harness's Needs
+/// you or a notice (docs/features/evo-mates/spec.md, FR-12). A window
+/// still being built reads it when it loads (`mates_open_pending`).
+pub fn open_mates_chat(app: &AppHandle, chat: &str) {
+    *PENDING_CHAT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(chat.to_string());
+    show_mates(app);
+    if app.get_window(MATES).is_some() {
+        let _ = tauri::Emitter::emit_to(app, MATES, "mates://open-chat", serde_json::json!({ "chat": chat }));
+    }
+}
+
+/// The chat Evo Mates was asked to show before it loaded, once.
+#[tauri::command]
+pub fn mates_open_pending() -> Option<String> {
+    PENDING_CHAT.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+}
+
 /// Show `front`'s window: the main window (built again if it was destroyed),
 /// or the Mates window, built on first need.
 pub fn open(app: &AppHandle, front: Front) {
@@ -187,9 +207,12 @@ fn mates_icon() -> tauri::image::Image<'static> {
 
 /// Switch to the other front end (the **Switch to** buttons, FR-3).
 #[tauri::command]
-pub async fn app_open(app: AppHandle, target: String) -> Result<(), String> {
+pub async fn app_open(app: AppHandle, target: String, chat: Option<String>) -> Result<(), String> {
     let front = Front::parse(&target).ok_or_else(|| format!("unknown app \"{target}\""))?;
-    open(&app, front);
+    match (front, chat) {
+        (Front::Mates, Some(chat)) => open_mates_chat(&app, &chat),
+        (front, _) => open(&app, front),
+    }
     Ok(())
 }
 

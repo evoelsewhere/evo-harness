@@ -191,6 +191,7 @@ pub fn run() {
         .invoke_handler({
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             app_identity::app_open,
+            app_identity::mates_open_pending,
             mates::mates_list,
             mates::mates_templates,
             mates::mates_create,

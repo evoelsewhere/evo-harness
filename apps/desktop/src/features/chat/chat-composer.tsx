@@ -55,6 +55,7 @@ import {
   textAttachment,
 } from "./composer-input";
 import { followNextTurn } from "./chat-thread";
+import { useChatPersona } from "./persona";
 import { QueuedMessages } from "./queued-messages";
 import { ComposerActions } from "@/features/plugin-ui";
 
@@ -103,6 +104,7 @@ export const composerDraft: ComposerDraft = ((globalThis as { __evoComposerDraft
 });
 
 export function ChatComposer() {
+  const persona = useChatPersona();
   const [text, setText] = React.useState("");
   const [attachments, setAttachments] = React.useState<PromptAttachment[]>([]);
   const status = usePaneEngine((s) => s.status);
@@ -515,7 +517,9 @@ export function ChatComposer() {
           ? "Starting the engine…"
           : busy
             ? "Enter to send now, Ctrl+Enter to queue for later"
-            : "Ask anything — @ to tag files, / for commands"
+            : persona
+              ? `Message ${persona.name}`
+              : "Ask anything — @ to tag files, / for commands"
       }
       attachments={attachments}
       onRemoveAttachment={removeAttachment}
@@ -534,7 +538,7 @@ export function ChatComposer() {
         />
       }
       toolbar={
-        <>
+        persona?.compactComposer ? undefined : <>
           <ModelSelector
             loading={modelsLoading}
             models={models}

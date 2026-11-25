@@ -18,7 +18,7 @@ function RoleCard({ role, busy, onAdd }: { role: MateTemplate; busy: boolean; on
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-card p-4 shadow-[0_0_0_1px_var(--border)]">
       <div className="flex items-center gap-3">
-        <MateFace avatar={role.avatar} size={48} label={role.name} />
+        <MateFace avatar={role.avatar} size={48} label={role.name} plate={false} />
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-foreground">{role.name}</div>
           <div className="truncate text-xs text-muted-foreground">{role.role}</div>

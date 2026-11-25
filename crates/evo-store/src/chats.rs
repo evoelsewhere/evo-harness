@@ -74,10 +74,17 @@ pub struct Chat {
     pub role: Option<serde_json::Value>,
     /// `chat` (Evo Harness), or an Evo Mates chat: `mate` (a mate's direct
     /// conversation), `channel` or `seat` (docs/features/evo-mates/spec.md,
-    /// FR-24). Harness lists and searches only `chat`.
+    /// FR-24). Harness lists and searches only `chat`. Missing (an older
+    /// row as JSON): `chat`.
+    #[serde(default = "chat_kind")]
     pub kind: String,
     /// The mate a `mate` or `seat` chat belongs to.
+    #[serde(default)]
     pub mate_id: Option<String>,
+}
+
+fn chat_kind() -> String {
+    KIND_CHAT.to_string()
 }
 
 /// A chat to create.

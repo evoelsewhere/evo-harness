@@ -33,6 +33,15 @@ own (see 7).
 
 ## 2. Layout
 
+Refined 2026-11-25 from the owner's reference screenshots: faces stand bare
+(no plate) in lists, the conversation's bar sits in the window's title row
+(face, name, state, Edit; the model pill and the profile toggle on the
+right), a direct conversation shows replies in a neutral bubble with no
+face beside each one (faces beside replies are for channels), and the
+message box is one line ("Message <name>") with no model or approval
+menus: the model is in the bar, approvals in the profile.
+
+
 ```text
 ┌──────────── sidebar 280 ────────────┬──────────── conversation ────────────┬── mate panel 320 ──┐
 │ [search]                  [+ New]   │  ┌ header pill ──────────────────┐  │  (avatar 72)        │

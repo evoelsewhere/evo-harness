@@ -637,3 +637,26 @@ Phase 2, first slice (2026-11-25):
 - **Faces**: `open-bot-avatar` 0.4.0 (exact), Evo's eight definitions in
   `components/mate-face/faces.ts`; lists draw the static SVG, the header and
   the panel mount the live avatar.
+
+Phase 2, second slice (2026-11-25), after the owner's reference screenshots:
+
+- **The conversation's bar** sits in its own row under the window's title
+  row: face, name, state, Edit; the chat's model pill (`ChatModelPill`,
+  exported by the chat feature) and the profile toggle on the right.
+- **A chat persona** (`features/chat/persona.tsx`): the chat view takes the
+  mate as `persona`; replies sit in a neutral bubble (a face beside each
+  only with `showAuthor`, for channels), the "Saved to memory" chip shows
+  under a turn that saved a topic, and the composer is one line ("Message
+  <name>") with no model or approval menus.
+- **Approvals per mate in the composer**: the UI store takes an approval
+  owner; in Evo Mates the shown mate owns the mode, so a change is the
+  mate's (`mates_update`) and the app's mode is neither shown nor written.
+- **Memory**: the prompt sends how the person wants the mate to work to
+  its own memory and only facts every chat needs to personal memory (a
+  first trial saved a mate's writing preferences as personal). The Memory
+  tab lists the mate's own topics (Forget) and the shared personal ones.
+- **Needs you and notices**: Harness lists mates that wait (`mates_list`
+  plus the shell's work list) and opens them with `app_open` and a chat;
+  a notice of a mate's chat opens Evo Mates (`notices::open_chat`), which
+  reads a chat asked for before it loaded (`mates_open_pending`).
+- `Chat.kind` reads as `chat` from JSON without it (older rows).

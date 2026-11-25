@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ArchiveIcon, ChevronRightIcon, GhostIcon, MoreHorizontalIcon, PinIcon, PlusIcon } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { StatusDot } from "@/components/status-dot";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -18,6 +19,10 @@ import {
   SidebarMenuSub,
 } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
+import { MateFace } from "@/components/mate-face/mate-face";
+import { openApp } from "@/lib/apps";
+import { matesApi, type Mate } from "@/lib/mates";
+import { inTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { startDrag } from "@/features/split/drag";
@@ -335,7 +340,38 @@ const NEEDS_YOU_SHOWN = 6;
  * or run — most urgent first, each with its workspace's initials. Hidden when
  * empty (docs/features/workspace-rail/spec.md, FR-7).
  */
+/** Mates that wait for the person, for Harness's Needs you (docs/features/evo-mates/spec.md, FR-12). */
+function useWaitingMates(): Mate[] {
+  const work = useSessionStore((s) => s.work);
+  const [mates, setMates] = React.useState<Mate[]>([]);
+  React.useEffect(() => {
+    if (!inTauri) return;
+    let gone = false;
+    const read = () => void matesApi.list().then((list) => !gone && setMates(list), () => undefined);
+    read();
+    const stop = listen("mates://changed", read);
+    return () => {
+      gone = true;
+      void stop.then((off) => off());
+    };
+  }, []);
+  return mates.filter((mate) => work[mate.chatId] === "waiting");
+}
+
+function WaitingMate({ mate }: { mate: Mate }) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton onClick={() => void openApp("mates", mate.chatId)} className="h-8 text-[13px]">
+        <MateFace avatar={mate.avatar} size={18} plate={false} mood="waiting" label={mate.name} />
+        <span className="truncate">{mate.name}</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground">Evo Mates</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export function NeedsYou() {
+  const waitingMates = useWaitingMates();
   const sessions = useSessionStore((s) => s.sessions);
   const workspaces = useSessionStore((s) => s.workspaces);
   const currentId = useEngineStore((s) => s.activeId);
@@ -343,7 +379,7 @@ export function NeedsYou() {
   const [expanded, setExpanded] = React.useState(false);
   useMinuteTick();
   const chats = needsYou(sessions, states);
-  if (chats.length === 0) return null;
+  if (chats.length === 0 && waitingMates.length === 0) return null;
   const byId = new Map(workspaces.map((w) => [w.id, w]));
   // The workspace's own icon (FR-15), its name in the tooltip.
   const tag = (chat: SessionSummary) => {
@@ -363,6 +399,9 @@ export function NeedsYou() {
         <SidebarMenu>
           {shown.map((chat) => (
             <ChatItem key={chat.id} chat={chat} active={chat.id === currentId} tag={tag(chat)} />
+          ))}
+          {waitingMates.map((mate) => (
+            <WaitingMate key={mate.id} mate={mate} />
           ))}
           {(hidden > 0 || expanded) && chats.length > NEEDS_YOU_SHOWN && (
             <li>

@@ -94,10 +94,10 @@ function MateRow({ mate, active }: { mate: Mate; active: boolean }) {
           active && "bg-sidebar-accent",
         )}
       >
-        <MateFace avatar={mate.avatar} size={36} mood={mood} label={mate.name} />
+        <MateFace avatar={mate.avatar} size={36} mood={mood} label={mate.name} plate={false} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-[13px] leading-[18px] font-medium text-sidebar-foreground">{mate.name}</span>
+            <span className="truncate text-[13px] leading-[18px] font-semibold text-sidebar-foreground">{mate.name}</span>
             {at && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{formatRelative(at)}</span>}
           </span>
           <span
@@ -130,7 +130,7 @@ function PinnedTile({ mate, active }: { mate: Mate; active: boolean }) {
           active && "bg-sidebar-accent",
         )}
       >
-        <MateFace avatar={mate.avatar} size={52} mood={mood} label={mate.name} />
+        <MateFace avatar={mate.avatar} size={52} mood={mood} label={mate.name} plate={false} />
         <span className="w-full truncate text-center text-xs text-sidebar-foreground">{mate.name}</span>
       </button>
     </WithMenu>

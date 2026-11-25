@@ -22,6 +22,7 @@ import { TurnChanges } from "./turn-changes";
 import { UserPrompt } from "./user-message";
 import { MessageMenu } from "./message-menu";
 import { replyMarkdown } from "./message-text";
+import { savedMemory, useChatPersona } from "./persona";
 import { SentFiles, type SentFile } from "@/components/ai-elements/sent-files";
 import { KeptWorktree, childRun } from "@/components/ai-elements/agent-run";
 import { noteKind, turnReply, type NoteKind, type ToolPart, type Turn } from "./transcript";
@@ -188,6 +189,7 @@ export function AssistantMessage({
   onOpenInEvo?: () => void;
 }) {
   const [copied, setCopied] = React.useState(false);
+  const persona = useChatPersona();
   const running = turn.status === "running";
   const all = React.useMemo(() => segments(turn.parts), [turn.parts]);
   const hasProcess = all.some((segment) => segment.kind === "process");
@@ -313,9 +315,28 @@ export function AssistantMessage({
       </Message>
   );
   if (compact) return body;
+  // A mate's reply: its face and name, a bubble in its colour (evo-mates FR-30, FR-35).
+  const shownBody = persona ? (
+    <div className="flex items-start gap-2.5">
+      {persona.showAuthor && <div className="mt-5 shrink-0">{persona.avatar}</div>}
+      <div className="min-w-0 flex-1">
+        {persona.showAuthor && <div className="mb-1 px-1 text-xs font-medium text-muted-foreground">{persona.name}</div>}
+        <div className="w-fit max-w-[88%] rounded-[18px] px-4 py-2.5" style={{ background: persona.tint }}>
+          {body}
+        </div>
+        {!running && savedMemory(turn) && (
+          <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            Saved to memory
+          </div>
+        )}
+      </div>
+    </div>
+  ) : (
+    body
+  );
   return (
     <MessageMenu turn={turn} text={reply} markdown>
-      {body}
+      {shownBody}
     </MessageMenu>
   );
 }

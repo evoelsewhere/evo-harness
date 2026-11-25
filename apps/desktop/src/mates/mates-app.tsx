@@ -8,19 +8,23 @@
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { MateFace } from "@/components/mate-face/mate-face";
+import { ChatModelPill, type ChatPersona } from "@/features/chat";
 import { ChatView } from "@/features/chat/chat-view";
 import { Gallery } from "@/features/mates/gallery";
-import { MateHeader, MatePanel, useShownMate } from "@/features/mates/mate-panel";
+import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
 import { MatesEmpty, MatesSidebar } from "@/features/mates/mates-shell";
 import { startShellNotices } from "@/features/notifications/notify";
 import { QuitDialog } from "@/features/shell/quit-dialog";
 import { WindowControls } from "@/features/shell/window-controls";
 import { installErrorLogging, log } from "@/lib/db";
+import type { Mate } from "@/lib/mates";
 import { inTauri, isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { setNativeMaterial } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
+import { useUiStore } from "@/stores/ui-store";
 
 function useBootstrap() {
   React.useEffect(() => {
@@ -43,21 +47,59 @@ function useBootstrap() {
   }, []);
 }
 
+/** The mate as its replies show it: face, name and bubble colour (FR-30). */
+function usePersona(mate: Mate | null): ChatPersona | undefined {
+  return React.useMemo(() => {
+    if (!mate) return undefined;
+    return {
+      name: mate.name,
+      avatar: <MateFace avatar={mate.avatar} size={28} label={mate.name} plate={false} />,
+      // Replies sit in a neutral bubble; the mate's colour is its face (ux.md 3).
+      tint: "var(--muted)",
+      compactComposer: true,
+    };
+  }, [mate]);
+}
+
 function Conversation() {
   const mate = useShownMate();
   const view = useMatesStore((s) => s.view);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const shown = useEngineStore((s) => s.activeId);
+  const update = useMatesStore((s) => s.update);
+  // The composer's approval menu is the shown mate's mode, not the app's
+  // (docs/features/evo-mates/spec.md, FR-7, NFR-5).
+  const id = mate?.id;
+  const mode = mate?.approvalMode;
+  React.useEffect(() => {
+    if (!id || !mode) return;
+    useUiStore.getState().setApprovalOwner((next) => void update(id, { approvalMode: next }), mode);
+  }, [id, mode, update]);
+  const persona = usePersona(mate);
   if (view.kind === "gallery") return <Gallery />;
   if (!mate) return <MatesEmpty />;
   return (
     <div className="flex h-full min-h-0">
-      <div className="relative flex min-w-0 flex-1 flex-col pt-12">
-        <MateHeader mate={mate} />
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* The conversation's bar, in its own row under the title row (ux.md 2). */}
+        <div className="flex h-12 shrink-0 items-center border-b border-border pr-2">
+          <MateBar mate={mate} modelPill={shown === mate.chatId ? <ChatModelPill /> : null} />
+        </div>
         {/* The mate's chat, once the engine store shows it. */}
-        <div className="min-h-0 flex-1">{shown === mate.chatId ? <ChatView /> : null}</div>
+        <div className="min-h-0 flex-1">
+          {shown === mate.chatId ? <ChatView emptyState={<MateGreeting mate={mate} />} persona={persona} /> : null}
+        </div>
       </div>
       {panelOpen && <MatePanel mate={mate} />}
+    </div>
+  );
+}
+
+/** The window's title row: only the window's buttons; the mate's bar sits below it. */
+function TitleRow() {
+  return (
+    <div data-tauri-drag-region className="drag-region flex h-10 shrink-0 items-center justify-end">
+      <WindowControls />
     </div>
   );
 }
@@ -75,9 +117,7 @@ export function MatesApp() {
         }
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <div data-tauri-drag-region className="drag-region flex h-10 shrink-0 items-center justify-end">
-          <WindowControls />
-        </div>
+        <TitleRow />
         <main className="min-h-0 flex-1 overflow-hidden bg-background min-[900px]:rounded-tl-xl">
           <Conversation />
         </main>

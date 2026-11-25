@@ -6,8 +6,11 @@ import { inTauri } from "@/lib/platform";
 
 export type AppFront = "harness" | "mates";
 
-/** Bring the other front end's window forward, opening it when it is closed. */
-export function openApp(target: AppFront): Promise<void> {
+/**
+ * Bring the other front end's window forward, opening it when it is closed;
+ * with `chat`, Evo Mates shows that mate's conversation (evo-mates FR-12).
+ */
+export function openApp(target: AppFront, chat?: string): Promise<void> {
   if (!inTauri) return Promise.resolve();
-  return invoke<void>("app_open", { target }).catch(() => undefined);
+  return invoke<void>("app_open", { target, chat: chat ?? null }).catch(() => undefined);
 }

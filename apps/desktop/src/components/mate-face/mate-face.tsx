@@ -67,8 +67,11 @@ export function MateFace({
   live = false,
   label,
   className,
+  plate: withPlate = true,
 }: {
   avatar: MateAvatar | null | undefined;
+  /** A round plate in the mate's colour behind the face; lists show the face bare. */
+  plate?: boolean;
   size?: number;
   mood?: MateMood;
   /** Animate: the face moves while working, and follows the pointer when hovered. */
@@ -115,20 +118,20 @@ export function MateFace({
       live
         ? ""
         : // The face's own name is not the mate's: the plate carries the label.
-          renderAvatarSvg(definition, { color: body, state, size: Math.round(size * 0.78) }).replace(
+          renderAvatarSvg(definition, { color: body, state, size: withPlate ? Math.round(size * 0.78) : size }).replace(
             /<title>[\s\S]*?<\/title>/g,
             "",
           ),
-    [live, definition, body, state, size],
+    [live, definition, body, state, size, withPlate],
   );
 
-  const inner = Math.round(size * 0.78);
+  const inner = withPlate ? Math.round(size * 0.78) : size;
   return (
     <div
       role="img"
       aria-label={label}
       className={cn("relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full", className)}
-      style={{ width: size, height: size, background: plate }}
+      style={{ width: size, height: size, background: withPlate ? plate : undefined }}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >

@@ -7,8 +7,8 @@
 import * as React from "react";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { FolderOpenIcon, PanelRightIcon, XIcon } from "lucide-react";
-import { MateFace } from "@/components/mate-face/mate-face";
+import { FolderOpenIcon, PanelRightIcon, PencilIcon, XIcon } from "lucide-react";
+import { faceColors, MateFace } from "@/components/mate-face/mate-face";
 import { faces } from "@/components/mate-face/faces";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,17 @@ import { mateMood, moodWord, useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
 import { ConfirmDelete } from "./confirm";
 
+/** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
+export function MateGreeting({ mate }: { mate: Mate }) {
+  return (
+    <div className="mx-auto flex w-full max-w-(--chat-width) flex-col items-center gap-3 px-6 pb-6 text-center">
+      <MateFace avatar={mate.avatar} size={88} live plate={false} label={mate.name} />
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground">Say hi to {mate.name}</h1>
+      {mate.role && <p className="max-w-md text-sm text-muted-foreground">{mate.role}</p>}
+    </div>
+  );
+}
+
 export function useShownMate(): Mate | null {
   return useMatesStore((s) => {
     const view = s.view;
@@ -30,23 +41,41 @@ export function useShownMate(): Mate | null {
   });
 }
 
-export function MateHeader({ mate }: { mate: Mate }) {
+/**
+ * The conversation's bar, in the window's title row (ux.md 2): the mate's
+ * face, name and state, Edit; on the right its model and the profile toggle.
+ */
+export function MateBar({ mate, modelPill }: { mate: Mate; modelPill?: React.ReactNode }) {
   const work = useSessionStore((s) => s.work[mate.chatId]);
   const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
   const mood = mateMood(work, busy);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const setPanelOpen = useMatesStore((s) => s.setPanelOpen);
-  const word = moodWord(mood);
+  const word = mate.paused ? "Paused" : moodWord(mood);
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center px-4">
-      <div className="pointer-events-auto flex max-w-full items-center gap-2.5 rounded-full bg-background/90 py-1 pr-1 pl-1 shadow-[0_0_0_1px_var(--border),0_4px_16px_rgb(0_0_0/0.06)] backdrop-blur">
-        <MateFace avatar={mate.avatar} size={32} mood={mood} live label={mate.name} />
-        <div className="min-w-0 leading-tight">
-          <div className="truncate text-[13px] font-semibold text-foreground">{mate.name}</div>
-          <div className={cn("truncate text-xs text-muted-foreground", word && "text-foreground")}>
-            {mate.paused ? "Paused" : (word ?? (mate.role || "Mate"))}
-          </div>
-        </div>
+    <div className="flex min-w-0 flex-1 items-center gap-2 pl-4">
+      <MateFace avatar={mate.avatar} size={24} mood={mood} live plate={false} label={mate.name} />
+      <span className="truncate text-[13px] font-semibold text-foreground">{mate.name}</span>
+      {word && <span className="truncate text-xs text-muted-foreground">{word}</span>}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Edit profile"
+              onClick={() => setPanelOpen(true)}
+              className="text-muted-foreground"
+            />
+          }
+        >
+          <PencilIcon />
+        </TooltipTrigger>
+        <TooltipContent>Edit profile</TooltipContent>
+      </Tooltip>
+      <div className="flex-1" />
+      <div className="flex items-center gap-1">
+        {modelPill}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -55,7 +84,7 @@ export function MateHeader({ mate }: { mate: Mate }) {
                 size="icon-sm"
                 aria-label={panelOpen ? "Close profile" : "Open profile"}
                 onClick={() => setPanelOpen(!panelOpen)}
-                className="ml-2 rounded-full"
+                className="text-muted-foreground"
               />
             }
           >
@@ -67,6 +96,9 @@ export function MateHeader({ mate }: { mate: Mate }) {
     </div>
   );
 }
+
+/** The colours a mate can take (ux.md 6): one hue each, drawn per theme. */
+const HUES = [150, 210, 0, 30, 270, 190, 330, 45, 175, 12, 240, 95];
 
 const MODES: { id: ApprovalMode; label: string; hint: string }[] = [
   { id: "ask", label: "Ask every time", hint: "Asks before edits and commands." },
@@ -97,7 +129,11 @@ function About({ mate }: { mate: Mate }) {
   const dirty = name !== mate.name || role !== mate.role || instructions !== mate.instructions;
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Face">
+      <div className="flex flex-col items-center gap-3 rounded-xl bg-muted/60 p-4">
+        <MateFace avatar={mate.avatar} size={96} live plate={false} label={mate.name} />
+      </div>
+      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Face</span>
+      <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Face">
         {faces.map((face) => (
           <button
             key={face.id}
@@ -107,25 +143,32 @@ function About({ mate }: { mate: Mate }) {
             aria-label={face.name}
             onClick={() => void update(mate.id, { avatar: { ...mate.avatar, definition: face.id } })}
             className={cn(
-              "rounded-full p-0.5 ring-offset-2 ring-offset-background transition",
+              "flex items-center justify-center rounded-lg bg-muted/60 p-1.5 transition-colors hover:bg-muted",
               mate.avatar.definition === face.id && "ring-2 ring-primary",
             )}
           >
-            <MateFace avatar={{ ...mate.avatar, definition: face.id }} size={34} />
+            <MateFace avatar={{ ...mate.avatar, definition: face.id }} size={36} plate={false} />
           </button>
         ))}
       </div>
-      <Field label="Colour">
-        <input
-          type="range"
-          min={0}
-          max={359}
-          value={mate.avatar.hue ?? 210}
-          onChange={(event) => void update(mate.id, { avatar: { ...mate.avatar, hue: Number(event.target.value) } })}
-          className="w-full accent-[var(--primary)]"
-          aria-label="Colour"
-        />
-      </Field>
+      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Colour</span>
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Colour">
+        {HUES.map((hue) => (
+          <button
+            key={hue}
+            type="button"
+            role="radio"
+            aria-checked={(mate.avatar.hue ?? 210) === hue}
+            aria-label={`Colour ${hue}`}
+            onClick={() => void update(mate.id, { avatar: { ...mate.avatar, hue } })}
+            className={cn(
+              "size-7 rounded-full ring-offset-2 ring-offset-background transition",
+              (mate.avatar.hue ?? 210) === hue && "ring-2 ring-foreground",
+            )}
+            style={{ background: faceColors(hue, false).body }}
+          />
+        ))}
+      </div>
       <Field label="Name">
         <Input value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
@@ -150,8 +193,12 @@ function About({ mate }: { mate: Mate }) {
 
 function Settings({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
+  const model = useSessionStore((s) => s.sessions.find((c) => c.id === mate.chatId)?.model ?? null);
   return (
     <div className="flex flex-col gap-5">
+      <Field label="Model" hint="Pick another in the message box's model menu; the mate keeps it.">
+        <div className="truncate rounded-lg bg-muted px-2.5 py-1.5 text-[13px] text-foreground">{model ?? "The app's default model"}</div>
+      </Field>
       <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Approvals">
         <span className="text-xs font-medium text-muted-foreground">Approvals</span>
         {MODES.map((mode) => (
@@ -182,6 +229,84 @@ function Settings({ mate }: { mate: Mate }) {
           aria-label="Notifications"
         />
       </div>
+    </div>
+  );
+}
+
+interface Topic {
+  name: string;
+  description: string;
+  updated: number;
+}
+
+/** The mate's own memory: what it keeps, to read and forget (FR-26). */
+function Memory({ mate }: { mate: Mate }) {
+  const shown = useEngineStore((s) => s.activeId === mate.chatId);
+  const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
+  const [topics, setTopics] = React.useState<Topic[] | null>(null);
+  const [shared, setShared] = React.useState<Topic[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const request = React.useCallback(async (command: string, args?: Record<string, unknown>) => {
+    try {
+      const state = await useEngineStore
+        .getState()
+        .request<{ project?: { items?: Topic[] }; personal?: { items?: Topic[] }; usePersonal?: boolean }>(command, args);
+      setTopics(state?.project?.items ?? []);
+      setShared(state?.usePersonal === false ? [] : (state?.personal?.items ?? []));
+      setError(null);
+    } catch (e) {
+      setError(String(e).replace(/^Error:\s*/, ""));
+    }
+  }, []);
+  React.useEffect(() => {
+    if (shown && !busy) void request("list_memories");
+  }, [shown, busy, request]);
+  if (!shown) return <p className="text-sm text-muted-foreground">Open {mate.name}'s conversation to see its memory.</p>;
+  if (error) return <p className="text-sm text-destructive">{error}</p>;
+  if (!topics) return <p className="text-sm text-muted-foreground">Reading…</p>;
+  return (
+    <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-2">
+        <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{mate.name}'s own</h3>
+        {topics.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing yet. {mate.name} keeps what you tell it and what it learns in its work.
+          </p>
+        ) : (
+    <ul className="flex flex-col gap-2">
+      {topics.map((topic) => (
+        <li key={topic.name} className="flex items-start gap-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-medium text-foreground">{topic.name}</div>
+            <div className="line-clamp-2 text-xs text-muted-foreground">{topic.description}</div>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="shrink-0"
+            onClick={() => void request("delete_memory", { scope: "project", name: topic.name })}
+          >
+            Forget
+          </Button>
+        </li>
+      ))}
+    </ul>
+        )}
+      </section>
+      {shared.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Shared with every mate</h3>
+          <p className="text-xs text-muted-foreground">About you, from your personal memory. Change it in Evo Harness → Memory.</p>
+          <ul className="flex flex-col gap-1.5">
+            {shared.map((topic) => (
+              <li key={topic.name} className="rounded-lg bg-muted/60 px-2.5 py-1.5">
+                <div className="truncate text-[13px] text-foreground">{topic.name}</div>
+                <div className="line-clamp-1 text-xs text-muted-foreground">{topic.description}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
@@ -225,10 +350,8 @@ export function MatePanel({ mate }: { mate: Mate }) {
   const [confirm, setConfirm] = React.useState(false);
   return (
     <aside className="relative flex h-full w-[320px] shrink-0 flex-col border-l border-border bg-background" aria-label={`${mate.name}'s profile`}>
-      <div className="flex flex-col items-center gap-2 px-4 pt-6 pb-3">
-        <MateFace avatar={mate.avatar} size={72} live label={mate.name} />
-        <div className="text-base font-semibold text-foreground">{mate.name}</div>
-        <div className="text-center text-xs text-muted-foreground">{mate.role}</div>
+      <div className="flex h-11 items-center justify-center px-4">
+        <div className="text-[13px] font-semibold text-foreground">Mate profile</div>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -243,6 +366,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
         <TabsList className="mx-4">
           <TabsTrigger value="about">About</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="memory">Memory</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
         </TabsList>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -251,6 +375,9 @@ export function MatePanel({ mate }: { mate: Mate }) {
           </TabsContent>
           <TabsContent value="settings">
             <Settings mate={mate} />
+          </TabsContent>
+          <TabsContent value="memory">
+            <Memory mate={mate} />
           </TabsContent>
           <TabsContent value="files">
             <Files mate={mate} />

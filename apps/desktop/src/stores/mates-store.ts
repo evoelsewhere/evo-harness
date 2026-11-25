@@ -3,6 +3,7 @@
 // the shell (`mates_*`); their conversations are chats the engine store
 // shows, so picking a mate selects its chat there.
 
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import type { MateMood } from "@/components/mate-face/mate-face";
@@ -24,6 +25,8 @@ interface MatesStore {
   panelOpen: boolean;
   load(): Promise<void>;
   open(id: string): Promise<void>;
+  /** Show the mate whose conversation `chat` is (a notice, Harness's Needs you). */
+  openChat(chat: string): Promise<void>;
   showGallery(): void;
   setPanelOpen(open: boolean): void;
   create(input: CreateMate): Promise<Mate | null>;
@@ -50,6 +53,7 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
       void listen("mates://changed", () => {
         void matesApi.list().then((mates) => set({ mates }), report("reading the mates"));
       });
+      void listen<{ chat: string }>("mates://open-chat", ({ payload }) => void get().openChat(payload.chat));
     }
     const [mates, templates] = await Promise.all([
       matesApi.list().catch((error) => {
@@ -61,6 +65,14 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
     // With no mate yet, the gallery greets the person (spec A-5).
     const view: MatesView = mates.length === 0 ? { kind: "gallery" } : get().view;
     set({ loaded: true, mates, templates, view });
+    // Asked to show a mate before this window had loaded.
+    const pending = inTauri ? await invoke<string | null>("mates_open_pending").catch(() => null) : null;
+    if (pending) await get().openChat(pending);
+  },
+
+  async openChat(chat) {
+    const mate = get().mates.find((m) => m.chatId === chat);
+    if (mate) await get().open(mate.id);
   },
 
   async open(id) {

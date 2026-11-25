@@ -566,9 +566,10 @@ pub(crate) fn prompt_text_as(
     let only_own = "Save only what the person states or what your own work showed, never another mate's claims.";
     let scopes = match (mate, personal.is_some()) {
         (Some(name), true) => format!(
-            "Use scope `personal` for what holds about the person everywhere, and `project` for your own \
-memory as {name}: what the person tells you and what you learn in your work. Other mates do not see \
-your own memory. {only_own}"
+            "Use scope `project` for your own memory as {name}: how the person wants you to work (style, \
+preferences, focus), your tasks, and what you learn in your work. Use scope `personal` only for facts about \
+the person that every mate and chat needs (their name, role, company); when unsure, use `project`. Other \
+mates do not see your own memory. {only_own}"
         ),
         (Some(name), false) => format!(
             "Use scope `project` for your own memory as {name}: what the person tells you and what you \

@@ -221,6 +221,17 @@ pub fn notifications_take(db: State<'_, Db>) -> Vec<BellEntry> {
 /// window, which opens it (`app://open-chat`; built again first when it was
 /// destroyed, FR-11).
 pub(crate) fn open_chat(app: &AppHandle, chat: &str) {
+    // A mate's chat opens in Evo Mates (docs/features/evo-mates/spec.md, FR-12).
+    let kind = app
+        .state::<crate::db::Db>()
+        .with(|conn| evo_store::chats::get_chat(conn, chat))
+        .ok()
+        .flatten()
+        .map(|row| row.kind);
+    if kind.as_deref().is_some_and(|kind| kind != evo_store::chats::KIND_CHAT) {
+        crate::app_identity::open_mates_chat(app, chat);
+        return;
+    }
     // The quick entry box's own chat: the box decides between itself and
     // the main window (quick-entry FR-19).
     if crate::quick_entry::notice_clicked(app, chat) {
