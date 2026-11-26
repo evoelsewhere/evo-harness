@@ -686,10 +686,12 @@ async fn mate_gate(
         .unwrap_or_default()
         .iter()
         .any(|t| t == name);
+    // A heartbeat turn sends nothing unasked (evo-mates FR-68).
+    let sending = if crate::mates::initiative::in_heartbeat(&ctx.chat) { "ask" } else { mate.sending.as_str() };
     let plan = grants::plan(
         tool.read_only,
         asks(tool.permission),
-        &mate.sending,
+        sending,
         for_mate,
         grants::allowed_here(&ctx.chat, name),
     );

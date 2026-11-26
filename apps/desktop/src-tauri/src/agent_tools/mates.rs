@@ -26,6 +26,7 @@ use crate::db::Db;
 pub const PROFILE_TOOL: &str = "mate_profile";
 pub const CONNECT_TOOL: &str = "connect_app";
 pub const SECRET_TOOL: &str = "request_secret";
+pub const AGENDA_TOOL: &str = "mate_agenda";
 
 /// The line that starts the setup answers in a mate's instructions.
 pub const SETUP_MARK: &str = "Setup answers (from the person):";
@@ -97,6 +98,26 @@ fn definitions() -> Vec<Value> {
                 "additionalProperties": false
             }
         }),
+        json!({
+            "name": AGENDA_TOOL,
+            "description": "Your agenda of things to come back to (evo-mates FR-63): add what you promised to do, events the person mentioned with their time, and questions left open, so you can follow up at the right moment; mark an item done when it is settled. A check-in the person asks for (\"every weekday at 9\") is an item with `repeat`. Never put secrets in it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["add", "done", "list"] },
+                    "kind": { "type": "string", "enum": ["promise", "event", "question", "checkin"], "description": "With add." },
+                    "text": { "type": "string", "description": "With add: what to come back to, in one short line." },
+                    "due": { "type": "string", "description": "With add, when to come back to it: an ISO date and time in local time, e.g. \"2026-11-27T11:00\". For an event, a little after it ends. Use `list` first if you are not sure of today's date: it says the time now." },
+                    "repeat": {
+                        "type": "object",
+                        "description": "With add, for a check-in: {\"kind\": \"daily\" | \"weekdays\" | \"weekly\", \"time\": \"09:00\", \"days\": [1] (weekly: 0 Sun - 6 Sat)}.",
+                    },
+                    "id": { "type": "string", "description": "With done: the item's id (from list)." }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }
+        }),
     ]
 }
 
@@ -117,7 +138,7 @@ impl Provider for MateTools {
     }
 
     fn claims(&self, name: &str) -> bool {
-        name == PROFILE_TOOL || name == CONNECT_TOOL || name == SECRET_TOOL
+        name == PROFILE_TOOL || name == CONNECT_TOOL || name == SECRET_TOOL || name == AGENDA_TOOL
     }
 
     fn run(&self, ctx: ToolCtx, name: String, args: Value) -> BoxFuture<ToolOutput> {
@@ -127,6 +148,7 @@ impl Provider for MateTools {
             };
             match name.as_str() {
                 PROFILE_TOOL => save_profile(&ctx, &mate, &args).await,
+                AGENDA_TOOL => agenda(&ctx, &mate, &args),
                 SECRET_TOOL => request_secret(&ctx, &mate, &args).await,
                 _ => connect(&ctx, &mate, &args).await,
             }
@@ -268,6 +290,111 @@ async fn request_secret(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Val
         )),
         Ok(Err(error)) => ToolOutput::error(format!("Could not keep {name}: {error}")),
         Err(error) => ToolOutput::error(format!("Could not keep {name}: {error}")),
+    }
+}
+
+// ── mate_agenda ─────────────────────────────────────────────────────────────
+
+fn when(ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|t| t.format("%a %d %b %H:%M").to_string())
+        .unwrap_or_default()
+}
+
+fn local_now() -> String {
+    chrono::Local::now().format("%Y-%m-%dT%H:%M (%a)").to_string()
+}
+
+fn agenda(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Value) -> ToolOutput {
+    use crate::agent_tools::scheduler::schedule::{describe_schedule, next_run, parse_moment, schedule_from};
+    use evo_store::agenda;
+    let db = ctx.app.state::<Db>();
+    let text = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
+    let changed = || {
+        let _ = ctx.app.emit("mates://changed", json!({}));
+    };
+    match text("action").as_str() {
+        "add" => {
+            let kind = text("kind");
+            let what = text("text");
+            let now = evo_store::chats::now_ms();
+            let (due, repeat, said) = match args.get("repeat").filter(|r| r.is_object()) {
+                Some(repeat) => {
+                    let schedule = match schedule_from(repeat) {
+                        Ok(schedule) => schedule,
+                        Err(error) => return ToolOutput::error(format!("That repeat cannot be read: {error}")),
+                    };
+                    let Some(next) = next_run(&schedule, now) else {
+                        return ToolOutput::error("That repeat never comes round.");
+                    };
+                    let json = serde_json::to_string(&schedule).unwrap_or_default();
+                    (next, Some(json), describe_schedule(&schedule))
+                }
+                None => match parse_moment(&text("due")) {
+                    // A time long past is a wrong date: say what now is.
+                    Some(due) if due < now - 6 * 3_600_000 => {
+                        return ToolOutput::error(format!(
+                            "That time is in the past. It is now {} (local time); give `due` again as an ISO date and time.",
+                            local_now()
+                        ))
+                    }
+                    Some(due) => (due, None, when(due)),
+                    None => {
+                        return ToolOutput::error(format!(
+                            "Give `due` as an ISO date and time; it is now {} (local time).",
+                            local_now()
+                        ))
+                    }
+                },
+            };
+            let kind = if repeat.is_some() { "checkin".to_string() } else { kind };
+            let item = agenda::NewItem {
+                id: crate::mates::new_id("agenda"),
+                mate_id: mate.id.clone(),
+                kind,
+                text: what,
+                due_at: due,
+                repeat,
+                chat_id: Some(ctx.chat.clone()),
+            };
+            match db.with(|conn| agenda::add_item(conn, &item)) {
+                Ok(Some(item)) => {
+                    changed();
+                    ToolOutput::text(format!(
+                        "On your agenda ({}): \"{}\" — {said}. Id {}. It is now {}.",
+                        item.kind,
+                        item.text,
+                        item.id,
+                        local_now()
+                    ))
+                }
+                Ok(None) => ToolOutput::text("The person asked you never to follow up on that: it was not added."),
+                Err(error) => ToolOutput::error(format!("Could not add it: {error}")),
+            }
+        }
+        "done" => match db.with(|conn| agenda::set_status(conn, &mate.id, &text("id"), "done")) {
+            Ok(true) => {
+                changed();
+                ToolOutput::text("Done: it is off your agenda.")
+            }
+            Ok(false) => ToolOutput::error("No such item on your agenda; list them first."),
+            Err(error) => ToolOutput::error(error),
+        },
+        "list" => match db.with(|conn| agenda::list_items(conn, &mate.id, false)) {
+            Ok(items) if items.is_empty() => ToolOutput::text(format!("Your agenda is empty. It is now {}.", local_now())),
+            Ok(items) => ToolOutput::text(
+                items
+                    .iter()
+                    .map(|i| format!("- {} ({}, {}): {}{}", i.id, i.kind, when(i.due_at), i.text, if i.status == "paused" { " — paused" } else { "" }))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            Err(error) => ToolOutput::error(error),
+        },
+        _ => ToolOutput::error("`action` is add, done or list."),
     }
 }
 

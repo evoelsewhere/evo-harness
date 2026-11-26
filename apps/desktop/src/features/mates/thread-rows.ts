@@ -90,6 +90,16 @@ export function savedMemory(turn: Pick<Turn, "parts">): boolean {
 /** The message keys of a turn (reactions are kept by them, FR-60). */
 const baseKey = (turn: Turn) => turn.entryId ?? turn.id;
 
+/** A turn the heartbeat started: the mate decides whether to write first (FR-64). */
+export function isHeartbeat(prompt: string): boolean {
+  return prompt.trimStart().startsWith("<evo-mates-heartbeat");
+}
+
+/** A reply that says nothing is worth saying (`NOTHING_TO_SAY`): never shown. */
+export function isSilent(text: string): boolean {
+  return text.trim().replace(/^[.`*]+|[.`*]+$/g, "").toUpperCase() === "NOTHING_TO_SAY";
+}
+
 export function threadRows(turns: readonly Turn[], busy: boolean, retrying = false): Row[] {
   const rows: Row[] = [];
   const bubbles: { bubble: Bubble }[] = [];
@@ -103,6 +113,18 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
   };
   turns.forEach((turn, index) => {
     const base = baseKey(turn);
+    // A heartbeat turn shows only what the mate wrote first, never the
+    // prompt, its steps or a silent answer (FR-64, FR-66).
+    if (isHeartbeat(turn.prompt)) {
+      let said = 0;
+      turn.parts.forEach((part) => {
+        if (part.kind !== "text" || !part.text.trim() || isSilent(part.text)) return;
+        // While it streams it may still turn out silent: wait for the end.
+        if (part.streaming && "NOTHING_TO_SAY".startsWith(part.text.trim().toUpperCase())) return;
+        push({ key: `${base}:first:${said++}`, side: "mate", text: part.text, reply: null, streaming: part.streaming, turn, at: turn.endedAt ?? turn.startedAt });
+      });
+      return;
+    }
     const { text, reply } = parsePrompt(turn.prompt);
     if (text.trim() || turn.images?.length) {
       push({ key: `${base}:prompt`, side: "me", text, reply, images: turn.images, streaming: false, turn, at: turn.startedAt });

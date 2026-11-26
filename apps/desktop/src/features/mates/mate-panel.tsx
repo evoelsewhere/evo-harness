@@ -24,6 +24,7 @@ import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { ConfirmDelete } from "./confirm";
+import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
 
 /** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
@@ -374,6 +375,7 @@ function Settings({ mate }: { mate: Mate }) {
         ))}
       </div>
       <AlwaysAllowed mate={mate} />
+      <FollowingUp mate={mate} />
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-[13px] font-medium text-foreground">Notifications</div>

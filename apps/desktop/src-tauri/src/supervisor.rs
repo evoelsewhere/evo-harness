@@ -899,15 +899,19 @@ impl EngineSupervisor {
                 let (folder, compact) = (self.hosted_folder(chat), line.get("compact") == Some(&Value::Bool(true)));
                 self.runs().settle(chat, folder.as_deref(), line.get("runId").and_then(Value::as_str), compact, at);
                 self.touch(chat, Instant::now());
+                // A mate's heartbeat turn with nothing to say is no reply
+                // (evo-mates FR-64): no notice, not unread.
+                let silent = crate::mates::initiative::in_heartbeat(chat)
+                    && line.get("finalText").and_then(Value::as_str).is_some_and(crate::mates::initiative::is_silent);
                 // The turn, once per run; unread unless a focused window shows it (FR-6).
-                let unread = notices::wanted(&self.viewers_of(chat), |label| host.focused(label));
+                let unread = !silent && notices::wanted(&self.viewers_of(chat), |label| host.focused(label));
                 match self.turns.on_settled(chat, generation, line, unread) {
                     turns::Settled::Record(record) => host.record(chat, record),
                     turns::Settled::NoTotals { first: true } => host.log(chat, "warn", turns::NO_TOTALS.to_string()),
                     _ => {}
                 }
                 // A compaction is not a turn; a stopped run is the person's doing.
-                if line.get("compact") != Some(&Value::Bool(true)) {
+                if line.get("compact") != Some(&Value::Bool(true)) && !silent {
                     match line.get("outcome").and_then(Value::as_str) {
                         Some("completed") => host.notice(chat, notices::Event::ReplyReady),
                         Some("failed") => host.notice(chat, notices::Event::RunFailed),
@@ -1434,6 +1438,10 @@ pub async fn on_line(app: &AppHandle, chat: &str, generation: u64, line: &Value)
         settings::providers_changed(app, chat);
     }
     let settled = supervisor.follow_line(&AppHost(app.clone()), chat, generation, line, now_ms());
+    // A mate's heartbeat turn ended: its items are taken up (evo-mates FR-64).
+    if line.get("type").and_then(Value::as_str) == Some("agent_settled") {
+        crate::mates::initiative::settled(app, chat, line);
+    }
     let kind = line.get("type").and_then(Value::as_str);
     // What works and waits may have changed: the tray and the sidebar follow (FR-12, NFR-5).
     if matches!(kind, Some("agent_start" | "agent_settled" | evo_mesh::wire::WIRE_TYPE)) {
@@ -1471,6 +1479,8 @@ pub fn sent(app: &AppHandle, chat: &str, line: &Value) {
     let host = AppHost(app.clone());
     if line.get("type").and_then(Value::as_str) == Some("prompt") {
         supervisor.prompted(chat);
+        // The person wrote: the chat's mate may write first again (evo-mates FR-65).
+        crate::mates::initiative::person_wrote(app, chat);
     }
     if let Some(change) = supervisor.questions.on_sent(chat, line) {
         host.question(chat, &change);

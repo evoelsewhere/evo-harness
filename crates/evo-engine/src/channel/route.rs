@@ -368,13 +368,13 @@ mod tests {
             confidence: 0.7,
         });
         assert_eq!(route("go", &ch, several, None).picked, ["p", "w", "n"]);
-        let timeout = route("go", &ch, None, Some("no answer in 1.5 s"));
+        let timeout = route("go", &ch, None, Some("no answer in 6 s"));
         assert_eq!(
             timeout,
             Route {
                 picked: vec!["p".into()],
                 reason: Reason::Lead {
-                    fallback: Some("no answer in 1.5 s".into())
+                    fallback: Some("no answer in 6 s".into())
                 }
             }
         );

@@ -50,6 +50,7 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
+pub mod agenda;
 pub mod channels;
 pub mod chat_index;
 pub mod chats;
@@ -148,6 +149,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 16,
         name: "mate_reactions",
         sql: include_str!("migrations/0016_mate_reactions.sql"),
+    },
+    Migration {
+        version: 17,
+        name: "mate_agenda",
+        sql: include_str!("migrations/0017_mate_agenda.sql"),
     },
 ];
 

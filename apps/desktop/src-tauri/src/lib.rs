@@ -110,6 +110,8 @@ pub fn run() {
         .setup(|app| {
             // The session mesh hub: mail between chats' engines.
             app.manage(mesh::MeshHub::new(app.handle().clone()));
+            // Mates that speak first: the hourly heartbeat (evo-mates FR-64).
+            mates::initiative::start(app.handle());
             // Shell integration scripts for terminal tabs, refreshed on every start.
             match app
                 .path()
@@ -203,6 +205,10 @@ pub fn run() {
             mates::mates_react,
             mates::mates_take_reactions,
             mates::mates_grants,
+            mates::initiative::mates_agenda,
+            mates::initiative::mates_agenda_set,
+            mates::initiative::mates_agenda_delete,
+            mates::initiative::mates_agenda_repeat_words,
             mates::channels::channels_list,
             mates::channels::channels_create,
             mates::channels::channels_update,

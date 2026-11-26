@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "@/features/chat";
-import { stepsLine, threadRows } from "./thread-rows";
+import { isHeartbeat, isSilent, stepsLine, threadRows } from "./thread-rows";
 
 const turn = (over: Partial<Turn>): Turn =>
   ({
@@ -59,5 +59,28 @@ describe("mate thread rows", () => {
     expect(stepsLine({ parts: [tool("read"), tool("read"), tool("web_search")] })).toBe("Read 2 files · Searched the web");
     expect(stepsLine({ parts: [tool("read")] })).toBe("Read 1 file");
     expect(stepsLine({ parts: [tool("memory")] })).toBeNull();
+  });
+});
+
+// docs/features/evo-mates/spec.md (FR-64, FR-66).
+describe("heartbeat turns", () => {
+  const beat = "<evo-mates-heartbeat at=\"2026-11-26T11:00\" items=\"a\">\nDue now…\n</evo-mates-heartbeat>";
+
+  test("a silent heartbeat turn shows nothing", () => {
+    const rows = threadRows([turn({ id: "h", prompt: beat, parts: [text("NOTHING_TO_SAY")] })], false);
+    expect(rows).toEqual([]);
+  });
+
+  test("a first message shows as the mate's, without the prompt", () => {
+    const rows = threadRows([turn({ id: "h", prompt: beat, parts: [text("You had the interview this morning: how did it go?")] })], false);
+    const bubbles = rows.filter((r) => r.kind === "bubble");
+    expect(bubbles.map((r) => (r.kind === "bubble" ? r.bubble.side : null))).toEqual(["mate"]);
+  });
+
+  test("silence is read loosely", () => {
+    expect(isSilent(" `nothing_to_say`. ")).toBe(true);
+    expect(isSilent("How was it?")).toBe(false);
+    expect(isHeartbeat(beat)).toBe(true);
+    expect(isHeartbeat("hello")).toBe(false);
   });
 });

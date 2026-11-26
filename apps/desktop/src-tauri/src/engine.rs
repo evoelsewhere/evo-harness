@@ -288,6 +288,10 @@ pub fn compaction_config(db: &Db) -> Option<Value> {
 /// The approval mode `chat` runs under: a mate's own, else the app's
 /// (docs/features/evo-mates/spec.md, FR-7, NFR-5).
 pub fn chat_approval_mode(db: &Db, chat: &str) -> String {
+    // A mate's heartbeat turn is read-only: every change asks (evo-mates FR-68).
+    if crate::mates::initiative::in_heartbeat(chat) {
+        return "ask".to_string();
+    }
     db.with(|conn| evo_store::mates::mate_of_chat(conn, chat))
         .ok()
         .flatten()

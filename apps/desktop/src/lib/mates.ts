@@ -21,6 +21,10 @@ export interface Mate {
   apps: unknown[] | null;
   approvalMode: ApprovalMode;
   sending: "ask" | "send";
+  /** How often it may write first (FR-65). */
+  initiative: Initiative;
+  /** First messages in a row the person has not answered. */
+  unanswered: number;
   notifications: boolean;
   paused: boolean;
   folder: string;
@@ -67,6 +71,7 @@ export type MatePatch = Partial<
     | "approvalMode"
     | "sending"
     | "notifications"
+    | "initiative"
     | "paused"
     | "pinned"
     | "hidden"
@@ -109,7 +114,28 @@ export const matesApi = {
   /** A mate's saved secrets, by name (FR-43). */
   secrets: (id: string) => invoke<string[]>("mates_secrets", { id }),
   deleteSecret: (id: string, name: string) => invoke<void>("mates_delete_secret", { id, name }),
+  /** What a mate will come back to (FR-70). */
+  agenda: (id: string) => invoke<AgendaItem[]>("mates_agenda", { id }),
+  setAgenda: (id: string, item: string, status: AgendaItem["status"]) => invoke<void>("mates_agenda_set", { id, item, status }),
+  deleteAgenda: (id: string, item: string) => invoke<void>("mates_agenda_delete", { id, item }),
+  repeatWords: (repeat: string) => invoke<string | null>("mates_agenda_repeat_words", { repeat }),
 };
+
+export type Initiative = "off" | "low" | "medium";
+
+/** An item a mate comes back to, or a check-in (FR-63, FR-69). */
+export interface AgendaItem {
+  id: string;
+  mateId: string;
+  kind: "promise" | "event" | "question" | "checkin";
+  text: string;
+  dueAt: number;
+  repeat: string | null;
+  status: "open" | "done" | "never" | "paused";
+  chatId: string | null;
+  createdAt: number;
+  firedAt: number | null;
+}
 
 // ── Channels (docs/features/evo-mates/spec.md, FR-14 – FR-19) ──────────────
 

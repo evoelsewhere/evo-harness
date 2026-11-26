@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::route::RouterAnswer;
 
 /// How long the router may take (FR-53).
-pub const BUDGET: Duration = Duration::from_millis(1500);
+pub const BUDGET: Duration = Duration::from_secs(6);
 
 /// The question for the router.
 pub fn question(role: &ChannelRole, recent: &[(String, String)], text: &str) -> String {
@@ -86,7 +86,7 @@ pub async fn ask(
 ) -> Result<RouterAnswer, String> {
     let question = question(role, recent, text);
     match tokio::time::timeout(BUDGET, crate::side_questions::ask_once(harness, &question)).await {
-        Err(_) => Err("no answer in 1.5 s".into()),
+        Err(_) => Err("no answer in 6 s".into()),
         Ok(Err(error)) => Err(format!("router failed: {error}")),
         Ok(Ok(reply)) => parse(&reply).ok_or_else(|| "router answer unreadable".into()),
     }

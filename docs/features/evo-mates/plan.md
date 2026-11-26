@@ -906,3 +906,14 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   bold in the thread, and hand-off lines drop markdown marks. Checked in
   the app (2026-11-26): Researcher asked Writer for a tagline, Writer
   answered, the answer went back and Researcher posted the final one.
+- **Phase 4b: mates that speak first** (T56 - T62). As 3.9 planned, with
+  these differences. The engine's `agent_settled` line now carries
+  `finalText`, so the shell can tell a silent heartbeat turn (no notice,
+  not unread) from a first message. A first message counts against the
+  budget and the unanswered count; the person's prompt in that chat resets
+  it; a check-in the person asked for goes out even after two unanswered
+  ones. `mate_agenda` refuses a time more than 6 hours past and says the
+  local time now, because a model wrote a wrong date in the app. A one-off
+  item is closed once a heartbeat took it up. Not done yet: usage under
+  source `mates`, changing a check-in's time in the panel, a shell test for
+  read-only heartbeat turns, and the first-message review set (T63).

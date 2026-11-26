@@ -4,6 +4,7 @@
 // menu. Hidden mates fold under "Hidden".
 
 import * as React from "react";
+import { isHeartbeat, isSilent } from "./thread-rows";
 import { ChevronRightIcon } from "lucide-react";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -24,7 +25,8 @@ function useMateLine(mate: Mate) {
   const mood = mateMood(work, busy);
   return {
     mood,
-    line: mate.paused ? "Paused" : (moodWord(mood) ?? row?.preview ?? mate.role),
+    // A heartbeat's prompt or silent answer is never a preview (FR-64).
+    line: mate.paused ? "Paused" : (moodWord(mood) ?? shownPreview(row?.preview) ?? mate.role),
     unread: Boolean(row?.unread),
     at: row?.turnCount ? row.updatedAt : null,
   };
@@ -180,4 +182,9 @@ export function Roster({ query }: { query: string }) {
       )}
     </>
   );
+}
+
+function shownPreview(preview: string | null | undefined): string | null {
+  if (!preview || isHeartbeat(preview) || isSilent(preview)) return null;
+  return preview;
 }

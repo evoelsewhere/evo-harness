@@ -1251,6 +1251,9 @@ where
                             "aborted": aborted,
                             "error": error,
                             "summary": summary,
+                            // The run's last reply: a mate's heartbeat turn that
+                            // has nothing to say stays silent (evo-mates FR-64).
+                            "finalText": result.as_ref().ok().and_then(|value| value.get("finalText")),
                             // A `compact` command's run: it has no turn of its
                             // own, so its outcome says nothing about the last one.
                             "compact": compact,

@@ -16,6 +16,13 @@ use serde_json::Value;
 use crate::chats::{now_ms, NewChat};
 use crate::DbError;
 
+/// How often a mate may write first (FR-65).
+pub const INITIATIVES: [&str; 3] = ["off", "low", "medium"];
+
+fn medium() -> String {
+    "medium".into()
+}
+
 /// What a mate may ask before acting (approval modes, docs/features/approval-modes).
 pub const APPROVAL_MODES: [&str; 3] = ["ask", "auto-edits", "auto"];
 
@@ -42,6 +49,12 @@ pub struct Mate {
     /// Sending on your behalf: `ask` or `send` (FR-42).
     pub sending: String,
     pub notifications: bool,
+    /// How often it may write first: `off`, `low` or `medium` (FR-65).
+    #[serde(default = "medium")]
+    pub initiative: String,
+    /// First messages in a row the person has not answered (FR-65).
+    #[serde(default)]
+    pub unanswered: i64,
     pub paused: bool,
     /// The mate's own folder (FR-25).
     pub folder: String,
@@ -110,6 +123,7 @@ pub struct MatePatch {
     pub approval_mode: Option<String>,
     pub sending: Option<String>,
     pub notifications: Option<bool>,
+    pub initiative: Option<String>,
     pub paused: Option<bool>,
     #[serde(default, with = "double_option")]
     pub project_folder: Option<Option<String>>,
@@ -132,7 +146,7 @@ mod double_option {
 
 const COLUMNS: &str = "id, name, avatar, role, instructions, provider, model, thinking, tools, connectors, skills, apps, \
      approval_mode, sending, notifications, paused, folder, project_folder, chat_id, template, pinned, hidden, position, \
-     created_at, updated_at";
+     created_at, updated_at, initiative, unanswered";
 
 fn json_list<T: serde::de::DeserializeOwned>(text: Option<String>) -> Option<Vec<T>> {
     text.and_then(|text| serde_json::from_str(&text).ok())
@@ -171,6 +185,8 @@ fn mate_row(row: &Row<'_>) -> rusqlite::Result<Mate> {
         position: row.get(22)?,
         created_at: row.get(23)?,
         updated_at: row.get(24)?,
+        initiative: row.get(25)?,
+        unanswered: row.get(26)?,
     })
 }
 
@@ -355,6 +371,12 @@ pub fn update_mate(
     }
     if let Some(on) = patch.notifications {
         set("notifications", Sql::Integer(on.into()));
+    }
+    if let Some(level) = &patch.initiative {
+        if !INITIATIVES.contains(&level.as_str()) {
+            return Err(DbError::Invalid(format!("unknown initiative `{level}`")));
+        }
+        set("initiative", Sql::Text(level.clone()));
     }
     if let Some(on) = patch.paused {
         set("paused", Sql::Integer(on.into()));

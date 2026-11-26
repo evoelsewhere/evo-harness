@@ -281,7 +281,7 @@ pub fn iso(ms: i64) -> Option<String> {
 
 /// `Date.parse` for the shapes an agent writes: RFC 3339, a local date-time
 /// without an offset, or a bare date (UTC, as JavaScript reads it).
-fn parse_moment(text: &str) -> Option<i64> {
+pub(crate) fn parse_moment(text: &str) -> Option<i64> {
     let text = text.trim();
     if let Ok(t) = DateTime::parse_from_rfc3339(text) {
         return Some(t.timestamp_millis());

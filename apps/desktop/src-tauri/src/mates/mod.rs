@@ -15,6 +15,7 @@
 
 pub mod channels;
 pub mod grants;
+pub mod initiative;
 pub mod secrets;
 pub mod template;
 
@@ -430,6 +431,8 @@ mod tests {
             approval_mode: "ask".into(),
             sending: "ask".into(),
             notifications: true,
+            initiative: "medium".into(),
+            unanswered: 0,
             paused: false,
             folder: "/mates/m1/work".into(),
             project_folder: None,
