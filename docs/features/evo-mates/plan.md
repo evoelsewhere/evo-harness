@@ -917,3 +917,16 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   item is closed once a heartbeat took it up. Not done yet: usage under
   source `mates`, changing a check-in's time in the panel, a shell test for
   read-only heartbeat turns, and the first-message review set (T63).
+- **Leftovers of 4b and 3.** Usage: the engine records a heartbeat run's
+  calls and every call of a channel's engine (its router included) under
+  source `mates` (`usage_log::effective`); the Usage page calls it "Evo
+  Mates on their own". A check-in's schedule changes in the panel
+  (`mates_agenda_reschedule`). In a channel each working mate has its own
+  Stop, and a member's assignment to the lead is shown with a notice that
+  the lead takes it as information (`assigns_the_lead`, FR-55); the mail
+  itself is not held back. The running limit (`mates/limit.rs`,
+  `mates.maxRunning`, default 4, in Settings › Evo Mates) queues mail that
+  would start a mate's or seat's engine while that many mates work; the
+  roster shows Queued, and each settled run starts the next. Mail to an
+  engine that already runs and the person's own messages are not held.
+

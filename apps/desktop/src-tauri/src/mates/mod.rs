@@ -16,6 +16,7 @@
 pub mod channels;
 pub mod grants;
 pub mod initiative;
+pub mod limit;
 pub mod secrets;
 pub mod template;
 

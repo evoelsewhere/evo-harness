@@ -119,9 +119,20 @@ export const matesApi = {
   setAgenda: (id: string, item: string, status: AgendaItem["status"]) => invoke<void>("mates_agenda_set", { id, item, status }),
   deleteAgenda: (id: string, item: string) => invoke<void>("mates_agenda_delete", { id, item }),
   repeatWords: (repeat: string) => invoke<string | null>("mates_agenda_repeat_words", { repeat }),
+  /** Change a check-in's schedule (`{kind: "daily" | "weekdays" | "weekly", time, days?}`). */
+  rescheduleAgenda: (id: string, item: string, repeat: CheckinSchedule) =>
+    invoke<AgendaItem>("mates_agenda_reschedule", { id, item, repeat }),
 };
 
 export type Initiative = "off" | "low" | "medium";
+
+/** A check-in's schedule, in the Scheduler's shape. */
+export interface CheckinSchedule {
+  kind: "daily" | "weekdays" | "weekly";
+  time: string;
+  /** Weekly: 0 Sunday - 6 Saturday. */
+  days?: number[];
+}
 
 /** An item a mate comes back to, or a check-in (FR-63, FR-69). */
 export interface AgendaItem {

@@ -12,9 +12,12 @@ import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls
 
 const HANDOFF_LIMIT = "mates.handoffLimit";
 const DEFAULT = 6;
+const MAX_RUNNING = "mates.maxRunning";
+const RUNNING_DEFAULT = 4;
 
 export function MatesSettings() {
   const [limit, setLimit] = React.useState(DEFAULT);
+  const [running, setRunning] = React.useState(RUNNING_DEFAULT);
 
   React.useEffect(() => {
     if (!inTauri) return;
@@ -23,6 +26,8 @@ export function MatesSettings() {
       .then((all) => {
         const saved = all[HANDOFF_LIMIT];
         if (typeof saved === "number" && saved >= 1 && saved <= 50) setLimit(saved);
+        const max = all[MAX_RUNNING];
+        if (typeof max === "number" && max >= 1 && max <= 16) setRunning(max);
       })
       .catch((error) => log("warn", "ui", `could not read the Evo Mates settings: ${String(error)}`));
   }, []);
@@ -34,6 +39,13 @@ export function MatesSettings() {
     });
   };
 
+  const saveRunning = (value: number) => {
+    setRunning(value);
+    void db.setSetting(MAX_RUNNING, value === RUNNING_DEFAULT ? null : value).catch((error) => {
+      log("error", "ui", `could not save the running limit: ${String(error)}`);
+    });
+  };
+
   return (
     <div className="flex flex-col gap-8">
       <SettingsHeader
@@ -41,6 +53,24 @@ export function MatesSettings() {
         title="Evo Mates"
         description="How your mates work together in channels."
       />
+      <SettingsGroup title="Mates">
+        <SettingsRow
+          labelId="mates-max-running"
+          label={`Mates working at once: ${running}`}
+          description="When more mates have work, the others wait their turn and show Queued. Your own messages never wait."
+          control={
+            <Slider
+              aria-labelledby="mates-max-running"
+              className="w-40"
+              min={1}
+              max={16}
+              step={1}
+              value={running}
+              onValueChange={(value) => saveRunning(Math.round(Array.isArray(value) ? value[0] : value))}
+            />
+          }
+        />
+      </SettingsGroup>
       <SettingsGroup title="Channels">
         <SettingsRow
           labelId="mates-handoff-limit"

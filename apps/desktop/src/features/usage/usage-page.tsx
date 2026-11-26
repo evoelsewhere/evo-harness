@@ -50,7 +50,7 @@ const SOURCE_LABELS: Record<UsageSource, string> = {
   plugin: "Plugin runs",
   side: "Side questions",
   memory: "Memory indexing",
-  mates: "Evo Mates routing",
+  mates: "Evo Mates on their own",
 };
 
 const METRICS: { id: Metric; label: string }[] = [

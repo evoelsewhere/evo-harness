@@ -364,6 +364,8 @@ pub fn work_changed(app: &AppHandle) {
     // (docs/features/evo-mates/spec.md, FR-10).
     if app.try_state::<crate::mates::MatesState>().is_some() {
         crate::mates::apply_pending(app);
+        // A mate's work settled: a waiting one may start (NFR-6).
+        crate::mates::limit::release(app);
     }
     let Some(state) = app.try_state::<SystemState>() else {
         return;

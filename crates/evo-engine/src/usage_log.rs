@@ -36,6 +36,9 @@ pub enum Source {
     Side,
     /// A memory index run reading the chat.
     Memory,
+    /// Evo Mates' own work: a mate's heartbeat turn, or a channel's router
+    /// (docs/features/evo-mates/spec.md, FR-28, FR-71).
+    Mates,
 }
 
 impl Source {
@@ -46,7 +49,25 @@ impl Source {
             Source::Plugin => "plugin",
             Source::Side => "side",
             Source::Memory => "memory",
+            Source::Mates => "mates",
         }
+    }
+}
+
+/// The current run is a mate's heartbeat turn: its calls count as `mates`.
+static MATES_RUN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Mark whether the run starting now is Evo Mates' own work (a heartbeat).
+pub fn set_mates_run(on: bool) {
+    MATES_RUN.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The source a call is recorded under: a channel's engine and a heartbeat
+/// run count their chat and side calls as `mates`.
+pub fn effective(source: Source, channel: bool, mates_run: bool) -> Source {
+    match source {
+        Source::Chat | Source::Side if channel || mates_run => Source::Mates,
+        other => other,
     }
 }
 
@@ -141,6 +162,12 @@ pub fn record(message: &AssistantMessage, source: Source) {
     let Some(recorder) = RECORDER.get() else {
         return;
     };
+    let channel = crate::session_roles::current().is_some_and(|role| role.channel.is_some());
+    let source = effective(
+        source,
+        channel,
+        MATES_RUN.load(std::sync::atomic::Ordering::Relaxed),
+    );
     let row = row_for(recorder.chat_id.clone(), message, source, now_ms());
     if row.is_empty() {
         return;
@@ -286,6 +313,16 @@ impl AgentEmitter for UsageTap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // evo-mates FR-28, FR-71.
+    #[test]
+    fn mates_work_counts_as_mates() {
+        assert_eq!(effective(Source::Chat, false, false), Source::Chat);
+        assert_eq!(effective(Source::Chat, false, true), Source::Mates);
+        assert_eq!(effective(Source::Side, true, false), Source::Mates);
+        assert_eq!(effective(Source::Subagent, false, true), Source::Subagent);
+        assert_eq!(Source::Mates.as_str(), "mates");
+    }
     use evo_ai::{StopReason, Usage, UsageCost};
 
     fn message(cost: f64) -> AssistantMessage {

@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { log } from "@/lib/db";
 import { openChatWindow } from "@/lib/windows";
-import type { Channel, Mate } from "@/lib/mates";
+import { channelsApi, type Channel, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useChannelStore } from "@/stores/channel-store";
 import { useEngineStore } from "@/stores/engine-store";
@@ -386,7 +386,17 @@ export function ChannelView({ channel }: { channel: Channel }) {
                   />
                 ))}
               </div>
-              <span className="px-1 text-xs text-muted-foreground">{mate.name} is working…</span>
+              <span className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+                {mate.name} is working…
+                <button
+                  type="button"
+                  onClick={() => void channelsApi.stopMember(channel.id, mate.id).catch(() => undefined)}
+                  className="rounded-full px-1.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={`Stop ${mate.name}`}
+                >
+                  Stop
+                </button>
+              </span>
             </div>
           </div>
         ))}

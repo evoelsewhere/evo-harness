@@ -1144,10 +1144,16 @@ where
                         } else if resume {
                             rpc_resume_cancellable(&lane_task, cancel_task).await
                         } else if let Some(channel) = crate::channel::coordinator::active() {
+                            crate::usage_log::set_mates_run(false);
                             // A channel's message goes to its mates, not a model.
                             let text = crate::channel::coordinator::prompt_text(&content);
                             channel.turn(&harness_task, text, cancel_task).await
                         } else {
+                            // A mate's heartbeat turn counts as Evo Mates' work (FR-71).
+                            let text = crate::channel::coordinator::prompt_text(&content);
+                            crate::usage_log::set_mates_run(
+                                text.trim_start().starts_with("<evo-mates-heartbeat"),
+                            );
                             rpc_prompt_cancellable(&lane_task, content, cancel_task).await
                         };
                         execute_timing.finish();

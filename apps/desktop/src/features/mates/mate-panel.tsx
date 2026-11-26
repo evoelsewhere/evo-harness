@@ -52,7 +52,8 @@ export function useShownMate(): Mate | null {
 export function MateBar({ mate, modelPill }: { mate: Mate; modelPill?: React.ReactNode }) {
   const work = useSessionStore((s) => s.work[mate.chatId]);
   const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
-  const mood = mateMood(work, busy);
+  const queued = useMatesStore((s) => s.queued.includes(mate.chatId));
+  const mood = mateMood(work, busy, queued);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const setPanelOpen = useMatesStore((s) => s.setPanelOpen);
   const word = mate.paused ? "Paused" : moodWord(mood);

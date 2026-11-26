@@ -22,7 +22,8 @@ function useMateLine(mate: Mate) {
   const work = useSessionStore((s) => s.work[mate.chatId]);
   const row = useSessionStore((s) => s.sessions.find((c) => c.id === mate.chatId));
   const busy = useEngineStore((s) => s.runtimes[mate.chatId]?.transcript.busy ?? false);
-  const mood = mateMood(work, busy);
+  const queued = useMatesStore((s) => s.queued.includes(mate.chatId));
+  const mood = mateMood(work, busy, queued);
   return {
     mood,
     // A heartbeat's prompt or silent answer is never a preview (FR-64).

@@ -6,7 +6,7 @@
 import * as React from "react";
 import { BellRingIcon, CalendarClockIcon, CheckIcon, MessageCircleQuestionIcon, PauseIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { matesApi, type AgendaItem, type Initiative, type Mate } from "@/lib/mates";
+import { matesApi, type AgendaItem, type CheckinSchedule, type Initiative, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useMatesStore } from "@/stores/mates-store";
 
@@ -35,11 +35,109 @@ export function dueWords(at: number, now = Date.now()): string {
   return `${date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${time}`;
 }
 
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** The schedule a check-in's `repeat` holds, for the editor; weekdays 09:00 when unreadable. */
+export function scheduleOf(repeat: string | null): CheckinSchedule {
+  try {
+    const value = JSON.parse(repeat ?? "") as Partial<CheckinSchedule> & { kind?: string };
+    const kind = value.kind === "daily" || value.kind === "weekly" ? value.kind : "weekdays";
+    return { kind, time: typeof value.time === "string" ? value.time : "09:00", days: Array.isArray(value.days) ? value.days : [1] };
+  } catch {
+    return { kind: "weekdays", time: "09:00", days: [1] };
+  }
+}
+
+/** Change a check-in's schedule (FR-70). */
+function CheckinEditor({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: CheckinSchedule;
+  onSave(schedule: CheckinSchedule): void;
+  onCancel(): void;
+}) {
+  const [schedule, setSchedule] = React.useState(initial);
+  const kinds: { id: CheckinSchedule["kind"]; label: string }[] = [
+    { id: "daily", label: "Every day" },
+    { id: "weekdays", label: "Weekdays" },
+    { id: "weekly", label: "Weekly" },
+  ];
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5 rounded-xl bg-background/70 p-2">
+      <div className="flex flex-wrap items-center gap-1">
+        {kinds.map((k) => (
+          <button
+            key={k.id}
+            type="button"
+            onClick={() => setSchedule((s) => ({ ...s, kind: k.id }))}
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted",
+              schedule.kind === k.id && "bg-brand/10 text-foreground shadow-[0_0_0_1px_var(--brand)]",
+            )}
+          >
+            {k.label}
+          </button>
+        ))}
+        <input
+          type="time"
+          aria-label="Time"
+          value={schedule.time}
+          onChange={(event) => setSchedule((s) => ({ ...s, time: event.target.value || s.time }))}
+          className="ml-auto rounded-md bg-muted/60 px-1.5 text-[11px] text-foreground outline-none"
+        />
+      </div>
+      {schedule.kind === "weekly" && (
+        <div className="flex gap-0.5">
+          {DAYS.map((day, index) => {
+            const on = schedule.days?.includes(index);
+            return (
+              <button
+                key={day}
+                type="button"
+                onClick={() =>
+                  setSchedule((s) => {
+                    const days = new Set(s.days ?? []);
+                    if (days.has(index)) days.delete(index);
+                    else days.add(index);
+                    return { ...s, days: [...days].sort() };
+                  })
+                }
+                className={cn(
+                  "flex-1 rounded-md py-0.5 text-[10px] text-muted-foreground hover:bg-muted",
+                  on && "bg-brand/10 text-foreground",
+                )}
+              >
+                {day}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex justify-end gap-1">
+        <Button size="xs" variant="ghost" className="h-6 rounded-full px-2 text-[11px]" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="xs"
+          className="h-6 rounded-full bg-brand px-2.5 text-[11px] text-brand-foreground hover:bg-brand/90"
+          disabled={schedule.kind === "weekly" && !schedule.days?.length}
+          onClick={() => onSave(schedule)}
+        >
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function FollowingUp({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
   const mates = useMatesStore((s) => s.mates);
   const [items, setItems] = React.useState<AgendaItem[]>([]);
   const [repeats, setRepeats] = React.useState<Record<string, string>>({});
+  const [editing, setEditing] = React.useState<string | null>(null);
 
   // Read again whenever the mates change (`mates://changed`: an item added or fired).
   React.useEffect(() => {
@@ -116,6 +214,16 @@ export function FollowingUp({ mate }: { mate: Mate }) {
                     </div>
                     <div className="mt-1 flex gap-1">
                       {item.kind === "checkin" && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="h-6 rounded-full px-2 text-[11px]"
+                          onClick={() => setEditing(editing === item.id ? null : item.id)}
+                        >
+                          Change
+                        </Button>
+                      )}
+                      {item.kind === "checkin" && (
                         <Button size="xs" variant="ghost" className="h-6 rounded-full px-2 text-[11px]" onClick={() => set(item, paused ? "open" : "paused")}>
                           {paused ? <PlayIcon /> : <PauseIcon />}
                           {paused ? "Resume" : "Pause"}
@@ -130,6 +238,21 @@ export function FollowingUp({ mate }: { mate: Mate }) {
                         </Button>
                       )}
                     </div>
+                    {editing === item.id && (
+                      <CheckinEditor
+                        initial={scheduleOf(item.repeat)}
+                        onCancel={() => setEditing(null)}
+                        onSave={(schedule) => {
+                          setEditing(null);
+                          void matesApi
+                            .rescheduleAgenda(mate.id, item.id, schedule)
+                            .then((changed) =>
+                              setItems((current) => current.map((i) => (i.id === changed.id ? changed : i))),
+                            )
+                            .catch(() => undefined);
+                        }}
+                      />
+                    )}
                   </div>
                 </li>
               );

@@ -74,7 +74,7 @@ queues extra work.
 - [ ] T24 [FR-17, FR-18, FR-19] Hand-off observation and counting, stop at the limit with a notice; stop one seat or all — `channel/` — check: engine test with two faux mates handing back and forth stops at the limit
 - [ ] T25 [FR-28] Router default from models.dev (`tool_call`, lowest cost among connected), its picks recorded under usage source `mates` (added by T10) — `crates/evo-engine/src/channel/router.rs` — check: unit test on a fixture catalogue
 - [ ] T26 [FR-14, FR-25] Shell `channels` commands; seat chats of kind `seat`; channel folder through project trust — `src-tauri/src/mates/mod.rs` — check: shell tests; [FR-23] manual with an untrusted folder
-- [ ] T27 [NFR-6] Running limit across mate, seat and channel engines with a queue and the **Queued** state — `supervisor.rs` — check: shell test with limit 1
+- [x] T27 [NFR-6] Running limit across mate, seat and channel engines with a queue and the **Queued** state — `supervisor.rs` — check: shell test with limit 1
 - [ ] T51 [FR-15, FR-16, FR-53] Routing with `everyone` and `@everyone`, router inputs, 0.6 thresholds, 1.5 s budget, pick line — `crates/evo-engine/src/channel/` — check: `cargo test -p evo-engine channel`
 - [ ] T52 [FR-54, FR-55] Hand-off kinds and labels; lead assignments and wrap-up; members cannot assign the lead — `crates/evo-engine/src/channel/` — check: engine tests with faux mates
 - [ ] T53 [FR-18, FR-56, FR-57] Per-seat queue with steering for the person's single-mention messages, `reply_to`, delivery contents, per-pair hourly limit — `crates/evo-engine/src/channel/` — check: engine tests
@@ -183,15 +183,15 @@ Done when: every row below is `passed` with its date.
 | FR-65 | Shell tests T58; manual T61 | passed (2026-11-26): budget and back-off tests; in the app the unanswered count went to 1 after the first message |
 | FR-66 | Thread tests T60; review T63 | thread tests passed (2026-11-26); in the app the first message said why first ("I am writing because at 11:56 you had a call…") with no prompt shown, and the mate showed unread; review of ten: not run (T63) |
 | FR-67 | Shell tests T58 | passed (2026-11-26) for the skip; sending what is still worth saying after Do not disturb: not run |
-| FR-68 | Shell test T59 | in code (approvals read as `ask`, sending asks during a heartbeat turn); no test yet |
+| FR-68 | Shell test T59 | passed (2026-11-26): `a_heartbeat_turn_is_read_only` |
 | FR-69 | Tool tests T57; manual T61 | check-ins through `mate_agenda` with the Scheduler's schedules; manual: not run |
-| FR-70 | Manual T61 | partly (2026-11-26): the list and Initiative show in Settings; changing a check-in's time: not done |
-| FR-71 | Shell tests T58; manual Usage | pause skips (test passed); decisions in the app log; usage under source `mates`: not done |
+| FR-70 | Manual T61 | partly (2026-11-26): the list, Initiative and the check-in editor (every day, weekdays, weekly days and time) are in Settings, editor tests passed; a manual pass of each action: not run |
+| FR-71 | Shell tests T58; manual Usage | passed (2026-11-26): pause skips; heartbeat turns and a channel's calls record under usage source `mates` (engine test); manual check of Usage: not run |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |
 | NFR-4 | Manual per platform | Windows: two taskbar groups (Evo Harness, Evo Mates) — passed (2026-11-25); Start menu entry from an installed build, macOS launcher, Linux desktop entry: not run |
 | NFR-5 | Manual T30 | not run |
-| NFR-6 | Shell test T27 | not run |
+| NFR-6 | Shell test T27; manual | queue tests passed (2026-11-26); held: mail that would start a mate's or seat's engine; not held: the person's own messages and mail to an engine that already runs; manual with limit 1: not run |
 | NFR-7 | Design review against DESIGN.md and ux.md; string check T40 | string check passed: no session, engine or agent type in Mates UI strings (2026-11-25); design review: not run |
 | NFR-8 | Migration test T9; Harness CI checks | `mates_upgrade_keeps_chats_as_harness_chats_and_usage_rows` passed (2026-11-25); a copy of a real schema-14 database upgraded to 15 in the app |

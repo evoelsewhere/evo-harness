@@ -246,6 +246,22 @@ pub fn mates_agenda_delete(app: AppHandle, id: String, item: String) -> Result<(
     Ok(())
 }
 
+/// Change a check-in's schedule (`repeat`: the Scheduler's schedule, e.g.
+/// `{"kind": "weekdays", "time": "09:00"}`); its next time follows (FR-70).
+#[tauri::command]
+pub fn mates_agenda_reschedule(app: AppHandle, id: String, item: String, repeat: Value) -> Result<Item, String> {
+    use crate::agent_tools::scheduler::schedule::{next_run, schedule_from};
+    let schedule = schedule_from(&repeat)?;
+    let next = next_run(&schedule, evo_store::chats::now_ms()).ok_or("That schedule never comes round.")?;
+    let text = serde_json::to_string(&schedule).map_err(|e| e.to_string())?;
+    let item = app
+        .state::<Db>()
+        .with(|conn| agenda::update_item(conn, &id, &item, None, Some(next), Some(Some(&text))))?
+        .ok_or("No such check-in.")?;
+    super::changed(&app);
+    Ok(item)
+}
+
 /// A check-in's schedule in words ("Weekdays at 09:00"), for the panel.
 #[tauri::command]
 pub fn mates_agenda_repeat_words(repeat: String) -> Option<String> {
@@ -312,6 +328,23 @@ mod tests {
         assert!(text.contains(&format!("answer exactly {SILENT}")));
         assert!(text.contains("read-only"));
         assert!(text.ends_with("</evo-mates-heartbeat>"));
+    }
+
+    // FR-68: while a heartbeat turn runs, the chat is read-only: its
+    // approvals read as `ask` and a sending tool asks on every call.
+    #[test]
+    fn a_heartbeat_turn_is_read_only() {
+        assert!(!in_heartbeat("hb-chat"));
+        locked(in_flight()).insert("hb-chat".into(), vec!["a".into()]);
+        assert!(in_heartbeat("hb-chat"));
+        let sending = if in_heartbeat("hb-chat") { "ask" } else { "send" };
+        assert_eq!(
+            super::super::grants::plan(false, false, sending, false, true),
+            super::super::grants::Plan::Ask { picks: vec![super::super::grants::Pick::Once, super::super::grants::Pick::Deny], sending: true },
+            "a mate that may send without asking still asks in a heartbeat turn"
+        );
+        locked(in_flight()).remove("hb-chat");
+        assert!(!in_heartbeat("hb-chat"));
     }
 
     #[test]

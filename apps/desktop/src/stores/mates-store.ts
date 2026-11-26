@@ -38,6 +38,8 @@ interface MatesStore {
   loaded: boolean;
   mates: Mate[];
   channels: Channel[];
+  /** Chats waiting for room under the running limit (NFR-6). */
+  queued: string[];
   templates: MateTemplate[];
   view: MatesView;
   /** The mate panel (ux.md 2) is open. */
@@ -70,6 +72,7 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
   loaded: false,
   mates: [],
   channels: [],
+  queued: [],
   templates: [],
   view: { kind: "empty" },
   panelOpen: false,
@@ -84,6 +87,10 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
         void channelsApi.list().then((channels) => set({ channels }), report("reading the channels"));
       });
       void listen<{ chat: string }>("mates://open-chat", ({ payload }) => void get().openChat(payload.chat));
+      void listen<{ chats: string[] }>("mates://queued", ({ payload }) => set({ queued: payload?.chats ?? [] }));
+      void invoke<string[]>("mates_queued")
+        .then((queued) => set({ queued }))
+        .catch(() => undefined);
       // A mate's `connect_app` asks the person to switch an app on (FR-40).
       void listen<{ chat: string; tab: MatePanelTab }>("mates://open-panel", ({ payload }) => {
         void get()
@@ -245,9 +252,11 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
 }));
 
 /** A mate's state for its row, header and face (ux.md 4). */
-export function mateMood(work: ChatWork | undefined, busy: boolean): MateMood {
+export function mateMood(work: ChatWork | undefined, busy: boolean, queued = false): MateMood {
   if (work === "waiting") return "waiting";
   if (work === "working" || busy) return "working";
+  // Waiting for room under the running limit (NFR-6).
+  if (queued) return "queued";
   return "idle";
 }
 

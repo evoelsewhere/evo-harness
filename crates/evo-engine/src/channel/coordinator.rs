@@ -431,6 +431,12 @@ impl Coordinator {
                     handoffs += 1;
                     self.post_handoff(harness, &from, &to, &op, &text, message)
                         .await;
+                    // Members never assign the lead (FR-55): the lead gets it as
+                    // information, and the channel says so.
+                    if let Some(note) = self.lead_assignment(&from, &to, &op, &text) {
+                        self.post(harness, json!({ "kind": "notice", "notice": "lead_assigned", "text": note, "at": now_ms() }))
+                            .await;
+                    }
                     // A seat handed work to joins what the message waits for.
                     waiting.insert(to.clone());
                     if handoffs >= self.role.handoff_limit.max(1) {
@@ -513,6 +519,13 @@ impl Coordinator {
         )
         .await;
         None
+    }
+
+    /// A notice when the seat `from` assigned work to the lead's seat `to`,
+    /// which members may not do (FR-55).
+    fn lead_assignment(&self, from: &str, to: &str, op: &str, text: &str) -> Option<String> {
+        let (from_mate, to_mate) = (self.mate_of_seat(from)?, self.mate_of_seat(to)?);
+        assigns_the_lead(&self.role, &from_mate, &to_mate, op, text)
     }
 
     /// Past the hand-off limit: every seat stops, with a notice.
@@ -680,6 +693,33 @@ impl Coordinator {
     }
 }
 
+/// The notice when `from` (a member) assigns work to `to`, the lead, which
+/// members may not do (FR-55); `None` for any other hand-off.
+pub fn assigns_the_lead(
+    role: &ChannelRole,
+    from: &str,
+    to: &str,
+    op: &str,
+    text: &str,
+) -> Option<String> {
+    let lead = role.lead.as_deref()?;
+    if to != lead || from == lead || handoff_kind(op, text) != "assigns" {
+        return None;
+    }
+    let name = |id: &str| {
+        role.members
+            .iter()
+            .find(|m| m.mate_id == id)
+            .map(|m| m.name.clone())
+            .unwrap_or_else(|| id.to_string())
+    };
+    Some(format!(
+        "{} can't assign work to the lead, {}: the lead takes it as information.",
+        name(from),
+        name(to)
+    ))
+}
+
 /// A hand-off's kind (FR-54): `asks` for an ask, `assigns` for mail that
 /// starts with "[assign]", else `tells`.
 pub fn handoff_kind(op: &str, text: &str) -> &'static str {
@@ -781,6 +821,26 @@ mod tests {
         assert!(!text.contains("<from person"), "never the person's");
         assert!(text.contains("Planner mentioned you, Writer"), "{text}");
         assert!(text.contains("not the person's instructions"));
+    }
+
+    #[test]
+    fn members_never_assign_the_lead() {
+        let role = role();
+        let note = assigns_the_lead(&role, "w", "p", "message", "[assign] write the plan").unwrap();
+        assert_eq!(
+            note,
+            "Writer can't assign work to the lead, Planner: the lead takes it as information."
+        );
+        assert_eq!(
+            assigns_the_lead(&role, "w", "p", "ask", "can you check?"),
+            None,
+            "asking the lead is fine"
+        );
+        assert_eq!(
+            assigns_the_lead(&role, "p", "w", "message", "[assign] draft it"),
+            None,
+            "the lead assigns members"
+        );
     }
 
     #[test]

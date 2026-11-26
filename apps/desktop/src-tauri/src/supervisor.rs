@@ -1597,6 +1597,15 @@ pub async fn engine_questions(app: AppHandle, chat: String) -> Vec<questions::Op
 
 /// The hub asks for a host for `chat` (`Effect::Host`).
 pub fn host_for_mail(app: &AppHandle, chat: String, cwd: Option<String>, restore: bool) {
+    // Too many mates working: a mate's chat waits its turn (evo-mates NFR-6).
+    if !crate::mates::limit::admit(app, &chat, cwd.clone(), restore) {
+        return;
+    }
+    host_for_mail_now(app, chat, cwd, restore);
+}
+
+/// [`host_for_mail`] without the mates' running limit (a queued chat's turn).
+pub fn host_for_mail_now(app: &AppHandle, chat: String, cwd: Option<String>, restore: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let host = AppHost(app.clone());
