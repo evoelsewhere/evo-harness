@@ -8,6 +8,7 @@
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { MateFace } from "@/components/mate-face/mate-face";
 import { MateModelPicker } from "@/features/mates/model-picker";
 import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
@@ -60,7 +61,16 @@ function Conversation() {
         </div>
         {/* The mate's thread, once the engine store shows its chat. */}
         <div className="min-h-0 flex-1">
-          {shown === mate.chatId ? <MateConversation mate={mate} empty={<MateGreeting mate={mate} />} /> : null}
+          {shown === mate.chatId ? (
+            <MateConversation mate={mate} empty={<MateGreeting mate={mate} />} />
+          ) : (
+            // While its chat loads (a window opened again reads it first): a
+            // quiet line instead of an empty pane, shown only if it takes a while.
+            <div className="flex h-full animate-in items-center justify-center gap-2 text-sm text-muted-foreground delay-300 duration-500 fill-mode-both fade-in">
+              <MateFace avatar={mate.avatar} size={22} mood="working" live plate={false} label={mate.name} />
+              Opening {mate.name}…
+            </div>
+          )}
         </div>
       </div>
       {panelOpen && <MatePanel mate={mate} />}

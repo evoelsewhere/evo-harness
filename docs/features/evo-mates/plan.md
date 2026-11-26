@@ -766,3 +766,17 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   `engine://parked`), and the window turns the chat into a deferred one: it
   keeps its messages and the next message starts the engine, which reads
   the new role. Pausing parks every engine of the mate the same way.
+- **Seventh slice: conduct in the engine, the conduct set** (T21, T47). How a
+  mate behaves moved from the shell's role instructions to the engine
+  (`session_roles::MATE_CONDUCT`): any role that names a mate gets a
+  `<mate name="…">` block with its profile text and the conduct, so every
+  mate session (direct conversation, later seats) follows the same rules and
+  the set tests them as written. The shell's `instructions` now says only
+  who the mate is and its role. The "ask before long work" rule was
+  reworded after the first run of the set (6 of 10) to read first, then ask
+  about the terms a request leaves out before writing, editing or running
+  anything; the second run asked first in 10 of 10 and still did all 10
+  clear tasks without asking ([conduct-results.md](conduct-results.md)).
+  The set runs with `cargo test -p evo-engine --test mates_conduct --
+  --ignored` and a real model. Evo Mates now shows "Opening <name>…" while a
+  reopened window loads the mate's chat, instead of an empty pane.

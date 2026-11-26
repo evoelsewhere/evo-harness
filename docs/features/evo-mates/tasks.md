@@ -43,7 +43,7 @@ Needs you and Usage.
 - [ ] T18 [FR-7, FR-10, FR-25, FR-26] Profile: identity, instructions, model and thinking from models.dev, tools, connectors, skills, approval mode, folders, memory list with edit and forget — `src/features/mates/profile*.tsx` — check: manual; forgetting a memory changes the next answer
 - [ ] T19 [FR-12, FR-24] Harness: sidebar, history and search skip mate kinds; Needs you lists waiting mates with avatars and opens them in Mates; notices of mate chats go to the Mates window — `src/stores/session-store.ts`, `src/features/shell/*`, `supervisor/notices.rs` — check: manual with a mate waiting and the Mates window closed
 - [x] T20 [P] [FR-22] Usage grouped by mate — `crates/evo-store/src/usage.rs`, `src/features/usage/*` — check: `cargo test -p evo-store usage`; manual
-- [ ] T21 [FR-4] A mate keeps working with its window closed — check: manual: send, close Mates, reopen after the reply
+- [x] T21 [FR-4] A mate keeps working with its window closed — check: manual: send, close Mates, reopen after the reply
 - [x] T54 [FR-58, FR-59, FR-60, FR-61, FR-62] Messaging thread for mates: new `thread.tsx`, `composer.tsx`, `conversation.tsx`, `message-markup.ts` (reply and reactions note in the sent text), migration 0016 and `mates_react` / `mates_reactions` / `mates_take_reactions`; Harness's chat view is no longer used in Evo Mates — `src/features/mates/`, `crates/evo-store` — check: markup and store tests, the app on a copy of real data
 - [ ] T41 [FR-39] Tests, then code: a mate's Apps narrow the connector and plugin tools its engines get, with the chosen account — `src-tauri/src/supervisor.rs` — check: shell test with All, Only these and None
 - [x] T42 [FR-40] `connect_app` app tool and the Connect / Reconnect card; expired sign-in results point to it — `src-tauri/src/agent_tools/mates.rs`, `src/features/mates/connect-card.tsx` — check: shell test; manual with a missing mail connector
@@ -52,7 +52,7 @@ Needs you and Usage.
 - [x] T45 [P] [FR-44] Skills switches per mate: the role's `skills` (the names a session may use, `null` = every skill; a nested session keeps its mate's limit), the engine drops the rest (`customize::split_by_role`), and a Skills section in the mate panel's Apps tab — `crates/evo-mesh/src/wire.rs`, `crates/evo-engine/src/customize.rs`, `src/features/mates/skills-tab.tsx`, `src-tauri/src/mates/mod.rs` — check: `cargo test -p evo-engine a_role_keeps_only_the_skills_it_allows`, `skills-tab.test.ts`, manual
 - [ ] T55 [FR-44] Skills flagged by Evo's skill check arrive off for every mate, with the reason — needs a skill check, which Evo does not have yet — check: manual with a flagged skill
 - [x] T46 [FR-45] Pause / Resume / Pause all through the supervisor hold; paused line — `src-tauri/src/mates/mod.rs`, `supervisor.rs`, `system.rs`, `src/features/mates/pause.tsx` — check: shell test; manual
-- [ ] T47 [FR-46, FR-47, FR-48, FR-51] Mate conduct block in the role prompt; a fixed test set of 10 ambiguous tasks and 10 task replies — `crates/evo-engine/src/session_roles.rs`, `crates/evo-engine/tests/mates_conduct.rs` — check: test set results recorded
+- [x] T47 [FR-46, FR-47, FR-48, FR-51] Mate conduct block in the role prompt; a fixed test set of 10 ambiguous tasks and 10 task replies — `crates/evo-engine/src/session_roles.rs`, `crates/evo-engine/tests/mates_conduct.rs` — check: test set results recorded
 - [x] T48 [FR-49] **Send as next** and "Seen while working" in the Mates composer on the engine's steering and follow-up queues — `src/features/mates/mate-chat.tsx` — check: manual
 - [ ] T49 [FR-50] Recent-work brief and search limited to the mate's own chats — `crates/evo-engine/src/mates/brief.rs` — check: `cargo test -p evo-engine mates_brief`
 - [x] T50 [FR-52] Notice rules for mates and the per-mate switch — `src-tauri/src/supervisor/notices.rs` — check: shell test for each case
@@ -104,7 +104,7 @@ Done when: every row below is `passed` with its date.
 | FR-1 | Install on Windows, macOS, Linux; both entries open their app (T6, T7) | not run |
 | FR-2 | Shell test T1; manual: no second process, provider added in Harness works for a mate | Windows: `--app mates` cold start opens only Evo Mates (main hidden); a second launch hands over and exits 0, one process — passed (2026-11-25). Provider part: not run (no mates yet) |
 | FR-3 | Manual switch both ways (T4) | passed (2026-11-25): Switch to Evo Harness shows main, Mates stays; Switch to Evo Mates reopens a closed Mates window |
-| FR-4 | Manual T21 | partly: with the tray off, closing Evo Mates while main is hidden quits the app (exit 0) — passed (2026-11-25); a mate working on with its window closed: not run (phase 2) |
+| FR-4 | Manual T21 | passed (2026-11-26): a mate asked for a note while Evo Mates was open, the window was closed, the turn completed (engine run completed), and reopening Evo Mates from Harness showed the reply; earlier, with the tray off, closing Evo Mates while main is hidden quits the app (exit 0) — passed (2026-11-25) |
 | FR-5 | Manual tray menu (T5) | `tray_target` test passed (2026-11-25); menu clicked in the app: not run |
 | FR-6 | Manual roster states (T16) | partly (2026-11-25): rows with face, name, last line and time, pinned tiles, unread/needs-you dot; states from the shell's work list. Queued and error words: not run |
 | FR-7 | Manual create from template and from scratch | from a template — passed (2026-11-25, Researcher created and opened on its conversation); from scratch: not run |
@@ -146,12 +146,12 @@ Done when: every row below is `passed` with its date.
 | FR-43 | Leak test T44 | resolve and mask tests passed (2026-11-25); in the app a canary value typed into the secure card was found nowhere in the data folder or logs; a check of real provider requests: not run |
 | FR-44 | Manual T45; T33 (imported skills off); T55 (flagged skills) | switches passed (2026-11-25): engine and UI tests; in the app two skills switched off showed as off in the mate's engine after its restart; imported and flagged skills: not done |
 | FR-45 | Shell test and manual T46 | passed (2026-11-25, in the app): Pause all marks every mate Paused, the box shows "<name> is paused" with Resume, Resume all restores them; engines stop (`stop_mate`) |
-| FR-46 | Test set T47 | not run |
-| FR-47 | Test set T47 (8 of 10) | not run |
-| FR-48 | Review T47 | not run |
+| FR-46 | Test set T47 | conduct rule in the role prompt checked by `a_mate_role_gets_the_mate_conduct` (2026-11-26); a new mate's setup card: seen in the app (one card), not part of the set |
+| FR-47 | Test set T47 (8 of 10) | passed (2026-11-26): 10 of 10 on the second run, [conduct-results.md](conduct-results.md) |
+| FR-48 | Review T47 | passed (2026-11-26): 10 of 10 replies put the result first and name the files, [conduct-results.md](conduct-results.md) |
 | FR-49 | Manual T48 | not run |
 | FR-50 | `cargo test -p evo-engine mates_brief` (T49) | search half: `cargo test -p evo-store a_mate_finds_only_its_own_chats` passed (2026-11-25); the brief waits for channels (phase 3) |
-| FR-51 | Test set T47; manual | not run |
+| FR-51 | Test set T47; manual | rule in the role prompt (2026-11-26); a fact the person states saved with the chip: seen in the app (2026-11-25); other mates' claims: needs channels (phase 3), not run |
 | FR-52 | Shell tests T50 | passed (2026-11-25) |
 | FR-53 | `cargo test -p evo-engine channel` (T51) | not run |
 | FR-54 | Engine tests T52; manual | not run |

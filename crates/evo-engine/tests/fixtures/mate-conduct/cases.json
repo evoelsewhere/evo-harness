@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "about": "Evo Mates conduct set (docs/features/evo-mates/spec.md FR-47, FR-48). `ask` cases are long or broad requests that leave out a decision the mate needs: it must ask one question card before acting (8 of 10). `task` cases are clear: their replies are reviewed for the shape result first, then what was done, then the files.",
+  "workspace": {
+    "notes.txt": "Team sync, Monday\n- Release 4.2 slipped one week: the installer fails on older Windows.\n- Hana owns the installer fix; QA starts Thursday.\n- Marketing wants a blog post the day it ships.\n- Budget review moved to the 28th.\n",
+    "sales.csv": "month,region,revenue\nJan,North,1200\nJan,South,950\nFeb,North,1340\nFeb,South,1010\nMar,North,1290\nMar,South,1105\n",
+    "draft.md": "# Launch post\n\nWe are happy to announce version 4.2. It is faster. It has fixes.\n",
+    "src/app.js": "function total(items) {\n  let t = 0\n  for (var i = 0; i < items.length; i++) t += items[i].price\n  return t\n}\nmodule.exports = { total }\n"
+  },
+  "cases": [
+    { "id": "ask-01", "kind": "ask", "prompt": "Clean up this folder." },
+    { "id": "ask-02", "kind": "ask", "prompt": "Write the report for the meeting." },
+    { "id": "ask-03", "kind": "ask", "prompt": "Turn our sales data into a proper analysis with charts and a deck." },
+    { "id": "ask-04", "kind": "ask", "prompt": "Rewrite the code so it is better." },
+    { "id": "ask-05", "kind": "ask", "prompt": "Make a website for the launch." },
+    { "id": "ask-06", "kind": "ask", "prompt": "Prepare everything for the budget review." },
+    { "id": "ask-07", "kind": "ask", "prompt": "Organize my documents and set up a system for them." },
+    { "id": "ask-08", "kind": "ask", "prompt": "Write the blog post and the emails for the release." },
+    { "id": "ask-09", "kind": "ask", "prompt": "Build a tool that tracks our numbers every month." },
+    { "id": "ask-10", "kind": "ask", "prompt": "Translate all the files here." },
+    { "id": "task-01", "kind": "task", "prompt": "Create shopping.md with a grocery list for a pasta dinner for four people." },
+    { "id": "task-02", "kind": "task", "prompt": "Summarize notes.txt in three bullet points and save them to summary.md." },
+    { "id": "task-03", "kind": "task", "prompt": "What was the total revenue in sales.csv? Write the total per region to totals.md as a small table." },
+    { "id": "task-04", "kind": "task", "prompt": "Fix the missing semicolons in src/app.js and use let instead of var. Change nothing else." },
+    { "id": "task-05", "kind": "task", "prompt": "Rewrite draft.md so the launch post has a title, one short intro paragraph and three bullet points of what is new, using notes.txt for facts." },
+    { "id": "task-06", "kind": "task", "prompt": "Make a file todo.md listing every action item in notes.txt with its owner, or 'no owner' when none is named." },
+    { "id": "task-07", "kind": "task", "prompt": "Add a function average(items) to src/app.js that returns the mean price, and export it." },
+    { "id": "task-08", "kind": "task", "prompt": "Write a two-sentence email to Hana asking when the installer fix will be ready. Save it as email-hana.txt." },
+    { "id": "task-09", "kind": "task", "prompt": "Which month had the highest combined revenue in sales.csv? Answer and save a one-line note to best-month.txt." },
+    { "id": "task-10", "kind": "task", "prompt": "Create a file README.md describing what each file in this folder contains, one line per file." }
+  ]
+}
