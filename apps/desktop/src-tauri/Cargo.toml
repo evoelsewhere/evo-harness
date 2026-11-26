@@ -49,6 +49,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"
 serde_json = "1"
+yaml_serde = "0.10"
 # Agent tools the shell answers: cancel a call the engine dropped (src/agent_tools).
 tokio-util = "0.7"
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "time", "net"] }

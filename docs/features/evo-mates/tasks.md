@@ -87,9 +87,9 @@ queues extra work.
 Done when: a channel exports to one file with no secret, and that file
 imports on another machine after a preview.
 
-- [ ] T31 [FR-20, FR-21, FR-27] Tests: export round-trip, no model ID, no secrets or messages, newer version refused, unknown entries listed — `src-tauri/src/mates/team_file.rs` (tests) — check: `bun run test:shell` fails for the right reason
-- [ ] T32 [FR-20, FR-21, FR-27] `team_file.rs`: parse, validate, preview, write; needs resolved against models.dev — check: T31 passes
-- [ ] T33 [FR-20, FR-21, FR-44] Export and import UI with the preview, connectors off and skills off (`skills: []`) — `src/features/mates/team-import.tsx`, row menus — check: manual on two agent directories
+- [x] T31 [FR-20, FR-21, FR-27] Tests: export round-trip, no model ID, no secrets or messages, newer version refused, unknown entries listed — `src-tauri/src/mates/team_file.rs` (tests) — check: `bun run test:shell` fails for the right reason
+- [x] T32 [FR-20, FR-21, FR-27] `team_file.rs`: parse, validate, preview, write; needs resolved against models.dev — check: T31 passes
+- [x] T33 [FR-20, FR-21, FR-44] Export and import UI with the preview, connectors off and skills off (`skills: []`) — `src/features/mates/team-import.tsx`, row menus — check: manual on two agent directories
 
 ### Phase 4b — Mates that speak first
 
@@ -135,14 +135,14 @@ Done when: every row below is `passed` with its date.
 | FR-17 | Engine test T24; manual | passed (2026-11-26): hub copy test; coordinator tests for mention deliveries; in the app a mate asked another by @mention, the answer went back and the asker posted the result |
 | FR-18 | Engine test T24 | not run |
 | FR-19 | Manual: three mates stop within 2 s | partly (2026-11-26): Stop in a channel of two mates stopped the working seat at once (no run after it) and posted "Stopped."; three mates and one-mate Stop: not run |
-| FR-20 | Team file tests T31 | not run |
-| FR-21 | Team file tests T31; manual T33 | not run |
+| FR-20 | Team file tests T31 | passed (2026-11-26): round trip, no ids, no model ID, setup answers stay home; in the app a channel export held no ids or secrets (grep 0) |
+| FR-21 | Team file tests T31; manual T33 | passed (2026-11-26): the preview shows the app's mode and missing connectors (test); in the app an import made both mates with the app's mode, sending Ask, skills off, and the channel with them; the native file dialogs: not driven |
 | FR-22 | `cargo test -p evo-store usage`; manual | `usage_is_summed_by_mate` passed (2026-11-25); the Usage page's "Evo Mates" panel: not checked in the app |
 | FR-23 | Manual with an untrusted project folder | not run |
 | FR-24 | Manual T19 | partly (2026-11-25): `harness_lists_and_searches_only_its_own_chats` passed; the Harness window does not list a mate's chat. Needs you: not run (T19) |
 | FR-25 | Shell tests T13, T26; manual | not run |
 | FR-26 | Manual T18 | not run |
-| FR-27 | Team file tests T31 | not run |
+| FR-27 | Team file tests T31 | passed (2026-11-26): a newer version and a non-team file are refused, unknown entries are listed |
 | FR-28 | Router unit test T25; manual Usage | router question and answer tests passed (2026-11-26); runs on the channel's model, not the cheapest from models.dev; usage under `mates`: not done; manual: not run |
 | FR-29 | Design review T36 | not run |
 | FR-30 | Manual T37 | not run |

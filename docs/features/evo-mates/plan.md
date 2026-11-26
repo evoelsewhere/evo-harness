@@ -929,4 +929,14 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   would start a mate's or seat's engine while that many mates work; the
   roster shows Queued, and each settled run starts the next. Mail to an
   engine that already runs and the person's own messages are not held.
-
+- **Team files.** `src-tauri/src/mates/team_file.rs` writes and reads
+  Markdown with YAML front matter (`evoTeam: 1`, `yaml_serde`): the channel
+  (name, reply rule, lead by name, instructions) and each mate (name, role,
+  face, tools, connectors, skills, approval mode); each mate's instructions
+  sit under `## <name>`, without the person's setup answers. Commands
+  `team_export` (a mate or a channel), `team_preview` and `team_import`
+  (with names to leave out). Import makes each mate with the app's approval
+  mode, `skills: []`, sending Ask and every connector switched off for its
+  chat, then the channel with them. The UI is `features/mates/team-import.tsx`
+  (Export… in a mate's menu, the channel bar's export button, Import a team
+  beside Channels); the save dialog needs `dialog:allow-save`.

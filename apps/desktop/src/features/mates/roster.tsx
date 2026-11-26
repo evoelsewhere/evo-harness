@@ -4,6 +4,7 @@
 // menu. Hidden mates fold under "Hidden".
 
 import * as React from "react";
+import { exportTeam } from "./team-import";
 import { isHeartbeat, isSilent } from "./thread-rows";
 import { ChevronRightIcon } from "lucide-react";
 import { MateFace } from "@/components/mate-face/mate-face";
@@ -50,6 +51,7 @@ function MateMenu({ mate, onDelete }: { mate: Mate; onDelete(): void }) {
         Edit profile
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => void store.duplicate(mate.id)}>Duplicate</DropdownMenuItem>
+      <DropdownMenuItem onClick={() => void exportTeam({ mate: mate.id }, mate.name)}>Export…</DropdownMenuItem>
       <DropdownMenuItem onClick={() => void navigator.clipboard.writeText(mate.chatId)}>
         Copy conversation ID
       </DropdownMenuItem>

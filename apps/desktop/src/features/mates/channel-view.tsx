@@ -4,7 +4,7 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowUpIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpIcon, DownloadIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
 } from "./channel-rows";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
+import { exportTeam } from "./team-import";
 
 const EMPTY: never[] = [];
 
@@ -84,6 +85,9 @@ export function ChannelBar({ channel }: { channel: Channel }) {
         </span>
       )}
       <div className="flex-1" />
+      <IconButton label="Export channel" onClick={() => void exportTeam({ channel: channel.id }, channel.name)}>
+        <DownloadIcon />
+      </IconButton>
       <IconButton label="Channel settings" onClick={() => setSettings(true)}>
         <SettingsIcon />
       </IconButton>

@@ -215,3 +215,30 @@ export const channelsApi = {
   remove: (id: string) => invoke<void>("channels_delete", { id }),
   stopMember: (id: string, mate: string) => invoke<void>("channels_stop_member", { id, mate }),
 };
+
+// ── Team files (FR-20, FR-21, FR-27) ───────────────────────────────────────
+
+export interface TeamPreview {
+  channel: { name: string; replyRule?: string; lead?: string; instructions?: string } | null;
+  mates: {
+    name: string;
+    role: string;
+    avatar: Record<string, unknown> | null;
+    /** The mode it will start with: the app's. */
+    approvalMode: string;
+    /** What the file asked for. */
+    asked: string | null;
+    tools: string[] | null;
+    connectors: string[] | null;
+    missingConnectors: string[];
+    skills: string[] | null;
+    instructions: string;
+  }[];
+  unknown: string[];
+}
+
+export const teamApi = {
+  export: (target: { mate?: string; channel?: string }, path: string) => invoke<void>("team_export", { target, path }),
+  preview: (path: string) => invoke<TeamPreview>("team_preview", { path }),
+  import: (path: string, skip: string[]) => invoke<{ mates: string[]; channel: string | null }>("team_import", { path, skip }),
+};
