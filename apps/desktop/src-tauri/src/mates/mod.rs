@@ -13,6 +13,7 @@
 //!   its work settles ([`apply_pending`]).
 //! * Gallery roles are Markdown files in `templates/` ([`template`]).
 
+pub mod channels;
 pub mod grants;
 pub mod secrets;
 pub mod template;
@@ -44,7 +45,7 @@ pub fn mate_dir(id: &str) -> PathBuf {
     crate::mcp::agent_dir().join("mates").join(id)
 }
 
-fn new_id(prefix: &str) -> String {
+pub(crate) fn new_id(prefix: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -95,7 +96,7 @@ pub fn role_of(mate: &Mate) -> Value {
     role
 }
 
-fn changed(app: &AppHandle) {
+pub(crate) fn changed(app: &AppHandle) {
     let _ = app.emit("mates://changed", json!({}));
 }
 
@@ -115,7 +116,7 @@ pub async fn park(app: &AppHandle, chat: &str) {
 
 /// Restart `chat`'s engine so it reads its role again: now when it is idle,
 /// else once its work settles.
-async fn restart_when_idle(app: &AppHandle, chat: &str) {
+pub(crate) async fn restart_when_idle(app: &AppHandle, chat: &str) {
     let host = crate::supervisor::AppHost(app.clone());
     let working = app.state::<crate::supervisor::EngineSupervisor>().working(&host, chat);
     if working {
@@ -253,6 +254,8 @@ pub async fn mates_update(app: AppHandle, id: String, patch: MatePatch) -> Resul
     if engine_reads {
         write_role(&db, &mate)?;
         restart_when_idle(&app, &mate.chat_id).await;
+        // Its seats and the channels it is in read the change too.
+        channels::mate_changed(&app, &mate).await;
     }
     // Paused: its work stops now; the window holds new messages until Resume (FR-45).
     if patch.paused == Some(true) {

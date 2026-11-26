@@ -66,6 +66,8 @@ import { notify, windowFocused } from "@/features/notifications/notify";
 import { db, log, type SessionRole } from "@/lib/db";
 import { chatWindowId, closeChatWindow, focusChatWindow, matesWindow, openChatWindow, quickEntryWindow, viewerWindow } from "@/lib/windows";
 import { worktrees } from "@/lib/worktrees";
+import type { ChannelEntry } from "@/lib/mates";
+import { useChannelStore } from "@/stores/channel-store";
 import { APPROVAL_CHANGED, useUiStore, worktreeKey, type CustomizeSection, type PanelId } from "@/stores/ui-store";
 import { emitOfficeFileChanged } from "@/stores/office-events";
 import { useConnectorsStore } from "@/stores/connectors-store";
@@ -1236,6 +1238,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
     }
     if (isMesh(message)) {
       onMesh(chat, message);
+      return;
+    }
+    // A channel's coordinator wrote to the channel (evo-mates FR-14).
+    if (message.type === "channel_event") {
+      const entry = (message as { entry?: ChannelEntry }).entry;
+      if (entry) useChannelStore.getState().push(chat, entry);
       return;
     }
     if (message.type === "ready") {

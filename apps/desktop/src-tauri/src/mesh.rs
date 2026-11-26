@@ -178,8 +178,12 @@ impl MailStore for DbMailStore {
                 }
                 Ok(())
             });
-            if let Err(error) = marked {
-                db.log(evo_store::logs::NewLog::new("warn", "mates", format!("seat not recorded: {error}")).chat(Some(parent)));
+            match marked {
+                // The Mates window reads the channel's seats again.
+                Ok(()) => {
+                    let _ = self.app.emit("mates://changed", json!({}));
+                }
+                Err(error) => db.log(evo_store::logs::NewLog::new("warn", "mates", format!("seat not recorded: {error}")).chat(Some(parent))),
             }
         }
         db.log(evo_store::logs::NewLog::new("info", "mesh", format!("started nested session {id}")).chat(Some(parent)));

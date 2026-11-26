@@ -8,13 +8,28 @@ import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import type { MateMood } from "@/components/mate-face/mate-face";
 import { log } from "@/lib/db";
-import { matesApi, type CreateMate, type Mate, type MatePatch, type MateTemplate } from "@/lib/mates";
+import {
+  channelsApi,
+  matesApi,
+  type Channel,
+  type ChannelPatch,
+  type CreateChannel,
+  type CreateMate,
+  type Mate,
+  type MatePatch,
+  type MateTemplate,
+} from "@/lib/mates";
+import { entriesFromBranch, useChannelStore } from "@/stores/channel-store";
 import { inTauri } from "@/lib/platform";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore, type ChatWork } from "@/stores/session-store";
 
 /** What the conversation area shows. */
-export type MatesView = { kind: "mate"; id: string } | { kind: "gallery" } | { kind: "empty" };
+export type MatesView =
+  | { kind: "mate"; id: string }
+  | { kind: "channel"; id: string }
+  | { kind: "gallery" }
+  | { kind: "empty" };
 
 /** The mate panel's tabs. */
 export type MatePanelTab = "about" | "settings" | "apps" | "memory" | "files";
@@ -22,6 +37,7 @@ export type MatePanelTab = "about" | "settings" | "apps" | "memory" | "files";
 interface MatesStore {
   loaded: boolean;
   mates: Mate[];
+  channels: Channel[];
   templates: MateTemplate[];
   view: MatesView;
   /** The mate panel (ux.md 2) is open. */
@@ -40,6 +56,10 @@ interface MatesStore {
   update(id: string, patch: MatePatch): Promise<void>;
   duplicate(id: string): Promise<void>;
   remove(id: string): Promise<void>;
+  openChannel(id: string): Promise<void>;
+  createChannel(input: CreateChannel): Promise<Channel | null>;
+  updateChannel(id: string, patch: ChannelPatch): Promise<void>;
+  removeChannel(id: string): Promise<void>;
 }
 
 const report = (what: string) => (error: unknown) => log("warn", "mates", `${what}: ${String(error)}`);
@@ -49,6 +69,7 @@ let listening = false;
 export const useMatesStore = create<MatesStore>()((set, get) => ({
   loaded: false,
   mates: [],
+  channels: [],
   templates: [],
   view: { kind: "empty" },
   panelOpen: false,
@@ -60,6 +81,7 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
       // Another window (or the shell) changed a mate.
       void listen("mates://changed", () => {
         void matesApi.list().then((mates) => set({ mates }), report("reading the mates"));
+        void channelsApi.list().then((channels) => set({ channels }), report("reading the channels"));
       });
       void listen<{ chat: string }>("mates://open-chat", ({ payload }) => void get().openChat(payload.chat));
       // A mate's `connect_app` asks the person to switch an app on (FR-40).
@@ -69,16 +91,20 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
           .then(() => get().openPanel(payload.tab));
       });
     }
-    const [mates, templates] = await Promise.all([
+    const [mates, templates, channels] = await Promise.all([
       matesApi.list().catch((error) => {
         report("reading the mates")(error);
         return [] as Mate[];
       }),
       matesApi.templates().catch(() => [] as MateTemplate[]),
+      channelsApi.list().catch((error) => {
+        report("reading the channels")(error);
+        return [] as Channel[];
+      }),
     ]);
     // With no mate yet, the gallery greets the person (spec A-5).
     const view: MatesView = mates.length === 0 ? { kind: "gallery" } : get().view;
-    set({ loaded: true, mates, templates, view });
+    set({ loaded: true, mates, channels, templates, view });
     // Asked to show a mate before this window had loaded.
     const pending = inTauri ? await invoke<string | null>("mates_open_pending").catch(() => null) : null;
     if (pending) await get().openChat(pending);
@@ -86,7 +112,9 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
 
   async openChat(chat) {
     const mate = get().mates.find((m) => m.chatId === chat);
-    if (mate) await get().open(mate.id);
+    if (mate) return get().open(mate.id);
+    const channel = get().channels.find((c) => c.chatId === chat);
+    if (channel) return get().openChannel(channel.id);
   },
 
   async open(id) {
@@ -94,6 +122,60 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
     if (!mate) return;
     set({ view: { kind: "mate", id } });
     await useEngineStore.getState().selectSession(mate.chatId);
+  },
+
+  async openChannel(id) {
+    const channel = get().channels.find((c) => c.id === id);
+    if (!channel) return;
+    set({ view: { kind: "channel", id }, panelOpen: false });
+    const engine = useEngineStore.getState();
+    await engine.selectSession(channel.chatId);
+    // What the channel showed so far, from its engine.
+    try {
+      const answer = await useEngineStore
+        .getState()
+        .request("get_session_branch", { customTypes: ["channel"], order: "oldestFirst" });
+      useChannelStore.getState().set(channel.chatId, entriesFromBranch(answer));
+    } catch (error) {
+      report("reading the channel")(error);
+    }
+  },
+
+  async createChannel(input) {
+    try {
+      const channel = await channelsApi.create(input);
+      set((s) => ({ channels: [...s.channels.filter((c) => c.id !== channel.id), channel] }));
+      await useSessionStore.getState().load();
+      // Opening waits for the channel's engine: the caller goes on meanwhile.
+      void get().openChannel(channel.id);
+      return channel;
+    } catch (error) {
+      report("creating a channel")(error);
+      return null;
+    }
+  },
+
+  async updateChannel(id, patch) {
+    try {
+      const channel = await channelsApi.update(id, patch);
+      if (channel) set((s) => ({ channels: s.channels.map((c) => (c.id === id ? channel : c)) }));
+    } catch (error) {
+      report("changing a channel")(error);
+    }
+  },
+
+  async removeChannel(id) {
+    const channel = get().channels.find((c) => c.id === id);
+    if (channel && useEngineStore.getState().activeId === channel.chatId) useEngineStore.getState().letGo();
+    try {
+      await channelsApi.remove(id);
+    } catch (error) {
+      report("deleting a channel")(error);
+    }
+    set((s) => ({
+      channels: s.channels.filter((c) => c.id !== id),
+      view: s.view.kind === "channel" && s.view.id === id ? { kind: "empty" } : s.view,
+    }));
   },
 
   showGallery() {

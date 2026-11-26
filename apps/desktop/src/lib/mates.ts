@@ -110,3 +110,71 @@ export const matesApi = {
   secrets: (id: string) => invoke<string[]>("mates_secrets", { id }),
   deleteSecret: (id: string, name: string) => invoke<void>("mates_delete_secret", { id, name }),
 };
+
+// ── Channels (docs/features/evo-mates/spec.md, FR-14 – FR-19) ──────────────
+
+/** Who answers a message that mentions nobody. */
+export type ReplyRule = "auto" | "lead" | "everyone" | "mentioned";
+
+export interface ChannelMember {
+  mateId: string;
+  seatChatId: string | null;
+  position: number;
+}
+
+export interface Channel {
+  id: string;
+  name: string;
+  instructions: string;
+  replyRule: ReplyRule;
+  leadMateId: string | null;
+  folder: string | null;
+  /** The channel's root chat: its engine coordinates the channel. */
+  chatId: string;
+  pinned: boolean;
+  hidden: boolean;
+  position: number;
+  members: ChannelMember[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateChannel {
+  name: string;
+  instructions?: string;
+  replyRule?: ReplyRule;
+  leadMateId?: string | null;
+  folder?: string | null;
+  members: string[];
+}
+
+export type ChannelPatch = Partial<Pick<Channel, "name" | "instructions" | "replyRule" | "pinned" | "hidden">> & {
+  leadMateId?: string | null;
+  folder?: string | null;
+  members?: string[];
+};
+
+/** One thing a channel shows, as its coordinator wrote it (`channel` entries). */
+export type ChannelEntry =
+  | { kind: "message"; id: string; author: string; name?: string; text: string; at: number; status?: string; replyTo?: string | null }
+  | { kind: "route"; message: string; picked: string[]; line: string; at: number }
+  | {
+      kind: "handoff";
+      message: string;
+      handoff: "asks" | "assigns" | "tells";
+      from: string;
+      fromName: string;
+      to: string;
+      toName: string;
+      text: string;
+      at: number;
+    }
+  | { kind: "notice"; notice: string; text: string; at: number; author?: string };
+
+export const channelsApi = {
+  list: () => invoke<Channel[]>("channels_list"),
+  create: (input: CreateChannel) => invoke<Channel>("channels_create", { input }),
+  update: (id: string, patch: ChannelPatch) => invoke<Channel | null>("channels_update", { id, patch }),
+  remove: (id: string) => invoke<void>("channels_delete", { id }),
+  stopMember: (id: string, mate: string) => invoke<void>("channels_stop_member", { id, mate }),
+};

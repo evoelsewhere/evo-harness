@@ -454,6 +454,9 @@ where
     let external_tools =
         crate::rpc::external_tools::ExternalTools::new(stdout.clone(), Arc::downgrade(&lane));
     external_tools.set_role_source(role_source(harness, rpc_cwd(&rpc_providers)));
+    // A channel's role: this engine coordinates the channel instead of
+    // running a model (docs/features/evo-mates/spec.md, FR-14).
+    crate::channel::coordinator::install(external_tools.clone(), stdout.clone());
     let mut external_names = Vec::new();
     let file_io_router = crate::session::file_io_router(harness);
     let mut owner = RpcOwner {
@@ -849,7 +852,19 @@ where
                 let reply = match serde_json::from_value::<crate::mesh::Envelope>(msg) {
                     // Mail for this session (from the hub: another session's note).
                     Ok(envelope) if envelope.kind == evo_protocol::mesh::Kind::Mail => {
-                        let response = crate::mesh::receive_mail(harness, &envelope).await;
+                        // A channel takes its seats' turns and hand-offs itself.
+                        let taken = match crate::channel::coordinator::active() {
+                            Some(channel) => channel.on_mail(harness, &envelope).await,
+                            None => None,
+                        };
+                        let response = match taken {
+                            Some(answer) => crate::mesh::Envelope::response(
+                                crate::mesh::router().next_id(),
+                                &envelope,
+                                Ok(answer),
+                            ),
+                            None => crate::mesh::receive_mail(harness, &envelope).await,
+                        };
                         serde_json::to_value(response).into_iter().collect()
                     }
                     // The hub's answer to mail or `peers` this engine sent it
@@ -1128,6 +1143,10 @@ where
                             rpc_compact_cancellable(&lane_task, instructions, cancel_task).await
                         } else if resume {
                             rpc_resume_cancellable(&lane_task, cancel_task).await
+                        } else if let Some(channel) = crate::channel::coordinator::active() {
+                            // A channel's message goes to its mates, not a model.
+                            let text = crate::channel::coordinator::prompt_text(&content);
+                            channel.turn(&harness_task, text, cancel_task).await
                         } else {
                             rpc_prompt_cancellable(&lane_task, content, cancel_task).await
                         };

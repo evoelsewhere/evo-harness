@@ -780,3 +780,26 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   The set runs with `cargo test -p evo-engine --test mates_conduct --
   --ignored` and a real model. Evo Mates now shows "Opening <name>…" while a
   reopened window loads the mate's chat, instead of an empty pane.
+- **Phase 3, first slice: channels run** (T22, T23; parts of T24, T26, T28).
+  Building turned up that the mesh could not do what 3.5 assumed (a parent
+  could not start a session with a mate's role, got seats' turns cut to 400
+  characters, never saw mail between its children, and could not stop a
+  session in another engine). Decision (2026-11-26, the person): extend the
+  hub, keep the coordinator in the engine. The hub answers `channel_deliver`
+  and `channel_stop` only for a chat the store says is a channel's root
+  (`MailStore::is_channel_root`); a seat starts at once with the mate's role
+  (no proposal, outside the nested-session limit); a seat's turn reaches the
+  root whole (`MailKind::ChannelReport`) and mail between two seats is
+  copied to it (`ChannelHandoff`); `Effect::Stop` has the shell park a
+  seat. The coordinator (`channel/coordinator.rs`) replaces the model run in
+  the RPC `prompt` arm and takes those mails in the `mesh` arm; it calls the
+  hub through the external-tool broker (`ExternalTools::request_raw`). The
+  channel's thread is `channel` custom entries in the root's session, sent
+  live as `channel_event` lines, which `engine-store` hands to
+  `channel-store`; the view reads them back with `get_session_branch`. A
+  seat that needs the person shows "<name> needs you · Answer", which opens
+  the seat in a chat window. Not done yet: the `auto` router model (T25,
+  `auto` falls back to the lead), the running limit (T27), the per-seat
+  queue and steering (T53; the box waits while the channel works), lead
+  assignments and wrap-up checks (T52), the channel folder's project trust
+  (T26), Stop for one mate in the view, and Settings › Evo Mates (T29).

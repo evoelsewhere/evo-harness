@@ -3,14 +3,17 @@
 // Harness — and the empty state when no mate is open.
 
 import * as React from "react";
-import { ArrowLeftRightIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon } from "lucide-react";
+import { ArrowLeftRightIcon, HashIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { openApp } from "@/lib/apps";
 import { matesApi } from "@/lib/mates";
 import { modKey } from "@/lib/platform";
+import { cn } from "@/lib/utils";
 import { useMatesStore } from "@/stores/mates-store";
+import { useSessionStore } from "@/stores/session-store";
+import { ChannelSettings } from "./channel-settings";
 import { Roster } from "./roster";
 
 function IconButton({ label, onClick, children }: { label: string; onClick(): void; children: React.ReactNode }) {
@@ -31,6 +34,63 @@ function IconButton({ label, onClick, children }: { label: string; onClick(): vo
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** The sidebar's channels (FR-14): open one, or make a new one. */
+function Channels() {
+  const channels = useMatesStore((s) => s.channels);
+  const view = useMatesStore((s) => s.view);
+  const openChannel = useMatesStore((s) => s.openChannel);
+  const work = useSessionStore((s) => s.work);
+  const mates = useMatesStore((s) => s.mates);
+  const [making, setMaking] = React.useState(false);
+  return (
+    <section className="px-2 pt-3">
+      <div className="flex items-center justify-between pr-1">
+        <h2 className="px-2 pb-1 text-xs text-muted-foreground">Channels</h2>
+        {mates.length > 0 && (
+          <IconButton label="New channel" onClick={() => setMaking(true)}>
+            <PlusIcon />
+          </IconButton>
+        )}
+      </div>
+      {channels.length === 0 ? (
+        <p className="px-2 py-1 text-[13px] text-muted-foreground/80">No channels yet</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {channels
+            .filter((c) => !c.hidden)
+            .map((channel) => {
+              const active = view.kind === "channel" && view.id === channel.id;
+              const state = work[channel.chatId];
+              return (
+                <li key={channel.id}>
+                  <button
+                    type="button"
+                    onClick={() => void openChannel(channel.id)}
+                    className={cn(
+                      "no-drag flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[13px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent/70",
+                      active && "bg-sidebar-accent",
+                    )}
+                  >
+                    <HashIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{channel.name}</span>
+                    {state === "waiting" ? (
+                      <span className="size-2 rounded-full bg-amber-500" aria-label="Needs you" />
+                    ) : state === "working" ? (
+                      <span className="text-xs text-muted-foreground">Working…</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{channel.members.length}</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+        </ul>
+      )}
+      <ChannelSettings open={making} onOpenChange={setMaking} />
+    </section>
   );
 }
 
@@ -97,10 +157,7 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">
         <Roster query={query} />
-        <section className="px-2 pt-3">
-          <h2 className="px-2 pb-1 text-xs text-muted-foreground">Channels</h2>
-          <p className="px-2 py-1 text-[13px] text-muted-foreground/80">No channels yet</p>
-        </section>
+        <Channels />
       </div>
       <footer className="flex items-center gap-1 p-2">
         <Button

@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { MateModelPicker } from "@/features/mates/model-picker";
+import { ChannelBar, ChannelView } from "@/features/mates/channel-view";
 import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
 import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
@@ -45,12 +46,36 @@ function useBootstrap() {
   }, []);
 }
 
+/** A channel: its bar, then its thread once the engine store shows its root chat. */
+function ChannelPane({ id }: { id: string }) {
+  const channel = useMatesStore((s) => s.channels.find((c) => c.id === id));
+  const shown = useEngineStore((s) => s.activeId);
+  if (!channel) return <MatesEmpty />;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-12 shrink-0 items-center pr-2">
+        <ChannelBar channel={channel} />
+      </div>
+      <div className="min-h-0 flex-1">
+        {shown === channel.chatId ? (
+          <ChannelView channel={channel} />
+        ) : (
+          <div className="flex h-full animate-in items-center justify-center text-sm text-muted-foreground delay-300 duration-500 fill-mode-both fade-in">
+            Opening #{channel.name}…
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Conversation() {
   const mate = useShownMate();
   const view = useMatesStore((s) => s.view);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const shown = useEngineStore((s) => s.activeId);
   if (view.kind === "gallery") return <Gallery />;
+  if (view.kind === "channel") return <ChannelPane id={view.id} />;
   if (!mate) return <MatesEmpty />;
   return (
     <div className="flex h-full min-h-0">

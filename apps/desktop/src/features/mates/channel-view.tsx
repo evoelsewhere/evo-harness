@@ -1,0 +1,378 @@
+// A channel (docs/features/evo-mates/spec.md, FR-14 – FR-19; ux.md 2, 3):
+// the bar (name, its mates' faces, who answers, Stop, settings), the thread
+// of the person's and the mates' messages with the channel's own lines, the
+// mates at work, and the message box with an `@` list of the channel's mates.
+
+import * as React from "react";
+import { ArrowUpIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { Markdown } from "@/components/markdown";
+import { MateFace } from "@/components/mate-face/mate-face";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { log } from "@/lib/db";
+import { openChatWindow } from "@/lib/windows";
+import type { Channel, Mate } from "@/lib/mates";
+import { cn } from "@/lib/utils";
+import { useChannelStore } from "@/stores/channel-store";
+import { useEngineStore } from "@/stores/engine-store";
+import { useMatesStore } from "@/stores/mates-store";
+import { useSessionStore } from "@/stores/session-store";
+import { channelRows, handoffLine, insertMention, mentionAt, type ChannelRow } from "./channel-rows";
+import { ChannelSettings, RULES } from "./channel-settings";
+import { ConfirmDelete } from "./confirm";
+
+const EMPTY: never[] = [];
+
+function useMembers(channel: Channel): Mate[] {
+  const mates = useMatesStore((s) => s.mates);
+  return React.useMemo(
+    () => channel.members.map((m) => mates.find((mate) => mate.id === m.mateId)).filter((m): m is Mate => Boolean(m)),
+    [channel.members, mates],
+  );
+}
+
+function IconButton({ label, onClick, children }: { label: string; onClick(): void; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button variant="ghost" size="icon-sm" aria-label={label} onClick={onClick} className="no-drag rounded-full text-muted-foreground" />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+export function ChannelBar({ channel }: { channel: Channel }) {
+  const members = useMembers(channel);
+  const removeChannel = useMatesStore((s) => s.removeChannel);
+  const [settings, setSettings] = React.useState(false);
+  const [confirm, setConfirm] = React.useState(false);
+  const rule = RULES.find((r) => r.id === channel.replyRule);
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2 pl-3">
+      <button
+        type="button"
+        onClick={() => setSettings(true)}
+        aria-label={`${channel.name}: settings`}
+        className="no-drag flex h-8 min-w-0 items-center gap-1.5 rounded-full bg-card pr-2.5 pl-2 shadow-[0_0_0_1px_var(--border)] transition-colors hover:bg-accent"
+      >
+        <HashIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="truncate text-[13px] font-semibold text-foreground">{channel.name}</span>
+        <span className="flex -space-x-1.5 pl-1">
+          {members.slice(0, 5).map((mate) => (
+            <span key={mate.id} className="rounded-full ring-2 ring-card">
+              <MateFace avatar={mate.avatar} size={18} plate={false} label={mate.name} />
+            </span>
+          ))}
+        </span>
+      </button>
+      {rule && (
+        <span className="hidden rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline" title={rule.hint}>
+          {rule.label}
+        </span>
+      )}
+      <div className="flex-1" />
+      <IconButton label="Channel settings" onClick={() => setSettings(true)}>
+        <SettingsIcon />
+      </IconButton>
+      <IconButton label="Delete channel" onClick={() => setConfirm(true)}>
+        <Trash2Icon />
+      </IconButton>
+      <ChannelSettings open={settings} onOpenChange={setSettings} channel={channel} />
+      <ConfirmDelete
+        open={confirm}
+        onOpenChange={setConfirm}
+        title={`Delete ${channel.name}?`}
+        description="Its messages go. The mates stay, with their own conversations and memory."
+        onConfirm={() => void removeChannel(channel.id)}
+      />
+    </div>
+  );
+}
+
+function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "warn" }) {
+  return (
+    <div className="flex justify-center px-6 py-1.5">
+      <span
+        className={cn(
+          "max-w-[85%] rounded-full px-3 py-1 text-center text-[11.5px]",
+          tone === "warn" ? "bg-destructive/10 text-destructive" : "bg-muted/60 text-muted-foreground",
+        )}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function RowView({ row, faceOf }: { row: ChannelRow; faceOf(id: string): Mate | undefined }) {
+  switch (row.kind) {
+    case "time":
+      return <div className="py-2 text-center text-[11px] font-medium text-muted-foreground">{row.text}</div>;
+    case "route":
+      return <Line>{row.text}</Line>;
+    case "handoff":
+      return <Line>{handoffLine(row)}</Line>;
+    case "notice":
+      return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
+    case "bubble": {
+      const mate = row.me ? undefined : faceOf(row.author);
+      return (
+        <div className={cn("flex items-end gap-2 px-4", row.me ? "justify-end" : "justify-start", row.first ? "mt-2" : "mt-0.5")}>
+          {!row.me && (
+            <span className="w-7 shrink-0">
+              {row.last && mate && <MateFace avatar={mate.avatar} size={28} plate={false} label={mate.name} />}
+            </span>
+          )}
+          <div className={cn("flex max-w-[75%] min-w-0 flex-col", row.me ? "items-end" : "items-start")}>
+            {!row.me && row.first && <span className="mb-0.5 ml-2 text-[11px] font-medium text-muted-foreground">{row.name}</span>}
+            <div
+              className={cn(
+                "min-w-0 rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                row.me ? "bg-brand text-brand-foreground" : "bg-muted text-foreground",
+                row.last && (row.me ? "rounded-br-[6px]" : "rounded-bl-[6px]"),
+                row.failed && "opacity-70",
+                "[&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_ul]:pl-4 [&_ol]:pl-4",
+              )}
+            >
+              {row.me ? (
+                <span className="whitespace-pre-wrap break-words">{row.text}</span>
+              ) : (
+                <Markdown blocks>{row.text}</Markdown>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+}
+
+/** The mates of the channel whose seats are in `state` now. */
+function useSeats(channel: Channel, members: Mate[], state: "working" | "waiting"): Mate[] {
+  const work = useSessionStore((s) => s.work);
+  return members.filter((mate) => {
+    const seat = channel.members.find((m) => m.mateId === mate.id)?.seatChatId;
+    return seat ? work[seat] === state : false;
+  });
+}
+
+function seatOf(channel: Channel, mate: string): string | null {
+  return channel.members.find((m) => m.mateId === mate)?.seatChatId ?? null;
+}
+
+function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
+  const [text, setText] = React.useState("");
+  const [mention, setMention] = React.useState<{ start: number; query: string } | null>(null);
+  const [pick, setPick] = React.useState(0);
+  const busy = useEngineStore((s) => s.activeId === channel.chatId && s.transcript.busy);
+  const field = React.useRef<HTMLTextAreaElement>(null);
+
+  const matches = mention
+    ? [{ id: "everyone", name: "everyone" }, ...members.map((m) => ({ id: m.id, name: m.name }))].filter((m) =>
+        m.name.toLowerCase().startsWith(mention.query.toLowerCase()),
+      )
+    : [];
+
+  React.useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 6 * 20 + 16)}px`;
+  }, [text]);
+
+  const choose = (name: string) => {
+    const el = field.current;
+    if (!el || !mention) return;
+    const next = insertMention(text, mention.start, el.selectionStart, name);
+    setText(next.text);
+    setMention(null);
+    requestAnimationFrame(() => el.setSelectionRange(next.caret, next.caret));
+  };
+
+  const send = async () => {
+    const message = text.trim();
+    if (!message || busy) return;
+    setText("");
+    try {
+      await useEngineStore.getState().sendPrompt(message);
+    } catch (error) {
+      log("warn", "mates", `could not send to the channel: ${String(error)}`);
+    }
+  };
+
+  return (
+    <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
+      {mention && matches.length > 0 && (
+        <div className="absolute bottom-full left-4 mb-1 w-56 overflow-hidden rounded-2xl bg-popover p-1 shadow-lg ring-1 ring-border" role="listbox">
+          {matches.map((m, i) => {
+            const mate = members.find((x) => x.id === m.id);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="option"
+                aria-selected={i === pick}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  choose(m.name);
+                }}
+                className={cn("flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px]", i === pick && "bg-accent")}
+              >
+                {mate ? (
+                  <MateFace avatar={mate.avatar} size={20} plate={false} label={mate.name} />
+                ) : (
+                  <span className="flex size-5 items-center justify-center text-muted-foreground">@</span>
+                )}
+                {m.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex min-w-0 items-end rounded-[20px] border border-border bg-background pr-1 pl-3.5 transition-colors focus-within:border-brand/70 focus-within:ring-2 focus-within:ring-brand/15">
+        <textarea
+          ref={field}
+          rows={1}
+          value={text}
+          placeholder={busy ? "Mates are answering…" : `Message #${channel.name} · @ to mention`}
+          onChange={(event) => {
+            setText(event.target.value);
+            setMention(mentionAt(event.target.value, event.target.selectionStart));
+            setPick(0);
+          }}
+          onKeyDown={(event) => {
+            if (mention && matches.length > 0) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setPick((p) => (p + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                choose(matches[pick]?.name ?? matches[0].name);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+          className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none outline-none placeholder:text-muted-foreground focus-visible:outline-none"
+        />
+        {busy ? (
+          <button
+            type="button"
+            aria-label="Stop"
+            title="Stop every mate in this channel"
+            onClick={() => void useEngineStore.getState().abort()}
+            className="my-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background"
+          >
+            <SquareIcon className="size-3 fill-current" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            aria-label="Send"
+            disabled={!text.trim()}
+            onClick={() => void send()}
+            className={cn(
+              "my-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground transition-all",
+              text.trim() ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0",
+            )}
+          >
+            <ArrowUpIcon className="size-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function ChannelView({ channel }: { channel: Channel }) {
+  const members = useMembers(channel);
+  const entries = useChannelStore((s) => s.entries[channel.chatId] ?? EMPTY);
+  const shown = useEngineStore((s) => s.activeId === channel.chatId);
+  const working = useSeats(channel, members, "working");
+  const waiting = useSeats(channel, members, "waiting");
+  const nameOf = React.useCallback((id: string) => members.find((m) => m.id === id)?.name ?? id, [members]);
+  const rows = React.useMemo(() => channelRows(entries, nameOf), [entries, nameOf]);
+  const bottom = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [rows.length, working.length, waiting.length]);
+
+  if (!shown) return null;
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto pt-2 pb-3">
+        {rows.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+            <div className="flex -space-x-2">
+              {members.slice(0, 5).map((mate) => (
+                <span key={mate.id} className="rounded-full ring-4 ring-background">
+                  <MateFace avatar={mate.avatar} size={44} live plate={false} label={mate.name} />
+                </span>
+              ))}
+            </div>
+            <h2 className="text-lg font-semibold text-foreground">#{channel.name}</h2>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {members.map((m) => m.name).join(", ")} {members.length === 1 ? "is" : "are"} here. Say what you need, or @mention a
+              mate.
+            </p>
+          </div>
+        ) : (
+          rows.map((row) => <RowView key={row.key} row={row} faceOf={(id) => members.find((m) => m.id === id)} />)
+        )}
+        {working.map((mate) => (
+          <div key={mate.id} className="mt-2 flex items-end gap-2 px-4" aria-live="polite">
+            <MateFace avatar={mate.avatar} size={28} mood="working" live plate={false} label={mate.name} />
+            <div className="flex flex-col items-start gap-0.5">
+              <div className="flex items-center gap-1 rounded-[20px] rounded-bl-[6px] bg-muted px-3.5 py-3">
+                {[0, 150, 300].map((delay) => (
+                  <span
+                    key={delay}
+                    className="size-2 rounded-full bg-muted-foreground/70 motion-safe:animate-bounce"
+                    style={{ animationDelay: `${delay}ms`, animationDuration: "1s" }}
+                  />
+                ))}
+              </div>
+              <span className="px-1 text-xs text-muted-foreground">{mate.name} is working…</span>
+            </div>
+          </div>
+        ))}
+        {waiting.map((mate) => (
+          <div key={mate.id} className="flex justify-center px-6 py-1.5">
+            <span className="flex items-center gap-2 rounded-full bg-amber-500/10 py-1 pr-1 pl-2 text-[12px] text-amber-700 dark:text-amber-300">
+              <MateFace avatar={mate.avatar} size={18} mood="waiting" plate={false} label={mate.name} />
+              {mate.name} needs you
+              <button
+                type="button"
+                onClick={() => {
+                  const seat = seatOf(channel, mate.id);
+                  if (seat) void openChatWindow(seat, `${mate.name} in #${channel.name}`);
+                }}
+                className="rounded-full bg-amber-500 px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-amber-600"
+              >
+                Answer
+              </button>
+            </span>
+          </div>
+        ))}
+        <div ref={bottom} />
+      </div>
+      <Composer channel={channel} members={members} />
+    </div>
+  );
+}
