@@ -128,7 +128,7 @@ Done when: every row below is `passed` with its date.
 | FR-25 | Shell tests T13, T26; manual | not run |
 | FR-26 | Manual T18 | not run |
 | FR-27 | Team file tests T31 | not run |
-| FR-28 | Router unit test T25; manual Usage | not run |
+| FR-28 | Router unit test T25; manual Usage | router question and answer tests passed (2026-11-26); runs on the channel's model, not the cheapest from models.dev; usage under `mates`: not done; manual: not run |
 | FR-29 | Design review T36 | not run |
 | FR-30 | Manual T37 | not run |
 | FR-31 | Manual T37 | not run |
@@ -153,7 +153,7 @@ Done when: every row below is `passed` with its date.
 | FR-50 | `cargo test -p evo-engine mates_brief` (T49) | search half: `cargo test -p evo-store a_mate_finds_only_its_own_chats` passed (2026-11-25); the brief waits for channels (phase 3) |
 | FR-51 | Test set T47; manual | rule in the role prompt (2026-11-26); a fact the person states saved with the chip: seen in the app (2026-11-25); other mates' claims: needs channels (phase 3), not run |
 | FR-52 | Shell tests T50 | passed (2026-11-25) |
-| FR-53 | `cargo test -p evo-engine channel` (T51) | not run |
+| FR-53 | `cargo test -p evo-engine channel` (T51) | passed (2026-11-26): thresholds, "several", fallbacks and route lines; the 1.5 s budget is in code, not tested with a live router |
 | FR-54 | Engine tests T52; manual | not run |
 | FR-55 | Engine tests T52 | not run |
 | FR-56 | Engine tests T53 | not run |

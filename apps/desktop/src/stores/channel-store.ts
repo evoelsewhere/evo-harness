@@ -9,12 +9,33 @@ import type { ChannelEntry } from "@/lib/mates";
 interface ChannelStore {
   /** Entries per channel root chat, oldest first. */
   entries: Record<string, ChannelEntry[]>;
+  /**
+   * Messages written while the channel works, per root chat, oldest first:
+   * each goes out once the one before has its answers (FR-56).
+   */
+  queued: Record<string, string[]>;
   set(chat: string, entries: ChannelEntry[]): void;
   push(chat: string, entry: ChannelEntry): void;
+  enqueue(chat: string, text: string): void;
+  /** Take the next queued message of `chat`. */
+  dequeue(chat: string): string | undefined;
+  unqueue(chat: string, index: number): void;
 }
 
-export const useChannelStore = create<ChannelStore>()((set) => ({
+export const useChannelStore = create<ChannelStore>()((set, get) => ({
   entries: {},
+  queued: {},
+  enqueue(chat, text) {
+    set((s) => ({ queued: { ...s.queued, [chat]: [...(s.queued[chat] ?? []), text] } }));
+  },
+  dequeue(chat) {
+    const [next, ...rest] = get().queued[chat] ?? [];
+    if (next !== undefined) set((s) => ({ queued: { ...s.queued, [chat]: rest } }));
+    return next;
+  },
+  unqueue(chat, index) {
+    set((s) => ({ queued: { ...s.queued, [chat]: (s.queued[chat] ?? []).filter((_, i) => i !== index) } }));
+  },
   set(chat, entries) {
     set((s) => ({ entries: { ...s.entries, [chat]: entries } }));
   },

@@ -196,14 +196,26 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
 
   const send = async () => {
     const message = text.trim();
-    if (!message || busy) return;
+    if (!message) return;
     setText("");
+    // While the mates answer, it waits its turn (FR-56).
+    if (busy) {
+      useChannelStore.getState().enqueue(channel.chatId, message);
+      return;
+    }
     try {
       await useEngineStore.getState().sendPrompt(message);
     } catch (error) {
       log("warn", "mates", `could not send to the channel: ${String(error)}`);
     }
   };
+
+  // The next waiting message goes out once the channel is free.
+  React.useEffect(() => {
+    if (busy) return;
+    const next = useChannelStore.getState().dequeue(channel.chatId);
+    if (next) void useEngineStore.getState().sendPrompt(next).catch(() => undefined);
+  }, [busy, channel.chatId]);
 
   return (
     <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
@@ -239,7 +251,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           ref={field}
           rows={1}
           value={text}
-          placeholder={busy ? "Mates are answering…" : `Message #${channel.name} · @ to mention`}
+          placeholder={busy ? "Mates are answering… a message now goes next" : `Message #${channel.name} · @ to mention`}
           onChange={(event) => {
             setText(event.target.value);
             setMention(mentionAt(event.target.value, event.target.selectionStart));
@@ -270,7 +282,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           }}
           className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none outline-none placeholder:text-muted-foreground focus-visible:outline-none"
         />
-        {busy ? (
+        {busy && !text.trim() ? (
           <button
             type="button"
             aria-label="Stop"
@@ -302,6 +314,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
 export function ChannelView({ channel }: { channel: Channel }) {
   const members = useMembers(channel);
   const entries = useChannelStore((s) => s.entries[channel.chatId] ?? EMPTY);
+  const queued = useChannelStore((s) => s.queued[channel.chatId] ?? EMPTY);
   const shown = useEngineStore((s) => s.activeId === channel.chatId);
   const working = useSeats(channel, members, "working");
   const waiting = useSeats(channel, members, "waiting");
@@ -311,7 +324,7 @@ export function ChannelView({ channel }: { channel: Channel }) {
 
   React.useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [rows.length, working.length, waiting.length]);
+  }, [rows.length, working.length, waiting.length, queued.length]);
 
   if (!shown) return null;
   return (
@@ -350,6 +363,20 @@ export function ChannelView({ channel }: { channel: Channel }) {
               </div>
               <span className="px-1 text-xs text-muted-foreground">{mate.name} is working…</span>
             </div>
+          </div>
+        ))}
+        {queued.map((text, index) => (
+          <div key={`queued:${index}`} className="mt-2 flex flex-col items-end gap-0.5 px-4 opacity-60">
+            <div className="max-w-[75%] rounded-[20px] rounded-br-[6px] bg-brand px-3.5 py-2 text-[14px] leading-[20px] whitespace-pre-wrap text-brand-foreground">
+              {text}
+            </div>
+            <button
+              type="button"
+              onClick={() => useChannelStore.getState().unqueue(channel.chatId, index)}
+              className="px-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Next · Remove
+            </button>
           </div>
         ))}
         {waiting.map((mate) => (

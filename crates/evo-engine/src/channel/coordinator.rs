@@ -243,13 +243,24 @@ impl Coordinator {
             text: text.clone(),
         });
 
-        // The router (`auto`) is asked only when it is needed and configured.
-        let route = route::route(
-            &text,
-            &self.role,
-            None,
-            self.role.router.is_none().then_some("no router"),
-        );
+        // The router (`auto`) is asked only when no mention decides (FR-53).
+        let (answer, why) = if route::needs_router(&text, &self.role) {
+            let recent: Vec<(String, String)> = {
+                let state = lock(&self.state);
+                let upto = state.lines.len().saturating_sub(1);
+                state.lines[upto.saturating_sub(RECENT_LINES)..upto]
+                    .iter()
+                    .map(|l| (l.author.clone(), l.text.clone()))
+                    .collect()
+            };
+            match super::router::ask(harness, &self.role, &recent, &text).await {
+                Ok(answer) => (Some(answer), None),
+                Err(why) => (None, Some(why)),
+            }
+        } else {
+            (None, None)
+        };
+        let route = route::route(&text, &self.role, answer, why.as_deref());
         self.post(
             harness,
             json!({ "kind": "route", "message": message, "picked": route.picked, "line": route::line(&route, &self.role), "at": now_ms() }),

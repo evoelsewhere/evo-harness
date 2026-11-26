@@ -803,3 +803,15 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   queue and steering (T53; the box waits while the channel works), lead
   assignments and wrap-up checks (T52), the channel folder's project trust
   (T26), Stop for one mate in the view, and Settings › Evo Mates (T29).
+- **Phase 3, second slice** (parts of T25, T29, T53). The `auto` router
+  (`channel/router.rs`) is one tool-free question on the channel's own model
+  (`side_questions::ask_once`), not a separate cheapest model from models.dev
+  as 3.5 planned: the channel's engine already has a model and the person
+  can change it; its answer `{pick, confidence}` is weighed by
+  `route::route` (0.6, "several", else the lead) and the 1.5 s budget holds.
+  Its cost is the channel chat's own usage, not usage source `mates`.
+  Messages written while a channel works wait in the window (shown faded
+  as "Next") and go out one at a time when it is free; a message steering a
+  busy mate (FR-56) is not done. Settings › Evo Mates has the hand-off limit
+  (1 – 20, `mates.handoffLimit`); the running limit (T27, NFR-6) is not
+  done.

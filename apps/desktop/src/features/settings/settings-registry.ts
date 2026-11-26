@@ -1,5 +1,5 @@
 import type * as React from "react";
-import { AppWindowIcon, BrainIcon, CpuIcon, FlaskConicalIcon, GlobeIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, type LucideIcon } from "lucide-react";
+import { AppWindowIcon, BrainIcon, CpuIcon, FlaskConicalIcon, GlobeIcon, InfoIcon, KeyRoundIcon, PaletteIcon, ScrollTextIcon, ShieldCheckIcon, SlidersHorizontalIcon, UsersRoundIcon, type LucideIcon } from "lucide-react";
 import type { SettingsSection } from "@/stores/ui-store";
 import { AppearanceSettings } from "./sections/appearance-settings";
 import { ComputerAppsSettings } from "./sections/computer-apps-settings";
@@ -7,6 +7,7 @@ import { ExperimentalSettings } from "./sections/experimental-settings";
 import { GeneralSettings } from "./sections/general-settings";
 import { ProviderSettings } from "./sections/provider-settings";
 import { LogsSettings } from "./sections/logs-settings";
+import { MatesSettings } from "./sections/mates-settings";
 import { MemorySettings } from "./sections/memory-settings";
 import { SandboxSettings } from "./sections/sandbox-settings";
 import { AboutSettings, EngineSettings } from "./sections/system-settings";
@@ -86,6 +87,14 @@ export const settingsPages: SettingsPage[] = [
     group: "System",
     keywords: ["security", "process", "environment", "env", "variables", "profile", "bashrc", "shell", "timeout", "output", "limit", "deny", "denied", "patterns", ".env", "secrets", "permissions"],
     component: SandboxSettings,
+  },
+  {
+    id: "mates",
+    title: "Evo Mates",
+    icon: UsersRoundIcon,
+    group: "Application",
+    keywords: ["mates", "teammates", "channel", "channels", "hand-off", "handoff", "limit"],
+    component: MatesSettings,
   },
   {
     id: "experimental",
