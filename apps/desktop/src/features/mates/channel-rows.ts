@@ -27,9 +27,18 @@ export type ChannelRow =
   | { kind: "handoff"; key: string; from: string; fromName: string; toName: string; handoff: string; text: string }
   | { kind: "notice"; key: string; text: string; stop: boolean };
 
+/** `text` without markdown marks: bold, italics, code, headings, links. */
+export function plainText(text: string): string {
+  return text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__|`)/g, "")
+    .replace(/(^|\s)[*_](\S[^*_]*\S|\S)[*_](?=\s|$|[.,!?;:])/g, "$1$2")
+    .replace(/^\s*#+\s*/gm, "");
+}
+
 /** One plain line for a hand-off: "Planner assigns Writer: draft the intro". */
 export function handoffLine(row: { fromName: string; toName: string; handoff: string; text: string }): string {
-  const text = row.text.replace(/^\s*\[assign\]\s*/i, "").replace(/\s+/g, " ").trim();
+  const text = plainText(row.text.replace(/^\s*\[assign\]\s*/i, "")).replace(/\s+/g, " ").trim();
   const short = text.length > 90 ? `${text.slice(0, 89)}…` : text;
   return `${row.fromName} ${row.handoff} ${row.toName}${short ? `: ${short}` : ""}`;
 }
@@ -103,4 +112,33 @@ export function mentionAt(text: string, caret: number): { start: number; query: 
 export function insertMention(text: string, start: number, caret: number, name: string): { text: string; caret: number } {
   const inserted = `@${name} `;
   return { text: text.slice(0, start) + inserted + text.slice(caret), caret: start + inserted.length };
+}
+
+/** Pieces of `text` split at mentions of `names` (and `@everyone`), for drawing them out. */
+export function mentionParts(text: string, names: string[]): { text: string; mention: boolean }[] {
+  const known = [...names, "everyone"].filter(Boolean).sort((a, b) => b.length - a.length);
+  if (known.length === 0) return [{ text, mention: false }];
+  const escaped = known.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(@(?:${escaped.join("|")}))(?![\\p{L}\\p{N}])`, "giu");
+  const parts: { text: string; mention: boolean }[] = [];
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    const start = (match.index ?? 0) + match[1].length;
+    if (start > last) parts.push({ text: text.slice(last, start), mention: false });
+    parts.push({ text: match[2], mention: true });
+    last = start + match[2].length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), mention: false });
+  return parts;
+}
+
+/** Markdown with each mention in bold (a mention already in bold stays as it is). */
+export function boldMentions(markdown: string, names: string[]): string {
+  return mentionParts(markdown, names)
+    .map((part, i, all) => {
+      if (!part.mention) return part.text;
+      const before = all[i - 1]?.text ?? "";
+      return before.endsWith("**") ? part.text : `**${part.text}**`;
+    })
+    .join("");
 }

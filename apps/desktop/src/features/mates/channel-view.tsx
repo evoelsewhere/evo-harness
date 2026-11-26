@@ -17,7 +17,15 @@ import { useChannelStore } from "@/stores/channel-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
-import { channelRows, handoffLine, insertMention, mentionAt, type ChannelRow } from "./channel-rows";
+import {
+  boldMentions,
+  channelRows,
+  handoffLine,
+  insertMention,
+  mentionAt,
+  mentionParts,
+  type ChannelRow,
+} from "./channel-rows";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
 
@@ -109,7 +117,7 @@ function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
   );
 }
 
-function RowView({ row, faceOf }: { row: ChannelRow; faceOf(id: string): Mate | undefined }) {
+function RowView({ row, faceOf, names }: { row: ChannelRow; faceOf(id: string): Mate | undefined; names: string[] }) {
   switch (row.kind) {
     case "time":
       return <div className="py-2 text-center text-[11px] font-medium text-muted-foreground">{row.text}</div>;
@@ -140,9 +148,19 @@ function RowView({ row, faceOf }: { row: ChannelRow; faceOf(id: string): Mate | 
               )}
             >
               {row.me ? (
-                <span className="whitespace-pre-wrap break-words">{row.text}</span>
+                <span className="whitespace-pre-wrap break-words">
+                  {mentionParts(row.text, names).map((part, i) =>
+                    part.mention ? (
+                      <span key={i} className="rounded-md bg-white/20 px-0.5 font-semibold">
+                        {part.text}
+                      </span>
+                    ) : (
+                      <React.Fragment key={i}>{part.text}</React.Fragment>
+                    ),
+                  )}
+                </span>
               ) : (
-                <Markdown blocks>{row.text}</Markdown>
+                <Markdown blocks>{boldMentions(row.text, names)}</Markdown>
               )}
             </div>
           </div>
@@ -346,7 +364,14 @@ export function ChannelView({ channel }: { channel: Channel }) {
             </p>
           </div>
         ) : (
-          rows.map((row) => <RowView key={row.key} row={row} faceOf={(id) => members.find((m) => m.id === id)} />)
+          rows.map((row) => (
+            <RowView
+              key={row.key}
+              row={row}
+              names={members.map((m) => m.name)}
+              faceOf={(id) => members.find((m) => m.id === id)}
+            />
+          ))
         )}
         {working.map((mate) => (
           <div key={mate.id} className="mt-2 flex items-end gap-2 px-4" aria-live="polite">

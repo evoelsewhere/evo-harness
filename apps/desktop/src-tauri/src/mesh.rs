@@ -120,7 +120,9 @@ impl MailStore for DbMailStore {
     }
 
     fn children_of(&self, parent: &str) -> Vec<ChildInfo> {
-        let chats = self.db().with(|conn| chats::list_chats(conn, false)).unwrap_or_default();
+        // Nested sessions and a channel's seats (evo-mates FR-17: seats reach
+        // each other as siblings).
+        let chats = self.db().with(|conn| chats::list_chats_of(conn, false, &["chat", "seat"])).unwrap_or_default();
         chats
             .into_iter()
             .filter(|chat| chat.parent_chat_id.as_deref() == Some(parent))

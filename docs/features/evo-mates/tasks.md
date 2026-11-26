@@ -117,7 +117,7 @@ Done when: every row below is `passed` with its date.
 | FR-14 | Shell tests T26; manual | passed (2026-11-26): store, hub and shell tests; in the app a channel of two mates was made, a message mentioning both started their seats (kind `seat`, not listed in Harness) and both replies showed in the channel |
 | FR-15 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) |
 | FR-16 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) for mentions, `@everyone` and each rule; the `auto` router model itself waits for T25 (without it `auto` falls back to the lead) |
-| FR-17 | Engine test T24; manual | hub test of the hand-off copy passed (2026-11-26); in the app the provider kept failing (408) during the hand-off run: not seen yet |
+| FR-17 | Engine test T24; manual | passed (2026-11-26): hub copy test; coordinator tests for mention deliveries; in the app a mate asked another by @mention, the answer went back and the asker posted the result |
 | FR-18 | Engine test T24 | not run |
 | FR-19 | Manual: three mates stop within 2 s | partly (2026-11-26): Stop in a channel of two mates stopped the working seat at once (no run after it) and posted "Stopped."; three mates and one-mate Stop: not run |
 | FR-20 | Team file tests T31 | not run |

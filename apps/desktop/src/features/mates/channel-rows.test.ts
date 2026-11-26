@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelEntry } from "@/lib/mates";
-import { channelRows, handoffLine, insertMention, mentionAt } from "./channel-rows";
+import { boldMentions, channelRows, handoffLine, insertMention, mentionAt, mentionParts } from "./channel-rows";
 
 // docs/features/evo-mates/spec.md (FR-14 – FR-19, FR-58).
 const at = (minutes: number) => 1_700_000_000_000 + minutes * 60_000;
@@ -67,5 +67,33 @@ describe("mentions in the box", () => {
 
   test("picking a member replaces the word", () => {
     expect(insertMention("hi @wr please", 3, 6, "Writer")).toEqual({ text: "hi @Writer  please", caret: 11 });
+  });
+});
+
+describe("mentions and marks in the thread", () => {
+  test("mentions are found by member name, not inside words or emails", () => {
+    const names = ["Researcher", "New mate"];
+    expect(mentionParts("Ok @Researcher, ask @new mate and @everyone.", names)).toEqual([
+      { text: "Ok ", mention: false },
+      { text: "@Researcher", mention: true },
+      { text: ", ask ", mention: false },
+      { text: "@new mate", mention: true },
+      { text: " and ", mention: false },
+      { text: "@everyone", mention: true },
+      { text: ".", mention: false },
+    ]);
+    expect(mentionParts("mail x@Researcher.com", names)).toEqual([{ text: "mail x@Researcher.com", mention: false }]);
+    expect(mentionParts("@Researchers", names)).toEqual([{ text: "@Researchers", mention: false }]);
+  });
+
+  test("a mate's markdown gets its mentions in bold once", () => {
+    expect(boldMentions("Hi @Writer!", ["Writer"])).toBe("Hi **@Writer**!");
+    expect(boldMentions("Hi **@Writer**!", ["Writer"])).toBe("Hi **@Writer**!");
+  });
+
+  test("hand-off lines drop markdown marks", () => {
+    expect(handoffLine({ fromName: "Writer", toName: "Researcher", handoff: "asks", text: "Call me **Bút Nhỏ**, _ok_? `x`" })).toBe(
+      "Writer asks Researcher: Call me Bút Nhỏ, ok? x",
+    );
   });
 });

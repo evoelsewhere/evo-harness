@@ -815,3 +815,13 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   busy mate (FR-56) is not done. Settings › Evo Mates has the hand-off limit
   (1 – 20, `mates.handoffLimit`); the running limit (T27, NFR-6) is not
   done.
+- **Hand-offs by mention** (T24 part, T52 part). Seats did not see each
+  other: the shell's `children_of` listed only Harness chats, so a seat's
+  `ask` reached nobody but the channel; it now lists `seat` chats too. A
+  mate's reply that @mentions another member hands the message to it (an
+  **asks** line), and the asked member's answer goes back to the asker (a
+  **tells** line), so a chain like "ask Writer, then post it" finishes in
+  the channel; each counts against the hand-off limit. Mentions show in
+  bold in the thread, and hand-off lines drop markdown marks. Checked in
+  the app (2026-11-26): Researcher asked Writer for a tagline, Writer
+  answered, the answer went back and Researcher posted the final one.
