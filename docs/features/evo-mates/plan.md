@@ -979,3 +979,22 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   48 hours, at most ten, to the prompt's `<hook-context>` (the window
   already strips that block from the person's bubble). The file is read
   only by that mate's own engines.
+- **Questions in a channel (T64, FR-72).** A seat's role is its mate's with
+  `mate.channel` set to the channel's name
+  (`mates::channels::seat_role_of`); writing a channel's role rewrites each
+  seat whose role changed and restarts it once idle. A seat's engine has no
+  `ask_user` tool and its conduct says to ask in the reply and end the
+  turn. The coordinator keeps the mates whose last reply asked the person
+  something (`route::asks_the_person`: a question mark and no member
+  mentioned); the person's next message without a mention goes to them
+  (`route::answer_to`, route line "{names}, who asked you") before the
+  rule or the router. The list lives in the coordinator's memory: after the
+  channel's engine restarts a reply follows the rule again.
+- **A channel keeps its own model (T65).** The supervisor's set-up at
+  `ready` (the row's model, else the saved default) is skipped for a chat
+  of kind `channel`, whose engine sets the router model itself; before, the
+  router choice was overwritten on every start but the first.
+- **Answer opens the seat (T65).** A chat window lists chats of kind `seat`
+  too (`chats_list` with `kind: "window"`), so the window that **Answer**
+  opens shows the seat's thread and its approval card instead of an empty
+  draft.

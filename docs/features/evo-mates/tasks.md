@@ -81,6 +81,8 @@ queues extra work.
 - [ ] T28 [P] [FR-14 – FR-19, FR-36] Channel view: messages by author, member avatars and rule chip in the header, `@` member list, route lines, hand-off lines, live seat activity, **Stop**; channel settings dialog — `src/features/mates/channel*.tsx`, `mention-menu.tsx`, `route-line.tsx`, `handoff-line.tsx` — check: manual
 - [x] T29 [P] [NFR-6, FR-18, FR-28] Settings › Evo Mates — `src/features/settings/sections/mates-settings.tsx` — check: manual; values apply without restart
 - [ ] T30 [NFR-5] Trust check: a mate asked by another mate to run a command still asks the person under "ask" — check: manual, recorded
+- [x] T64 [FR-72] A seat asks in its reply: the seat role names its channel (`mate.channel`), its engine drops `ask_user` and gets the channel rules; a reply without a mention goes to the mates who asked — `crates/evo-engine/src/session_roles.rs`, `channel/route.rs`, `channel/coordinator.rs`, `src-tauri/src/mates/channels.rs` — check: `cargo test -p evo-engine channel session_roles`, shell test `a_seat_role_names_its_channel`
+- [x] T65 [FR-12, FR-28] Fixes found in the app: a channel's engine keeps the model it picks (the supervisor no longer sets the row's or the default model on it); a chat window opened from **Answer** shows the mate's seat — `src-tauri/src/supervisor.rs`, `src/lib/db.ts`, `src/stores/session-store.ts` — check: shell test `a_channel_keeps_the_model_its_engine_picked`; manual
 
 ### Phase 4 — Team files
 
@@ -143,7 +145,7 @@ Done when: every row below is `passed` with its date.
 | FR-25 | Shell tests T13, T26; manual | partly (2026-11-26): seats resolve the channel's folder, else the mate's (`folder_of`); channel settings set and clear it and seats start again there; manual: not run |
 | FR-26 | Manual T18 | not run |
 | FR-27 | Team file tests T31 | passed (2026-11-26): a newer version and a non-team file are refused, unknown entries are listed |
-| FR-28 | Router unit test T25; manual Usage | passed (2026-11-26): `the_router_is_the_chosen_model_else_the_cheapest` on a fixture catalogue (the choice, the cheapest priced, a gone choice falls back, none connected: no router); a channel's calls record under usage source `mates` (engine test of T58); Settings › Evo Mates › Picks who answers; manual Usage: not run |
+| FR-28 | Router unit test T25; manual Usage | passed (2026-11-26): `the_router_is_the_chosen_model_else_the_cheapest` on a fixture catalogue (the choice, the cheapest priced, a gone choice falls back, none connected: no router); a channel's calls record under usage source `mates` (engine test of T58); Settings › Evo Mates › Picks who answers; manual Usage: not run; in the app (2026-11-26): with no choice the channel ran on the cheapest connected model, with a choice on it, after a restart of the channel (T65) |
 | FR-29 | Design review T36 | not run |
 | FR-30 | Manual T37 | not run |
 | FR-31 | Manual T37 | not run |
@@ -187,6 +189,7 @@ Done when: every row below is `passed` with its date.
 | FR-69 | Tool tests T57; manual T61 | check-ins through `mate_agenda` with the Scheduler's schedules; manual: not run |
 | FR-70 | Manual T61 | partly (2026-11-26): the list, Initiative and the check-in editor (every day, weekdays, weekly days and time) are in Settings, editor tests passed; a manual pass of each action: not run |
 | FR-71 | Shell tests T58; manual Usage | passed (2026-11-26): pause skips; heartbeat turns and a channel's calls record under usage source `mates` (engine test); manual check of Usage: not run |
+| FR-72 | `cargo test -p evo-engine channel session_roles` (T64); manual | passed (2026-11-26): `a_reply_goes_to_the_mates_who_asked`, `a_question_to_the_person_is_one_that_mentions_no_member`, `a_seat_asks_in_its_reply_not_with_a_card`; manual in a channel with **Everyone**: the mate asked numbered questions in its reply, the answer without a mention went only to it ("Hạnh Sale, who asked you") and it wrote the draft |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |

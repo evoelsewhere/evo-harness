@@ -354,6 +354,7 @@ Acceptance scenarios:
 | FR-69 | The person must be able to schedule **check-ins** per mate ("every weekday at 9:00", "every Monday", "once on 3 December at 15:00") with what the mate should look at; a check-in can be paused, changed or removed from the mate panel and from the card the mate shows when it sets one up. | Given a weekday check-in, then the mate writes at each time; pausing stops it. |
 | FR-70 | A mate's panel must show its **Following up** list: each agenda item and check-in with its time; the person can remove an item, mark it "never follow up on this", or change a check-in. A removed or "never" item is not followed up. | Manual check of each action; a "never" item does not come back after a new mention of it. |
 | FR-71 | Proactive work must be visible and bounded: each heartbeat decision, first message and read-only run is recorded in the mate's usage (source `mates`) and in the app log; **Pause** (FR-45) stops a mate's initiative too. | Usage shows proactive cost per mate; a paused mate never writes first. |
+| FR-72 | In a channel a mate must ask the person in its reply, as plain text (numbered when there are several questions, each with what it would assume), never with a question card, which the channel cannot show; the person answers in the channel. A message of the person with no mention that follows such a question goes to the mates who asked, whatever the reply rule. | Given a channel with **Everyone** and a mate that asked a question, when the person replies without a mention, then only that mate gets it and the route line reads "{name}, who asked you"; a mate's seat has no `ask_user` tool. |
 
 ### 4.2 Non-functional
 
@@ -520,6 +521,11 @@ None.
 - A-10 Agenda items are taken by the mate itself at the end of a turn (a
   tool it calls), not by a separate model pass — because it already has
   the conversation and the cost stays inside the turn.
+- A-11 A mate's reply asks the person something when it has a question
+  mark and mentions no member (FR-72) — a plain rule the router does not
+  need; a draft that quotes a question also counts, so the next message
+  without a mention goes back to that mate, which is usually who the
+  person is talking to.
 
 ## 7. History
 
@@ -536,3 +542,4 @@ None.
 - 2026-11-26 — Owner asked for mates that act more like people: research of
   AI companion and teammate products; US-10 and FR-63 – FR-71 added, 2.2
   changed, FR-53's router budget 1.5 s → 6 s; eight answers in 6.2.
+- 2026-11-26 — Owner found the "needs you" card of a mate in a channel could not be answered and asked that mates ask in the chat and take the answer there: FR-72 added, A-11 recorded.

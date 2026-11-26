@@ -345,9 +345,11 @@ pub async fn workspace_remove(
 #[tauri::command]
 pub fn chats_list(db: State<'_, Db>, archived: bool, kind: Option<String>) -> Result<Vec<Chat>, String> {
     // Evo Mates lists its mates' chats and channels; Evo Harness its own
-    // (docs/features/evo-mates/spec.md, FR-24).
+    // (docs/features/evo-mates/spec.md, FR-24); a chat window also a mate's
+    // seat in a channel, whose approvals **Answer** opens there (FR-12).
     match kind.as_deref() {
         Some("mates") => db.with(|conn| chats::list_chats_of(conn, archived, &chats::MATES_KINDS)),
+        Some("window") => db.with(|conn| chats::list_chats_of(conn, archived, &[chats::KIND_CHAT, "seat"])),
         _ => db.with(|conn| chats::list_chats(conn, archived)),
     }
 }

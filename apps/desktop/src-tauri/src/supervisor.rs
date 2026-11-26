@@ -157,6 +157,9 @@ pub struct Row {
     /// The approval mode of its own, a mate's (docs/features/evo-mates/spec.md,
     /// FR-7, NFR-5): the app's mode does not reach it.
     pub own_approval: Option<String>,
+    /// Its engine picks its model itself: a channel's runs on the model that
+    /// picks who answers (docs/features/evo-mates/spec.md, FR-28).
+    pub own_model: bool,
 }
 
 impl Row {
@@ -166,6 +169,7 @@ impl Row {
             top_level: chat.parent_chat_id.is_none(),
             archived: chat.archived_at.is_some(),
             own_approval: None,
+            own_model: chat.kind == chats::KIND_CHANNEL,
         }
     }
 }
@@ -607,7 +611,11 @@ impl EngineSupervisor {
     /// whose draft named one), else the saved default when the engine picked
     /// another (it does not know every provider). Never for a draft the person
     /// already switched: windows send their own `set_model` after the set-up.
+    /// Never for a chat whose engine picks its own (a channel's).
     async fn set_model<H: Host>(&self, host: &H, chat: &str) {
+        if host.row(chat).is_some_and(|row| row.own_model) {
+            return;
+        }
         let state = host.request(chat, "get_state", json!({})).await.ok();
         let current = state.as_ref().map(|state| {
             let text = |key: &str| state.get(key).and_then(Value::as_str).map(str::to_string);
@@ -1905,7 +1913,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn top(model: Option<(&str, &str)>) -> Row {
-        Row { model: model.map(|(p, m)| (p.into(), m.into())), top_level: true, archived: false, own_approval: None }
+        Row { model: model.map(|(p, m)| (p.into(), m.into())), top_level: true, archived: false, own_approval: None, own_model: false }
     }
 
     #[tokio::test]
@@ -2012,7 +2020,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_nested_session_gets_no_session_tools_and_keeps_a_model_it_runs_on() {
-        let fake = Fake::default().with_row("n", Row { model: Some(("acme".into(), "m".into())), top_level: false, archived: false, own_approval: None });
+        let fake = Fake::default().with_row("n", Row { model: Some(("acme".into(), "m".into())), top_level: false, ..top(None) });
         fake.answer("get_state", Ok(json!({ "provider": "acme", "modelId": "m" })));
         let supervisor = EngineSupervisor::default();
         let started = supervisor.ensure(&fake, viewer("n", Some("/w"), false)).await.unwrap();
@@ -2020,6 +2028,21 @@ pub(crate) mod tests {
         assert!(fake.lines("request n set_model").is_empty(), "{:?}", fake.log());
         assert_eq!(fake.lines("request n configure"), vec!["request n configure_external_tools browser@/w"]);
         assert_eq!(fake.lines("hosted"), vec!["hosted n"]);
+    }
+
+    #[tokio::test]
+    async fn a_channel_keeps_the_model_its_engine_picked() {
+        // Its engine starts on the model that picks who answers
+        // (docs/features/evo-mates/spec.md, FR-28): neither the row's model
+        // nor the saved default replaces it.
+        let fake = Fake::default().with_row("ch", Row { own_model: true, ..top(Some(("acme", "row"))) });
+        fake.answer("get_state", Ok(json!({ "provider": "acme", "modelId": "router" })));
+        fake.answer("get_default_model", Ok(json!({ "provider": "acme", "modelId": "fav" })));
+        let supervisor = EngineSupervisor::default();
+        let started = supervisor.ensure(&fake, viewer("ch", Some("/w"), false)).await.unwrap();
+        supervisor.on_ready(&fake, "ch", started.generation).await;
+        assert!(fake.lines("request ch set_model").is_empty(), "{:?}", fake.log());
+        assert_eq!(fake.lines("hosted"), vec!["hosted ch"]);
     }
 
     #[tokio::test]

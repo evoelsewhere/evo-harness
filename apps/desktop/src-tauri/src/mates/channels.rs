@@ -52,7 +52,7 @@ pub fn role_of(db: &Db, channel: &Channel) -> Value {
                 "name": mate.name,
                 "role": mate.role,
                 "seatChat": member.seat_chat_id,
-                "seatRole": super::role_of(&mate),
+                "seatRole": seat_role_of(&mate, &channel.name),
             }))
         })
         .collect();
@@ -73,13 +73,31 @@ pub fn role_of(db: &Db, channel: &Channel) -> Value {
     })
 }
 
+/// The role a mate's seat in the channel `channel` runs as: its mate's, naming
+/// the channel, so it asks in its reply rather than with a card (FR-72).
+pub fn seat_role_of(mate: &evo_store::mates::Mate, channel: &str) -> Value {
+    let mut role = super::role_of(mate);
+    role["mate"]["channel"] = json!(channel);
+    role
+}
+
 /// Write the channel's role into its root chat, and restart the root's
-/// engine once idle so it reads it.
+/// engine once idle so it reads it; a seat whose role changed (its mate, the
+/// channel's name) restarts too.
 async fn write_role(app: &AppHandle, channel: &Channel) -> Result<(), String> {
     let db = app.state::<Db>();
     let role = role_of(&db, channel);
     db.with(|conn| evo_store::chats::set_role(conn, &channel.chat_id, Some(&role)).map(|_| ()))?;
     super::restart_when_idle(app, &channel.chat_id).await;
+    for member in &channel.members {
+        let Some(seat) = &member.seat_chat_id else { continue };
+        let Some(mate) = db.with(|conn| evo_store::mates::get_mate(conn, &member.mate_id)).ok().flatten() else { continue };
+        let role = seat_role_of(&mate, &channel.name);
+        let current = db.with(|conn| evo_store::chats::get_chat(conn, seat)).ok().flatten().and_then(|chat| chat.role);
+        if current.as_ref() != Some(&role) && db.with(|conn| evo_store::chats::set_role(conn, seat, Some(&role)).map(|_| ())).is_ok() {
+            super::restart_when_idle(app, seat).await;
+        }
+    }
     Ok(())
 }
 
@@ -102,12 +120,6 @@ pub async fn mate_changed(app: &AppHandle, mate: &evo_store::mates::Mate) {
         return;
     };
     for channel in list.into_iter().filter(|c| c.members.iter().any(|m| m.mate_id == mate.id)) {
-        if let Some(seat) = channel.members.iter().find(|m| m.mate_id == mate.id).and_then(|m| m.seat_chat_id.clone()) {
-            let role = super::role_of(mate);
-            if db.with(|conn| evo_store::chats::set_role(conn, &seat, Some(&role)).map(|_| ())).is_ok() {
-                super::restart_when_idle(app, &seat).await;
-            }
-        }
         let _ = write_role(app, &channel).await;
     }
 }
@@ -237,5 +249,23 @@ mod tests {
         assert_eq!(channel.members[0].seat_role.as_ref().unwrap().mate.as_ref().unwrap().id, "m1");
         assert_eq!(channel.handoff_limit, 6);
         assert_eq!(channel.lead.as_deref(), Some("m1"));
+    }
+
+    // FR-72: a seat's role names its channel, so its engine asks in its reply.
+    #[test]
+    fn a_seat_role_names_its_channel() {
+        let mate: evo_store::mates::Mate = serde_json::from_value(serde_json::json!({
+            "id": "m", "name": "Ada", "avatar": {}, "role": "", "instructions": "",
+            "provider": null, "model": null, "thinking": null, "tools": null, "connectors": null,
+            "skills": null, "apps": null, "approvalMode": "auto", "sending": "send",
+            "notifications": true, "initiative": "off", "unanswered": 0, "paused": false,
+            "folder": "/m", "projectFolder": null, "chatId": "c", "template": null,
+            "pinned": false, "hidden": false, "position": 0, "createdAt": 0, "updatedAt": 0
+        }))
+        .unwrap();
+        let seat: evo_mesh::wire::SessionRole = serde_json::from_value(super::seat_role_of(&mate, "BDS")).unwrap();
+        assert_eq!(seat.mate.unwrap().channel.as_deref(), Some("BDS"));
+        let direct: evo_mesh::wire::SessionRole = serde_json::from_value(crate::mates::role_of(&mate)).unwrap();
+        assert_eq!(direct.mate.unwrap().channel, None);
     }
 }

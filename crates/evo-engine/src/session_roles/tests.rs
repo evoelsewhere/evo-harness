@@ -280,6 +280,7 @@ fn a_mate_role_gets_the_mate_conduct() {
             id: "m1".into(),
             name: "Writer".into(),
             role: "drafts copy".into(),
+            channel: None,
         }),
         ..Default::default()
     };
@@ -355,4 +356,41 @@ fn read_only_session_role_narrows_app_tools() {
     // `apply` would set the process-wide role; check what it adds to the args.
     narrow_tools(&read_only, &mut args);
     assert_eq!(args.tools, None);
+}
+
+// docs/features/evo-mates/spec.md (FR-72): a mate's seat in a channel asks
+// in its reply, which the person answers in the channel; it has no
+// `ask_user` card, which the channel cannot show.
+#[test]
+fn a_seat_asks_in_its_reply_not_with_a_card() {
+    let seat = SessionRole {
+        name: Some("Mai".into()),
+        mate: Some(MateIdentity {
+            id: "m1".into(),
+            name: "Mai".into(),
+            role: "research".into(),
+            channel: Some("BDS".into()),
+        }),
+        ..Default::default()
+    };
+    let block = block_for(&seat).unwrap();
+    assert!(!block.contains("`ask_user` card"), "{block}");
+    assert!(block.contains("in the channel \"BDS\""), "{block}");
+    assert!(block.contains("ask in your reply"), "{block}");
+    let mut args = crate::args::Args::default();
+    exclude_tools(&seat, &mut args);
+    assert_eq!(args.exclude_tools, Some(vec!["ask_user".to_string()]));
+
+    // Its direct conversation keeps the card.
+    let direct = SessionRole {
+        mate: Some(MateIdentity {
+            channel: None,
+            ..seat.mate.clone().unwrap()
+        }),
+        ..seat
+    };
+    assert!(block_for(&direct).unwrap().contains("`ask_user` card"));
+    let mut args = crate::args::Args::default();
+    exclude_tools(&direct, &mut args);
+    assert_eq!(args.exclude_tools, None);
 }

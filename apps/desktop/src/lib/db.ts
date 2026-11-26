@@ -5,7 +5,7 @@
 // into the same file by its engine.
 
 import { invoke } from "@tauri-apps/api/core";
-import { matesWindow } from "@/lib/windows";
+import { chatWindowId, matesWindow } from "@/lib/windows";
 
 export interface DbWorkspace {
   id: string;
@@ -243,8 +243,10 @@ export const db = {
   setWorkspaceCollapsed: (id: string, collapsed: boolean) => invoke<void>("workspace_set_collapsed", { id, collapsed }),
   removeWorkspace: (id: string) => invoke<string[]>("workspace_remove", { id }),
 
-  // The Evo Mates window lists its mates' chats; every other window Evo Harness's.
-  chats: (archived = false) => invoke<DbChat[]>("chats_list", { archived, kind: matesWindow ? "mates" : null }),
+  // The Evo Mates window lists its mates' chats; a chat window also a mate's
+  // seat in a channel, which it may show; every other window Evo Harness's.
+  chats: (archived = false) =>
+    invoke<DbChat[]>("chats_list", { archived, kind: matesWindow ? "mates" : chatWindowId ? "window" : null }),
   searchChats: (query: string) => invoke<DbChat[]>("chats_search", { query }),
   createChat: (chat: {
     id: string;

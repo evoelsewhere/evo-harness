@@ -1,7 +1,8 @@
 //! Who answers a message in a channel (docs/features/evo-mates/spec.md,
 //! FR-15, FR-16, FR-53): `@everyone`, then mentions, then the channel's
 //! reply rule. Under `auto` a router model may pick; its answer is weighed
-//! here, so the rule is testable without a model.
+//! here, so the rule is testable without a model. A message with no mention
+//! that follows a member's question goes to the members who asked (FR-72).
 
 use evo_protocol::mesh::{ChannelMember, ChannelRole};
 
@@ -27,6 +28,8 @@ pub enum Reason {
     NeedsMention,
     /// Nobody: there is no lead to fall back to.
     NoLead,
+    /// The message answers these members' questions (FR-72).
+    Answer,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,6 +119,33 @@ fn lead_of(channel: &ChannelRole, fallback: Option<String>) -> Route {
             reason: Reason::NoLead,
         },
     }
+}
+
+/// Whether a member's reply asks the person something (FR-72): it has a
+/// question mark and mentions no member (a mention asks that member).
+pub fn asks_the_person(text: &str, members: &[ChannelMember]) -> bool {
+    let (named, everyone) = mentions(text, members);
+    named.is_empty() && !everyone && (text.contains('?') || text.contains('？'))
+}
+
+/// Who a message of the person answers (FR-72): with no mention, the
+/// members whose last reply asked the person something (`asking`), in
+/// member order; `None` when the message mentions someone or nobody asked.
+pub fn answer_to(text: &str, channel: &ChannelRole, asking: &[String]) -> Option<Route> {
+    let (named, everyone) = mentions(text, &channel.members);
+    if everyone || !named.is_empty() {
+        return None;
+    }
+    let picked: Vec<String> = channel
+        .members
+        .iter()
+        .filter(|m| asking.contains(&m.mate_id))
+        .map(|m| m.mate_id.clone())
+        .collect();
+    (!picked.is_empty()).then_some(Route {
+        picked,
+        reason: Reason::Answer,
+    })
 }
 
 /// Whether `text` needs the router: no mention and the rule is `auto` with
@@ -227,6 +257,7 @@ pub fn line(route: &Route, channel: &ChannelRole) -> String {
         }
         Reason::NeedsMention => "Mention a mate with @ to get an answer in this channel".into(),
         Reason::NoLead => "This channel has no lead: mention a mate with @".into(),
+        Reason::Answer => format!("{names}, who asked you"),
     }
 }
 
@@ -411,5 +442,46 @@ mod tests {
             line(&route("go", &ch, None, None), &ch),
             "Planner, the lead (no router)"
         );
+    }
+
+    // FR-72: a reply without a mention goes to the mates whose last word
+    // asked the person something, before any rule or router.
+    #[test]
+    fn a_reply_goes_to_the_mates_who_asked() {
+        for rule in ["auto", "lead", "everyone", "mentioned"] {
+            let ch = channel(rule);
+            let asking = vec!["n".to_string(), "w".to_string()];
+            assert_eq!(
+                answer_to("use your guesses", &ch, &asking),
+                Some(Route {
+                    picked: vec!["w".into(), "n".into()],
+                    reason: Reason::Answer
+                })
+            );
+            assert_eq!(answer_to("@Planner you decide", &ch, &asking), None);
+            assert_eq!(answer_to("@everyone go", &ch, &asking), None);
+            assert_eq!(answer_to("go", &ch, &[]), None);
+            assert_eq!(answer_to("go", &ch, &["ghost".to_string()]), None);
+        }
+        let ch = channel("auto");
+        assert_eq!(
+            line(&answer_to("yes", &ch, &["w".to_string()]).unwrap(), &ch),
+            "Writer, who asked you"
+        );
+    }
+
+    #[test]
+    fn a_question_to_the_person_is_one_that_mentions_no_member() {
+        let ch = channel("auto");
+        assert!(asks_the_person(
+            "Which district? (I assume Thu Duc)",
+            &ch.members
+        ));
+        assert!(asks_the_person("Giá bán bao nhiêu？", &ch.members));
+        assert!(!asks_the_person("Here is the draft.", &ch.members));
+        assert!(!asks_the_person(
+            "@Writer can you check the copy?",
+            &ch.members
+        ));
     }
 }

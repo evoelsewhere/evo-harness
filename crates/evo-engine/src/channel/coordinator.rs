@@ -147,6 +147,9 @@ struct State {
     working: HashSet<String>,
     /// Hand-offs per pair of mates in the last hour.
     pairs: PairLog,
+    /// Mates whose last reply asked the person something: the person's next
+    /// message without a mention goes to them (FR-72).
+    asking: Vec<String>,
 }
 
 pub struct Coordinator {
@@ -381,8 +384,11 @@ impl Coordinator {
             text: text.clone(),
         });
 
-        // The router (`auto`) is asked only when no mention decides (FR-53).
-        let (answer, why) = if route::needs_router(&text, &self.role) {
+        // An answer to mates' questions goes to them (FR-72); else the
+        // router (`auto`) is asked only when no mention decides (FR-53).
+        let asking = std::mem::take(&mut lock(&self.state).asking);
+        let answers = route::answer_to(&text, &self.role, &asking);
+        let (answer, why) = if answers.is_none() && route::needs_router(&text, &self.role) {
             let recent: Vec<(String, String)> = {
                 let state = lock(&self.state);
                 let upto = state.lines.len().saturating_sub(1);
@@ -398,7 +404,8 @@ impl Coordinator {
         } else {
             (None, None)
         };
-        let route = route::route(&text, &self.role, answer, why.as_deref());
+        let route =
+            answers.unwrap_or_else(|| route::route(&text, &self.role, answer, why.as_deref()));
         self.post(
             harness,
             json!({ "kind": "route", "message": message, "picked": route.picked, "line": route::line(&route, &self.role), "at": now_ms() }),
@@ -483,6 +490,15 @@ impl Coordinator {
                     let Some(author) = author.filter(|_| status == "done") else {
                         continue;
                     };
+                    // Its last word decides whether the person's next
+                    // message answers it (FR-72).
+                    {
+                        let mut state = lock(&self.state);
+                        state.asking.retain(|mate| *mate != author);
+                        if route::asks_the_person(&text, &self.role.members) {
+                            state.asking.push(author.clone());
+                        }
+                    }
                     let (named, _) = route::mentions(&text, &self.role.members);
                     let mut targets: Vec<(String, &str)> = named
                         .into_iter()

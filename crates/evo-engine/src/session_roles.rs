@@ -68,14 +68,34 @@ pub fn load_file(path: &Path) -> Result<SessionRole, String> {
 /// system prompt ([`prompt_block`]). An explicit `--tools` list is kept.
 pub fn apply(role: SessionRole, args: &mut crate::args::Args) {
     narrow_tools(&role, args);
-    // A read-only session gets no language servers: they may build the
-    // project (FR-13).
+    exclude_tools(&role, args);
+    set_current(role);
+}
+
+/// The tools `role` never has: a read-only session gets no language servers
+/// (they may build the project, FR-13); a mate's seat in a channel gets no
+/// `ask_user` card, which the channel cannot show: it asks in its reply
+/// (docs/features/evo-mates/spec.md, FR-72).
+fn exclude_tools(role: &SessionRole, args: &mut crate::args::Args) {
     if role.is_read_only() {
         args.exclude_tools
             .get_or_insert_with(Vec::new)
             .push("lsp".to_string());
     }
-    set_current(role);
+    if seat_channel(role).is_some() {
+        args.exclude_tools
+            .get_or_insert_with(Vec::new)
+            .push("ask_user".to_string());
+    }
+}
+
+/// The channel `role` is a mate's seat in.
+fn seat_channel(role: &SessionRole) -> Option<&str> {
+    role.mate
+        .as_ref()
+        .and_then(|mate| mate.channel.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
 }
 
 /// Whether this session's role lets it have the app tool `name`: every
@@ -170,10 +190,11 @@ pub fn prompt_block() -> Option<String> {
 
 fn block_for(role: &SessionRole) -> Option<String> {
     if let Some(mate) = &role.mate {
-        return Some(mate_block(
-            &mate.name,
-            role.instructions.as_deref().unwrap_or(""),
-        ));
+        let block = mate_block(&mate.name, role.instructions.as_deref().unwrap_or(""));
+        return Some(match seat_channel(role) {
+            Some(channel) => seat_block(&block, channel),
+            None => block,
+        });
     }
     let instructions = role.instructions.as_deref()?.trim();
     if instructions.is_empty() {
@@ -213,6 +234,35 @@ pub fn mate_block(name: &str, instructions: &str) -> String {
     let instructions = instructions.trim();
     let gap = if instructions.is_empty() { "" } else { "\n\n" };
     format!("<mate name=\"{name}\">\n{instructions}{gap}{conduct}\n</mate>")
+}
+
+/// A mate's section for its seat in `channel` (FR-72): the channel shows no
+/// question cards, so the mate asks in its reply and the person answers in
+/// the channel; setup questions stay in its direct conversation.
+fn seat_block(block: &str, channel: &str) -> String {
+    let lines: Vec<String> = block
+        .lines()
+        .map(|line| {
+            if line.starts_with("- At the start of a new conversation") {
+                "- When you first speak in a channel, say hello in one line; setup questions belong to your direct conversation.".to_string()
+            } else {
+                line.replace(
+                    "ask one `ask_user` card with those questions before you write, edit or run anything, even when the files suggest an answer, and wait. Offer what you would assume as each question's first option.",
+                    "ask in your reply: those questions, numbered, each with what you would assume, before you write, edit or run anything, even when the files suggest an answer; then end your turn and wait for the answer.",
+                )
+            }
+        })
+        .collect();
+    let channel = channel.replace('"', "'");
+    let mut out = lines.join("\n");
+    let rule = format!(
+        "\n- You speak in the channel \"{channel}\" with the person and other mates. It shows no question cards: when you need the person, ask in your reply as plain text and end your turn; their answer comes to you as the channel's next message."
+    );
+    match out.rfind("\n</mate>") {
+        Some(end) => out.insert_str(end, &rule),
+        None => out.push_str(&rule),
+    }
+    out
 }
 
 /// `start_session` arguments with `role` resolved from `agentType`, `model`

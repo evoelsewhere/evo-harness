@@ -11,7 +11,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { db, log, type DbChat, type DbWorkspace, type TurnRecord } from "@/lib/db";
 import { inTauri } from "@/lib/platform";
-import { matesWindow } from "@/lib/windows";
+import { chatWindowId, matesWindow } from "@/lib/windows";
 
 /** Chat rows changed in one window reach the others (a chat window records its own turns). */
 const CHAT_UPDATED = "chat://updated";
@@ -164,7 +164,10 @@ function put(list: SessionSummary[], id: string, chat: SessionSummary | null): S
 /** Whether `chat` belongs to this window's front end: Evo Mates' or Evo Harness's. */
 export function chatOfThisApp(chat: Pick<DbChat, "kind">): boolean {
   const kind = chat.kind ?? "chat";
-  return matesWindow ? kind === "mate" || kind === "channel" : kind === "chat";
+  if (matesWindow) return kind === "mate" || kind === "channel";
+  // A chat window may show a mate's seat in a channel: its approvals are
+  // answered there (docs/features/evo-mates/spec.md, FR-12).
+  return kind === "chat" || (chatWindowId !== null && kind === "seat");
 }
 
 function without(list: SessionSummary[], id: string): SessionSummary[] {

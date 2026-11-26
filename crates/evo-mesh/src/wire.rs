@@ -752,6 +752,10 @@ pub struct MateIdentity {
     /// One line: what the mate does.
     #[serde(default)]
     pub role: String,
+    /// The channel this session is the mate's seat in; `None` for its
+    /// direct conversation (docs/features/evo-mates/spec.md, FR-72).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
 }
 
 fn full_access() -> String {
