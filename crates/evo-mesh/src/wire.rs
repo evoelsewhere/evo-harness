@@ -574,6 +574,11 @@ pub enum MailKind {
     Message,
     Ask,
     Reply,
+    /// For a channel's coordinator: a seat's whole turn (evo-mates FR-14).
+    ChannelReport,
+    /// For a channel's coordinator: a copy of mail between two of its seats
+    /// (evo-mates FR-17).
+    ChannelHandoff,
 }
 
 /// An `ask`'s id and how long its asker waits.
@@ -680,6 +685,62 @@ pub struct SessionRole {
     /// A skill switched off in Customize stays off whatever this says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<String>>,
+    /// This session is a channel's coordinator: it routes the person's
+    /// messages to its members' seats instead of running a model
+    /// (docs/features/evo-mates/spec.md, FR-14 – FR-19). Written by the
+    /// shell from the channel's row, never by a model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<ChannelRole>,
+}
+
+/// A channel, as its coordinator runs it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelRole {
+    pub channel_id: String,
+    pub name: String,
+    /// `auto`, `lead`, `everyone` or `mentioned` (FR-15).
+    pub rule: String,
+    /// The lead's mate id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead: Option<String>,
+    #[serde(default)]
+    pub members: Vec<ChannelMember>,
+    #[serde(default)]
+    pub instructions: String,
+    /// Hand-offs between seats per message of the person, at most (FR-18).
+    #[serde(default = "handoff_limit")]
+    pub handoff_limit: u32,
+    /// The model that picks who answers under `auto`; `None`: the lead (FR-28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub router: Option<RouterModel>,
+}
+
+fn handoff_limit() -> u32 {
+    6
+}
+
+/// One member of a channel: the mate and the role its seat runs as.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMember {
+    pub mate_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub role: String,
+    /// The seat's chat id, once it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat_chat: Option<String>,
+    /// The role the seat's session runs as (the mate's, written by the shell).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat_role: Option<Box<SessionRole>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterModel {
+    pub provider: String,
+    pub model: String,
 }
 
 /// Who a mate is, as its sessions present themselves.

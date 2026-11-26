@@ -50,6 +50,7 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
+pub mod channels;
 pub mod chat_index;
 pub mod chats;
 pub mod computer;

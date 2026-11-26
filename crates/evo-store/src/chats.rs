@@ -310,6 +310,8 @@ pub fn remove_workspace(conn: &mut Connection, id: &str) -> Result<Vec<String>, 
 
 /// A chat of Evo Harness; every other kind is Evo Mates' (FR-24).
 pub const KIND_CHAT: &str = "chat";
+/// An Evo Mates channel's root chat (its engine runs the coordinator).
+pub const KIND_CHANNEL: &str = "channel";
 
 /// Every Evo Harness chat, pinned first then most recently active;
 /// `archived` selects the archive instead of the live list. Evo Mates'

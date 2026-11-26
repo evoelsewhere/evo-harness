@@ -314,6 +314,7 @@ pub fn enrich(mut args: Value, parent: &Parent, types: &[AgentType]) -> Result<V
         // A session started from a mate's keeps the mate's skill limit: it
         // never gets a skill the mate was not allowed (evo-mates FR-44).
         skills: current().and_then(|role| role.skills.clone()),
+        channel: None,
     };
     object.insert(
         "role".into(),

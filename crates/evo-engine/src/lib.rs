@@ -26,6 +26,7 @@ pub mod args;
 pub mod auth;
 pub mod auth_guidance;
 pub mod builtin_commands;
+pub mod channel;
 pub mod checkpoints;
 pub mod child_agents;
 pub mod code_mode;

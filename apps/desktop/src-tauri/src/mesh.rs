@@ -74,6 +74,10 @@ fn home() -> PathBuf {
 }
 
 impl MailStore for DbMailStore {
+    fn is_channel_root(&self, chat: &str) -> bool {
+        self.db().with(|conn| chats::get_chat(conn, chat)).ok().flatten().is_some_and(|row| row.kind == chats::KIND_CHANNEL)
+    }
+
     fn parent_of(&self, chat: &str) -> Option<String> {
         self.db().with(|conn| chats::get_chat(conn, chat)).ok().flatten()?.parent_chat_id
     }
@@ -163,6 +167,21 @@ impl MailStore for DbMailStore {
                 return Err(error);
             }
         };
+        // A channel's seat: kind `seat`, its mate's, recorded as the member's
+        // seat (docs/features/evo-mates/spec.md, FR-14).
+        let seat_of = spec.role.as_ref().and_then(|role| role.mate.as_ref()).filter(|_| parent_row.kind == chats::KIND_CHANNEL);
+        if let Some(mate) = seat_of {
+            let marked = db.with(|conn| {
+                conn.execute("UPDATE chats SET kind = 'seat', mate_id = ?2 WHERE id = ?1", evo_store::rusqlite::params![id, mate.id])?;
+                if let Some(channel) = evo_store::channels::channel_of_chat(conn, parent)? {
+                    evo_store::channels::set_seat(conn, &channel.id, &mate.id, &id)?;
+                }
+                Ok(())
+            });
+            if let Err(error) = marked {
+                db.log(evo_store::logs::NewLog::new("warn", "mates", format!("seat not recorded: {error}")).chat(Some(parent)));
+            }
+        }
         db.log(evo_store::logs::NewLog::new("info", "mesh", format!("started nested session {id}")).chat(Some(parent)));
         // The windows' sidebars add it (session-store.ts listens).
         let _ = self.app.emit("chat://updated", json!({ "from": "shell", "chat": chat }));
@@ -335,6 +354,8 @@ pub(crate) async fn apply(app: &AppHandle, effects: Vec<Effect>) {
             // The supervisor starts and sets it up, in the effect's folder
             // when it names one (a new session's worktree), FR-4.
             Effect::Host { chat, cwd, restore } => crate::supervisor::host_for_mail(app, chat, cwd, restore),
+            // A channel stops a seat (evo-mates FR-18, FR-19).
+            Effect::Stop { chat } => crate::mates::park(app, &chat).await,
             Effect::Prompted { chat, text } => {
                 let _ = app.emit("mesh://prompted", json!({ "chat": chat, "text": text }));
                 crate::webbridge::panel::prompted(app, &chat, &json!({ "type": "prompt", "message": text }));

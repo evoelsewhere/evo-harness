@@ -1221,6 +1221,20 @@ pub fn folder_of(conn: &Connection, chat: &str, home: &Path) -> PathBuf {
             return PathBuf::from(mate.project_folder.filter(|path| !path.is_empty()).unwrap_or(mate.folder));
         }
     }
+    // A mate's seat in a channel works in the channel's folder, else the
+    // mate's own (FR-25).
+    if row.kind == "seat" {
+        let channel = row
+            .parent_chat_id
+            .as_deref()
+            .and_then(|root| evo_store::channels::channel_of_chat(conn, root).ok().flatten());
+        if let Some(folder) = channel.and_then(|c| c.folder).filter(|path| !path.is_empty()) {
+            return PathBuf::from(folder);
+        }
+        if let Ok(Some(mate)) = evo_store::mates::mate_of_chat(conn, chat) {
+            return PathBuf::from(mate.project_folder.filter(|path| !path.is_empty()).unwrap_or(mate.folder));
+        }
+    }
     if let Some(worktree) = row.worktree_path.filter(|path| !path.is_empty()) {
         return PathBuf::from(worktree);
     }

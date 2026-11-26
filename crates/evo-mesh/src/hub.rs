@@ -158,6 +158,13 @@ pub trait MailStore: Send + Sync {
     fn children_of(&self, parent: &str) -> Vec<ChildInfo>;
     /// Create a nested session of `parent` (its chat row, worktree, fork).
     fn create_session(&self, parent: &str, spec: &SessionSpec) -> Result<CreatedSession, String>;
+    /// Whether `chat` is an Evo Mates channel's root, whose engine runs the
+    /// channel's coordinator (docs/features/evo-mates/spec.md, FR-14). Only
+    /// such a chat may call the channel tools; its seats' turns and the
+    /// mail between them reach it in full.
+    fn is_channel_root(&self, _chat: &str) -> bool {
+        false
+    }
 }
 
 /// What the host must do after a line.
@@ -177,6 +184,9 @@ pub enum Effect {
     /// the `Send` of the prompt). The engine does not echo a run's prompt,
     /// so the window showing the chat adds the turn, as for a typed prompt.
     Prompted { chat: String, text: String },
+    /// Stop `chat`'s engine (a channel stopping a seat, FR-18, FR-19). The
+    /// chat keeps its transcript; mail later starts it again.
+    Stop { chat: String },
 }
 
 fn now_ms() -> i64 {
@@ -348,9 +358,15 @@ pub fn session_tools() -> Value {
 
 const SESSION_TOOLS: [&str; 3] = ["start_session", "message_session", "list_sessions"];
 
+/// The tools a channel's coordinator calls (never offered to a model; the
+/// hub answers them only for a channel's root): `channel_deliver` starts a
+/// member's seat with its mate's role, or sends to it, and `channel_stop`
+/// stops seats.
+pub const CHANNEL_TOOLS: [&str; 2] = ["channel_deliver", "channel_stop"];
+
 /// Whether the hub answers calls of the tool `name`.
 pub fn is_session_tool(name: &str) -> bool {
-    SESSION_TOOLS.contains(&name)
+    SESSION_TOOLS.contains(&name) || CHANNEL_TOOLS.contains(&name)
 }
 
 /// What the hub knows about one chat's engine.
@@ -722,6 +738,20 @@ impl<S: MailStore> Hub<S> {
             return Vec::new();
         };
         let title = self.store.title_of(chat).unwrap_or_default();
+        // A channel's seat: its whole turn, for the coordinator to post.
+        if self.store.is_channel_root(&parent) {
+            return self.post(
+                chat,
+                &parent,
+                MailBody {
+                    text: json!({ "seat": chat, "status": status, "text": text }).to_string(),
+                    deliver: Deliver::Wake,
+                    title: Some(title),
+                    kind: Some(MailKind::ChannelReport),
+                    ..Default::default()
+                },
+            );
+        }
         self.post(
             chat,
             &parent,
@@ -1072,7 +1102,36 @@ impl<S: MailStore> Hub<S> {
             from_node: (from != session).then(|| from.clone()),
             to_node: (target != receiver).then(|| target.clone()),
         };
-        let effects = self.post(chat, &peer.chat, mail);
+        // Between two seats of a channel: the coordinator sees it, to show
+        // the hand-off and count it (FR-17, FR-18).
+        let copy = self
+            .store
+            .parent_of(chat)
+            .filter(|root| self.store.is_channel_root(root))
+            .filter(|root| self.store.parent_of(&peer.chat).as_deref() == Some(root.as_str()))
+            .map(|root| {
+                let text = json!({
+                    "from": chat,
+                    "to": peer.chat,
+                    "op": kind,
+                    "text": mail.text,
+                })
+                .to_string();
+                (root, text)
+            });
+        let mut effects = self.post(chat, &peer.chat, mail);
+        if let Some((root, text)) = copy {
+            effects.extend(self.post(
+                chat,
+                &root,
+                MailBody {
+                    text,
+                    deliver: Deliver::Wake,
+                    kind: Some(MailKind::ChannelHandoff),
+                    ..Default::default()
+                },
+            ));
+        }
         Ok((
             json!({ "deliveredTo": target, "title": peer.title, "kind": kind }),
             effects,
@@ -1343,6 +1402,10 @@ impl<S: MailStore> Hub<S> {
         if self.store.parent_of(parent).is_some() {
             return Some("Nested sessions cannot start sessions of their own.".into());
         }
+        // A channel's seats are its members: the app's running limit governs them.
+        if self.store.is_channel_root(parent) {
+            return None;
+        }
         let running = self.children_running(parent);
         let limit = self.max_children();
         (running >= limit).then(|| {
@@ -1414,6 +1477,8 @@ impl<S: MailStore> Hub<S> {
         let (result, mut effects) = match name {
             "start_session" => self.call_start(chat, &args),
             "message_session" => self.call_message(chat, &args),
+            "channel_deliver" => self.call_channel_deliver(chat, &args),
+            "channel_stop" => self.call_channel_stop(chat, &args),
             _ => (self.call_list(chat), Vec::new()),
         };
         let answer = json!({
@@ -1600,6 +1665,108 @@ impl<S: MailStore> Hub<S> {
         )
     }
 
+    /// `channel_deliver {sessionId?, title, role, text}` from a channel's
+    /// root: send `text` to the member's seat `sessionId`, or start the seat
+    /// (a nested session running `role`, the mate's) with it. Answers
+    /// `{sessionId}`.
+    fn call_channel_deliver(&self, chat: &str, args: &Value) -> (Value, Vec<Effect>) {
+        if !self.store.is_channel_root(chat) {
+            return (
+                tool_result("Only a channel delivers to seats.", None, true),
+                Vec::new(),
+            );
+        }
+        let text = args
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            return (
+                tool_result("channel_deliver needs a text.", None, true),
+                Vec::new(),
+            );
+        }
+        if let Some(seat) = args
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            if self.store.parent_of(seat).as_deref() == Some(chat) {
+                let effects = self.post(chat, seat, MailBody::new(text, Deliver::Prompt));
+                return (
+                    tool_result("Delivered.", Some(json!({ "sessionId": seat })), false),
+                    effects,
+                );
+            }
+        }
+        let role = match args
+            .get("role")
+            .filter(|r| !r.is_null())
+            .cloned()
+            .map(serde_json::from_value::<SessionRole>)
+        {
+            Some(Ok(role)) => Some(role),
+            Some(Err(error)) => {
+                return (
+                    tool_result(format!("A seat's role cannot be read: {error}"), None, true),
+                    Vec::new(),
+                )
+            }
+            None => None,
+        };
+        let spec = SessionSpec {
+            title: args
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("Seat")
+                .to_string(),
+            prompt: text,
+            role,
+            ..SessionSpec::default()
+        };
+        match self.start_session(chat, &spec) {
+            Ok((created, effects)) => (
+                tool_result("Started.", Some(json!({ "sessionId": created.id })), false),
+                effects,
+            ),
+            Err(error) => (tool_result(error, None, true), Vec::new()),
+        }
+    }
+
+    /// `channel_stop {sessionIds}` from a channel's root: stop those seats'
+    /// engines (only its own seats).
+    fn call_channel_stop(&self, chat: &str, args: &Value) -> (Value, Vec<Effect>) {
+        if !self.store.is_channel_root(chat) {
+            return (
+                tool_result("Only a channel stops seats.", None, true),
+                Vec::new(),
+            );
+        }
+        let seats: Vec<String> = args
+            .get("sessionIds")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|seat| self.store.parent_of(seat).as_deref() == Some(chat))
+            .map(str::to_string)
+            .collect();
+        let effects = seats
+            .iter()
+            .map(|seat| Effect::Stop { chat: seat.clone() })
+            .collect();
+        (
+            tool_result(
+                format!("Stopping {} seat(s).", seats.len()),
+                Some(json!({ "stopped": seats })),
+                false,
+            ),
+            effects,
+        )
+    }
+
     fn call_list(&self, chat: &str) -> Value {
         let sessions: Vec<Value> = self
             .store
@@ -1668,12 +1835,20 @@ pub struct MemoryStore {
     created: AtomicU64,
     /// Every session it was asked to create, in order.
     pub specs: Mutex<Vec<SessionSpec>>,
+    /// Chats that are channels' roots.
+    pub channels: Mutex<Vec<String>>,
 }
 
 impl MemoryStore {
     pub fn with_parent(self, child: &str, parent: &str, title: &str) -> Self {
         lock(&self.parents).insert(child.into(), parent.into());
         lock(&self.titles).insert(child.into(), title.into());
+        self
+    }
+
+    /// Mark `chat` as a channel's root.
+    pub fn with_channel(self, chat: &str) -> Self {
+        lock(&self.channels).push(chat.into());
         self
     }
 
@@ -1684,6 +1859,9 @@ impl MemoryStore {
 }
 
 impl MailStore for MemoryStore {
+    fn is_channel_root(&self, chat: &str) -> bool {
+        lock(&self.channels).iter().any(|c| c == chat)
+    }
     fn parent_of(&self, chat: &str) -> Option<String> {
         lock(&self.parents).get(chat).cloned()
     }
@@ -2780,6 +2958,173 @@ mod tests {
             "<mail id=\"m\" title=\"say 'hi'\">\nt\n</mail>"
         );
         assert_eq!(with_sender_title("plain text", "T"), "plain text");
+    }
+
+    // ── Channels (docs/features/evo-mates/spec.md, FR-14, FR-17 – FR-19) ──
+
+    /// A channel `room` with seats `sa` ("Ana") and `sb` ("Ben"), and a plain
+    /// chat `p` with its own nested session `b1`.
+    fn channel() -> Hub<MemoryStore> {
+        let store = MemoryStore::default()
+            .with_channel("room")
+            .with_parent("sa", "room", "Ana")
+            .with_parent("sb", "room", "Ben")
+            .with_parent("b1", "p", "API builder");
+        let hub = Hub::new(store);
+        for chat in ["room", "sa", "sb", "p", "b1"] {
+            hub.on_line(chat, &ready_for_mail());
+        }
+        hub
+    }
+
+    fn tool_call(
+        hub: &Hub<MemoryStore>,
+        chat: &str,
+        tool: &str,
+        args: Value,
+    ) -> (Value, Vec<Effect>) {
+        let line = json!({"type": "external_tool_request", "requestId": "r1", "toolName": tool, "arguments": args});
+        let effects = hub.on_line(chat, &line);
+        let answer = sent(&effects)
+            .into_iter()
+            .find(|(to, l)| to == chat && l["type"] == "external_tool_response")
+            .map(|(_, l)| l["result"].clone())
+            .expect("an answer");
+        (answer, effects)
+    }
+
+    #[test]
+    fn a_channel_starts_a_seat_with_its_role_and_reuses_it() {
+        let hub = channel();
+        let role = json!({"name": "Cy", "mate": {"id": "m-cy", "name": "Cy"}});
+        let (answer, _) = tool_call(
+            &hub,
+            "room",
+            "channel_deliver",
+            json!({"title": "Cy", "role": role, "text": "hello"}),
+        );
+        assert_eq!(answer.get("isError"), None, "{answer}");
+        let seat = answer["structuredContent"]["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let spec = lock(&hub.store().specs)[0].clone();
+        assert_eq!(
+            spec.role.unwrap().mate.unwrap().id,
+            "m-cy",
+            "started at once, with the mate's role"
+        );
+        assert_eq!(spec.prompt, "hello");
+        let (answer, effects) = tool_call(
+            &hub,
+            "room",
+            "channel_deliver",
+            json!({"sessionId": seat, "text": "again"}),
+        );
+        assert_eq!(answer["structuredContent"]["sessionId"], seat.as_str());
+        assert_eq!(lock(&hub.store().specs).len(), 1, "reused");
+        // The new seat has no engine yet: the hub asks for one and keeps the mail.
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::Host { chat, .. } if chat == &seat)),
+            "{effects:?}"
+        );
+        assert!(hub
+            .store()
+            .pending(&seat)
+            .iter()
+            .any(|m| m.body.text == "again"));
+        // Only a channel's root may deliver or stop.
+        let (answer, _) = tool_call(&hub, "p", "channel_deliver", json!({"text": "x"}));
+        assert_eq!(answer["isError"], true);
+        let (answer, effects) = tool_call(&hub, "p", "channel_stop", json!({"sessionIds": ["b1"]}));
+        assert_eq!(answer["isError"], true);
+        assert!(!effects.iter().any(|e| matches!(e, Effect::Stop { .. })));
+    }
+
+    #[test]
+    fn a_channel_stops_only_its_own_seats() {
+        let hub = channel();
+        let (_, effects) = tool_call(
+            &hub,
+            "room",
+            "channel_stop",
+            json!({"sessionIds": ["sa", "b1", "sb"]}),
+        );
+        let stopped: Vec<&str> = effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Stop { chat } => Some(chat.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(stopped, ["sa", "sb"]);
+    }
+
+    #[test]
+    fn a_seats_whole_turn_reaches_the_channel() {
+        let hub = channel();
+        let long = "word ".repeat(400);
+        let effects = hub.on_line(
+            "sa",
+            &report("sa", Address::session("sa"), RunStatus::Done, &long),
+        );
+        let (to, line) = sent(&effects)
+            .into_iter()
+            .find(|(to, _)| to == "room")
+            .expect("mail to the channel");
+        assert_eq!(to, "room");
+        let body = serde_json::from_value::<Envelope>(line)
+            .unwrap()
+            .as_mail()
+            .unwrap();
+        assert_eq!(body.kind, Some(MailKind::ChannelReport));
+        let turn: Value = serde_json::from_str(&body.text).unwrap();
+        assert_eq!(turn["seat"], "sa");
+        assert_eq!(turn["status"], "done");
+        assert_eq!(turn["text"].as_str().unwrap(), long, "not cut");
+        // A plain nested session still leaves its short note.
+        let effects = hub.on_line(
+            "b1",
+            &report("b1", Address::session("b1"), RunStatus::Done, "ok"),
+        );
+        let body = serde_json::from_value::<Envelope>(sent(&effects)[0].1.clone())
+            .unwrap()
+            .as_mail()
+            .unwrap();
+        assert_eq!(body.kind, None);
+        assert!(body.text.starts_with("<nested-session"));
+    }
+
+    #[test]
+    fn mail_between_seats_is_copied_to_the_channel() {
+        let hub = channel();
+        let (answer, mail) = route(&hub, "sa", &send_op("s_sa", "Ben", "check the numbers"));
+        assert_eq!(answer["deliveredTo"], "s_sb", "{answer}");
+        let to_room: Vec<&Envelope> = mail
+            .iter()
+            .filter(|(to, _)| to == "room")
+            .map(|(_, e)| e)
+            .collect();
+        assert_eq!(to_room.len(), 1);
+        let body = to_room[0].as_mail().unwrap();
+        assert_eq!(body.kind, Some(MailKind::ChannelHandoff));
+        let copy: Value = serde_json::from_str(&body.text).unwrap();
+        assert_eq!(
+            (
+                copy["from"].as_str(),
+                copy["to"].as_str(),
+                copy["op"].as_str()
+            ),
+            (Some("sa"), Some("sb"), Some("message"))
+        );
+        assert!(copy["text"].as_str().unwrap().contains("check the numbers"));
+        // Mail from a seat to the channel itself is not a hand-off.
+        let (_, mail) = route(&hub, "sa", &send_op("s_sa", "s_room", "done"));
+        assert!(mail
+            .iter()
+            .all(|(_, e)| e.as_mail().unwrap().kind != Some(MailKind::ChannelHandoff)));
     }
 
     #[test]

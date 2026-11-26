@@ -336,6 +336,9 @@ fn render_mail(id: &str, from: &Address, title: &str, kind: MailKind, text: &str
         MailKind::Message => "message",
         MailKind::Ask => "ask",
         MailKind::Reply => "reply",
+        // Only a channel's coordinator gets these, and takes them itself.
+        MailKind::ChannelReport => "channel_report",
+        MailKind::ChannelHandoff => "channel_handoff",
     };
     let mut body = format!(
         "<mail id=\"{id}\" from=\"{from}\" title=\"{}\" kind=\"{kind_name}\">\n{}\n",
