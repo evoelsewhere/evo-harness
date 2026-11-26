@@ -556,10 +556,91 @@ memory commands with the mate's folder as the scope's root.
 | `mates.maxRunning` | integer 1–16 | 4 | at once (queue re-evaluated) | Settings › Evo Mates |
 | `mates.handoffLimit` | integer 1–50 | 6 | next message | Settings › Evo Mates |
 | `mates.pairHandoffsPerHour` | integer | 10 | next hand-off | not shown (fixed in this release) |
+| `mates.heartbeatMinutes` | integer | 60 | next tick | not shown |
 | `mates.routerModel` | `{provider, model}` or null | null: computed default (FR-28) | next message | Settings › Evo Mates |
 
 A mate's own settings (model, tools, approval mode, folders) are columns of
 its row, edited on its profile; they apply from its next turn.
+
+### 3.9 Mates that speak first (US-10, FR-63 – FR-71)
+
+Architecture check: the engine still owns what a mate says and does; the
+shell only keeps the agenda rows, keeps time and starts a turn, as its
+Scheduler does today. No new process, protocol plane or trust boundary: a
+heartbeat turn is an ordinary prompt to the mate's chat through the hub
+(`Deliver::Prompt`), under the mate's role and approvals, with one extra
+rule (read-only, FR-68) the shell already has the means to enforce
+(`chat_approval_mode`, the sending gate).
+
+**Data** (migration 0017):
+
+```sql
+ALTER TABLE mates ADD COLUMN initiative TEXT NOT NULL DEFAULT 'medium'
+  CHECK (initiative IN ('off', 'low', 'medium'));
+CREATE TABLE mate_agenda (
+  id          TEXT PRIMARY KEY NOT NULL,
+  mate_id     TEXT NOT NULL REFERENCES mates (id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL CHECK (kind IN ('promise', 'event', 'question', 'checkin')),
+  text        TEXT NOT NULL,               -- what to come back to, in the mate's words
+  due_at      INTEGER NOT NULL,            -- ms; next time for a check-in
+  repeat      TEXT,                        -- check-ins: 'weekdays 09:00', 'mon 09:00', 'daily 18:00'
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'done', 'never', 'paused')),
+  chat_id     TEXT,                        -- where it came from
+  created_at  INTEGER NOT NULL,
+  fired_at    INTEGER
+) STRICT;
+CREATE TABLE mate_initiative (            -- first messages, for the budget
+  mate_id     TEXT NOT NULL REFERENCES mates (id) ON DELETE CASCADE,
+  day         TEXT NOT NULL,              -- local date
+  sent        INTEGER NOT NULL DEFAULT 0,
+  unanswered  INTEGER NOT NULL DEFAULT 0, -- in a row, reset when the person writes
+  PRIMARY KEY (mate_id, day)
+) STRICT;
+```
+
+**Taking agenda items** (FR-63, A-10): a new mate app tool `mate_agenda`
+(`agent_tools/mates.rs`, beside `mate_profile`) with `add {kind, text,
+due}` (`due`: ISO time or "tomorrow 11:00"), `done {id}` and `list`. The
+conduct block (`session_roles::MATE_CONDUCT`) gains: when the person
+mentions something coming up, when you promise something, or when a
+question stays open, add it with `mate_agenda`; when it is settled, mark it
+done. Check-ins the person asks for are added the same way with `repeat`
+(FR-69), and shown back as a card (`kind: checkin`).
+
+**Heartbeat** (FR-64, FR-65, FR-67): `mates/initiative.rs` in the shell runs
+a timer every hour (and once a minute past start). For each mate it skips
+the mate when it is paused, its initiative is off, Do not disturb is on
+(`agent_tools::user` muted flag), the day's budget is spent, two first
+messages are unanswered, or it has no due item. Otherwise it posts one
+prompt to the mate's direct chat through the hub:
+
+```text
+<evo-mates-heartbeat at="2026-11-26T10:00" items="a1,a2">
+Due: a1 (event) "interview at 10:00 today" · a2 (promise) "send the draft"
+Write to the person only if something is worth saying now; otherwise answer
+exactly NOTHING_TO_SAY. Read-only: change, send or post nothing without asking.
+</evo-mates-heartbeat>
+```
+
+The turn's final text decides: `NOTHING_TO_SAY` hides the turn (the thread
+draws neither the heartbeat prompt nor that answer) and marks the items
+seen; any other text is a first message: the items fired, the budget and
+the unanswered count go up, and it is announced as a reply (FR-66). A
+person's prompt in that chat resets the unanswered count. A check-in fires
+at its time whatever is due, then moves `due_at` to its next time.
+
+**Read-only turns** (FR-68): while a heartbeat turn runs, the shell answers
+`chat_approval_mode` with `ask` for that chat and the sending gate treats
+every sending tool as Ask every time, so a change asks the person, who
+sees the mate in Needs you.
+
+**Visible and bounded** (FR-70, FR-71): the mate panel's Settings tab gets
+**Initiative** (Off / Low / Medium) and **Following up** (items with time;
+Remove, Never, Pause or change a check-in) through `mates_agenda_*`
+commands. Heartbeat turns' usage is recorded with source `mates`; each
+decision is logged (`mates` source in the app log).
+
+**Router budget** (FR-53): `channel/router.rs` `BUDGET` 1.5 s → 6 s.
 
 ## 4. Alternatives considered
 

@@ -91,6 +91,21 @@ imports on another machine after a preview.
 - [ ] T32 [FR-20, FR-21, FR-27] `team_file.rs`: parse, validate, preview, write; needs resolved against models.dev — check: T31 passes
 - [ ] T33 [FR-20, FR-21, FR-44] Export and import UI with the preview, connectors off and skills off (`skills: []`) — `src/features/mates/team-import.tsx`, row menus — check: manual on two agent directories
 
+### Phase 4b — Mates that speak first
+
+Done when: a mate follows up on an event the person mentioned, writes
+nothing when nothing is due, keeps to its initiative and Do not disturb,
+and its Following up list and check-ins can be edited.
+
+- [ ] T56 [FR-63, FR-69, FR-70] Migration 0017 (`mates.initiative`, `mate_agenda`, `mate_initiative`) and store functions with tests — `crates/evo-store/src/migrations/0017_mate_agenda.sql`, `src/mates.rs` — check: `cargo test -p evo-store mates`
+- [ ] T57 [FR-63, FR-69] `mate_agenda` app tool (add, done, list; due times and repeats parsed) and the conduct rule — `src-tauri/src/agent_tools/mates.rs`, `crates/evo-engine/src/session_roles.rs` — check: shell tests; engine role test
+- [ ] T58 [FR-64, FR-65, FR-67, FR-71] Heartbeat: due items, budget, back-off, Do not disturb, pause; the prompt; NOTHING_TO_SAY — `src-tauri/src/mates/initiative.rs` — check: shell tests for each skip and for a fire
+- [ ] T59 [FR-68] Read-only heartbeat turns: approval `ask` and every sending tool asks while one runs — `src-tauri/src/engine.rs`, `agent_tools/mcp.rs` — check: shell test
+- [ ] T60 [FR-66] Thread: hide heartbeat prompts and NOTHING_TO_SAY turns; a first message shows as the mate's message with its reason — `src/features/mates/thread-rows.ts`, `message-markup.ts` — check: `bun test`
+- [ ] T61 [FR-65, FR-70] Panel: Initiative and Following up (remove, never, pause, change a check-in) — `src/features/mates/following-up.tsx`, `mates_agenda_*` commands — check: manual
+- [ ] T62 [FR-53] Router budget 6 s — `crates/evo-engine/src/channel/router.rs` — check: `cargo test -p evo-engine channel`
+- [ ] T63 [SC-7, FR-66] Conduct set: a scripted week of five events; review of first messages — `crates/evo-engine/tests/mates_conduct.rs` — check: results recorded in `conduct-results.md`
+
 ### Phase 5 — Verify
 
 Done when: every row below is `passed` with its date.
@@ -153,7 +168,7 @@ Done when: every row below is `passed` with its date.
 | FR-50 | `cargo test -p evo-engine mates_brief` (T49) | search half: `cargo test -p evo-store a_mate_finds_only_its_own_chats` passed (2026-11-25); the brief waits for channels (phase 3) |
 | FR-51 | Test set T47; manual | rule in the role prompt (2026-11-26); a fact the person states saved with the chip: seen in the app (2026-11-25); other mates' claims: needs channels (phase 3), not run |
 | FR-52 | Shell tests T50 | passed (2026-11-25) |
-| FR-53 | `cargo test -p evo-engine channel` (T51) | passed (2026-11-26): thresholds, "several", fallbacks and route lines; the 1.5 s budget is in code, not tested with a live router |
+| FR-53 | `cargo test -p evo-engine channel` (T51) | passed (2026-11-26): thresholds, "several", fallbacks and route lines; in the app a live router never answered within 1.5 s; the budget moves to 6 s (T62) |
 | FR-54 | Engine tests T52; manual | not run |
 | FR-55 | Engine tests T52 | not run |
 | FR-56 | Engine tests T53 | not run |
@@ -163,6 +178,15 @@ Done when: every row below is `passed` with its date.
 | FR-60 | `bun test src/features/mates` (markup), `cargo test -p evo-store reactions`; manual | tests passed (2026-11-25); reacting in the app: not run |
 | FR-61 | `bun test src/features/mates` (markup); manual | markup tests passed (2026-11-25); a reply in the app: not run |
 | FR-62 | Manual | partly (2026-11-25): pill box, + attach, send and stop buttons, Enter sends, no inner focus ring; attach and Shift+Enter: not run |
+| FR-63 | Store tests T56; tool tests T57 | not run |
+| FR-64 | Shell tests T58 | not run |
+| FR-65 | Shell tests T58; manual T61 | not run |
+| FR-66 | Thread tests T60; review T63 | not run |
+| FR-67 | Shell tests T58 | not run |
+| FR-68 | Shell test T59 | not run |
+| FR-69 | Tool tests T57; manual T61 | not run |
+| FR-70 | Manual T61 | not run |
+| FR-71 | Shell tests T58; manual Usage | not run |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |

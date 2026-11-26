@@ -61,9 +61,12 @@ themselves up in chat, and inline cards to approve and answer
 - Running with Evo quit, as a system service, or on a cloud machine. Mates
   work while Evo runs (window, hidden or tray), as
   [shell-hosted engines](../shell-hosted-engines/spec.md) define.
-- Mates that start work by themselves: triggers from webhooks, files or app
-  events, morning digests, memory suggestions. A later feature (phase 2 of
-  the research). Scheduled prompts stay with the existing Scheduler.
+- Triggers from webhooks, files or connected apps' events (new mail, a
+  calendar event soon, a mention elsewhere), morning digests and mates
+  working a channel's goal among themselves. A later feature. Mates do
+  speak first on their own follow-ups and on check-ins the person
+  schedules (US-10, FR-63 – FR-71); other scheduled prompts stay with the
+  existing Scheduler.
 - A mate's own computer: a virtual machine or a desktop of its own, and
   teaching a mate by recording a demonstration. A later feature (phase 3).
   Mates use the browser, app control and Webbridge tools the person allows,
@@ -227,6 +230,30 @@ Acceptance scenarios:
 3. **Given** an imported team asks for a connector that is not set up,
    **then** the mates are created with that connector off and say so.
 
+### US-10 A mate that speaks first (priority P2)
+
+A person wants a mate to act like a colleague who remembers: to come back
+on what they talked about (an interview tomorrow, a draft it promised, a
+question left open) and to check in when asked to, without being nagged.
+
+Acceptance scenarios:
+
+1. **Given** the person told a mate "I have an interview tomorrow at 10",
+   **when** the next day after 10 comes and the person has not mentioned
+   it, **then** the mate writes first in its conversation to ask how it
+   went, once.
+2. **Given** a mate with nothing open, **then** it never writes first; a
+   mate whose first message got no answer does not write again until the
+   person does.
+3. **Given** the person schedules "every weekday at 9:00, tell me what is
+   left on the launch" for a mate, **then** at each time the mate writes
+   that, in its conversation.
+4. **Given** Do not disturb is on, **then** no mate writes first until it
+   is off; what is still worth saying goes out then.
+5. **Given** a mate's **Following up** list in its panel, **when** the
+   person removes an item or marks it "never", **then** the mate does not
+   come back on it.
+
 ### Edge cases
 
 - A mate's provider is disconnected or its model is gone from models.dev:
@@ -308,7 +335,7 @@ Acceptance scenarios:
 | FR-50 | Each turn must give the mate a brief of what it did in its other places in the last two days (up to ten lines); a mate may search its own past conversations and channels, never another mate's direct conversation. | Given work done in a channel, when asked in the direct conversation, then the mate knows of it; a search for another mate's direct message finds nothing. |
 | FR-51 | A mate must save to its memory facts the person states and lessons from its own work, and must not save other mates' claims as facts. | Given a channel where another mate states a fact, then it is not in this mate's memory; a fact the person states is saved, with the chip. |
 | FR-52 | Mates must notify only when they need the person (approval, question, sign-in, secret), when they finished with a result while their conversation or channel is not in front, or when they could not reply; never for work a mate started for another mate. Each mate has a **Notifications** switch. | Given each case with the window in front and not, then notifications follow the rule; with the switch off, none. |
-| FR-53 | Under **Auto**, the router must get the channel's name and instructions, the recent lines (up to 2,000 tokens), the new message and each member's name, role and description, plus a "several members" choice; it picks one mate at a confidence of 0.6 or more, every member when "several" reaches 0.6, else the lead; no answer within 1.5 s, an error or no router means the lead. A line above the reply names the pick and its confidence. | `cargo test -p evo-engine channel` with a faux router for each branch; manual check of the line. |
+| FR-53 | Under **Auto**, the router must get the channel's name and instructions, the recent lines (up to 2,000 tokens), the new message and each member's name, role and description, plus a "several members" choice; it picks one mate at a confidence of 0.6 or more, every member when "several" reaches 0.6, else the lead; no answer within 6 s, an error or no router means the lead. A line above the reply names the pick and its confidence. | `cargo test -p evo-engine channel` with a faux router for each branch; manual check of the line. |
 | FR-54 | A hand-off must be one of **asks**, **assigns** or **tells**, shown as a line; the receiving mate gets it labelled with its sender, its kind and that it is not the person's instruction. A mate acts on an assignment only within the person's request it came from, under its own approval mode, Apps and sending setting; when the work needs the person, it asks the person. | Engine test of the labels; manual: an assignment that needs a send asks the person, not the assigning mate. |
 | FR-55 | A channel's lead may split a request into assignments to members and must post a wrap-up reply when they report back; members never assign work to the lead. | Given a lead-answered request that needs two members, then two assignment lines and one wrap-up show. |
 | FR-56 | Each mate must take a channel's messages in order: a message for a busy mate waits ("Next: …") unless it comes from the person and addresses only that mate, which steers it; each reply is tied to the message it answers. | Given two messages for a busy mate, then the second waits; each reply shows which message it answers. |
@@ -318,6 +345,15 @@ Acceptance scenarios:
 | FR-60 | The person can react to any bubble with one of six reactions (heart, thumbs up, thumbs down, laugh, emphasis, question) from a hover bar or right-click; a reaction shows as a badge on the bubble's corner, a second pick changes it, the same pick removes it. Reactions are kept across restarts, and the mate is told of new reactions to its messages at the start of its next turn, as information. | Given a reaction, then the badge shows after a restart; the next turn's input carries the note "The person reacted … to your message: …". |
 | FR-61 | The person can reply to a specific bubble: Reply shows the quoted text above the message box (Esc removes it); the sent bubble shows the quote above it, and the mate receives the quoted text with the message. | Given a reply to a mate's bubble, then the quote shows above the sent bubble and the mate's answer refers to it. |
 | FR-62 | The message box is a rounded pill: an attach button on the left, a field that grows to six lines, and a round send button in the accent colour that appears when there is text (a stop button while the mate works); Enter sends, Shift+Enter starts a new line. | Manual check of each control and key. |
+| FR-63 | Each mate must keep an **agenda** of open threads taken from its conversations: what it promised to do, events the person mentioned with their time, and questions left open, each with when to come back to it. The agenda is the mate's own, kept with its profile on this device, and never holds secrets. | Given a conversation that mentions an event tomorrow and a promised draft, then both items are on the mate's agenda with sensible times. |
+| FR-64 | A **heartbeat** must wake each mate that has a due agenda item or a check-in at most once an hour while Evo runs; the mate decides whether something is worth saying and either writes one message or stays silent (nothing shown). A mate with nothing due is not woken. | Given a due item, then within the hour the mate writes or records "nothing to say"; given none, then no model call is made for it. |
+| FR-65 | A mate may write first at most its **initiative** allows per day (default **Medium**: 5 messages; **Low**: 2; **Off**: none), only after the person has talked with it, and stops after two first messages in a row get no answer, until the person writes again. Initiative is set per mate in its panel. | Given Medium and two unanswered first messages, then a third due item produces no message until the person writes. |
+| FR-66 | A first message must read as the mate following up, put the point first, and say why it is writing ("You had the interview this morning: how did it go?"); it appears in the mate's conversation like a reply, marks it unread, and is announced under the mate's **Notifications** switch. | Review of 10 first messages from the conduct set; manual check of unread and the notice. |
+| FR-67 | While Evo's **Do not disturb** is on, no mate writes first; due items wait and, once it is off, each mate sends at most one message for what is still worth saying, dropping items whose moment passed. | Given Do not disturb on over a due item, then nothing is sent until it is off, then one message at most per mate. |
+| FR-68 | Between conversations a mate may do **read-only** work for an agenda item (read its folder, search the web, read connected apps it is allowed, draft text in its own folder) and bring the result in its message; anything that changes the person's files, sends, posts or spends must ask the person, whatever the mate's approval mode. | Given a mate on "Approve for me" with a due item that needs an email sent, then it asks before sending. |
+| FR-69 | The person must be able to schedule **check-ins** per mate ("every weekday at 9:00", "every Monday", "once on 3 December at 15:00") with what the mate should look at; a check-in can be paused, changed or removed from the mate panel and from the card the mate shows when it sets one up. | Given a weekday check-in, then the mate writes at each time; pausing stops it. |
+| FR-70 | A mate's panel must show its **Following up** list: each agenda item and check-in with its time; the person can remove an item, mark it "never follow up on this", or change a check-in. A removed or "never" item is not followed up. | Manual check of each action; a "never" item does not come back after a new mention of it. |
+| FR-71 | Proactive work must be visible and bounded: each heartbeat decision, first message and read-only run is recorded in the mate's usage (source `mates`) and in the app log; **Pause** (FR-45) stops a mate's initiative too. | Usage shows proactive cost per mate; a paused mate never writes first. |
 
 ### 4.2 Non-functional
 
@@ -346,6 +382,9 @@ Acceptance scenarios:
   mates and channel, and with no secret in the file.
 - SC-6 A person who never opens Evo Mates sees no change in Evo Harness
   other than the switch and the tray entry.
+- SC-7 Over a scripted week of conversations, a mate on Medium follows up
+  on at least 4 of 5 events the person mentioned, at a sensible time, and
+  never writes first more than its initiative allows.
 
 ## 6. Clarifications
 
@@ -433,6 +472,27 @@ None.
   mate's own computer, outside chat apps, phone and voice are later
   features (2.2).
 
+- 2026-11-26 — Q: What does the first version of mates that speak first
+  cover? → A: follow-ups from an agenda of open threads, a heartbeat that
+  lets each mate decide quietly, and check-ins the person schedules; no
+  app-event triggers and no channel initiative yet (US-10, FR-63 – FR-71).
+- 2026-11-26 — Q: How talkative is a mate by default? → A: **Medium**: up to
+  5 first messages a day, backing off after two unanswered ones (FR-65).
+- 2026-11-26 — Q: When do mates stay quiet? → A: only while Evo's Do not
+  disturb is on; no fixed quiet hours (FR-67).
+- 2026-11-26 — Q: May a mate work on its own between conversations? → A:
+  read-only work, then ask before anything that changes, sends, posts or
+  spends (FR-68).
+- 2026-11-26 — Q: How often does the heartbeat run? → A: hourly, only for
+  mates with something due (FR-64).
+- 2026-11-26 — Q: How does a first message reach the person? → A: like a
+  reply: in the conversation, unread, notified under the mate's
+  Notifications switch (FR-66).
+- 2026-11-26 — Q: Is the agenda visible? → A: yes, as **Following up** in
+  the mate panel, editable (FR-70).
+- 2026-11-26 — Q: Change the Auto router's budget? → A: 6 s instead of
+  1.5 s: in the app a real router never answered within 1.5 s (FR-53).
+
 ### 6.3 Assumptions
 
 - A-1 The tray icon is shared by both apps and its menu opens either —
@@ -454,6 +514,12 @@ None.
   hardcoded list.
 - A-8 Each launcher opens only its own app; there is no setting yet for
   which app opens at sign-in.
+- A-9 The heartbeat and check-ins run only while Evo runs, and a check-in
+  missed while Evo was closed runs once when Evo starts, if it is less
+  than 12 hours late — because mates do not run as a service (2.2).
+- A-10 Agenda items are taken by the mate itself at the end of a turn (a
+  tool it calls), not by a separate model pass — because it already has
+  the conversation and the cost stays inside the turn.
 
 ## 7. History
 
@@ -467,3 +533,6 @@ None.
 - 2026-11-25 — The four open questions answered as proposed (6.2); FR-7 and FR-8 changed. No clarification left; spec ready for gate A.
 - 2026-11-25 — Gates A and B: the owner accepted the spec and the plan; status Accepted, then In progress with phase 1.
 - 2026-11-25 — Owner asked for a phone messaging app's chat UI: FR-58 – FR-62 added (6.2).
+- 2026-11-26 — Owner asked for mates that act more like people: research of
+  AI companion and teammate products; US-10 and FR-63 – FR-71 added, 2.2
+  changed, FR-53's router budget 1.5 s → 6 s; eight answers in 6.2.
