@@ -121,11 +121,64 @@ fn lead_of(channel: &ChannelRole, fallback: Option<String>) -> Route {
     }
 }
 
-/// Whether a member's reply asks the person something (FR-72): it has a
-/// question mark and mentions no member (a mention asks that member).
+/// The sentences of `text`: each ends at a line break, `?`, `!` or a `.`
+/// followed by a space (so "1.5" stays whole), its end mark kept.
+fn sentences(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        let next = chars.peek().map(|(_, n)| *n);
+        let ends = match c {
+            '\n' | '?' | '？' | '!' | '！' | '。' => true,
+            '.' => next.is_none_or(char::is_whitespace),
+            _ => false,
+        };
+        if ends {
+            let end = at + c.len_utf8();
+            out.push(&text[start..end]);
+            start = end;
+        }
+    }
+    if start < text.len() {
+        out.push(&text[start..]);
+    }
+    out.into_iter().filter(|s| !s.trim().is_empty()).collect()
+}
+
+fn is_question(sentence: &str) -> bool {
+    sentence.contains('?') || sentence.contains('？')
+}
+
+/// Whether a member's reply asks the person something (FR-72): one of its
+/// questions mentions no member (a mention in a question asks that member).
 pub fn asks_the_person(text: &str, members: &[ChannelMember]) -> bool {
-    let (named, everyone) = mentions(text, members);
-    named.is_empty() && !everyone && (text.contains('?') || text.contains('？'))
+    sentences(text)
+        .into_iter()
+        .filter(|s| is_question(s))
+        .any(|s| {
+            let (named, everyone) = mentions(s, members);
+            named.is_empty() && !everyone
+        })
+}
+
+/// The members a member's reply asks something (FR-54): those it mentions
+/// in a question, in member order. A mention anywhere else (thanks, a
+/// greeting, a reference) only names them.
+pub fn asked_in(text: &str, members: &[ChannelMember]) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for sentence in sentences(text).into_iter().filter(|s| is_question(s)) {
+        for id in mentions(sentence, members).0 {
+            if !found.contains(&id) {
+                found.push(id);
+            }
+        }
+    }
+    members
+        .iter()
+        .filter(|m| found.contains(&m.mate_id))
+        .map(|m| m.mate_id.clone())
+        .collect()
 }
 
 /// Who a message of the person answers (FR-72): with no mention, the
@@ -483,5 +536,34 @@ mod tests {
             "@Writer can you check the copy?",
             &ch.members
         ));
+        // A mention elsewhere does not hide a question to the person.
+        assert!(asks_the_person(
+            "I will use @Planner's table. Do you agree?",
+            &ch.members
+        ));
+    }
+
+    // FR-54: a mention in a mate's reply asks that member only from a
+    // question; thanks, greetings and references wake nobody.
+    #[test]
+    fn a_mate_asks_the_members_it_mentions_in_a_question() {
+        let ch = channel("auto");
+        let asked = |text: &str| asked_in(text, &ch.members);
+        assert_eq!(asked("@Writer can you draft the intro?"), ["w"]);
+        assert_eq!(asked("Thanks @Writer. @Planner, which date?"), ["p"]);
+        assert_eq!(asked("@Writer, @New mate: có số Q3 chưa？"), ["w", "n"]);
+        assert!(asked("Cảm ơn @Writer, em đã ghi nhận.").is_empty());
+        assert!(asked("Chào @Writer, mình là Planner.").is_empty());
+        assert!(asked("@Planner làm lead nhóm.").is_empty());
+        assert!(
+            asked("Em sẽ dùng bảng của @Planner. Anh đồng ý không?").is_empty(),
+            "the question is the person's"
+        );
+        assert!(asked("Version 1.5 by @Writer is out").is_empty());
+        assert!(
+            asked("@Writer, @Planner: anh Hùng đã giao việc.\n- **@Writer:** soạn bản tóm tắt")
+                .is_empty(),
+            "a status for everyone asks nobody"
+        );
     }
 }

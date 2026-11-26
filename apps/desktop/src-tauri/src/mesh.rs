@@ -177,6 +177,11 @@ impl MailStore for DbMailStore {
                 conn.execute("UPDATE chats SET kind = 'seat', mate_id = ?2 WHERE id = ?1", evo_store::rusqlite::params![id, mate.id])?;
                 if let Some(channel) = evo_store::channels::channel_of_chat(conn, parent)? {
                     evo_store::channels::set_seat(conn, &channel.id, &mate.id, &id)?;
+                    // The channel's role names the seat too, so a restarted
+                    // channel reuses it; the running one already knows it.
+                    if let Some(role) = chats::get_chat(conn, parent)?.and_then(|root| root.role) {
+                        chats::set_role(conn, parent, Some(&crate::mates::channels::with_seat(&role, &mate.id, &id)))?;
+                    }
                 }
                 Ok(())
             });
@@ -218,14 +223,17 @@ fn session_row(
     let role_json = role.map(|role| serde_json::to_value(role).unwrap_or_default());
     // The role's model, when it names one; otherwise the parent's.
     let model = role.and_then(|role| Some((role.provider.clone()?, role.model.clone()?)));
+    // A channel's model only routes (docs/features/evo-mates/spec.md, FR-28):
+    // its seat runs on its mate's model, else the saved default.
+    let inherited = (parent.kind != chats::KIND_CHANNEL).then(|| (parent.provider.clone(), parent.model.clone()));
     if !fork {
         let new = NewChat {
             id: id.to_string(),
             workspace_id: parent.workspace_id.clone(),
             title: title.to_string(),
             // The role's model, else the one the parent runs on.
-            provider: model.as_ref().map(|(p, _)| p.clone()).or_else(|| parent.provider.clone()),
-            model: model.as_ref().map(|(_, m)| m.clone()).or_else(|| parent.model.clone()),
+            provider: model.as_ref().map(|(p, _)| p.clone()).or_else(|| inherited.clone().and_then(|(p, _)| p)),
+            model: model.as_ref().map(|(_, m)| m.clone()).or_else(|| inherited.and_then(|(_, m)| m)),
             role: role_json,
             parent_chat_id: Some(parent.id.clone()),
             origin: Some("agent".into()),
@@ -500,6 +508,23 @@ mod tests {
         let parent = fx.parent(NewChat::default());
         let typed = fx.child_as(&parent, false, &evo_mesh::wire::SessionRole { name: Some("r".into()), ..Default::default() });
         assert_eq!(typed.model.as_deref(), Some("acme-large"));
+    }
+
+    // docs/features/evo-mates/spec.md (FR-28): a channel's model only
+    // routes; a seat whose mate names no model runs on the saved default.
+    #[test]
+    fn a_seat_never_runs_on_its_channels_router_model() {
+        let mut fx = Fixture::new();
+        let channel = fx.parent(NewChat { kind: Some(chats::KIND_CHANNEL.into()), ..Default::default() });
+        let mate = evo_mesh::wire::SessionRole { name: Some("Ada".into()), ..Default::default() };
+        let seat = fx.child_as(&channel, false, &mate);
+        assert_eq!((seat.provider.as_deref(), seat.model.as_deref()), (None, None));
+        // A mate with its own model keeps it.
+        let mut fx = Fixture::new();
+        let channel = fx.parent(NewChat { kind: Some(chats::KIND_CHANNEL.into()), ..Default::default() });
+        let own = evo_mesh::wire::SessionRole { provider: Some("acme".into()), model: Some("acme-small".into()), ..mate };
+        let seat = fx.child_as(&channel, false, &own);
+        assert_eq!(seat.model.as_deref(), Some("acme-small"));
     }
 
     // docs/features/session-roles-and-mail/spec.md (FR-6, FR-7).

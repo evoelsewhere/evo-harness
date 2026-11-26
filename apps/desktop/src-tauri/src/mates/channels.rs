@@ -81,6 +81,17 @@ pub fn seat_role_of(mate: &evo_store::mates::Mate, channel: &str) -> Value {
     role
 }
 
+/// `role` (a channel root's) with `seat` as the seat of member `mate`.
+pub fn with_seat(role: &Value, mate: &str, seat: &str) -> Value {
+    let mut role = role.clone();
+    if let Some(members) = role.pointer_mut("/channel/members").and_then(Value::as_array_mut) {
+        for member in members.iter_mut().filter(|m| m["mateId"] == mate) {
+            member["seatChat"] = json!(seat);
+        }
+    }
+    role
+}
+
 /// Write the channel's role into its root chat, and restart the root's
 /// engine once idle so it reads it; a seat whose role changed (its mate, the
 /// channel's name) restarts too.
@@ -249,6 +260,21 @@ mod tests {
         assert_eq!(channel.members[0].seat_role.as_ref().unwrap().mate.as_ref().unwrap().id, "m1");
         assert_eq!(channel.handoff_limit, 6);
         assert_eq!(channel.lead.as_deref(), Some("m1"));
+    }
+
+    // FR-14: a seat started while the channel runs is kept in the channel's
+    // role, so the channel reuses it after a restart instead of starting
+    // another (with none of its conversation).
+    #[test]
+    fn a_new_seat_is_kept_in_the_channels_role() {
+        let role = serde_json::json!({ "channel": { "members": [
+            { "mateId": "m1", "seatChat": "s1" },
+            { "mateId": "m2", "seatChat": null },
+        ] } });
+        let role = super::with_seat(&role, "m2", "s2");
+        assert_eq!(role["channel"]["members"][1]["seatChat"], "s2");
+        assert_eq!(role["channel"]["members"][0]["seatChat"], "s1");
+        assert_eq!(super::with_seat(&role, "ghost", "s9"), role, "not a member: unchanged");
     }
 
     // FR-72: a seat's role names its channel, so its engine asks in its reply.

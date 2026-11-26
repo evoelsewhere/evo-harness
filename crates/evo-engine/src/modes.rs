@@ -460,16 +460,20 @@ where
     // Its model only routes `auto` messages: the person's choice, else the
     // cheapest connected fit model (FR-28).
     if let Some(channel) = crate::channel::coordinator::active() {
-        let model = {
+        let models: Vec<evo_ai::Model> = {
             let catalog = rpc_providers
                 .catalog
                 .read()
                 .unwrap_or_else(|e| e.into_inner());
-            crate::channel::router::router_model(&catalog, channel.router_choice()).cloned()
+            crate::channel::router::router_models(&catalog, channel.router_choice())
+                .into_iter()
+                .cloned()
+                .collect()
         };
-        if let Some(model) = model {
+        if let Some(model) = models.first().cloned() {
             let _ = lane.set_model(model).await;
         }
+        channel.set_router_models(models);
     }
     let mut external_names = Vec::new();
     let file_io_router = crate::session::file_io_router(harness);

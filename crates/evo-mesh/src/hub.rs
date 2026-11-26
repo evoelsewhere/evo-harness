@@ -280,6 +280,26 @@ fn with_sender_title(text: &str, title: &str) -> String {
     )
 }
 
+/// What a mate wrote in a mail: `text` without the `<mail …>` envelope the
+/// sender's engine wraps it in, nor the line telling the receiver how to
+/// answer an ask.
+fn mail_inner(text: &str) -> String {
+    let trimmed = text.trim();
+    let Some(body) = trimmed
+        .strip_prefix("<mail ")
+        .and_then(|rest| rest.split_once('\n'))
+        .map(|(_, body)| body.strip_suffix("</mail>").unwrap_or(body))
+    else {
+        return trimmed.to_string();
+    };
+    body.lines()
+        .filter(|line| !line.starts_with("(A question for you: answer it with the reply tool"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
 /// `text` with the note's own tags made harmless: a reply cannot close its
 /// note or open a fake one.
 fn neutralise(text: &str) -> String {
@@ -1114,7 +1134,7 @@ impl<S: MailStore> Hub<S> {
                     "from": chat,
                     "to": peer.chat,
                     "op": kind,
-                    "text": mail.text,
+                    "text": mail_inner(&mail.text),
                 })
                 .to_string();
                 (root, text)
@@ -3120,6 +3140,16 @@ mod tests {
             (Some("sa"), Some("sb"), Some("message"))
         );
         assert!(copy["text"].as_str().unwrap().contains("check the numbers"));
+        // The channel shows what the mate wrote, not the mail's envelope.
+        let wrapped = "<mail id=\"m_1\" from=\"s_sa\" title=\"Ana\" kind=\"ask\">\n[assign] check the numbers\n(A question for you: answer it with the reply tool, askId \"m_1\". The asker waits for your answer.)\n</mail>";
+        let (_, mail) = route(&hub, "sa", &send_op("s_sa", "Ben", wrapped));
+        let copy = mail
+            .iter()
+            .find(|(to, _)| to == "room")
+            .map(|(_, e)| e.as_mail().unwrap().text)
+            .unwrap();
+        let copy: Value = serde_json::from_str(&copy).unwrap();
+        assert_eq!(copy["text"], "[assign] check the numbers");
         // Mail from a seat to the channel itself is not a hand-off.
         let (_, mail) = route(&hub, "sa", &send_op("s_sa", "s_room", "done"));
         assert!(mail

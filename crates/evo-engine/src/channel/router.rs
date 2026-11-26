@@ -23,21 +23,34 @@ pub fn router_model<'a>(
     catalog: &'a [evo_ai::Model],
     chosen: Option<&RouterModel>,
 ) -> Option<&'a evo_ai::Model> {
-    if let Some(chosen) = chosen {
-        let found = catalog.iter().find(|m| {
-            m.id.eq_ignore_ascii_case(&chosen.model)
-                && m.provider.eq_ignore_ascii_case(&chosen.provider)
-        });
-        if found.is_some() {
-            return found;
-        }
-    }
+    router_models(catalog, chosen).into_iter().next()
+}
+
+/// Every model that may route, in the order they are tried: the person's
+/// choice, then the priced ones from the cheapest, then the rest. A model
+/// the provider refuses (the account cannot use it) gives way to the next.
+pub fn router_models<'a>(
+    catalog: &'a [evo_ai::Model],
+    chosen: Option<&RouterModel>,
+) -> Vec<&'a evo_ai::Model> {
+    let is_chosen = |m: &evo_ai::Model| {
+        chosen.is_some_and(|c| {
+            m.id.eq_ignore_ascii_case(&c.model) && m.provider.eq_ignore_ascii_case(&c.provider)
+        })
+    };
     let price = |m: &evo_ai::Model| m.cost.rates.input + m.cost.rates.output;
+    let mut priced: Vec<&evo_ai::Model> = catalog
+        .iter()
+        .filter(|m| m.has_pricing() && !is_chosen(m))
+        .collect();
+    priced.sort_by(|a, b| price(a).total_cmp(&price(b)).then_with(|| a.id.cmp(&b.id)));
     catalog
         .iter()
-        .filter(|m| m.has_pricing())
-        .min_by(|a, b| price(a).total_cmp(&price(b)).then_with(|| a.id.cmp(&b.id)))
-        .or_else(|| catalog.first())
+        .filter(|m| is_chosen(m))
+        .take(1)
+        .chain(priced)
+        .chain(catalog.iter().filter(|m| !m.has_pricing() && !is_chosen(m)))
+        .collect()
 }
 
 /// The question for the router.
@@ -204,6 +217,15 @@ mod tests {
             router_model(&[], None).is_none(),
             "nothing connected: the lead answers"
         );
+        // When a model fails, the next one routes: the choice, then by price.
+        let order = |chosen: Option<&RouterModel>| {
+            router_models(&catalog, chosen)
+                .into_iter()
+                .map(|m| m.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(order(None), ["small", "mid", "big", "unpriced"]);
+        assert_eq!(order(Some(&chosen)), ["big", "small", "mid", "unpriced"]);
     }
 
     #[test]

@@ -998,3 +998,30 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   too (`chats_list` with `kind: "window"`), so the window that **Answer**
   opens shows the seat's thread and its approval card instead of an empty
   draft.
+- **Mentions that ask (T66, FR-54).** A mate's reply hands the message on
+  only to members it mentions in a question (`route::asked_in`: sentences
+  end at a line break, `?`, `!` or `. `); thanks, greetings and references
+  wake nobody. Its question to the person is any question that mentions no
+  member (`route::asks_the_person`). The delivery tells the mate so, and to
+  assign work by mail with "[assign]".
+- **Reports are not counted (T66, FR-18).** The coordinator keeps, per open
+  message, who owes whom an answer (`coordinator::Owed`): an ask by mention,
+  or mail that asks or assigns. The answer back (the member's next reply,
+  forwarded to the sender, or a mail back) counts toward the pair's hour
+  only. Mail that asks or assigns also makes the member's next reply go back
+  to the sender, so a lead hears from the mates it assigned.
+- **Hand-off copies without the envelope (T66).** The hub copies a mail
+  between seats to the channel with the mate's text
+  (`hub::mail_inner`), not the `<mail …>` envelope the sender's engine wraps
+  it in; the "[assign]" at its start then reads as an assignment.
+- **Seats and the routing model (T66, FR-28).** A nested session of a
+  channel does not inherit the channel's model (`mesh::session_row`): it
+  runs on its mate's model, else the saved default. The channel's engine
+  keeps the models that may route in order (`router::router_models`); when
+  the provider refuses one, the next is set and asked once
+  (`Coordinator::ask_router`).
+- **Seats survive a restart (T66, FR-14).** When the shell records a seat
+  started while the channel runs, it also writes it into the channel root's
+  role (`mates::channels::with_seat`), without restarting the root; before,
+  only the members table had it, so a restarted channel started a second
+  seat for that mate with none of its conversation.
