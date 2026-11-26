@@ -969,3 +969,13 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   `channels_reload`, which writes every channel's role again and restarts
   each idle channel engine (a short debounce keeps a dragged slider from
   restarting them on each step).
+- **Recent-work brief (T49).** `crates/evo-engine/src/mates/brief.rs`. A
+  mate's engine (a role with `mate` and `memoryDir`) notes each completed
+  turn's first reply line, with its session and place (the channel named in
+  a seat's delivery, else the direct conversation), in
+  `<mate folder>/recent-work.jsonl` beside its memory; silent heartbeat
+  answers are not noted, and the log keeps about the last hundred lines.
+  Each new prompt adds the lines of the mate's other sessions from the last
+  48 hours, at most ten, to the prompt's `<hook-context>` (the window
+  already strips that block from the person's bubble). The file is read
+  only by that mate's own engines.

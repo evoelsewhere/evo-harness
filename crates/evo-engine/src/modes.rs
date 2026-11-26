@@ -1112,7 +1112,7 @@ where
                         let content = if resume || compact {
                             content
                         } else {
-                            match rpc_prompt_hooks(content).await {
+                            match rpc_prompt_hooks(content, &mesh_session).await {
                                 Ok(content) => content,
                                 Err(reason) => {
                                     write_line(
@@ -1138,6 +1138,15 @@ where
                             ),
                         )
                         .await;
+                        // Where a mate's turn happens, for its brief (FR-50).
+                        let brief_place =
+                            (!resume && !compact)
+                                .then(mate_brief_log)
+                                .flatten()
+                                .map(|log| {
+                                    let text = crate::channel::coordinator::prompt_text(&content);
+                                    (log, crate::mates::brief::place_of(&text))
+                                });
                         crate::mesh::session_run(&mesh_session, true, None);
                         // A turn's totals count what the run adds after here
                         // (a compaction is not a turn).
@@ -1226,6 +1235,28 @@ where
                             (status, text)
                         });
                         crate::mesh::session_run(&mesh_session, false, report);
+                        // A mate's finished turn leaves a line for its other
+                        // places' briefs (FR-50).
+                        if let (Some((log, place)), "completed") = (&brief_place, outcome.as_str())
+                        {
+                            let reply = result
+                                .as_ref()
+                                .ok()
+                                .and_then(|value| value.get("finalText"))
+                                .and_then(|text| text.as_str())
+                                .unwrap_or_default();
+                            if let Some(text) = crate::mates::brief::summary(reply) {
+                                let entry = crate::mates::brief::Entry {
+                                    at: rpc_now_ms(),
+                                    session: mesh_session.clone(),
+                                    place: place.clone(),
+                                    text,
+                                };
+                                if let Err(error) = crate::mates::brief::record(log, &entry) {
+                                    tracing::warn!("could not note the mate's work: {error}");
+                                }
+                            }
+                        }
                         let checkpoint = match (checkpoints_task, checkpoint_turn) {
                             (Some(checkpoints), Some(started)) => {
                                 let run_id = result
@@ -3342,8 +3373,18 @@ fn rpc_package_manifests(
 
 /// Run `UserPromptSubmit` (and pending `SessionStart`) hooks for a prompt:
 /// `Err(reason)` blocks it; context rides after the prompt's text.
+/// The log of this engine's mate, when it runs as one with a memory
+/// (evo-mates FR-50).
+fn mate_brief_log() -> Option<std::path::PathBuf> {
+    let role = crate::session_roles::current()?;
+    role.mate.as_ref()?;
+    let dir = role.memory_dir.as_deref()?;
+    Some(crate::mates::brief::log_path(std::path::Path::new(dir)))
+}
+
 async fn rpc_prompt_hooks(
     content: crate::rpc::prompt_content::ParsedPrompt,
+    session: &str,
 ) -> Result<crate::rpc::prompt_content::ParsedPrompt, String> {
     use crate::rpc::prompt_content::ParsedPrompt;
     let text = match &content {
@@ -3357,7 +3398,14 @@ async fn rpc_prompt_hooks(
             .collect::<Vec<_>>()
             .join("\n"),
     };
-    let context = crate::hooks::prompt_submit(&text).await?;
+    let mut context = crate::hooks::prompt_submit(&text).await?;
+    // A mate's turn knows what it did in its other places (FR-50).
+    if let Some(log) = mate_brief_log() {
+        let entries = crate::mates::brief::read(&log);
+        if let Some(brief) = crate::mates::brief::brief(&entries, session, rpc_now_ms()) {
+            context.push(brief);
+        }
+    }
     // `/name args` for a skill: count it; a skill with shell lines is
     // expanded here, where they can run (the harness expands the rest).
     let cwd = crate::hooks::cwd()

@@ -54,7 +54,7 @@ Needs you and Usage.
 - [x] T46 [FR-45] Pause / Resume / Pause all through the supervisor hold; paused line — `src-tauri/src/mates/mod.rs`, `supervisor.rs`, `system.rs`, `src/features/mates/pause.tsx` — check: shell test; manual
 - [x] T47 [FR-46, FR-47, FR-48, FR-51] Mate conduct block in the role prompt; a fixed test set of 10 ambiguous tasks and 10 task replies — `crates/evo-engine/src/session_roles.rs`, `crates/evo-engine/tests/mates_conduct.rs` — check: test set results recorded
 - [x] T48 [FR-49] **Send as next** and "Seen while working" in the Mates composer on the engine's steering and follow-up queues — `src/features/mates/mate-chat.tsx` — check: manual
-- [ ] T49 [FR-50] Recent-work brief and search limited to the mate's own chats — `crates/evo-engine/src/mates/brief.rs` — check: `cargo test -p evo-engine mates_brief`
+- [x] T49 [FR-50] Recent-work brief and search limited to the mate's own chats — `crates/evo-engine/src/mates/brief.rs` — check: `cargo test -p evo-engine mates_brief`
 - [x] T50 [FR-52] Notice rules for mates and the per-mate switch — `src-tauri/src/supervisor/notices.rs` — check: shell test for each case
 - [ ] T35 [P] [FR-33, NFR-7] Mate faces on `open-bot-avatar` (exact version, `bun add`): Evo's own definitions, palette, state/mood/gaze/still mapping, SVG for lists and live mount for header and panel, reduced motion; MIT notice in `NOTICE` — `src/components/mate-face/`, `package.json`, `bun.lock`, `NOTICE` — check: visual review in light and dark; reduced motion stops all loops; `bun run build`
 - [ ] T36 [P] [FR-29, FR-32] Sidebar with pinned tiles, roster rows with state words, header pill, mate panel tabs, folding rules — `src/features/mates/{sidebar,roster-row,pinned-tiles,header-pill,mate-panel}.tsx` — check: design review against ux.md 2 at 1440×900 and 900×700
@@ -165,7 +165,7 @@ Done when: every row below is `passed` with its date.
 | FR-47 | Test set T47 (8 of 10) | passed (2026-11-26): 10 of 10 on the second run, [conduct-results.md](conduct-results.md) |
 | FR-48 | Review T47 | passed (2026-11-26): 10 of 10 replies put the result first and name the files, [conduct-results.md](conduct-results.md) |
 | FR-49 | Manual T48 | not run |
-| FR-50 | `cargo test -p evo-engine mates_brief` (T49) | search half: `cargo test -p evo-store a_mate_finds_only_its_own_chats` passed (2026-11-25); the brief waits for channels (phase 3) |
+| FR-50 | `cargo test -p evo-engine mates_brief` (T49) | passed (2026-11-26): the brief lists the other places' lines of the last two days, newest ten, never its own place; place and summary from a turn; the log is cut back; search half: `cargo test -p evo-store a_mate_finds_only_its_own_chats` passed (2026-11-25); manual (ask in the direct conversation about channel work): not run |
 | FR-51 | Test set T47; manual | rule in the role prompt (2026-11-26); a fact the person states saved with the chip: seen in the app (2026-11-25); other mates' claims: needs channels (phase 3), not run |
 | FR-52 | Shell tests T50 | passed (2026-11-25) |
 | FR-53 | `cargo test -p evo-engine channel` (T51) | passed (2026-11-26): thresholds, "several", fallbacks and route lines; in the app a live router never answered within 1.5 s; the budget moves to 6 s (T62) |
