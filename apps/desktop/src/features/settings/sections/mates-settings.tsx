@@ -1,23 +1,53 @@
 import * as React from "react";
-import { UsersRoundIcon } from "lucide-react";
+import { ChevronRightIcon, UsersRoundIcon } from "lucide-react";
+import { modelKey } from "@/components/ai-elements/model-selector";
+import { ProviderIcon } from "@/components/provider-icon";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { db, log } from "@/lib/db";
+import { channelsApi } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
+import { useEngineStore } from "@/stores/engine-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
 // Settings → Evo Mates (docs/features/evo-mates/spec.md, FR-18): how many
 // times mates in a channel may hand work to each other for one message
-// before every mate stops. Saved in the app settings; a channel reads it
-// when its role is written again (`src-tauri/src/mates/channels.rs`).
+// before every mate stops, and the model that picks who answers under Auto
+// (FR-28). Saved in the app settings; every channel reads them again at
+// once (`channels_reload`, `src-tauri/src/mates/channels.rs`).
 
 const HANDOFF_LIMIT = "mates.handoffLimit";
 const DEFAULT = 6;
 const MAX_RUNNING = "mates.maxRunning";
 const RUNNING_DEFAULT = 4;
+const ROUTER_MODEL = "mates.routerModel";
+
+type RouterChoice = { provider: string; model: string } | null;
+
+let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Channels read the settings again once a slider rests; a failure is only logged. */
+function reloadChannels() {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => {
+    void channelsApi.reload().catch((error) => log("warn", "ui", `could not apply to channels: ${String(error)}`));
+  }, 600);
+}
 
 export function MatesSettings() {
   const [limit, setLimit] = React.useState(DEFAULT);
   const [running, setRunning] = React.useState(RUNNING_DEFAULT);
+  const [router, setRouter] = React.useState<RouterChoice>(null);
 
   React.useEffect(() => {
     if (!inTauri) return;
@@ -28,15 +58,30 @@ export function MatesSettings() {
         if (typeof saved === "number" && saved >= 1 && saved <= 50) setLimit(saved);
         const max = all[MAX_RUNNING];
         if (typeof max === "number" && max >= 1 && max <= 16) setRunning(max);
+        const chosen = all[ROUTER_MODEL] as RouterChoice | undefined;
+        if (chosen && typeof chosen.provider === "string" && typeof chosen.model === "string") setRouter(chosen);
       })
       .catch((error) => log("warn", "ui", `could not read the Evo Mates settings: ${String(error)}`));
   }, []);
 
   const save = (value: number) => {
     setLimit(value);
-    void db.setSetting(HANDOFF_LIMIT, value === DEFAULT ? null : value).catch((error) => {
-      log("error", "ui", `could not save the hand-off limit: ${String(error)}`);
-    });
+    void db
+      .setSetting(HANDOFF_LIMIT, value === DEFAULT ? null : value)
+      .then(reloadChannels)
+      .catch((error) => {
+        log("error", "ui", `could not save the hand-off limit: ${String(error)}`);
+      });
+  };
+
+  const saveRouter = (value: RouterChoice) => {
+    setRouter(value);
+    void db
+      .setSetting(ROUTER_MODEL, value)
+      .then(reloadChannels)
+      .catch((error) => {
+        log("error", "ui", `could not save the router model: ${String(error)}`);
+      });
   };
 
   const saveRunning = (value: number) => {
@@ -75,7 +120,7 @@ export function MatesSettings() {
         <SettingsRow
           labelId="mates-handoff-limit"
           label={`Hand-offs per message: ${limit}`}
-          description="How many times mates may hand work to each other for one of your messages. Past it, every mate in the channel stops and asks you how to go on. Applies to a channel from the next change to it."
+          description="How many times mates may hand work to each other for one of your messages. Past it, every mate in the channel stops and asks you how to go on."
           control={
             <Slider
               aria-labelledby="mates-handoff-limit"
@@ -88,7 +133,69 @@ export function MatesSettings() {
             />
           }
         />
+        <SettingsRow
+          labelId="mates-router-model"
+          label="Picks who answers"
+          description="Under Auto, this model reads a message that mentions nobody and picks the mate. By default the cheapest connected model fit for tools. Its cost shows in Usage under Evo Mates."
+          control={<RouterModelPicker value={router} onChange={saveRouter} />}
+        />
       </SettingsGroup>
+    </div>
+  );
+}
+
+/** The router model, from the models of the connected providers; none chosen is the cheapest. */
+function RouterModelPicker({ value, onChange }: { value: RouterChoice; onChange(value: RouterChoice): void }) {
+  const models = useEngineStore((s) => s.models);
+  const ready = useEngineStore((s) => s.status === "ready");
+  const chosenKey = value ? `${value.provider}/${value.model}` : "";
+  const current = models.find((m) => modelKey(m) === chosenKey);
+  const groups = React.useMemo(() => {
+    const byProvider = new Map<string, typeof models>();
+    for (const model of models) byProvider.set(model.provider, [...(byProvider.get(model.provider) ?? []), model]);
+    return [...byProvider.entries()];
+  }, [models]);
+
+  return (
+    <div className="flex items-center gap-2">
+      {value && (
+        <Button variant="ghost" size="sm" onClick={() => onChange(null)}>
+          Cheapest
+        </Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger disabled={!ready || models.length === 0} render={<Button variant="outline" size="sm" className="max-w-64" />}>
+          {value && <ProviderIcon id={value.provider} size="xs" />}
+          <span className="truncate">{value ? (current?.name || value.model) : "Cheapest connected"}</span>
+          <ChevronRightIcon className="rotate-90" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="max-h-96 w-64">
+          <DropdownMenuRadioGroup
+            value={chosenKey}
+            onValueChange={(key) => {
+              const model = models.find((m) => modelKey(m) === key);
+              if (model) onChange({ provider: model.provider, model: model.id });
+            }}
+          >
+            {groups.map(([provider, items], index) => (
+              <React.Fragment key={provider}>
+                {index > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="flex items-center gap-2">
+                    <ProviderIcon id={provider} size="xs" />
+                    {provider}
+                  </DropdownMenuLabel>
+                  {items.map((model) => (
+                    <DropdownMenuRadioItem key={modelKey(model)} value={modelKey(model)}>
+                      <span className="truncate">{model.name || model.id}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuGroup>
+              </React.Fragment>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

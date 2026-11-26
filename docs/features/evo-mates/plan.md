@@ -958,3 +958,14 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   folder, or each mate's own. Seats resolve it in `folder_of`; a change
   starts the seats again there. Project trust is the engine's, keyed by the
   working folder, so it is the same as in Harness.
+- **The router's model (T25) and settings that apply at once (T29).** A
+  channel's engine sets its own model at start with
+  `channel::router::router_model`: the role's `router` (Settings › Evo
+  Mates › Picks who answers, saved as `mates.routerModel`) when it is in
+  the engine's catalogue, else the cheapest priced model there (input plus
+  output rate). The catalogue already holds only connected providers'
+  models that models.dev marks fit for tools, so no extra filter is
+  needed. Changing the hand-off limit or the router calls
+  `channels_reload`, which writes every channel's role again and restarts
+  each idle channel engine (a short debounce keeps a dragged slider from
+  restarting them on each step).

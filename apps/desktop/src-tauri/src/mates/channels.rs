@@ -26,6 +26,20 @@ fn handoff_limit(db: &Db) -> u64 {
         .unwrap_or(HANDOFF_LIMIT)
 }
 
+/// The model the person chose for routing under Auto (FR-28), saved as
+/// `{provider, model}`; `null` without a choice (the engine takes the
+/// cheapest connected fit model).
+pub const ROUTER_MODEL_KEY: &str = "mates.routerModel";
+
+fn router_model(db: &Db) -> Value {
+    db.with(|conn| evo_store::settings::get(conn, ROUTER_MODEL_KEY))
+        .ok()
+        .flatten()
+        .filter(|value| value.get("provider").and_then(Value::as_str).is_some() && value.get("model").and_then(Value::as_str).is_some())
+        .map(|value| json!({ "provider": value["provider"], "model": value["model"] }))
+        .unwrap_or(Value::Null)
+}
+
 /// The role a channel's root runs as.
 pub fn role_of(db: &Db, channel: &Channel) -> Value {
     let members: Vec<Value> = channel
@@ -54,6 +68,7 @@ pub fn role_of(db: &Db, channel: &Channel) -> Value {
             "members": members,
             "instructions": channel.instructions,
             "handoffLimit": handoff_limit(db),
+            "router": router_model(db),
         },
     })
 }
@@ -65,6 +80,18 @@ async fn write_role(app: &AppHandle, channel: &Channel) -> Result<(), String> {
     let role = role_of(&db, channel);
     db.with(|conn| evo_store::chats::set_role(conn, &channel.chat_id, Some(&role)).map(|_| ()))?;
     super::restart_when_idle(app, &channel.chat_id).await;
+    Ok(())
+}
+
+/// Settings › Evo Mates changed: every channel reads its role again, so the
+/// hand-off limit and the router apply without a restart of the app.
+#[tauri::command]
+pub async fn channels_reload(app: AppHandle) -> Result<(), String> {
+    let db = app.state::<Db>();
+    let list = db.with(|conn| channels::list_channels(conn))?;
+    for channel in list {
+        write_role(&app, &channel).await?;
+    }
     Ok(())
 }
 

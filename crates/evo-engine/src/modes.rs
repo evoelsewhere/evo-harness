@@ -457,6 +457,20 @@ where
     // A channel's role: this engine coordinates the channel instead of
     // running a model (docs/features/evo-mates/spec.md, FR-14).
     crate::channel::coordinator::install(external_tools.clone(), stdout.clone());
+    // Its model only routes `auto` messages: the person's choice, else the
+    // cheapest connected fit model (FR-28).
+    if let Some(channel) = crate::channel::coordinator::active() {
+        let model = {
+            let catalog = rpc_providers
+                .catalog
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            crate::channel::router::router_model(&catalog, channel.router_choice()).cloned()
+        };
+        if let Some(model) = model {
+            let _ = lane.set_model(model).await;
+        }
+    }
     let mut external_names = Vec::new();
     let file_io_router = crate::session::file_io_router(harness);
     let mut owner = RpcOwner {

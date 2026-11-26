@@ -326,6 +326,11 @@ pub fn mate_delivery(
 }
 
 impl Coordinator {
+    /// The router model the person chose, if any (FR-28).
+    pub(crate) fn router_choice(&self) -> Option<&evo_protocol::mesh::RouterModel> {
+        self.role.router.as_ref()
+    }
+
     fn member(&self, id: &str) -> Option<&ChannelMember> {
         self.role.members.iter().find(|m| m.mate_id == id)
     }

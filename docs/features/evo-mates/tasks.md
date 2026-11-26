@@ -72,14 +72,14 @@ queues extra work.
 - [x] T22 [FR-15, FR-16, FR-28] Tests for routing: mentions, `mentioned` with none, `lead`, `auto` with a faux router (pick, low confidence, failure, none configured) — `crates/evo-engine/src/channel/tests.rs` — check: `cargo test -p evo-engine channel` fails for the right reason
 - [x] T23 [FR-14, FR-15, FR-16] Channel coordinator: run instead of the agent loop for a `channel` role; deliveries with `<channel>` blocks; seats started on first delivery and reused; transcript entries — `crates/evo-engine/src/channel/`, `host.rs` — check: T22 passes
 - [x] T24 [FR-17, FR-18, FR-19] Hand-off observation and counting, stop at the limit with a notice; stop one seat or all — `channel/` — check: engine test with two faux mates handing back and forth stops at the limit
-- [ ] T25 [FR-28] Router default from models.dev (`tool_call`, lowest cost among connected), its picks recorded under usage source `mates` (added by T10) — `crates/evo-engine/src/channel/router.rs` — check: unit test on a fixture catalogue
+- [x] T25 [FR-28] Router default from models.dev (`tool_call`, lowest cost among connected), its picks recorded under usage source `mates` (added by T10) — `crates/evo-engine/src/channel/router.rs` — check: unit test on a fixture catalogue
 - [x] T26 [FR-14, FR-25] Shell `channels` commands; seat chats of kind `seat`; channel folder through project trust — `src-tauri/src/mates/mod.rs` — check: shell tests; [FR-23] manual with an untrusted folder
 - [x] T27 [NFR-6] Running limit across mate, seat and channel engines with a queue and the **Queued** state — `supervisor.rs` — check: shell test with limit 1
 - [x] T51 [FR-15, FR-16, FR-53] Routing with `everyone` and `@everyone`, router inputs, 0.6 thresholds, 1.5 s budget, pick line — `crates/evo-engine/src/channel/` — check: `cargo test -p evo-engine channel`
 - [x] T52 [FR-54, FR-55] Hand-off kinds and labels; lead assignments and wrap-up; members cannot assign the lead — `crates/evo-engine/src/channel/` — check: engine tests with faux mates
 - [x] T53 [FR-18, FR-56, FR-57] Per-seat queue with steering for the person's single-mention messages, `reply_to`, delivery contents, per-pair hourly limit — `crates/evo-engine/src/channel/` — check: engine tests
 - [ ] T28 [P] [FR-14 – FR-19, FR-36] Channel view: messages by author, member avatars and rule chip in the header, `@` member list, route lines, hand-off lines, live seat activity, **Stop**; channel settings dialog — `src/features/mates/channel*.tsx`, `mention-menu.tsx`, `route-line.tsx`, `handoff-line.tsx` — check: manual
-- [ ] T29 [P] [NFR-6, FR-18, FR-28] Settings › Evo Mates — `src/features/settings/sections/mates-settings.tsx` — check: manual; values apply without restart
+- [x] T29 [P] [NFR-6, FR-18, FR-28] Settings › Evo Mates — `src/features/settings/sections/mates-settings.tsx` — check: manual; values apply without restart
 - [ ] T30 [NFR-5] Trust check: a mate asked by another mate to run a command still asks the person under "ask" — check: manual, recorded
 
 ### Phase 4 — Team files
@@ -131,7 +131,7 @@ Done when: every row below is `passed` with its date.
 | FR-13 | Shell tests T13; manual row menu | not run |
 | FR-14 | Shell tests T26; manual | passed (2026-11-26): store, hub and shell tests; in the app a channel of two mates was made, a message mentioning both started their seats (kind `seat`, not listed in Harness) and both replies showed in the channel |
 | FR-15 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) |
-| FR-16 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) for mentions, `@everyone` and each rule; the `auto` router model itself waits for T25 (without it `auto` falls back to the lead) |
+| FR-16 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) for mentions, `@everyone` and each rule; the `auto` router runs on the model of T25 (with no connected model `auto` falls back to the lead) |
 | FR-17 | Engine test T24; manual | passed (2026-11-26): hub copy test; coordinator tests for mention deliveries; in the app a mate asked another by @mention, the answer went back and the asker posted the result |
 | FR-18 | Engine test T24 | passed (2026-11-26): `a_chain_stops_at_the_messages_limit` (six hand-offs, the sixth stops every seat), `an_eleventh_hand_off_in_the_hour_is_refused` (across messages, either direction, freed after the hour); the chain itself is counted in the coordinator with these functions; manual: not run |
 | FR-19 | Manual: three mates stop within 2 s | partly (2026-11-26): Stop in a channel of two mates stopped the working seat at once (no run after it) and posted "Stopped."; three mates and one-mate Stop: not run |
@@ -143,7 +143,7 @@ Done when: every row below is `passed` with its date.
 | FR-25 | Shell tests T13, T26; manual | partly (2026-11-26): seats resolve the channel's folder, else the mate's (`folder_of`); channel settings set and clear it and seats start again there; manual: not run |
 | FR-26 | Manual T18 | not run |
 | FR-27 | Team file tests T31 | passed (2026-11-26): a newer version and a non-team file are refused, unknown entries are listed |
-| FR-28 | Router unit test T25; manual Usage | router question and answer tests passed (2026-11-26); runs on the channel's model, not the cheapest from models.dev; usage under `mates`: not done; manual: not run |
+| FR-28 | Router unit test T25; manual Usage | passed (2026-11-26): `the_router_is_the_chosen_model_else_the_cheapest` on a fixture catalogue (the choice, the cheapest priced, a gone choice falls back, none connected: no router); a channel's calls record under usage source `mates` (engine test of T58); Settings › Evo Mates › Picks who answers; manual Usage: not run |
 | FR-29 | Design review T36 | not run |
 | FR-30 | Manual T37 | not run |
 | FR-31 | Manual T37 | not run |

@@ -214,6 +214,8 @@ export const channelsApi = {
   update: (id: string, patch: ChannelPatch) => invoke<Channel | null>("channels_update", { id, patch }),
   remove: (id: string) => invoke<void>("channels_delete", { id }),
   stopMember: (id: string, mate: string) => invoke<void>("channels_stop_member", { id, mate }),
+  /** Every channel reads Settings › Evo Mates again. */
+  reload: () => invoke<void>("channels_reload"),
 };
 
 // ── Team files (FR-20, FR-21, FR-27) ───────────────────────────────────────

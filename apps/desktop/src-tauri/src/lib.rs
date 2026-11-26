@@ -218,6 +218,7 @@ pub fn run() {
             mates::channels::channels_create,
             mates::channels::channels_update,
             mates::channels::channels_delete,
+            mates::channels::channels_reload,
             mates::channels::channels_stop_member,
             mates::mates_remove_grant,
             mates::secrets::mates_secret_submit,
