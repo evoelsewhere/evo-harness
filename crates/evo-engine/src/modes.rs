@@ -2898,6 +2898,20 @@ async fn rpc_queue_message(
     harness: &AgentHarness,
     msg: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    // A channel has no model run to steer: a message that @mentions only a
+    // mate at work steers that mate (FR-56); any other waits in the window.
+    if let Some(channel) = crate::channel::coordinator::active() {
+        if msg.get("deliverAs").and_then(serde_json::Value::as_str) != Some("steer") {
+            return Err(crate::channel::coordinator::NOT_A_STEER.into());
+        }
+        let text = msg
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        return channel.steer(harness, text).await;
+    }
     // `contentBlocks` (text and images, as for `prompt`) or a plain `message`.
     let message = if msg.get("contentBlocks").is_some() {
         let command = msg.clone();

@@ -8,8 +8,10 @@
 //! first delivery and reused), then waits until each picked seat's turn
 //! ends. Seats' turns come back whole (`MailKind::ChannelReport`) and mail
 //! between seats as copies (`MailKind::ChannelHandoff`), which are counted:
-//! past the channel's hand-off limit every seat stops. Everything the
-//! channel shows is a `channel` custom entry in this session, written live
+//! past the channel's hand-off limit every seat stops, and a pair of mates
+//! gets at most [`PAIR_LIMIT`] hand-offs an hour (FR-18). A message of the
+//! person that @mentions only a mate at work steers that mate's turn
+//! ([`Coordinator::steer`], FR-56). Everything the channel shows is a `channel` custom entry in this session, written live
 //! as a `channel_event` line.
 
 use std::collections::{HashMap, HashSet};
@@ -29,6 +31,80 @@ use crate::rpc::writer::RpcWriter;
 const TURN_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// Lines of the channel a delivery carries, at most.
 const RECENT_LINES: usize = 20;
+/// Hand-offs between the same two mates in one hour, at most (FR-18).
+pub const PAIR_LIMIT: usize = 10;
+const HOUR_MS: i64 = 3_600_000;
+/// The error of `queue_message` for a message that steers nobody: the
+/// window keeps it as the channel's next message.
+pub const NOT_A_STEER: &str = "not a steer: the message waits for the channel";
+
+/// Hand-offs between pairs of mates in the last hour (FR-18).
+#[derive(Debug, Default)]
+pub struct PairLog {
+    times: HashMap<(String, String), Vec<i64>>,
+}
+
+impl PairLog {
+    /// Count a hand-off between `a` and `b` (either way) at `now`, or
+    /// refuse it (`false`, not counted) when the pair had [`PAIR_LIMIT`] in
+    /// the hour before.
+    pub fn allow(&mut self, a: &str, b: &str, now: i64) -> bool {
+        let key = if a <= b {
+            (a.to_string(), b.to_string())
+        } else {
+            (b.to_string(), a.to_string())
+        };
+        let times = self.times.entry(key).or_default();
+        times.retain(|t| now - *t < HOUR_MS);
+        if times.len() >= PAIR_LIMIT {
+            return false;
+        }
+        times.push(now);
+        true
+    }
+}
+
+/// What a hand-off may do (FR-18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandOff {
+    /// Go on.
+    Go,
+    /// The pair's hourly limit: this hand-off is refused.
+    PairLimit,
+    /// The message's limit: shown, then every seat stops.
+    MessageLimit,
+}
+
+/// Count one hand-off from `a` to `b` against the message's `count` (limit
+/// `limit`) and the pair's hour.
+pub fn hand_off(
+    count: &mut u32,
+    limit: u32,
+    pairs: &mut PairLog,
+    a: &str,
+    b: &str,
+    now: i64,
+) -> HandOff {
+    if !pairs.allow(a, b, now) {
+        return HandOff::PairLimit;
+    }
+    *count += 1;
+    if *count >= limit.max(1) {
+        HandOff::MessageLimit
+    } else {
+        HandOff::Go
+    }
+}
+
+/// The mate a message of the person steers (FR-56): it @mentions exactly
+/// one member, not everyone, and that member is at work (`working`).
+pub fn steer_target(text: &str, role: &ChannelRole, working: &[String]) -> Option<String> {
+    let (named, everyone) = route::mentions(text, &role.members);
+    if everyone || named.len() != 1 {
+        return None;
+    }
+    working.contains(&named[0]).then(|| named[0].clone())
+}
 
 /// What came back from the seats while a message is open.
 #[derive(Debug, Clone)]
@@ -66,6 +142,11 @@ struct State {
     /// Mail already taken, by id.
     taken: HashSet<String>,
     next: u64,
+    /// The open message's id, and the seats it waits for.
+    message: Option<String>,
+    working: HashSet<String>,
+    /// Hand-offs per pair of mates in the last hour.
+    pairs: PairLog,
 }
 
 pub struct Coordinator {
@@ -325,11 +406,20 @@ impl Coordinator {
         }
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Back>();
-        lock(&self.state).open = Some(tx);
+        {
+            let mut state = lock(&self.state);
+            state.open = Some(tx);
+            state.message = Some(message.clone());
+        }
         let result = self
             .run(harness, &message, &text, &route, &mut rx, cancel)
             .await;
-        lock(&self.state).open = None;
+        {
+            let mut state = lock(&self.state);
+            state.open = None;
+            state.message = None;
+            state.working.clear();
+        }
         result
     }
 
@@ -360,6 +450,7 @@ impl Coordinator {
         let mut asked_by: HashMap<String, String> = HashMap::new();
         let deadline = tokio::time::Instant::now() + TURN_LIMIT;
         while !waiting.is_empty() {
+            lock(&self.state).working = waiting.clone();
             let back = tokio::select! {
                 biased;
                 _ = cancel.cancelled() => {
@@ -403,13 +494,17 @@ impl Coordinator {
                         let Some(member) = self.member(&to).cloned() else {
                             continue;
                         };
+                        let verdict = self.count_handoff(&mut handoffs, &author, &to);
+                        if verdict == HandOff::PairLimit {
+                            self.pair_refused(harness, &author, &to).await;
+                            continue;
+                        }
                         if kind == "asks" {
                             asked_by.insert(to.clone(), author.clone());
                         }
-                        handoffs += 1;
                         self.post_handoff_between(harness, &author, &to, kind, &text, message)
                             .await;
-                        if handoffs >= self.role.handoff_limit.max(1) {
+                        if verdict == HandOff::MessageLimit {
                             return Ok(self.at_limit(harness, handoffs, &cancel).await);
                         }
                         let recent = self.recent_for(&to);
@@ -428,7 +523,25 @@ impl Coordinator {
                     }
                 }
                 Back::Handoff { from, to, op, text } => {
-                    handoffs += 1;
+                    let from_mate = self.mate_of_seat(&from).unwrap_or_default();
+                    let to_mate = self.mate_of_seat(&to).unwrap_or_default();
+                    let verdict = self.count_handoff(&mut handoffs, &from_mate, &to_mate);
+                    if verdict == HandOff::PairLimit {
+                        // The mail is already with the seat: one it woke for
+                        // this alone stops; one at work for the person reads it.
+                        if !waiting.contains(&to) {
+                            let _ = self
+                                .tools
+                                .request_raw(
+                                    "channel_stop",
+                                    json!({ "sessionIds": [to] }),
+                                    CancellationToken::new(),
+                                )
+                                .await;
+                        }
+                        self.pair_refused(harness, &from_mate, &to_mate).await;
+                        continue;
+                    }
                     self.post_handoff(harness, &from, &to, &op, &text, message)
                         .await;
                     // Members never assign the lead (FR-55): the lead gets it as
@@ -439,7 +552,7 @@ impl Coordinator {
                     }
                     // A seat handed work to joins what the message waits for.
                     waiting.insert(to.clone());
-                    if handoffs >= self.role.handoff_limit.max(1) {
+                    if verdict == HandOff::MessageLimit {
                         return Ok(self.at_limit(harness, handoffs, &cancel).await);
                     }
                 }
@@ -451,6 +564,86 @@ impl Coordinator {
             format!("{} replied.", replied.join(", "))
         };
         Ok(json!({ "outcome": "completed", "finalText": final_text }))
+    }
+
+    /// Count a hand-off between two mates (by id) for the open message.
+    fn count_handoff(&self, handoffs: &mut u32, from: &str, to: &str) -> HandOff {
+        let mut state = lock(&self.state);
+        hand_off(
+            handoffs,
+            self.role.handoff_limit,
+            &mut state.pairs,
+            from,
+            to,
+            now_ms(),
+        )
+    }
+
+    /// The notice for a hand-off past the pair's hourly limit.
+    async fn pair_refused(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        from: &str,
+        to: &str,
+    ) {
+        let note = format!(
+            "{} and {} handed work to each other {PAIR_LIMIT} times in the last hour: this hand-off was refused.",
+            self.name_of(from),
+            self.name_of(to)
+        );
+        self.post(
+            harness,
+            json!({ "kind": "notice", "notice": "pair_limit", "text": note, "at": now_ms() }),
+        )
+        .await;
+    }
+
+    /// A message of the person while the channel works (`queue_message`
+    /// with `steer`, FR-56): one that @mentions only a mate at work goes
+    /// into that mate's turn now; any other is refused with
+    /// [`NOT_A_STEER`] and waits as the channel's next message. The
+    /// delivery runs off the reader, which must stay free for the host's
+    /// answer.
+    pub(crate) async fn steer(
+        self: &Arc<Self>,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        text: String,
+    ) -> Result<Value, String> {
+        let (working, message) = {
+            let state = lock(&self.state);
+            let working: Vec<String> = state
+                .seats
+                .iter()
+                .filter(|(_, seat)| state.working.contains(*seat))
+                .map(|(mate, _)| mate.clone())
+                .collect();
+            (working, state.message.clone())
+        };
+        let (Some(message), Some(mate)) = (message, steer_target(&text, &self.role, &working))
+        else {
+            return Err(NOT_A_STEER.into());
+        };
+        let Some(member) = self.member(&mate).cloned() else {
+            return Err(NOT_A_STEER.into());
+        };
+        let id = self.next_id("m");
+        self.post(
+            harness,
+            json!({ "kind": "message", "id": id, "author": "person", "text": text, "steers": mate, "replyTo": message, "at": now_ms() }),
+        )
+        .await;
+        lock(&self.state).lines.push(Line {
+            author: "The person".into(),
+            text: text.clone(),
+        });
+        let recent = self.recent_for(&mate);
+        let body = delivery(&self.role, &member, &message, &recent, &text);
+        let (me, harness) = (self.clone(), harness.clone());
+        tokio::spawn(async move {
+            me.deliver(&harness, &member, body, &CancellationToken::new())
+                .await;
+        });
+        Ok(json!({ "accepted": true, "steered": mate }))
     }
 
     /// The lines `mate`'s seat has not seen yet, without the newest (the
@@ -841,6 +1034,71 @@ mod tests {
             None,
             "the lead assigns members"
         );
+    }
+
+    #[test]
+    fn a_chain_stops_at_the_messages_limit() {
+        let mut pairs = PairLog::default();
+        let mut count = 0;
+        let verdicts: Vec<HandOff> = (0..6)
+            .map(|i| {
+                let (a, b) = if i % 2 == 0 { ("p", "w") } else { ("w", "p") };
+                hand_off(&mut count, 6, &mut pairs, a, b, i)
+            })
+            .collect();
+        assert_eq!(&verdicts[..5], &[HandOff::Go; 5]);
+        assert_eq!(verdicts[5], HandOff::MessageLimit);
+        assert_eq!(count, 6);
+    }
+
+    #[test]
+    fn an_eleventh_hand_off_in_the_hour_is_refused() {
+        let mut pairs = PairLog::default();
+        for i in 0..PAIR_LIMIT as i64 {
+            // Across messages: each message counts afresh, the pair does not.
+            let mut count = 0;
+            let (a, b) = if i % 2 == 0 { ("p", "w") } else { ("w", "p") };
+            assert_eq!(
+                hand_off(&mut count, 6, &mut pairs, a, b, i * 1000),
+                HandOff::Go
+            );
+        }
+        let mut count = 0;
+        assert_eq!(
+            hand_off(&mut count, 6, &mut pairs, "w", "p", 20_000),
+            HandOff::PairLimit
+        );
+        assert_eq!(count, 0, "a refused hand-off is not counted");
+        // Another pair is free; the hour passing frees this one.
+        assert_eq!(
+            hand_off(&mut count, 6, &mut pairs, "p", "x", 20_000),
+            HandOff::Go
+        );
+        assert_eq!(
+            hand_off(&mut count, 6, &mut pairs, "p", "w", HOUR_MS + 1000),
+            HandOff::Go
+        );
+    }
+
+    #[test]
+    fn only_a_single_mention_of_a_working_mate_steers() {
+        let role = role();
+        let working = vec!["w".to_string()];
+        assert_eq!(
+            steer_target("@Writer shorter please", &role, &working),
+            Some("w".into())
+        );
+        assert_eq!(
+            steer_target("@Planner add a date", &role, &working),
+            None,
+            "Planner is not at work"
+        );
+        assert_eq!(
+            steer_target("@Writer and @Planner, sync up", &role, &working),
+            None
+        );
+        assert_eq!(steer_target("@everyone stop", &role, &working), None);
+        assert_eq!(steer_target("shorter please", &role, &working), None);
     }
 
     #[test]

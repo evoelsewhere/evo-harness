@@ -22,6 +22,8 @@ export type ChannelRow =
       first: boolean;
       last: boolean;
       failed: boolean;
+      /** A message of the person that went into this mate's turn (FR-56). */
+      steers?: string;
     }
   | { kind: "route"; key: string; text: string }
   | { kind: "handoff"; key: string; from: string; fromName: string; toName: string; handoff: string; text: string }
@@ -65,6 +67,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
           first: true,
           last: true,
           failed: Boolean(entry.status && entry.status !== "done"),
+          steers: entry.steers ? nameOf(entry.steers) : undefined,
         });
         break;
       }

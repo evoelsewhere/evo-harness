@@ -167,6 +167,7 @@ function RowView({ row, faceOf, names }: { row: ChannelRow; faceOf(id: string): 
                 <Markdown blocks>{boldMentions(row.text, names)}</Markdown>
               )}
             </div>
+            {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
           </div>
         </div>
       );
@@ -220,9 +221,10 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
     const message = text.trim();
     if (!message) return;
     setText("");
-    // While the mates answer, it waits its turn (FR-56).
+    // While the mates answer, a message for only a mate at work steers it;
+    // any other waits its turn (FR-56).
     if (busy) {
-      useChannelStore.getState().enqueue(channel.chatId, message);
+      if (!(await useEngineStore.getState().steerChannel(message))) useChannelStore.getState().enqueue(channel.chatId, message);
       return;
     }
     try {

@@ -37,6 +37,12 @@ describe("channel rows", () => {
     ]);
   });
 
+  test("a message that steered a working mate says so", () => {
+    const rows = channelRows([{ ...message("person", "@Writer shorter", 0), steers: "w" }], nameOf, at(1));
+    const bubble = rows.find((r) => r.kind === "bubble");
+    expect(bubble?.kind === "bubble" ? bubble.steers : null).toBe("Writer");
+  });
+
   test("a gap of more than 15 minutes adds a time line", () => {
     const rows = channelRows([message("person", "a", 0), message("p", "b", 16)], nameOf, at(17));
     expect(rows.filter((r) => r.kind === "time")).toHaveLength(2);

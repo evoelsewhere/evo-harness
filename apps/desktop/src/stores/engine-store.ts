@@ -262,6 +262,8 @@ interface EngineStore extends Mirrored {
    * `followUp` once it would otherwise stop. Shown as waiting until it does.
    */
   queueMessage(text: string, images: PromptImage[], deliverAs: "steer" | "followUp"): Promise<void>;
+  /** A channel's message while it works: true when it went into a working mate's turn (FR-56). */
+  steerChannel(text: string): Promise<boolean>;
   /** Take back a waiting message. */
   cancelQueued(entryId: string): Promise<void>;
   /** Stop the run. Resolves to the waiting messages it never read (to put back in the field). */
@@ -1917,6 +1919,17 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       } catch (error) {
         log("error", "engine", `could not send the message: ${String(error)}`, { chatId: chat });
         throw error;
+      }
+    },
+
+    async steerChannel(text) {
+      const chat = get().activeId;
+      if (!client || !chat || !text.trim()) return false;
+      try {
+        await client.request(chat, "queue_message", { message: text.trim(), deliverAs: "steer" });
+        return true;
+      } catch {
+        return false;
       }
     },
 

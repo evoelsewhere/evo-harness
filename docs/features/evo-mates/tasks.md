@@ -71,13 +71,13 @@ queues extra work.
 
 - [x] T22 [FR-15, FR-16, FR-28] Tests for routing: mentions, `mentioned` with none, `lead`, `auto` with a faux router (pick, low confidence, failure, none configured) — `crates/evo-engine/src/channel/tests.rs` — check: `cargo test -p evo-engine channel` fails for the right reason
 - [x] T23 [FR-14, FR-15, FR-16] Channel coordinator: run instead of the agent loop for a `channel` role; deliveries with `<channel>` blocks; seats started on first delivery and reused; transcript entries — `crates/evo-engine/src/channel/`, `host.rs` — check: T22 passes
-- [ ] T24 [FR-17, FR-18, FR-19] Hand-off observation and counting, stop at the limit with a notice; stop one seat or all — `channel/` — check: engine test with two faux mates handing back and forth stops at the limit
+- [x] T24 [FR-17, FR-18, FR-19] Hand-off observation and counting, stop at the limit with a notice; stop one seat or all — `channel/` — check: engine test with two faux mates handing back and forth stops at the limit
 - [ ] T25 [FR-28] Router default from models.dev (`tool_call`, lowest cost among connected), its picks recorded under usage source `mates` (added by T10) — `crates/evo-engine/src/channel/router.rs` — check: unit test on a fixture catalogue
-- [ ] T26 [FR-14, FR-25] Shell `channels` commands; seat chats of kind `seat`; channel folder through project trust — `src-tauri/src/mates/mod.rs` — check: shell tests; [FR-23] manual with an untrusted folder
+- [x] T26 [FR-14, FR-25] Shell `channels` commands; seat chats of kind `seat`; channel folder through project trust — `src-tauri/src/mates/mod.rs` — check: shell tests; [FR-23] manual with an untrusted folder
 - [x] T27 [NFR-6] Running limit across mate, seat and channel engines with a queue and the **Queued** state — `supervisor.rs` — check: shell test with limit 1
-- [ ] T51 [FR-15, FR-16, FR-53] Routing with `everyone` and `@everyone`, router inputs, 0.6 thresholds, 1.5 s budget, pick line — `crates/evo-engine/src/channel/` — check: `cargo test -p evo-engine channel`
-- [ ] T52 [FR-54, FR-55] Hand-off kinds and labels; lead assignments and wrap-up; members cannot assign the lead — `crates/evo-engine/src/channel/` — check: engine tests with faux mates
-- [ ] T53 [FR-18, FR-56, FR-57] Per-seat queue with steering for the person's single-mention messages, `reply_to`, delivery contents, per-pair hourly limit — `crates/evo-engine/src/channel/` — check: engine tests
+- [x] T51 [FR-15, FR-16, FR-53] Routing with `everyone` and `@everyone`, router inputs, 0.6 thresholds, 1.5 s budget, pick line — `crates/evo-engine/src/channel/` — check: `cargo test -p evo-engine channel`
+- [x] T52 [FR-54, FR-55] Hand-off kinds and labels; lead assignments and wrap-up; members cannot assign the lead — `crates/evo-engine/src/channel/` — check: engine tests with faux mates
+- [x] T53 [FR-18, FR-56, FR-57] Per-seat queue with steering for the person's single-mention messages, `reply_to`, delivery contents, per-pair hourly limit — `crates/evo-engine/src/channel/` — check: engine tests
 - [ ] T28 [P] [FR-14 – FR-19, FR-36] Channel view: messages by author, member avatars and rule chip in the header, `@` member list, route lines, hand-off lines, live seat activity, **Stop**; channel settings dialog — `src/features/mates/channel*.tsx`, `mention-menu.tsx`, `route-line.tsx`, `handoff-line.tsx` — check: manual
 - [ ] T29 [P] [NFR-6, FR-18, FR-28] Settings › Evo Mates — `src/features/settings/sections/mates-settings.tsx` — check: manual; values apply without restart
 - [ ] T30 [NFR-5] Trust check: a mate asked by another mate to run a command still asks the person under "ask" — check: manual, recorded
@@ -133,14 +133,14 @@ Done when: every row below is `passed` with its date.
 | FR-15 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) |
 | FR-16 | `cargo test -p evo-engine channel` (T22) | passed (2026-11-26) for mentions, `@everyone` and each rule; the `auto` router model itself waits for T25 (without it `auto` falls back to the lead) |
 | FR-17 | Engine test T24; manual | passed (2026-11-26): hub copy test; coordinator tests for mention deliveries; in the app a mate asked another by @mention, the answer went back and the asker posted the result |
-| FR-18 | Engine test T24 | not run |
+| FR-18 | Engine test T24 | passed (2026-11-26): `a_chain_stops_at_the_messages_limit` (six hand-offs, the sixth stops every seat), `an_eleventh_hand_off_in_the_hour_is_refused` (across messages, either direction, freed after the hour); the chain itself is counted in the coordinator with these functions; manual: not run |
 | FR-19 | Manual: three mates stop within 2 s | partly (2026-11-26): Stop in a channel of two mates stopped the working seat at once (no run after it) and posted "Stopped."; three mates and one-mate Stop: not run |
 | FR-20 | Team file tests T31 | passed (2026-11-26): round trip, no ids, no model ID, setup answers stay home; in the app a channel export held no ids or secrets (grep 0) |
 | FR-21 | Team file tests T31; manual T33 | passed (2026-11-26): the preview shows the app's mode and missing connectors (test); in the app an import made both mates with the app's mode, sending Ask, skills off, and the channel with them; the native file dialogs: not driven |
 | FR-22 | `cargo test -p evo-store usage`; manual | `usage_is_summed_by_mate` passed (2026-11-25); the Usage page's "Evo Mates" panel: not checked in the app |
-| FR-23 | Manual with an untrusted project folder | not run |
+| FR-23 | Manual with an untrusted project folder | not run; a channel's seats run with the channel's folder as their working folder, so the engine's project trust (`trust.rs`) applies to it as in Harness |
 | FR-24 | Manual T19 | partly (2026-11-25): `harness_lists_and_searches_only_its_own_chats` passed; the Harness window does not list a mate's chat. Needs you: not run (T19) |
-| FR-25 | Shell tests T13, T26; manual | not run |
+| FR-25 | Shell tests T13, T26; manual | partly (2026-11-26): seats resolve the channel's folder, else the mate's (`folder_of`); channel settings set and clear it and seats start again there; manual: not run |
 | FR-26 | Manual T18 | not run |
 | FR-27 | Team file tests T31 | passed (2026-11-26): a newer version and a non-team file are refused, unknown entries are listed |
 | FR-28 | Router unit test T25; manual Usage | router question and answer tests passed (2026-11-26); runs on the channel's model, not the cheapest from models.dev; usage under `mates`: not done; manual: not run |
@@ -169,10 +169,10 @@ Done when: every row below is `passed` with its date.
 | FR-51 | Test set T47; manual | rule in the role prompt (2026-11-26); a fact the person states saved with the chip: seen in the app (2026-11-25); other mates' claims: needs channels (phase 3), not run |
 | FR-52 | Shell tests T50 | passed (2026-11-25) |
 | FR-53 | `cargo test -p evo-engine channel` (T51) | passed (2026-11-26): thresholds, "several", fallbacks and route lines; in the app a live router never answered within 1.5 s; the budget moves to 6 s (T62) |
-| FR-54 | Engine tests T52; manual | not run |
-| FR-55 | Engine tests T52 | not run |
-| FR-56 | Engine tests T53 | not run |
-| FR-57 | Engine tests T53; manual | not run |
+| FR-54 | Engine tests T52; manual | passed (2026-11-26): `hand_off_kinds`; in the app a mention hand-off showed "asks" and the answer "tells" |
+| FR-55 | Engine tests T52 | passed (2026-11-26): `members_never_assign_the_lead`; the lead's wrap-up is asked for in its delivery (`a_delivery_carries_the_channel_the_recent_lines_and_the_message`) |
+| FR-56 | Engine tests T53 | passed (2026-11-26): `only_a_single_mention_of_a_working_mate_steers`; channel rows test for "Seen by … while working"; replies carry `replyTo`; manual steering in the app: not run |
+| FR-57 | Engine tests T53; manual | passed (2026-11-26): delivery contents tests (`a_delivery_carries_the_channel_the_recent_lines_and_the_message`, `a_mention_from_a_mate_is_marked_as_the_mates`); manual day of use: not run |
 | FR-58 | Visual review in the app | partly (2026-11-25): blue right bubbles, grey left bubbles with Markdown, tails on the last of a run, a time line, steps in plain words, details behind an info button; dark theme and a 16-minute gap: not run |
 | FR-59 | Manual: a running turn | passed (2026-11-25): three-dot typing bubble while the mate works, Stop in the box |
 | FR-60 | `bun test src/features/mates` (markup), `cargo test -p evo-store reactions`; manual | tests passed (2026-11-25); reacting in the app: not run |

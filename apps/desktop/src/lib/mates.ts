@@ -193,7 +193,7 @@ export type ChannelPatch = Partial<Pick<Channel, "name" | "instructions" | "repl
 
 /** One thing a channel shows, as its coordinator wrote it (`channel` entries). */
 export type ChannelEntry =
-  | { kind: "message"; id: string; author: string; name?: string; text: string; at: number; status?: string; replyTo?: string | null }
+  | { kind: "message"; id: string; author: string; name?: string; text: string; at: number; status?: string; replyTo?: string | null; steers?: string }
   | { kind: "route"; message: string; picked: string[]; line: string; at: number }
   | {
       kind: "handoff";

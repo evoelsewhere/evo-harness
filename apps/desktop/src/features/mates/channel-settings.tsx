@@ -3,7 +3,8 @@
 // nobody, its lead and what it is about.
 
 import * as React from "react";
-import { CheckIcon } from "lucide-react";
+import { open as pickFolder } from "@tauri-apps/plugin-dialog";
+import { CheckIcon, FolderIcon } from "lucide-react";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -38,6 +39,7 @@ export function ChannelSettings({
   const [rule, setRule] = React.useState<ReplyRule>("auto");
   const [lead, setLead] = React.useState<string | null>(null);
   const [instructions, setInstructions] = React.useState("");
+  const [folder, setFolder] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
@@ -47,7 +49,13 @@ export function ChannelSettings({
     setRule(channel?.replyRule ?? "auto");
     setLead(channel?.leadMateId ?? null);
     setInstructions(channel?.instructions ?? "");
+    setFolder(channel?.folder ?? null);
   }, [open, channel]);
+
+  const chooseFolder = async () => {
+    const picked = await pickFolder({ directory: true, multiple: false, title: "A project folder for this channel" });
+    if (typeof picked === "string") setFolder(picked);
+  };
 
   const toggle = (id: string) =>
     setMembers((current) => (current.includes(id) ? current.filter((m) => m !== id) : [...current, id]));
@@ -57,7 +65,7 @@ export function ChannelSettings({
   const save = async () => {
     if (!ready) return;
     setSaving(true);
-    const fields = { name: name.trim(), members, replyRule: rule, leadMateId: leadShown, instructions };
+    const fields = { name: name.trim(), members, replyRule: rule, leadMateId: leadShown, instructions, ...(folder !== (channel?.folder ?? null) ? { folder } : {}) };
     if (channel) await updateChannel(channel.id, fields);
     else await createChannel(fields);
     setSaving(false);
@@ -165,6 +173,32 @@ export function ChannelSettings({
               className="rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
             />
           </label>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Works in</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void chooseFolder()}
+                title={folder ?? undefined}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl bg-muted/50 px-3 py-2 text-left text-xs hover:bg-muted"
+              >
+                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className={cn("truncate", folder ? "font-mono text-foreground" : "text-muted-foreground")}>
+                  {folder ?? "Each mate's own folder. Choose a project folder…"}
+                </span>
+              </button>
+              {folder && (
+                <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setFolder(null)}>
+                  Clear
+                </Button>
+              )}
+            </div>
+            {folder && (
+              <span className="text-[11px] text-muted-foreground">
+                The mates work here in this channel. Its project settings ask before they run, as in Evo Harness.
+              </span>
+            )}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>

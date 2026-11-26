@@ -940,3 +940,21 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   chat, then the channel with them. The UI is `features/mates/team-import.tsx`
   (Export… in a mate's menu, the channel bar's export button, Import a team
   beside Channels); the save dialog needs `dialog:allow-save`.
+- **Hand-off limits and steering (T24, T53).** The coordinator counts each
+  hand-off with `hand_off` against the message's limit and a `PairLog` of
+  the last hour per pair of mates (`PAIR_LIMIT` 10, either direction,
+  kept while the channel's engine runs). A mention hand-off past the pair's
+  limit is not delivered; mail between seats is already delivered by the
+  hub, so past the limit a seat it woke for that alone stops and a seat at
+  work for the person keeps it; both post a `pair_limit` notice. While the
+  channel works, the window sends a new message as `queue_message` with
+  `steer`: the coordinator takes it when it @mentions exactly one member at
+  work (`steer_target`), posts it with `steers` and `replyTo` and delivers
+  it into that seat's turn (a `prompt` mail, which steers a running
+  engine); any other message is refused (`NOT_A_STEER`) and waits in the
+  window as "Next". The delivery runs off the RPC reader, which must stay
+  free for the host's answer.
+- **A channel's folder (T26).** Channel settings has "Works in": a project
+  folder, or each mate's own. Seats resolve it in `folder_of`; a change
+  starts the seats again there. Project trust is the engine's, keyed by the
+  working folder, so it is the same as in Harness.

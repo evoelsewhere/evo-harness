@@ -148,6 +148,13 @@ pub async fn channels_update(app: AppHandle, id: String, patch: ChannelPatch) ->
     if reads || !only_looks {
         write_role(&app, &channel).await?;
     }
+    // Seats work in the channel's folder: they start again there (FR-25),
+    // and the folder's project trust applies as in Harness (FR-23).
+    if patch.folder.is_some() {
+        for seat in channel.members.iter().filter_map(|m| m.seat_chat_id.clone()) {
+            super::restart_when_idle(&app, &seat).await;
+        }
+    }
     changed(&app);
     Ok(Some(channel))
 }
