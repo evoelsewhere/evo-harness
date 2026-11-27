@@ -27,7 +27,7 @@ import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls
 // once (`channels_reload`, `src-tauri/src/mates/channels.rs`).
 
 const HANDOFF_LIMIT = "mates.handoffLimit";
-const DEFAULT = 6;
+const DEFAULT = 12;
 const MAX_RUNNING = "mates.maxRunning";
 const RUNNING_DEFAULT = 4;
 const ROUTER_MODEL = "mates.routerModel";

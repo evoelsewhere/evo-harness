@@ -15,7 +15,7 @@ use crate::db::Db;
 
 /// The app setting for hand-offs per message of the person (FR-18).
 pub const HANDOFF_LIMIT_KEY: &str = "mates.handoffLimit";
-const HANDOFF_LIMIT: u64 = 6;
+const HANDOFF_LIMIT: u64 = 12;
 
 fn handoff_limit(db: &Db) -> u64 {
     db.with(|conn| evo_store::settings::get(conn, HANDOFF_LIMIT_KEY))
@@ -260,6 +260,13 @@ mod tests {
         assert_eq!(channel.members[0].seat_role.as_ref().unwrap().mate.as_ref().unwrap().id, "m1");
         assert_eq!(channel.handoff_limit, 6);
         assert_eq!(channel.lead.as_deref(), Some("m1"));
+    }
+
+    // FR-18, A-4: with no saved setting a channel allows 12 hand-offs per
+    // message, the engine's default too.
+    #[test]
+    fn the_default_handoff_limit_is_twelve() {
+        assert_eq!(super::HANDOFF_LIMIT, 12);
     }
 
     // FR-14: a seat started while the channel runs is kept in the channel's

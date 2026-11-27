@@ -554,7 +554,7 @@ memory commands with the mate's folder as the scope's root.
 | Key | Type | Default | Applies | Edited in |
 | --- | --- | --- | --- | --- |
 | `mates.maxRunning` | integer 1–16 | 4 | at once (queue re-evaluated) | Settings › Evo Mates |
-| `mates.handoffLimit` | integer 1–50 | 6 | next message | Settings › Evo Mates |
+| `mates.handoffLimit` | integer 1–50 | 12 | next message | Settings › Evo Mates |
 | `mates.pairHandoffsPerHour` | integer | 10 | next hand-off | not shown (fixed in this release) |
 | `mates.heartbeatMinutes` | integer | 60 | next tick | not shown |
 | `mates.routerModel` | `{provider, model}` or null | null: computed default (FR-28) | next message | Settings › Evo Mates |

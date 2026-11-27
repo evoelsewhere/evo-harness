@@ -717,7 +717,7 @@ pub struct ChannelRole {
 }
 
 fn handoff_limit() -> u32 {
-    6
+    12
 }
 
 /// One member of a channel: the mate and the role its seat runs as.
@@ -1015,6 +1015,16 @@ impl Envelope {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // FR-18, A-4: a channel role without a limit allows 12 hand-offs per
+    // message, room for a lead to assign three mates and ask follow-ups.
+    #[test]
+    fn a_channel_allows_twelve_handoffs_by_default() {
+        let role: ChannelRole =
+            serde_json::from_value(json!({ "channelId": "c", "name": "Room", "rule": "auto" }))
+                .unwrap();
+        assert_eq!(role.handoff_limit, 12);
+    }
 
     fn agent_node() -> Node {
         let session = Node::new(Address::session("S1"), None, "chat", Origin::User);

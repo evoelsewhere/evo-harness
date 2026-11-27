@@ -300,7 +300,7 @@ Acceptance scenarios:
 | FR-15 | A channel must support four reply rules: **Auto** (default), **Lead answers**, **Everyone answers** and **Mentioned only**. Auto works as FR-53; with **Mentioned only** and no mention, nobody answers and the channel suggests a mention. | Given each rule and an unmentioned message, then the mates the rule names answer; with Mentioned only, none answers and the hint shows. |
 | FR-16 | Mentioning one or more members, or `@everyone`, must make each of them answer, whatever the reply rule. | Given `@A @B`, then A and B both answer; given `@everyone`, then every member answers. |
 | FR-17 | A mate must be able to ask another member of the same channel for help; the request and its answer must be shown in the channel. | Given a mate that needs another role, then the hand-off and the answer appear in the channel with both names. |
-| FR-18 | A chain of hand-offs must stop, with a notice, at the per-message limit the person can set (default 6) and at 10 hand-offs between the same two mates in one hour. A report back to the member that asked or assigned the work counts toward the pair's hour only, not the message's limit. | Given two mates set to hand back and forth, then the chain stops at the limit with a notice; an eleventh hand-off between them within the hour is refused. A lead that assigns three mates and gets three reports stays under the default limit. |
+| FR-18 | A chain of hand-offs must stop, with a notice, at the per-message limit the person can set (default 12) and at 10 hand-offs between the same two mates in one hour. A report back to the member that asked or assigned the work counts toward the pair's hour only, not the message's limit. | Given two mates set to hand back and forth, then the chain stops at the limit with a notice; an eleventh hand-off between them within the hour is refused. A lead that assigns three mates and gets three reports stays under the default limit. |
 | FR-19 | **Stop** must stop one mate's work, or every mate's work in a channel. | Given three mates working in a channel, when Stop is pressed, then all three stop within 2 s. |
 | FR-20 | The person must be able to export a mate or a channel with its mates to one file, never containing secrets, credentials, memories or conversations. | Given an export, then the file has profiles and channel settings, and a search of it finds no key, token or message text. |
 | FR-21 | Importing a team file must preview what it adds and create nothing until the person confirms. Imported mates start with the app's approval mode (never looser, whatever the file asks), Apps off, skills off and Sending on your behalf = Ask every time. | Given a team file asking for the loosest mode, then the preview shows the app's mode; Cancel creates nothing; after import every app and skill is off. |
@@ -503,8 +503,10 @@ None.
   Confirmed by the owner (6.2).
 - A-3 At most 4 mates run turns at once by default, settable — because it
   matches the existing default limit of 4 running subagents.
-- A-4 The hand-off limit per message of the person is 6 by default,
-  settable (FR-18).
+- A-4 The hand-off limit per message of the person is 12 by default,
+  settable (FR-18) — because a lead with three mates spent 6 on real work
+  (an ask, three assignments, two follow-up questions) and the limit stopped
+  every mate mid-job; 12 leaves room for a round of follow-up questions.
 - A-5 Opening Evo Mates with no mate shows the gallery and creates nothing
   until the person picks — because an unasked mate would spend tokens on a
   greeting.
@@ -549,3 +551,4 @@ None.
   changed, FR-53's router budget 1.5 s → 6 s; eight answers in 6.2.
 - 2026-11-26 — Owner found the "needs you" card of a mate in a channel could not be answered and asked that mates ask in the chat and take the answer there: FR-72 added, A-11 recorded.
 - 2026-11-27 — Owner found channels full of errors: mates woke each other for thanks and greetings until the hand-off limit stopped every mate, hand-off lines showed the raw mail, new seats ran on the routing model and failed. FR-18, FR-28 and FR-54 changed, A-12 recorded.
+- 2026-11-27 — Owner raised the default hand-off limit per message from 6 to 12 after a lead with three mates hit 6 with real requests. FR-18 and A-4 changed.
