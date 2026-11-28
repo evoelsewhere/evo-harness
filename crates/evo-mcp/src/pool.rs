@@ -1307,11 +1307,20 @@ impl Pool {
         })
     }
 
-    /// Make the pool's app server exactly `server` (or none), and connect it
-    /// before returning when it is new or changed. Its saved permissions
-    /// win over its defaults; its last tool list is known at once (not
-    /// offered until it connects). Its config is never written.
+    /// Make the pool's app server exactly `server` (or none): [`Pool::set_app_servers`]
+    /// with a list of one.
     pub async fn set_app_server(&self, server: Option<AppServer>) {
+        self.set_app_servers(server.into_iter().collect()).await;
+    }
+
+    /// Make the pool's app servers exactly `servers` (connected apps:
+    /// Composio's session, official servers, Zapier). New or changed ones
+    /// connect — together, before this returns — and the others are left
+    /// running; gone ones close. Saved permissions win over each server's
+    /// defaults; a server's last tool list is known at once (not offered
+    /// until it connects). Their configs, and so any token header, are
+    /// never written.
+    pub async fn set_app_servers(&self, servers: Vec<AppServer>) {
         let saved: Map<String, Value> = ConfigFile::load(&self.shared.path)
             .ok()
             .and_then(|f| {
@@ -1321,45 +1330,53 @@ impl Pool {
                     .cloned()
             })
             .unwrap_or_default();
-        let wanted = server.map(
-            |AppServer {
-                 name,
-                 mut config,
-                 defaults,
-             }| {
-                config.disabled = false;
-                let mut permissions = defaults;
-                permissions.extend(std::mem::take(&mut config.tool_permissions));
-                let saved_server = saved.get(&name);
-                if let Some(perms) = saved_server
-                    .and_then(|s| s.get("toolPermissions"))
-                    .and_then(Value::as_object)
-                {
-                    for (tool, p) in perms {
-                        if let Ok(p) = serde_json::from_value::<Permission>(p.clone()) {
-                            permissions.insert(tool.clone(), p);
+        let wanted: Vec<(String, String, ServerConfig, Vec<Value>)> = servers
+            .into_iter()
+            .map(
+                |AppServer {
+                     name,
+                     mut config,
+                     defaults,
+                 }| {
+                    config.disabled = false;
+                    let mut permissions = defaults;
+                    permissions.extend(std::mem::take(&mut config.tool_permissions));
+                    let saved_server = saved.get(&name);
+                    if let Some(perms) = saved_server
+                        .and_then(|s| s.get("toolPermissions"))
+                        .and_then(Value::as_object)
+                    {
+                        for (tool, p) in perms {
+                            if let Ok(p) = serde_json::from_value::<Permission>(p.clone()) {
+                                permissions.insert(tool.clone(), p);
+                            }
                         }
                     }
-                }
-                config.tool_permissions = permissions;
-                let cached = saved_server
-                    .and_then(|s| s.get("tools"))
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                (self.app_key(&name), name, config, cached)
-            },
-        );
+                    config.tool_permissions = permissions;
+                    let cached = saved_server
+                        .and_then(|s| s.get("tools"))
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    (self.app_key(&name), name, config, cached)
+                },
+            )
+            .collect();
         let (connect, close) = {
             let mut entries = self.shared.servers.lock().unwrap();
-            let same = wanted.as_ref().is_some_and(|(key, _, config, _)| {
-                entries.get(key).is_some_and(|e| &e.config == config)
-            });
+            let same = |key: &String, config: &ServerConfig| {
+                entries
+                    .get(key)
+                    .is_some_and(|e| e.app.is_some() && &e.config == config)
+            };
+            let kept: Vec<String> = wanted
+                .iter()
+                .filter(|(key, _, config, _)| same(key, config))
+                .map(|(key, ..)| key.clone())
+                .collect();
             let stale: Vec<String> = entries
                 .iter()
-                .filter(|(key, e)| {
-                    e.app.is_some() && !(same && wanted.as_ref().is_some_and(|(k, ..)| k == *key))
-                })
+                .filter(|(key, e)| e.app.is_some() && !kept.contains(key))
                 .map(|(key, _)| key.clone())
                 .collect();
             let mut close = Vec::new();
@@ -1368,13 +1385,16 @@ impl Pool {
                     close.push(conn);
                 }
             }
-            let mut connect = None;
-            if let Some((key, name, config, cached)) = wanted.filter(|_| !same) {
+            let mut connect = Vec::new();
+            for (key, name, config, cached) in wanted {
+                if kept.contains(&key) {
+                    continue;
+                }
                 let mut entry = Entry::new(name.clone(), config, None);
                 entry.app = Some(name);
                 entry.tools = cached;
                 entries.insert(key.clone(), entry);
-                connect = Some(key);
+                connect.push(key);
             }
             (connect, close)
         };
@@ -1384,8 +1404,15 @@ impl Pool {
                 conn.close().await;
             }
         }
-        if let Some(key) = connect {
-            self.connect(&key).await;
+        let handles: Vec<_> = connect
+            .into_iter()
+            .map(|key| {
+                let pool = self.clone();
+                tokio::spawn(async move { pool.connect(&key).await })
+            })
+            .collect();
+        for handle in handles {
+            let _ = handle.await;
         }
     }
 
@@ -1972,6 +1999,105 @@ mod tests {
         assert!(pool.snapshot()["servers"].as_array().unwrap().is_empty());
         let file = ConfigFile::load(&path).unwrap();
         assert!(file.extra["appServers"]["connected_apps"]["toolPermissions"].is_object());
+    }
+
+    // docs/features/connected-apps/spec.md (FR-22, FR-24; T24).
+    fn named(name: &str, url: &str, header: Option<&str>) -> AppServer {
+        let mut headers = BTreeMap::new();
+        if let Some(h) = header {
+            headers.insert("Authorization".to_string(), format!("Bearer {h}"));
+        }
+        AppServer {
+            name: name.into(),
+            config: ServerConfig {
+                url: Some(url.into()),
+                headers,
+                ..Default::default()
+            },
+            defaults: BTreeMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn app_servers_change_one_without_restarting_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = Pool::new(dir.path().join("mcp.json"), None, || {});
+        pool.start().unwrap();
+        let a = named("official_notion", "http://127.0.0.1:1/a", None);
+        let b = named(
+            "official_github",
+            "http://127.0.0.1:1/b",
+            Some("ghp_SECRET_1"),
+        );
+        pool.set_app_servers(vec![a.clone(), b.clone()]).await;
+        let keys: Vec<String> = pool.snapshot()["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["key"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(keys, ["app:official_github", "app:official_notion"]);
+        // Notion connects (as if signed in); then only GitHub's token changes.
+        let key = pool.app_key("official_notion");
+        let generation = pool.shared.servers.lock().unwrap()[&key].generation;
+        pool.finish(
+            &key,
+            generation,
+            Ok((in_process().await, meta_tools(), vec![], vec![])),
+        );
+        let b2 = named(
+            "official_github",
+            "http://127.0.0.1:1/b",
+            Some("ghp_SECRET_2"),
+        );
+        pool.set_app_servers(vec![a.clone(), b2]).await;
+        {
+            let servers = pool.shared.servers.lock().unwrap();
+            assert_eq!(
+                servers[&key].generation, generation,
+                "Notion was not restarted"
+            );
+            assert!(servers[&key].conn.is_some());
+            assert_eq!(
+                servers["app:official_github"].config.headers["Authorization"],
+                "Bearer ghp_SECRET_2"
+            );
+        }
+        // Dropping one keeps the other.
+        pool.set_app_servers(vec![a]).await;
+        let snap = pool.snapshot();
+        assert_eq!(snap["servers"].as_array().unwrap().len(), 1);
+        assert_eq!(snap["servers"][0]["status"], "connected");
+        // The one-server call is the same with a list of one.
+        pool.set_app_server(None).await;
+        assert!(pool.snapshot()["servers"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn app_servers_keep_tokens_out_of_files_and_sign_out_by_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        let pool = Pool::new(path.clone(), None, || {});
+        pool.start().unwrap();
+        pool.set_app_servers(vec![named(
+            "zapier",
+            "http://127.0.0.1:1/z",
+            Some("zap_SECRET_9"),
+        )])
+        .await;
+        pool.set_permission("app:zapier", "send_email", Permission::Ask)
+            .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("zap_SECRET_9"), "{text}");
+        assert!(!pool.snapshot().to_string().contains("zap_SECRET_9"));
+        assert_eq!(
+            pool.app_permission("zapier", "send_email"),
+            Some(Permission::Ask)
+        );
+        // Sign-out works by the app server's key; it stays until the app drops it.
+        pool.sign_out("app:zapier").await.unwrap();
+        assert_eq!(pool.snapshot()["servers"][0]["key"], "app:zapier");
+        assert!(pool.remove("app:zapier").await.is_err());
     }
 
     #[tokio::test]

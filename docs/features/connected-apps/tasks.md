@@ -58,7 +58,7 @@ Browse in both apps, their tools obey the same permissions and mate grants
 as Composio apps, and a token never leaves the keychain except as a header.
 
 - [x] T23 [FR-21, A-8] The list of official servers: for each service, its MCP address and sign-in kind checked against the service's own documentation (record the doc URL); `official.json`, `official.rs` with tests that every address is https and every id unique — `connected_apps/official.{json,rs}` — check: shell test `official_servers_are_https_and_unique`
-- [ ] T24 [FR-22, FR-24] Failing pool tests then `set_app_servers`: several app servers, one changed without restarting the others, headers never saved, sign-in by key — `crates/evo-mcp/src/pool.rs` — check: `cargo test -p evo-mcp app_servers`
+- [x] T24 [FR-22, FR-24] Failing pool tests then `set_app_servers`: several app servers, one changed without restarting the others, headers never saved, sign-in by key — `crates/evo-mcp/src/pool.rs` — check: `cargo test -p evo-mcp app_servers`
 - [ ] T25 [FR-22 – FR-24, NFR-1, NFR-5] `providers.rs` and the commands: connect and disconnect official (OAuth and token) and Zapier, tokens in the keychain, settings, re-send tools — `connected_apps/{providers,mod}.rs`, `lib.rs` — check: shell tests `an_official_token_is_only_a_header`, `connecting_again_replaces_the_sign_in`
 - [ ] T26 [FR-20] Browse merges official and Composio by service, official first; Zapier card — `connected_apps/catalog.rs` — check: shell test `notion_shows_once_official_first`
 - [ ] T27 [FR-25] Mate grants and class for every app server — `connected_apps/run.rs`, `mates/mod.rs` — check: shell test `a_mate_without_zapier_gets_none_of_its_tools`
