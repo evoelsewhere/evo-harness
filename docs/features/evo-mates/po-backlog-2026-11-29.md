@@ -52,7 +52,7 @@ What every messaging app has and Evo Mates lacks.
 | M12 | **Slash commands** in the composer: `/remind`, `/checkin`, `/pause`, `/stop`, `/memory`, `/handoff @mate`, `/clear-quote`, listed as you type `/` | `/checkin every weekday 9:00 inbox` adds a check-in | UI |
 | M13 | **Mentions of the person**: a mate writing `@you` (or the person's name) in a channel highlights the line, notifies, and lists it under Today › Mentions | A mention shows in Today and notifies even at the Mentions level | UI, Engine |
 
-## Train 2 — Board and linked conversations (owner ask, 2026-11-29)
+## Train 2 — Work threads, board and linked conversations (owner ask, 2026-11-29)
 
 The owner asked for two things: information passing between conversations,
 and a Kanban board like an issue tracker for any channel that wants to track
@@ -77,6 +77,21 @@ its work. Both fit a team of mates. T1 and T5 below move here, and M5
 | B7 | **Links between conversations**: `#channel` and `@mate` in any message become links. A message link (Copy link on the hover bar) pasted anywhere opens that message in its place | Pasting a copied link into another channel opens the original message on click | UI |
 | B8 | **Mates pass information on, with consent**: a `share_to` tool lets a mate post a short summary or a file into another channel or mate conversation it belongs to or knows. It follows a per-mate setting, **Share across conversations**: Ask every time (default), Allow, Never. It never shares a mate's direct conversation with the person unless the person approves that share | Writer asks "Share the launch draft with #marketing?" and, on Allow, the card shows in #marketing | Engine, Shell |
 | B9 | **Linked conversations panel**: a channel or mate chat lists the conversations linked to it (shared into, shared from, sharing cards) so the thread of a piece of work can be followed across places | After B6, both conversations list each other under Linked | UI |
+
+### Work threads (owner ask, 2026-11-29)
+
+"A channel is only a group chat; there are no work threads yet." Today
+every line goes into one feed and each delivery carries the channel's
+recent lines (coordinator, `crates/evo-engine/src/channel/`). A-24 held
+threads back as engine work. They belong with the board: one piece of work,
+one thread, one card.
+
+| # | Item | Acceptance in one line | Needs |
+|---|------|------------------------|-------|
+| B10 | **Threads in channels**: **Reply in thread** on any line opens a thread in a side panel. The channel line shows "3 replies · Writer, Analyst · 2 min ago" with faces. A thread has its own composer, typing line, reactions, files and Stop | Replying in a thread shows the reply in the panel only, and the count on the channel line | UI, Engine, DB |
+| B11 | **Thread routing and context**: a message in a thread goes to the mates who take part in it (the starter, anyone mentioned, anyone who replied) under the channel's reply rule, and its delivery carries the thread's lines plus the parent line, not the whole channel. Hand-offs started in a thread stay in it, and the hand-off limit counts per thread | A mate replying in a thread never sees unrelated channel lines in its input; a hand-off made in the thread shows there | Engine |
+| B12 | **Thread ↔ card**: a card on the board has its thread, and a thread can be turned into a card ("Track on board"). Assigns made in a thread create the card linked to it, and the card's status shows in the thread header | "Track on board" on a thread creates LAUNCH-13 linked both ways; moving the card updates the thread header | UI, Engine, DB |
+| B13 | **Following threads**: the person follows the threads they started, replied in or were mentioned in. **Threads** in the sidebar lists followed threads with unread first; a thread can be resolved (folded, with an "Unresolve"), and **Also send to channel** posts a thread reply to the channel too | A mate's reply in a followed thread marks it unread under Threads; resolving folds it | UI, DB |
 
 Boundaries: a mate never reads another mate's direct conversation on its
 own (FR-50 stays). Shares are explicit, visible cards, never silent context.
@@ -126,7 +141,7 @@ T1 (tasks) and T5 (add a mate to a conversation) move into Train 2 as the board 
 2. Train 1, with Q1 – Q4 folded in, as one spec: it is all about the
    conversation and the channel feed. Gate A decides real threads (Q3) and
    how mates react (Q2).
-3. Train 2: the board and linked conversations (B1 – B9).
+3. Train 2: work threads, the board and linked conversations (B1 – B13). Build threads first (B10, B11), then the board on top of them (B1 – B5, B12), then linking (B6 – B9, B13).
 4. Train 3: mates at the computer (Q5).
 5. Train 4: team work.
 6. Train 5, P1 items first.
@@ -143,3 +158,6 @@ screenshots in light and dark at 1440, 1000 and 720 px, and merged to main.
   and a Kanban board for channels that want tracking ("research and build
   it if it makes sense"). Added as Train 2 (B1 – B9), ahead of mates at the
   computer; T1 folded in.
+- 2026-11-29 — Owner noted channels are only a group chat with no work
+  threads: B10 – B13 added to Train 2; this lifts the threads part of
+  evo-mates A-24 and the Train 1 Gate A answer "no real threads yet".
