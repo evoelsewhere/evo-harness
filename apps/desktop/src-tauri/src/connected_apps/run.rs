@@ -427,6 +427,12 @@ pub async fn call(ctx: ToolCtx, tool: &ChatTool, name: &str, args: Value) -> Too
             if toolkit.is_empty() {
                 return ToolOutput::error("Name the app to connect in `toolkits[].name`.");
             }
+            // A mate: its official server first (FR-27).
+            if let Some(m) = &mate {
+                if let Some(output) = connect_named(&ctx, m, &toolkit, "").await {
+                    return output;
+                }
+            }
             connect_card(&ctx, mate.as_ref(), &toolkit, "", None).await
         }
         Meta::Execute => execute(ctx, mate, apps, name, args).await,
@@ -763,9 +769,152 @@ pub async fn connect_card(
     }
 }
 
-/// A mate's `connect_app` card for an app that is a connected-apps
-/// service (FR-11): `None` when `asked` names no such service or no key
-/// is saved, so the card for connectors runs instead.
+/// The ways a Connect card offers for a service, in order (FR-27): its
+/// official server first when it has one, then Composio when a key is saved
+/// and Composio has it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Way {
+    Official(String),
+    Composio(String),
+}
+
+pub fn connect_ways(
+    official: Option<&super::official::Official>,
+    composio: Option<&str>,
+    key_saved: bool,
+) -> Vec<Way> {
+    let mut ways = Vec::new();
+    if let Some(o) = official {
+        ways.push(Way::Official(o.id.clone()));
+    }
+    if let (Some(toolkit), true) = (composio, key_saved) {
+        ways.push(Way::Composio(toolkit.to_string()));
+    }
+    ways
+}
+
+/// The official server `asked` names (by id, name or Composio toolkit).
+fn official_named(asked: &str) -> Option<&'static super::official::Official> {
+    let wanted = asked.trim().to_ascii_lowercase();
+    super::official::all().iter().find(|o| {
+        o.id == wanted
+            || o.name.to_ascii_lowercase() == wanted
+            || o.name
+                .to_ascii_lowercase()
+                .starts_with(&format!("{wanted} "))
+            || o.composio.contains(&wanted)
+    })
+}
+
+/// Whether the app server `key` is connected in the pool.
+fn server_ready(app: &AppHandle, key: &str) -> bool {
+    let Some(mcp) = app.try_state::<crate::mcp::McpState>() else {
+        return false;
+    };
+    mcp.0.snapshot()["servers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|s| s["key"] == key && s["status"] == "connected")
+}
+
+/// The card for a service with an official server (FR-27): Connect directly
+/// (the official server) first, Through Composio second when there is a key.
+async fn official_card(
+    ctx: &ToolCtx,
+    mate: &evo_store::mates::Mate,
+    o: &'static super::official::Official,
+    composio: Option<String>,
+    reason: &str,
+) -> ToolOutput {
+    let key = format!("app:{}", o.server_name());
+    let apps = Apps::of_mate(mate.apps.as_ref());
+    if server_ready(&ctx.app, &key) && (!apps.limited() || apps.allows_server(&key, "")) {
+        return ToolOutput::text(format!(
+            "{} is already connected for you: go on with its tools.",
+            o.name
+        ));
+    }
+    let key_saved = super::app::state(&ctx.app).is_some_and(|s| s.service.client().is_some());
+    let ways = connect_ways(Some(o), composio.as_deref(), key_saved);
+    let labels: Vec<String> = ways
+        .iter()
+        .map(|w| match w {
+            Way::Official(_) => "Connect directly".to_string(),
+            Way::Composio(_) => "Through Composio".to_string(),
+        })
+        .chain(std::iter::once("Not now".to_string()))
+        .collect();
+    let options: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let why = if reason.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " {} needs it to {}.",
+            mate.name,
+            reason.trim_end_matches('.')
+        )
+    };
+    let body = format!("{} is not connected yet.{why} Directly, through {}'s own server: data goes only to {} and Evo adds no cost. {} never signs in by itself.", o.name, o.name, o.name, mate.name);
+    let picked = ctx
+        .ask(&format!("Connect {}", o.name), &body, &options)
+        .await;
+    if picked < 0 {
+        return ToolOutput::text("");
+    }
+    match ways.get(picked as usize) {
+        None => ToolOutput::text(format!("The person chose not to connect {} now. Go on without it, or ask them what to do instead; do not ask to connect it again in this turn.", o.name)),
+        Some(Way::Composio(toolkit)) => connect_card(ctx, Some(mate), toolkit, reason, None).await,
+        Some(Way::Official(id)) => {
+            if o.auth == super::official::Auth::Token {
+                // A token is pasted on the service's page in Connectors.
+                crate::agent_tools::mates::open_connectors(&ctx.app);
+            } else {
+                let app = ctx.app.clone();
+                let id = id.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = super::app::apps_connect_official(app, id, None).await;
+                });
+            }
+            let mut waiting = ctx.clone();
+            waiting.cancel = ctx.cancel.child_token();
+            let hint = if o.auth == super::official::Auth::Token {
+                format!("Paste a {} token in Evo Harness → Customize → Connectors → {}.", o.name, o.name)
+            } else {
+                format!("Finish signing in to {} in your browser.", o.name)
+            };
+            let (title, body) = (format!("Waiting for {}", o.name), format!("{hint} {} goes on once it's connected.", mate.name));
+            let ask = waiting.ask(&title, &body, &["Cancel"]);
+            tokio::pin!(ask);
+            let started = std::time::Instant::now();
+            loop {
+                tokio::select! {
+                    answer = &mut ask => {
+                        if answer < 0 && ctx.cancel.is_cancelled() {
+                            return ToolOutput::text("");
+                        }
+                        return ToolOutput::text(format!("The person stopped connecting {}. Go on without it, or ask them what to do.", o.name));
+                    }
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                        if server_ready(&ctx.app, &key) {
+                            waiting.cancel.cancel();
+                            return ToolOutput::text(format!("{} is connected: go on with its tools.", o.name));
+                        }
+                        if started.elapsed() > WAIT_LIMIT {
+                            waiting.cancel.cancel();
+                            return ToolOutput::text(format!("{} was not connected within 15 minutes. Tell the person and go on without it.", o.name));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A mate's `connect_app` card for a connected-apps service (FR-11, FR-27):
+/// its official server first when it has one, else Composio's. `None` when
+/// `asked` names no such service (or, for Composio, no key is saved), so the
+/// card for connectors runs instead.
 pub async fn connect_named(
     ctx: &ToolCtx,
     mate: &evo_store::mates::Mate,
@@ -773,14 +922,22 @@ pub async fn connect_named(
     reason: &str,
 ) -> Option<ToolOutput> {
     let state = super::app::state(&ctx.app)?;
-    state.service.client()?;
     let names = super::app::names(&ctx.app).await;
     let wanted = asked.trim().to_ascii_lowercase();
     let toolkit = names
         .iter()
         .find(|(slug, name)| **slug == wanted || name.to_ascii_lowercase() == wanted)
-        .map(|(slug, _)| slug.clone())?;
-    Some(connect_card(ctx, Some(mate), &toolkit, reason, None).await)
+        .map(|(slug, _)| slug.clone());
+    if let Some(o) =
+        official_named(asked).or_else(|| toolkit.as_deref().and_then(super::official::for_toolkit))
+    {
+        let composio = toolkit
+            .filter(|t| o.composio.iter().any(|c| c == t))
+            .or_else(|| (o.composio.len() == 1).then(|| o.composio[0].clone()));
+        return Some(official_card(ctx, mate, o, composio, reason).await);
+    }
+    state.service.client()?;
+    Some(connect_card(ctx, Some(mate), &toolkit?, reason, None).await)
 }
 
 #[cfg(test)]
@@ -915,6 +1072,41 @@ mod tests {
             tool: name.into(),
             read_only: false,
         }
+    }
+
+    // docs/features/connected-apps/spec.md (FR-27; T28).
+    #[test]
+    fn the_connect_card_offers_official_first() {
+        let notion = crate::connected_apps::official::find("notion");
+        assert_eq!(
+            connect_ways(notion, Some("notion"), true),
+            [
+                Way::Official("notion".into()),
+                Way::Composio("notion".into())
+            ]
+        );
+        assert_eq!(
+            connect_ways(notion, Some("notion"), false),
+            [Way::Official("notion".into())],
+            "no key: the official way only"
+        );
+        assert_eq!(
+            connect_ways(None, Some("gmail"), true),
+            [Way::Composio("gmail".into())]
+        );
+        assert_eq!(
+            official_named("Notion").map(|o| o.id.as_str()),
+            Some("notion")
+        );
+        assert_eq!(
+            official_named("jira").map(|o| o.id.as_str()),
+            Some("atlassian")
+        );
+        assert_eq!(
+            official_named("Atlassian").map(|o| o.id.as_str()),
+            Some("atlassian")
+        );
+        assert!(official_named("gmail").is_none());
     }
 
     fn limited() -> Apps {

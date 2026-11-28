@@ -505,7 +505,7 @@ fn title_of(servers: &[Value], key: &str, fallback: &str) -> String {
 
 /// Open Evo Harness at Customize → Connectors. A main window built just now
 /// reads the request once it has loaded.
-fn open_connectors(app: &AppHandle) {
+pub(crate) fn open_connectors(app: &AppHandle) {
     let built = crate::system::show_main(app);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
