@@ -10,7 +10,6 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
 import { attachmentsFromPaths, attachmentsFromTransfer, isLongPaste, releaseAttachment, textAttachment } from "@/features/chat";
-import { splitPrompt } from "@/features/chat/prompt-text";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
@@ -35,7 +34,7 @@ import {
 } from "./channel-rows";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
-import { channelMessage } from "./attachments";
+import { channelMessage, splitMessage } from "./attachments";
 import { NamedFiles, SentByMe } from "./attachment-views";
 import { RetroCard } from "./retro-card";
 import { exportTeam } from "./team-import";
@@ -152,7 +151,7 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
     case "bubble": {
       const mate = row.me ? undefined : faceOf(row.author);
       // The person's pictures, files and pasted text show as chips (FR-83).
-      const said = row.me ? splitPrompt(row.text) : null;
+      const said = row.me ? splitMessage(row.text) : null;
       const root = folder ?? mate?.projectFolder ?? mate?.folder ?? null;
       return (
         <div className={cn("flex items-end gap-2 px-4", row.me ? "justify-end" : "justify-start", row.first ? "mt-2" : "mt-0.5")}>

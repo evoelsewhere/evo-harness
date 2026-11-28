@@ -4,6 +4,7 @@
 
 import { FILE_LINK, linkFiles, parseFileRef } from "@/components/file-refs";
 import type { Turn } from "@/features/chat";
+import { splitPrompt } from "@/features/chat/prompt-text";
 
 /** A file a mate sent (`send_file`'s result). */
 export interface SentFile {
@@ -44,6 +45,22 @@ export function mentionedFiles(text: string): string[] {
     if (!out.includes(path)) out.push(path);
   }
   return out;
+}
+
+/** A path: has a folder in it, or is one word ending with an extension. */
+const looksLikePath = (ref: string) => /[\\/]/.test(ref) || (!/\s/.test(ref) && /\.\w{1,8}$/.test(ref));
+
+/**
+ * A sent message taken apart for display (FR-81, FR-83): `splitPrompt`, with
+ * `@` lines that are not paths (a message that opens with `@Writer …`) kept
+ * as words.
+ */
+export function splitMessage(message: string): ReturnType<typeof splitPrompt> {
+  const split = splitPrompt(message);
+  const words: string[] = [];
+  while (split.files.length && !looksLikePath(split.files[0])) words.push(`@${split.files.shift()}`);
+  if (!words.length) return split;
+  return { ...split, text: [split.text, ...words].filter(Boolean).join("\n") };
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "@/features/chat";
 import { splitPrompt } from "@/features/chat/prompt-text";
-import { channelMessage, isPicture, mentionedFiles, picturesOf, sentFilesOf } from "./attachments";
+import { channelMessage, isPicture, mentionedFiles, picturesOf, sentFilesOf, splitMessage } from "./attachments";
 import { threadRows } from "./thread-rows";
 
 // docs/features/evo-mates/spec.md (FR-81 - FR-83).
@@ -88,5 +88,17 @@ describe("channel attachments", () => {
       pasted: [{ lines: 2, text: "one\ntwo" }],
       files: ["C:/cache/Pasted image 1.png", "C:/in/a.pdf"],
     });
+  });
+});
+
+describe("splitting a sent message", () => {
+  test("an @mention line is words, not an attached file", () => {
+    expect(splitMessage("@Writer read the attached picture\n@C:/cache/Pasted image 1.png")).toEqual({
+      text: "@Writer read the attached picture",
+      pasted: [],
+      files: ["C:/cache/Pasted image 1.png"],
+    });
+    expect(splitMessage("@everyone hi").text).toBe("@everyone hi");
+    expect(splitMessage("look\n@notes.pdf").files).toEqual(["notes.pdf"]);
   });
 });

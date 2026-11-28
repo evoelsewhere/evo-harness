@@ -50,7 +50,7 @@ function useSize(path: string, known?: number): number | null {
 export function PictureViewer({ src, name, onClose }: { src: string | null; name: string; onClose(): void }) {
   return (
     <Dialog open={src !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-[90vw] p-2 sm:max-w-[90vw]">
+      <DialogContent className="flex max-h-[90vh] w-auto max-w-[90vw] items-center justify-center p-2 sm:max-w-[90vw]">
         <DialogTitle className="sr-only">{name}</DialogTitle>
         {src && <img src={src} alt={name} className="max-h-[84vh] max-w-full rounded-lg object-contain" />}
       </DialogContent>
@@ -92,7 +92,7 @@ export function FileChip({
   return (
     <span
       className={cn(
-        "flex max-w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left",
+        "flex w-fit max-w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left",
         tone === "me" ? "bg-white/15" : "bg-background/70 ring-1 ring-border",
       )}
     >
@@ -101,7 +101,7 @@ export function FileChip({
         type="button"
         onClick={() => void openPath(path).catch(() => undefined)}
         title={path}
-        className="flex min-w-0 flex-1 flex-col"
+        className="flex min-w-0 flex-1 flex-col items-start text-left"
       >
         <span className="truncate text-[13px] font-medium">{label}</span>
         {size !== null && <span className="text-[11px] opacity-70">{formatBytes(size)}</span>}

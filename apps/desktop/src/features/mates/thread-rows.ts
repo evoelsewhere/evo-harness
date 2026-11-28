@@ -4,8 +4,7 @@
 // Pure: no React, so it is tested on its own.
 
 import type { Turn } from "@/features/chat";
-import { splitPrompt } from "@/features/chat/prompt-text";
-import { picturesOf, sentFilesOf, type SentFile } from "./attachments";
+import { picturesOf, sentFilesOf, splitMessage, type SentFile } from "./attachments";
 import { parsePrompt, type ReplyTo } from "./message-markup";
 
 /** One bubble of the thread. */
@@ -77,6 +76,8 @@ function toolWord(name: string): string | null {
   if (name === "mate_profile") return "Saved your answers";
   if (name === "connect_app") return "Asked to connect an app";
   if (name === "request_secret") return "Asked for a secret";
+  // Its files show under its text (FR-82).
+  if (name === "send_file") return "Sent {n} files";
   return "Used {n} tools";
 }
 
@@ -137,7 +138,7 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
     }
     const { text: said0, reply } = parsePrompt(turn.prompt);
     // Attached files and pasted text show as chips, not as markup (FR-81).
-    const { text, files, pasted } = splitPrompt(said0);
+    const { text, files, pasted } = splitMessage(said0);
     if (text.trim() || turn.images?.length || files.length || pasted.length) {
       push({
         key: `${base}:prompt`,
