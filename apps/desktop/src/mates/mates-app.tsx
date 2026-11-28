@@ -19,6 +19,7 @@ import { Gallery } from "@/features/mates/gallery";
 import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
 import { MatesEmpty, MatesSidebar } from "@/features/mates/mates-shell";
 import { startShellNotices } from "@/features/notifications/notify";
+import { Toaster } from "@/features/notifications/toaster";
 import { SettingsDialog } from "@/features/settings/settings-view";
 import { QuitDialog } from "@/features/shell/quit-dialog";
 import { WindowControls } from "@/features/shell/window-controls";
@@ -188,6 +189,8 @@ export function MatesApp() {
       <QuitDialog />
       {/* Settings, the same as Evo Harness's (FR-29: the sidebar's footer opens it). */}
       <SettingsDialog />
+      {/* In-app notices ("File not found", …) show here too, as in Evo Harness. */}
+      <Toaster />
     </div>
   );
 }

@@ -10,21 +10,30 @@ import { useEngineStore } from "@/stores/engine-store";
 import { openFile } from "@/stores/files-store";
 import { parseFileRef } from "./file-refs";
 
-async function exists(path: string): Promise<boolean> {
-  return statFile(path).then(
-    () => true,
+/** The file calls `locate` makes (a test passes its own). */
+export interface FileLookup {
+  statFile: typeof statFile;
+  searchFiles: typeof searchFiles;
+}
+
+const disk: FileLookup = { statFile, searchFiles };
+
+/** `fs_stat` answers `{ exists: false }` for a path that is not there; only a file counts. */
+async function exists(path: string, fs: FileLookup): Promise<boolean> {
+  return fs.statFile(path).then(
+    (stat) => stat.exists && !stat.dir,
     () => false,
   );
 }
 
 /** The file `reference` names, or null when it cannot be found. */
-async function locate(reference: string, root: string | null): Promise<{ path: string; line?: number } | null> {
+export async function locate(reference: string, root: string | null, fs: FileLookup = disk): Promise<{ path: string; line?: number } | null> {
   const { path, line } = parseFileRef(reference);
   const direct = root ? resolvePath(root, path) : path;
-  if (await exists(direct)) return { path: direct, line };
+  if (await exists(direct, fs)) return { path: direct, line };
   // A bare name ("pricing-notes.md") may live in a folder below the root.
   if (root && !/[\\/]/.test(path)) {
-    const hits = await searchFiles(root, path, 20).catch(() => []);
+    const hits = await fs.searchFiles(root, path, 20).catch(() => []);
     const exact = hits.find((hit) => fileName(hit.path).toLowerCase() === path.toLowerCase());
     if (exact) return { path: exact.path, line };
   }
