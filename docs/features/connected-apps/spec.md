@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | Accepted |
 | Area | engine, `evo-mcp`, `evo-vault`, desktop shell, desktop UI, both apps |
 | Created | 2026-11-28 |
 | Updated | 2026-11-28 |
@@ -185,3 +185,4 @@ None.
 - 2026-11-28 — Draft. Owner asked to bring connected apps into both apps,
   on Composio with their own key.
 - 2026-11-28 — Owner accepted the spec with the proposed answers (Gate A).
+- 2026-11-28 — Owner accepted the plan (Gate B). Status Accepted.

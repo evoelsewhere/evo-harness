@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | Accepted |
 | Area | engine, `evo-store`, desktop shell, desktop UI, both apps |
 | Created | 2026-11-28 |
 | Updated | 2026-11-28 |
@@ -285,3 +285,4 @@ None.
 - 2026-11-28 — Draft. Owner asked to bring OpenMausBot's memory, dream,
   retro and eval layers into both apps.
 - 2026-11-28 — Owner accepted the spec with the proposed answers (Gate A).
+- 2026-11-28 — Owner accepted the plan (Gate B). Status Accepted.
