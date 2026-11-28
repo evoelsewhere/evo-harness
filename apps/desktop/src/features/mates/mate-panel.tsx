@@ -30,14 +30,18 @@ import { MateConnectedApps } from "@/features/connected-apps";
 import { ConfirmDelete } from "./confirm";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
+import { Starters, startersFor } from "./starters";
 
 /** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
 export function MateGreeting({ mate }: { mate: Mate }) {
+  const templates = useMatesStore((s) => s.templates);
   return (
     <div className="mx-auto flex w-full max-w-(--chat-width) flex-col items-center gap-3 px-6 pb-6 text-center">
       <MateFace avatar={mate.avatar} size={88} live plate={false} label={mate.name} />
       <h1 className="text-2xl font-semibold tracking-tight text-foreground">Say hi to {mate.name}</h1>
       {mate.role && <p className="max-w-md text-sm text-muted-foreground">{mate.role}</p>}
+      {/* What to ask first (FR-74); the greeting shows only while the conversation is empty. */}
+      {!mate.paused && <Starters starters={startersFor(mate, templates)} />}
     </div>
   );
 }

@@ -18,7 +18,8 @@
 //! You research questions for the person …
 //! ```
 //!
-//! `tools` lists the tools the role suggests; `approval` a looser approval
+//! `starter:` lines (one per line, FR-74) are the requests the gallery and a
+//! new conversation offer to send. `tools` lists the tools the role suggests; `approval` a looser approval
 //! mode the role suggests, shown on its card (spec 6.2). A model is never
 //! named: a new mate takes the app's default model.
 
@@ -28,7 +29,7 @@ use serde_json::{json, Value};
 /// The face of a mate with none chosen.
 pub const DEFAULT_FACE: &str = "pebble";
 
-const FILES: [&str; 8] = [
+const FILES: [&str; 16] = [
     include_str!("templates/assistant.md"),
     include_str!("templates/researcher.md"),
     include_str!("templates/writer.md"),
@@ -37,6 +38,14 @@ const FILES: [&str; 8] = [
     include_str!("templates/planner.md"),
     include_str!("templates/sales.md"),
     include_str!("templates/support.md"),
+    include_str!("templates/editor.md"),
+    include_str!("templates/social.md"),
+    include_str!("templates/bookkeeper.md"),
+    include_str!("templates/recruiter.md"),
+    include_str!("templates/product.md"),
+    include_str!("templates/coach.md"),
+    include_str!("templates/travel.md"),
+    include_str!("templates/tester.md"),
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,6 +59,8 @@ pub struct Template {
     pub hue: u32,
     pub tools: Option<Vec<String>>,
     pub approval: Option<String>,
+    /// Requests in the person's words that show what the role does (FR-74).
+    pub starters: Vec<String>,
     pub instructions: String,
 }
 
@@ -64,6 +75,7 @@ pub struct Summary {
     pub description: String,
     pub avatar: Value,
     pub approval: Option<String>,
+    pub starters: Vec<String>,
 }
 
 impl Template {
@@ -80,6 +92,7 @@ impl Template {
             description: self.description.clone(),
             avatar: self.avatar(),
             approval: self.approval.clone(),
+            starters: self.starters.clone(),
         }
     }
 }
@@ -111,6 +124,7 @@ pub fn parse(text: &str) -> Option<Template> {
         hue: 210,
         tools: None,
         approval: None,
+        starters: Vec::new(),
         instructions: body.trim().to_string(),
     };
     for line in head.lines() {
@@ -126,6 +140,8 @@ pub fn parse(text: &str) -> Option<Template> {
             "hue" => template.hue = value.parse().unwrap_or(210) % 360,
             "tools" => template.tools = Some(list(&value)),
             "approval" => template.approval = Some(value),
+            // One per line: a starter may hold commas (FR-74).
+            "starter" if !value.is_empty() => template.starters.push(value),
             _ => {}
         }
     }
@@ -161,7 +177,32 @@ mod tests {
         for role in &roles {
             assert!(!role.role.is_empty() && !role.description.is_empty() && !role.instructions.is_empty(), "{}", role.id);
             assert!(role.approval.as_deref().is_none_or(|mode| ["ask", "auto-edits", "auto"].contains(&mode)), "{}", role.id);
+            assert!((3..=4).contains(&role.starters.len()), "{} needs 3-4 starters (FR-74)", role.id);
         }
+    }
+
+    #[test]
+    fn the_gallery_has_sixteen_roles_in_six_categories() {
+        let roles = all();
+        assert!(roles.len() >= 16, "FR-8: {} roles", roles.len());
+        let mut categories: Vec<&str> = roles.iter().map(|r| r.category.as_str()).collect();
+        categories.sort();
+        categories.dedup();
+        assert!(categories.len() >= 6, "FR-8: {categories:?}");
+    }
+
+    #[test]
+    fn starters_are_one_per_line_and_may_hold_commas() {
+        let role = parse("---
+id: x
+name: X
+starter: Plan my week, then my month
+starter:  Draft a post 
+---
+Be brief.
+").unwrap();
+        assert_eq!(role.starters, ["Plan my week, then my month", "Draft a post"]);
+        assert_eq!(role.summary().starters, role.starters);
     }
 
     #[test]

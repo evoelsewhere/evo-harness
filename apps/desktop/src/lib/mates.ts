@@ -49,6 +49,8 @@ export interface MateTemplate {
   avatar: MateAvatar;
   /** A looser approval mode the role suggests, shown on its card. */
   approval: ApprovalMode | null;
+  /** Requests a new conversation offers to send (FR-74). */
+  starters: string[];
 }
 
 export interface CreateMate {
