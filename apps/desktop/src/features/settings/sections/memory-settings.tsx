@@ -217,7 +217,7 @@ function IndexStatusLine() {
   } else if (indexing) {
     text = "Looking for chats with new messages…";
   } else if (status?.state === "stopped") {
-    text = `Indexing stopped: ${status.message ?? "the index model cannot be used"}`;
+    text = `Indexing stopped: ${status.message ?? "the Background model cannot be used"}`;
     failed = true;
   } else if (lastPass?.failed) {
     text = `A chat could not be indexed: ${lastPass.failed}. Indexing tries again later.`;
@@ -328,7 +328,7 @@ export function MemorySettings() {
         <SettingsRow
           labelId="memory-auto-index"
           label="Automatic indexing"
-          description="When a chat has been idle, the index model reads what is new in it, updates the topics and writes a summary of the chat. The text of indexed chats is sent to that model's provider, and indexing uses tokens. Every change is listed in the Memory panel and can be undone."
+          description="When a chat has been idle, the Background model reads what is new in it, updates the topics and writes a summary of the chat. The text of indexed chats is sent to that model's provider, and indexing uses tokens. Every change is listed in the Memory panel and can be undone."
           control={
             <Switch
               aria-labelledby="memory-auto-index"
@@ -339,8 +339,12 @@ export function MemorySettings() {
           }
         />
         <SettingsRow
-          label="Index model"
-          description={memory.indexModel ? "The model that reads idle chats. A change applies from the next run." : "Choose a model to switch automatic indexing on."}
+          label="Background model"
+          description={
+            memory.indexModel
+              ? "Indexes idle chats and runs memory upkeep, the dream and skill reviews in both apps. What they read is sent to its provider. A change applies from the next run."
+              : "Choose a model to switch automatic indexing on. Without one, a mate's background work uses the mate's own model."
+          }
           control={<IndexModelPicker />}
         />
         <SettingsRow
@@ -398,7 +402,7 @@ export function MemorySettings() {
         title="Index earlier chats?"
         description={
           earlier
-            ? `${earlier} earlier ${earlier === 1 ? "chat has" : "chats have"} not been read. Their text is sent to the index model's provider and reading them uses tokens.`
+            ? `${earlier} earlier ${earlier === 1 ? "chat has" : "chats have"} not been read. Their text is sent to the Background model's provider and reading them uses tokens.`
             : "Every earlier chat has been read already."
         }
         action={earlier ? `Index ${earlier} ${earlier === 1 ? "chat" : "chats"}` : "Close"}

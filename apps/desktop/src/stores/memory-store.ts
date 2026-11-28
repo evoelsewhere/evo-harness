@@ -14,7 +14,11 @@ import { db, log, type MemoryIndexPassReport, type MemoryIndexStatus } from "@/l
 
 export const SEARCH_PAST_CHATS_KEY = "memory.searchPastChats";
 export const AUTO_INDEX_KEY = "memory.autoIndex";
+/** Replaced by the Background model; read only while that is unset. */
 export const INDEX_MODEL_KEY = "memory.indexModel";
+/** The Background model: indexing, memory upkeep, the dream, skill reviews and
+ * retros, in both apps (docs/features/learning-layers/spec.md, FR-24). */
+export const BACKGROUND_MODEL_KEY = "learning.backgroundModel";
 export const IDLE_MINUTES_KEY = "memory.indexIdleMinutes";
 
 export const DEFAULT_IDLE_MINUTES = 5;
@@ -43,7 +47,7 @@ interface MemoryStore {
   setSearchPastChats(on: boolean): Promise<void>;
   /** Switch automatic indexing; it stays off without an index model. */
   setAutoIndex(on: boolean): Promise<void>;
-  /** Choose the index model; `null` clears it and switches indexing off. */
+  /** Choose the Background model; `null` clears it and switches indexing off. */
   setIndexModel(model: IndexModel | null): Promise<void>;
   setIndexIdleMinutes(minutes: number): Promise<void>;
   /** Index every chat with new messages now. */
@@ -93,7 +97,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => {
         loaded: true,
         searchPastChats: settings[SEARCH_PAST_CHATS_KEY] !== false,
         autoIndex: settings[AUTO_INDEX_KEY] === true,
-        indexModel: asModel(settings[INDEX_MODEL_KEY]),
+        indexModel: asModel(settings[BACKGROUND_MODEL_KEY]) ?? asModel(settings[INDEX_MODEL_KEY]),
         indexIdleMinutes: typeof minutes === "number" ? Math.min(120, Math.max(1, Math.round(minutes))) : DEFAULT_IDLE_MINUTES,
         status,
       });
@@ -113,7 +117,7 @@ export const useMemoryStore = create<MemoryStore>((set, get) => {
 
     async setIndexModel(model) {
       set({ indexModel: model });
-      await save(INDEX_MODEL_KEY, model);
+      await save(BACKGROUND_MODEL_KEY, model);
       if (!model && get().autoIndex) await get().setAutoIndex(false);
     },
 

@@ -19,6 +19,7 @@ mod db;
 mod engine;
 mod files;
 mod frames;
+mod learning;
 mod mates;
 mod mcp;
 mod memory_index;
@@ -149,6 +150,8 @@ pub fn run() {
             computer::setup(app.handle());
             // App updates: the check timer, after the window is shown.
             updates::setup(app.handle());
+            // The Background model replaces the Index model (learning-layers FR-24).
+            learning::copy_index_model(&app.state::<db::Db>());
             // Memory: index idle chats with the model the person chose.
             memory_index::setup(app.handle());
             // Chats with mail left undelivered when the app last closed get

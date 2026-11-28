@@ -30,7 +30,8 @@ use crate::engine::EngineState;
 
 /// **Automatic indexing** (off unless `true`).
 pub const AUTO_INDEX_KEY: &str = "memory.autoIndex";
-/// **Index model**: `{provider, modelId}`.
+/// **Index model**: `{provider, modelId}`; replaced by the Background model
+/// ([`crate::learning::BACKGROUND_MODEL_KEY`]), read only when that is unset.
 pub const INDEX_MODEL_KEY: &str = "memory.indexModel";
 /// **Index after idle**, in minutes.
 pub const IDLE_MINUTES_KEY: &str = "memory.indexIdleMinutes";
@@ -61,7 +62,8 @@ pub struct Settings {
 
 /// The worker's settings out of the app settings.
 pub fn settings_from(all: &Map<String, Value>) -> Settings {
-    let model = all.get(INDEX_MODEL_KEY).and_then(|model| {
+    // The Background model, which replaced the Index model (learning-layers FR-24).
+    let model = all.get(crate::learning::BACKGROUND_MODEL_KEY).filter(|model| !model.is_null()).or_else(|| all.get(INDEX_MODEL_KEY)).and_then(|model| {
         let text = |key: &str| model.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_string);
         Some((text("provider")?, text("modelId")?))
     });
