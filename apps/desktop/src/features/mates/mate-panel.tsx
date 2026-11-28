@@ -335,11 +335,15 @@ function About({ mate }: { mate: Mate }) {
 function Settings({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
   const model = useSessionStore((s) => s.sessions.find((c) => c.id === mate.chatId)?.model ?? null);
+  // The model's name as the bar shows it, when this mate's conversation is shown.
+  const modelName = useEngineStore((s) =>
+    s.activeId === mate.chatId ? s.models.find((m) => m.provider === s.state.provider && m.id === (s.state.modelId ?? s.state.model))?.name : undefined,
+  );
   return (
     <div className="flex flex-col gap-5">
-      <Field label="Model" hint="Pick another in the message box's model menu; the mate keeps it.">
+      <Field label="Model" hint="Pick another from the model menu at the top of the conversation; the mate keeps it.">
         <div className="truncate rounded-2xl bg-muted/50 px-3 py-2 text-[13px] text-foreground">
-          {model ?? "The app's default model"}
+          {modelName ?? model ?? "The app's default model"}
         </div>
       </Field>
       <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Approvals">
@@ -515,6 +519,7 @@ function Memory({ mate }: { mate: Mate }) {
       )}
       <TidyNow owners={[`mate:${mate.id}`]} onDone={() => void request("list_memories").then(() => history())} />
       <MemoryHistory
+        agentName={mate.name}
         changes={changes}
         onUndo={(id) => void history("undo_memory_change", { change: id }).then((done) => (done ? request("list_memories") : undefined))}
       />
