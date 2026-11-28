@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | engine, `evo-mcp`, `evo-vault`, desktop shell, desktop UI, both apps |
 | Created | 2026-11-28 |
 | Updated | 2026-11-28 |
@@ -186,3 +186,4 @@ None.
   on Composio with their own key.
 - 2026-11-28 — Owner accepted the spec with the proposed answers (Gate A).
 - 2026-11-28 — Owner accepted the plan (Gate B). Status Accepted.
+- 2026-11-28 — Implementation started. Status In progress.

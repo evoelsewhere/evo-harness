@@ -35,6 +35,23 @@ const MAX_TOOL_NAME: usize = 64;
 /// Crashes within [`CRASH_WINDOW`] after which a server is left stopped.
 pub const MAX_CRASHES: usize = 5;
 const CRASH_WINDOW: Duration = Duration::from_secs(60);
+/// Why an app server cannot be removed or switched like a connector.
+const APP_MANAGED: &str = "this connector is managed by Connected apps: change it there";
+
+/// A server supplied by the app's own code rather than the person's
+/// file (connected apps: docs/features/connected-apps/spec.md, FR-7,
+/// NFR-1), for [`Pool::set_app_server`]. Its key is `app:<name>`, its tools
+/// `mcp__<name>__<tool>`. Its config (URL and headers, which may hold a
+/// key) lives only in memory; its tool permissions and last tool list are
+/// saved under `appServers.<name>` in the connectors file.
+#[derive(Debug, Clone)]
+pub struct AppServer {
+    pub name: String,
+    pub config: ServerConfig,
+    /// Permissions for tools the person has not chosen one for (else the
+    /// usual default: `allow` for read-only tools, `ask` for the rest).
+    pub defaults: BTreeMap<String, Permission>,
+}
 
 /// When a plugin server runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -91,6 +108,8 @@ struct Entry {
     project: Option<String>,
     /// The plugin that brought it; `None`: not a plugin's.
     plugin: Option<String>,
+    /// The app server it is ([`AppServer::name`]); `None`: not one.
+    app: Option<String>,
     config: ServerConfig,
     status: Status,
     error: Option<String>,
@@ -116,6 +135,7 @@ impl Entry {
             label,
             project,
             plugin: None,
+            app: None,
             resources: Vec::new(),
             status: if config.disabled {
                 Status::Off
@@ -430,6 +450,7 @@ impl Pool {
         result: Result<(Connection, Vec<Value>, Vec<Value>, Vec<Value>), ConnectError>,
     ) {
         let mut cache = None;
+        let mut app_cache = None;
         {
             let mut servers = self.shared.servers.lock().unwrap();
             let Some(entry) = servers.get_mut(name) else {
@@ -450,6 +471,9 @@ impl Pool {
                     entry.last_used = Some(Instant::now());
                     if let Some(plugin) = entry.plugin.clone() {
                         cache = Some((plugin, entry.label.clone(), entry.tools.clone()));
+                    }
+                    if let Some(app) = entry.app.clone() {
+                        app_cache = Some((app, entry.tools.clone()));
                     }
                 }
                 Err(ConnectError::NeedsAuth(error)) => {
@@ -494,6 +518,9 @@ impl Pool {
                 }
                 server["tools"] = Value::Array(tools);
             });
+        }
+        if let Some((app, tools)) = app_cache {
+            let _ = self.save_app(&app, |entry| entry["tools"] = Value::Array(tools));
         }
         self.changed();
     }
@@ -708,7 +735,8 @@ impl Pool {
         let renamed = previous.filter(|p| *p != name);
         {
             let servers = self.shared.servers.lock().unwrap();
-            if servers.contains_key(name) && previous != Some(name) {
+            let clash = servers.contains_key(name) && previous != Some(name);
+            if clash || servers.values().any(|e| e.app.is_some() && e.label == name) {
                 return Err(format!("a connector named `{name}` already exists"));
             }
         }
@@ -738,6 +766,9 @@ impl Pool {
     }
 
     pub async fn remove(&self, name: &str) -> Result<(), String> {
+        if self.app_of_key(name).is_some() {
+            return Err(APP_MANAGED.into());
+        }
         if self.plugin_of_key(name).is_some() {
             return Err(
                 "this connector comes with a plugin: turn the plugin off or remove it".into(),
@@ -762,6 +793,9 @@ impl Pool {
     }
 
     pub async fn set_enabled(&self, name: &str, on: bool) -> Result<(), String> {
+        if self.app_of_key(name).is_some() {
+            return Err(APP_MANAGED.into());
+        }
         if self.plugin_of_key(name).is_some() {
             return Err("this connector comes with a plugin: turn the plugin off instead".into());
         }
@@ -822,7 +856,14 @@ impl Pool {
         tool: &str,
         permission: Permission,
     ) -> Result<(), String> {
-        if let Some((plugin, server)) = self.plugin_of_key(name) {
+        if let Some(app) = self.app_of_key(name) {
+            self.save_app(&app, |entry| {
+                if entry.get("toolPermissions").is_none_or(|p| !p.is_object()) {
+                    entry["toolPermissions"] = json!({});
+                }
+                entry["toolPermissions"][tool] = json!(permission);
+            })?;
+        } else if let Some((plugin, server)) = self.plugin_of_key(name) {
             self.save(|file| {
                 let all = file
                     .extra
@@ -871,7 +912,7 @@ impl Pool {
             .map(|(key, entry)| {
                 let name = &entry.label;
                 let log: Vec<String> = entry.log.iter().cloned().collect();
-                let shown = if entry.plugin.is_some() {
+                let shown = if entry.plugin.is_some() || entry.app.is_some() {
                     hide_plugin_values(&entry.config, log)
                 } else {
                     (serde_json::to_value(&entry.config).unwrap_or(Value::Null), log)
@@ -912,6 +953,7 @@ impl Pool {
                     "name": name,
                     "project": entry.project,
                     "plugin": entry.plugin,
+                    "app": entry.app,
                     "resources": resources,
                     "kind": kind,
                     "summary": entry.config.summary(),
@@ -1212,6 +1254,127 @@ impl Pool {
         }
         for key in connect {
             self.spawn_connect(key);
+        }
+    }
+
+    /// The pool key of the app server `name`.
+    pub fn app_key(&self, name: &str) -> String {
+        format!("app:{name}")
+    }
+
+    /// The app server's name when `key` names one.
+    fn app_of_key(&self, key: &str) -> Option<String> {
+        key.strip_prefix("app:").map(str::to_string)
+    }
+
+    /// The tools the app server `name` gave last (kept while it reconnects
+    /// or fails); empty when there is none.
+    pub fn app_tools(&self, name: &str) -> Vec<Value> {
+        let servers = self.shared.servers.lock().unwrap();
+        servers
+            .get(&self.app_key(name))
+            .map(|e| e.tools.clone())
+            .unwrap_or_default()
+    }
+
+    /// Change the saved part of the app server `name` (`appServers[name]`).
+    fn save_app(&self, name: &str, change: impl FnOnce(&mut Value)) -> Result<(), String> {
+        self.save(|file| {
+            let all = file.extra.entry("appServers").or_insert_with(|| json!({}));
+            if !all.is_object() {
+                *all = json!({});
+            }
+            let entry = all
+                .as_object_mut()
+                .unwrap()
+                .entry(name.to_string())
+                .or_insert_with(|| json!({}));
+            if !entry.is_object() {
+                *entry = json!({});
+            }
+            change(entry);
+        })
+    }
+
+    /// Make the pool's app server exactly `server` (or none), and connect it
+    /// before returning when it is new or changed. Its saved permissions
+    /// win over its defaults; its last tool list is known at once (not
+    /// offered until it connects). Its config is never written.
+    pub async fn set_app_server(&self, server: Option<AppServer>) {
+        let saved: Map<String, Value> = ConfigFile::load(&self.shared.path)
+            .ok()
+            .and_then(|f| {
+                f.extra
+                    .get("appServers")
+                    .and_then(Value::as_object)
+                    .cloned()
+            })
+            .unwrap_or_default();
+        let wanted = server.map(
+            |AppServer {
+                 name,
+                 mut config,
+                 defaults,
+             }| {
+                config.disabled = false;
+                let mut permissions = defaults;
+                permissions.extend(std::mem::take(&mut config.tool_permissions));
+                let saved_server = saved.get(&name);
+                if let Some(perms) = saved_server
+                    .and_then(|s| s.get("toolPermissions"))
+                    .and_then(Value::as_object)
+                {
+                    for (tool, p) in perms {
+                        if let Ok(p) = serde_json::from_value::<Permission>(p.clone()) {
+                            permissions.insert(tool.clone(), p);
+                        }
+                    }
+                }
+                config.tool_permissions = permissions;
+                let cached = saved_server
+                    .and_then(|s| s.get("tools"))
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                (self.app_key(&name), name, config, cached)
+            },
+        );
+        let (connect, close) = {
+            let mut entries = self.shared.servers.lock().unwrap();
+            let same = wanted.as_ref().is_some_and(|(key, _, config, _)| {
+                entries.get(key).is_some_and(|e| &e.config == config)
+            });
+            let stale: Vec<String> = entries
+                .iter()
+                .filter(|(key, e)| {
+                    e.app.is_some() && !(same && wanted.as_ref().is_some_and(|(k, ..)| k == *key))
+                })
+                .map(|(key, _)| key.clone())
+                .collect();
+            let mut close = Vec::new();
+            for key in stale {
+                if let Some(conn) = entries.remove(&key).and_then(|e| e.conn) {
+                    close.push(conn);
+                }
+            }
+            let mut connect = None;
+            if let Some((key, name, config, cached)) = wanted.filter(|_| !same) {
+                let mut entry = Entry::new(name.clone(), config, None);
+                entry.app = Some(name);
+                entry.tools = cached;
+                entries.insert(key.clone(), entry);
+                connect = Some(key);
+            }
+            (connect, close)
+        };
+        self.changed();
+        for conn in close {
+            if let Ok(conn) = Arc::try_unwrap(conn) {
+                conn.close().await;
+            }
+        }
+        if let Some(key) = connect {
+            self.connect(&key).await;
         }
     }
 
@@ -1690,6 +1853,172 @@ mod tests {
             .is_err());
         pool.remove("broken").await.unwrap();
         assert!(ConfigFile::load(&path).unwrap().servers.is_empty());
+    }
+
+    // docs/features/connected-apps/spec.md (FR-7, NFR-1; T2).
+    const SECRET: &str = "ak_app-SECRET-key-123";
+
+    fn app(defaults: &[(&str, Permission)]) -> AppServer {
+        let mut headers = BTreeMap::new();
+        headers.insert("x-api-key".to_string(), SECRET.to_string());
+        AppServer {
+            name: "connected_apps".into(),
+            config: ServerConfig {
+                url: Some("http://127.0.0.1:1/tool_router/trs_1/mcp".into()),
+                headers,
+                ..Default::default()
+            },
+            defaults: defaults.iter().map(|(t, p)| (t.to_string(), *p)).collect(),
+        }
+    }
+
+    /// A connection to an in-process server (its own tools do not matter:
+    /// the test hands the pool the list).
+    async fn in_process() -> Connection {
+        use rmcp::handler::server::ServerHandler;
+        use rmcp::service::ServiceExt;
+        struct Nothing;
+        impl ServerHandler for Nothing {
+            fn get_info(&self) -> rmcp::model::ServerConfig {
+                rmcp::model::ServerConfig::new(
+                    rmcp::model::ServerCapabilities::builder()
+                        .enable_tools()
+                        .build(),
+                )
+            }
+        }
+        let (client_end, server_end) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(async move {
+            let server = Nothing.serve(server_end).await.expect("server starts");
+            let _ = server.waiting().await;
+        });
+        client::connect_transport(client_end)
+            .await
+            .expect("handshake")
+    }
+
+    fn meta_tools() -> Vec<Value> {
+        vec![
+            json!({"name": "COMPOSIO_SEARCH_TOOLS", "description": "Search", "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": true}}),
+            json!({"name": "COMPOSIO_MULTI_EXECUTE_TOOL", "description": "Run", "inputSchema": {"type": "object"}}),
+            json!({"name": "COMPOSIO_REMOTE_BASH_TOOL", "description": "Bash", "inputSchema": {"type": "object"}}),
+        ]
+    }
+
+    #[tokio::test]
+    async fn app_server_config_and_headers_are_never_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        let pool = Pool::new(path.clone(), None, || {});
+        pool.start().unwrap();
+        pool.set_app_server(Some(app(&[]))).await;
+        let snap = pool.snapshot();
+        let server = &snap["servers"][0];
+        assert_eq!(server["key"], "app:connected_apps");
+        assert_eq!(server["name"], "connected_apps");
+        assert_eq!(server["app"], "connected_apps");
+        assert_eq!(server["status"], "failed", "nothing listens there");
+        assert!(!snap.to_string().contains(SECRET), "{snap}");
+        // Its permissions are saved apart from the person's servers…
+        pool.set_permission(
+            "app:connected_apps",
+            "COMPOSIO_SEARCH_TOOLS",
+            Permission::Block,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains(SECRET), "{text}");
+        assert!(!text.contains("127.0.0.1"), "{text}");
+        let file = ConfigFile::load(&path).unwrap();
+        assert!(file.servers.is_empty());
+        assert_eq!(
+            file.extra["appServers"]["connected_apps"]["toolPermissions"]["COMPOSIO_SEARCH_TOOLS"],
+            "block"
+        );
+        // …and it is not the person's to remove, switch or shadow.
+        assert!(pool.remove("app:connected_apps").await.is_err());
+        assert!(pool.set_enabled("app:connected_apps", false).await.is_err());
+        assert!(pool
+            .upsert(
+                "connected_apps",
+                ServerConfig {
+                    command: Some("x".into()),
+                    ..Default::default()
+                },
+                None
+            )
+            .await
+            .unwrap_err()
+            .contains("already exists"));
+        // Gone: no entry, the saved permissions stay for next time.
+        pool.set_app_server(None).await;
+        assert!(pool.snapshot()["servers"].as_array().unwrap().is_empty());
+        let file = ConfigFile::load(&path).unwrap();
+        assert!(file.extra["appServers"]["connected_apps"]["toolPermissions"].is_object());
+    }
+
+    #[tokio::test]
+    async fn app_server_tools_are_cached_with_default_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        let pool = Pool::new(path.clone(), None, || {});
+        pool.start().unwrap();
+        pool.set_app_server(Some(app(&[(
+            "COMPOSIO_REMOTE_BASH_TOOL",
+            Permission::Block,
+        )])))
+        .await;
+        let key = pool.app_key("connected_apps");
+        assert_eq!(key, "app:connected_apps");
+        let generation = pool.shared.servers.lock().unwrap()[&key].generation;
+        pool.finish(
+            &key,
+            generation,
+            Ok((in_process().await, meta_tools(), vec![], vec![])),
+        );
+        let names: Vec<String> = pool
+            .chat_tools(None)
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "mcp__connected_apps__COMPOSIO_SEARCH_TOOLS",
+                "mcp__connected_apps__COMPOSIO_MULTI_EXECUTE_TOOL"
+            ],
+            "the blocked-by-default tool is not offered"
+        );
+        let tools = pool.chat_tools(None);
+        assert_eq!(tools[0]["permission"], "allow");
+        assert_eq!(tools[1]["permission"], "ask");
+        assert_eq!(tools[1]["server"], "app:connected_apps");
+        // Tools cached for next time, without the config.
+        let file = ConfigFile::load(&path).unwrap();
+        assert_eq!(
+            file.extra["appServers"]["connected_apps"]["tools"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(pool.app_tools("connected_apps").len(), 3);
+        // A saved choice wins over the default, and survives a new session.
+        pool.set_permission(&key, "COMPOSIO_REMOTE_BASH_TOOL", Permission::Ask)
+            .unwrap();
+        let mut changed = app(&[("COMPOSIO_REMOTE_BASH_TOOL", Permission::Block)]);
+        changed.config.url = Some("http://127.0.0.1:1/tool_router/trs_2/mcp".into());
+        pool.set_app_server(Some(changed)).await;
+        let snap = pool.snapshot();
+        assert_eq!(
+            snap["servers"][0]["config"]["toolPermissions"]["COMPOSIO_REMOTE_BASH_TOOL"],
+            "ask"
+        );
+        assert_eq!(
+            pool.app_tools("connected_apps").len(),
+            3,
+            "the last list is known while it connects"
+        );
     }
 
     #[tokio::test]

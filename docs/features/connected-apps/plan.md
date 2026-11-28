@@ -231,4 +231,10 @@ Changes apply at once: the pool and the chats' tools are refreshed.
 
 ## 5. As-built notes
 
-Empty until the status is `In progress`.
+- 2026-11-28 — `Pool::set_app_server` connects a new or changed app
+  server before it returns (as `upsert` does), so the shell spawns it when
+  it must not wait. Defaults (`AppServer::defaults`) < saved
+  `appServers.<name>.toolPermissions`. A person's connector cannot take
+  the app server's name; `remove` and `set_enabled` refuse it ("managed by
+  Connected apps"). The snapshot marks it with `app` and hides its header
+  values as it does a plugin server's.
