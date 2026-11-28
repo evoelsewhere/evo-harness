@@ -366,6 +366,8 @@ pub fn work_changed(app: &AppHandle) {
         crate::mates::apply_pending(app);
         // A mate's work settled: a waiting one may start (NFR-6).
         crate::mates::limit::release(app);
+        // A mate that spent its daily limit pauses (FR-80).
+        crate::mates::spend::check(app);
     }
     let Some(state) = app.try_state::<SystemState>() else {
         return;

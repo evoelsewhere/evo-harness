@@ -13,7 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { db, log } from "@/lib/db";
 import { channelsApi } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
@@ -32,6 +34,8 @@ const DEFAULT = 12;
 const MAX_RUNNING = "mates.maxRunning";
 const RUNNING_DEFAULT = 4;
 const ROUTER_MODEL = "mates.routerModel";
+/** Dollars a mate may spend a day (FR-80); none: no limit. */
+const DAILY_LIMIT = "mates.dailyLimitUsd";
 
 type RouterChoice = { provider: string; model: string } | null;
 
@@ -43,6 +47,58 @@ function reloadChannels() {
   reloadTimer = setTimeout(() => {
     void channelsApi.reload().catch((error) => log("warn", "ui", `could not apply to channels: ${String(error)}`));
   }, 600);
+}
+
+/** The daily spending limit per mate (FR-80): off by default; a mate that reaches it pauses until you resume it. */
+function DailyLimit() {
+  const [limit, setLimit] = React.useState<number | null>(null);
+  const [draft, setDraft] = React.useState("2.00");
+  React.useEffect(() => {
+    if (!inTauri) return;
+    void db
+      .settings()
+      .then((all) => {
+        const saved = all[DAILY_LIMIT];
+        if (typeof saved === "number" && saved > 0) {
+          setLimit(saved);
+          setDraft(saved.toFixed(2));
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+  const save = (value: number | null) => {
+    setLimit(value);
+    void db.setSetting(DAILY_LIMIT, value).catch((error) => log("error", "ui", `could not save the daily limit: ${String(error)}`));
+  };
+  const fromDraft = () => {
+    const value = Number.parseFloat(draft.replace(/[^0-9.]/g, ""));
+    return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+  };
+  return (
+    <SettingsRow
+      labelId="mates-daily-limit"
+      label="Daily spending limit per mate"
+      description="When a mate's cost today reaches it, the mate pauses and tells you. Resume lets it go on for the rest of the day."
+      control={
+        <div className="flex items-center gap-2">
+          {limit !== null && (
+            <Input
+              aria-label="Dollars a day"
+              className="h-8 w-20 text-right"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={() => {
+                const value = fromDraft();
+                if (value) save(value);
+                else setDraft(limit.toFixed(2));
+              }}
+            />
+          )}
+          <Switch aria-labelledby="mates-daily-limit" checked={limit !== null} onCheckedChange={(on) => save(on ? (fromDraft() ?? 2) : null)} />
+        </div>
+      }
+    />
+  );
 }
 
 export function MatesSettings() {
@@ -117,6 +173,7 @@ export function MatesSettings() {
             />
           }
         />
+        <DailyLimit />
       </SettingsGroup>
       <SettingsGroup title="Channels">
         <SettingsRow

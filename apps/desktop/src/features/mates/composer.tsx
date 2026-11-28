@@ -10,7 +10,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { ArrowUpIcon, ClockIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
 import { attachmentsFromPaths, buildPrompt, composerDraft, releaseAttachment } from "@/features/chat";
-import { log } from "@/lib/db";
+import { db, log } from "@/lib/db";
 import { matesApi, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
@@ -31,6 +31,36 @@ function working(chat: string): boolean {
   return useSessionStore.getState().work[chat] === "working";
 }
 const LINE_PX = 20;
+
+/** The paused line (FR-45), naming the daily limit when that is why (FR-80). */
+export function pausedLine(name: string, overLimit: number | null): string {
+  return overLimit !== null
+    ? `Paused: ${name} reached today's limit of $${overLimit.toFixed(2)}. Resume lets it go on today.`
+    : `${name} is paused. It does no work until you resume it.`;
+}
+
+/** The daily limit, when a paused mate's cost today reached it. */
+function useOverLimit(mate: Mate): number | null {
+  const [over, setOver] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    if (!mate.paused) {
+      setOver(null);
+      return;
+    }
+    let gone = false;
+    void Promise.all([db.settings(), matesApi.today()])
+      .then(([all, today]) => {
+        const limit = all["mates.dailyLimitUsd"];
+        const spent = today.team.find((t) => t.mateId === mate.id)?.costUsd ?? 0;
+        if (!gone) setOver(typeof limit === "number" && limit > 0 && spent >= limit ? limit : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+    };
+  }, [mate.id, mate.paused]);
+  return over;
+}
 
 export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: ReplyTo | null; onReplyDone(): void }) {
   const [text, setText] = React.useState("");
@@ -101,11 +131,12 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
   const ready = status !== "starting";
   const hasText = text.trim().length > 0 || files.length > 0;
 
+  const overLimit = useOverLimit(mate);
   if (mate.paused) {
     return (
       <div className="mx-auto w-full max-w-3xl px-4 pb-4">
         <div className="flex items-center justify-center gap-3 rounded-[20px] bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-          <span>{mate.name} is paused. It does no work until you resume it.</span>
+          <span>{pausedLine(mate.name, overLimit)}</span>
           <button
             type="button"
             onClick={() => void useMatesStore.getState().update(mate.id, { paused: false })}

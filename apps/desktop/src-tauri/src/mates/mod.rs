@@ -21,6 +21,7 @@ pub mod limit;
 pub mod team_file;
 pub mod teams;
 pub mod secrets;
+pub mod spend;
 pub mod template;
 pub mod today;
 
@@ -299,6 +300,10 @@ pub async fn mates_update(app: AppHandle, id: String, patch: MatePatch) -> Resul
     // Paused: its work stops now; the window holds new messages until Resume (FR-45).
     if patch.paused == Some(true) {
         stop_mate(&app, &mate.id).await;
+    }
+    // Resumed over today's spending limit: it goes on until the day ends (FR-80).
+    if patch.paused == Some(false) {
+        spend::resumed(&app, &mate.id);
     }
     changed(&app);
     Ok(Some(mate))
