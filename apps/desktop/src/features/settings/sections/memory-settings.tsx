@@ -381,7 +381,7 @@ export function MemorySettings() {
       <SettingsGroup title="Reset">
         <SettingsRow
           label="Reset memory"
-          description="Deletes every topic, in every project and your personal ones, and the list of indexing changes. Chats and their summaries stay."
+          description="Deletes every topic, in every project and your personal ones, and the memory history. Chats and their summaries stay."
           control={
             <Button variant="destructive" size="sm" disabled={needsChat || (state?.total ?? 0) === 0} onClick={() => setConfirmReset(true)}>
               Reset memory…
