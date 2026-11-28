@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "@/features/chat";
-import { isHeartbeat, isSilent, stepsLine, threadRows } from "./thread-rows";
+import { GREETING_PROMPT, isGreeting, isHeartbeat, isSilent, stepsLine, threadRows } from "./thread-rows";
 
 const turn = (over: Partial<Turn>): Turn =>
   ({
@@ -102,5 +102,16 @@ describe("heartbeat turns", () => {
     expect(isSilent("How was it?")).toBe(false);
     expect(isHeartbeat(beat)).toBe(true);
     expect(isHeartbeat("hello")).toBe(false);
+  });
+});
+
+// docs/features/evo-mates/spec.md (FR-34; qa-2026-11-28, A1): a new mate
+// speaks first; the prompt that wakes it is not the person's message.
+describe("a new mate's greeting", () => {
+  test("the wake-up prompt shows no bubble of the person", () => {
+    expect(isGreeting(GREETING_PROMPT)).toBe(true);
+    const rows = threadRows([turn({ id: "g", prompt: GREETING_PROMPT, parts: [text("Hi, I'm Mai.")] })], false);
+    expect(rows.filter((r) => r.kind === "bubble").map((r) => (r.kind === "bubble" ? r.bubble.side : null))).toEqual(["mate"]);
+    expect(rows.some((r) => r.kind === "delivered")).toBe(false);
   });
 });

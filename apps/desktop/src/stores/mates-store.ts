@@ -9,6 +9,7 @@ import { create } from "zustand";
 import type { MateMood } from "@/components/mate-face/mate-face";
 import { log } from "@/lib/db";
 import {
+  GREETING_PROMPT,
   channelsApi,
   matesApi,
   type Channel,
@@ -209,6 +210,14 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
       // again so the engine store can show it.
       await useSessionStore.getState().load();
       await get().open(mate.id);
+      // The new mate greets the person and asks its setup questions first
+      // (FR-34, ux.md 5): picking it is what asks for that (A-5).
+      if (useEngineStore.getState().activeId === mate.chatId) {
+        void useEngineStore
+          .getState()
+          .sendPrompt(GREETING_PROMPT)
+          .catch(report("waking the new mate"));
+      }
       return mate;
     } catch (error) {
       report("creating a mate")(error);

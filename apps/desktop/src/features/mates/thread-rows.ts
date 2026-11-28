@@ -4,7 +4,10 @@
 // Pure: no React, so it is tested on its own.
 
 import type { Turn } from "@/features/chat";
+import { GREETING_PROMPT } from "@/lib/mates";
 import { parsePrompt, type ReplyTo } from "./message-markup";
+
+export { GREETING_PROMPT };
 
 /** One bubble of the thread. */
 export interface Bubble {
@@ -103,6 +106,11 @@ export function isHeartbeat(prompt: string): boolean {
   return prompt.trimStart().startsWith("<evo-mates-heartbeat");
 }
 
+/** A turn that woke a new mate to greet the person (FR-34). */
+export function isGreeting(prompt: string): boolean {
+  return prompt.trimStart().startsWith("<evo-mates-hello>");
+}
+
 /** A reply that says nothing is worth saying (`NOTHING_TO_SAY`): never shown. */
 export function isSilent(text: string): boolean {
   return text.trim().replace(/^[.`*]+|[.`*]+$/g, "").toUpperCase() === "NOTHING_TO_SAY";
@@ -134,7 +142,8 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
       return;
     }
     const { text, reply } = parsePrompt(turn.prompt);
-    if (text.trim() || turn.images?.length) {
+    // A new mate's wake-up is not the person's message (FR-34).
+    if (!isGreeting(turn.prompt) && (text.trim() || turn.images?.length)) {
       push({ key: `${base}:prompt`, side: "me", text, reply, images: turn.images, streaming: false, turn, at: turn.startedAt });
     }
     let said = 0;
