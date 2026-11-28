@@ -66,6 +66,14 @@ Done when: every row of the verification table has a result.
 - [ ] T24 [NFR-2] [NFR-3] Measure a 10-block reply's draw time and streaming smoothness (CDP performance trace); keyboard-only and screen-reader pass — check: under 100 ms, no long frames while streaming; findings fixed or recorded
 - [x] T25 UI map entry for reply blocks; spec status and catalogue row updated — `apps/desktop/README.md`, `docs/features/README.md`, `spec.md` — check: review
 
+### Phase 6 — Files named in replies
+
+Done when: a file named in a reply opens on click in both apps.
+
+- [x] T26 [FR-37] Failing tests, then `linkFiles`: relative links, backtick paths and bare file names become file links, never inside code or links — `components/file-refs.ts`, `file-refs.test.ts` — check: `bun test file-refs`
+- [x] T27 [FR-37] Replies in Harness chats, the side chat, subagent runs, a mate's conversation and channels pass the open handler (Files tool in Harness, default app in Mates, relative to the right folder; a missing file says so) — `components/markdown.tsx`, `features/chat/chat-turn.tsx`, `features/mates/thread.tsx`, `features/mates/channel-view.tsx`, `features/side-chat/side-chat-panel.tsx`, `components/ai-elements/agent-run.tsx` — check: typecheck; manual
+- [x] T28 [FR-38] System prompt rule for file links — `crates/evo-engine/src/session.rs` — check: engine test `the_prompt_asks_for_file_links`
+
 ## 2. Verification
 
 | Requirement | Test or check | Result |
@@ -101,6 +109,8 @@ Done when: every row of the verification table has a result.
 | NFR-6 | Manual on Windows and macOS | not run |
 | SC-4 | T23 eval | passed (2026-11-19): copilot/claude-sonnet-5.5 16/20 and 0/20; xiaomi/mimo-v2.6-pro 20/20 and 1/20; no made-up numbers. See `assets/eval.md` |
 | SC-5 | `cargo test -p evo-engine system_prompt` | passed (2026-11-19) |
+| FR-37 | `bun test file-refs`; manual click in both apps | partly (2026-11-28): `file-refs.test.ts` 8 pass, `markdown-file-links.test.ts` 2 pass (the reply renders the name as a button); the click in the running apps not run |
+| FR-38 | `the_prompt_asks_for_file_links` | passed (2026-11-28) |
 
 FR-23 to FR-27, FR-29 to FR-36, SC-6 and US-9 to US-11 belong to stages
 2–4; their rows are added when those stages are planned.

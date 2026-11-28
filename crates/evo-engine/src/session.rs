@@ -212,7 +212,8 @@ pub fn default_system_prompt_with_tool_prompts(
         "- Reply in the same language as the user's latest message (the conversation's language when
   that message is too short to tell), unless the user asks for another.",
         "- Be concise in your responses",
-        "- Show file paths clearly when working with files",
+        "- When you mention a file, write it as a markdown link with its path relative to the working
+  folder, e.g. [notes.md](docs/notes.md); the app opens it when the user clicks it",
         "- Prefer the smallest change that solves the problem",
         working_state_rule,
         "- Read only what you need. If a file or search result was already shown earlier in this
@@ -4725,6 +4726,13 @@ mod tests {
         assert!(p.contains("Re-stating the same plan without acting on it is a bug"));
         let none = default_system_prompt_with_tools("/tmp/proj", false, &[]);
         assert!(none.contains("Available tools:\n(none)"));
+    }
+
+    // rich-replies FR-38: files the agent names become links the app opens.
+    #[test]
+    fn the_prompt_asks_for_file_links() {
+        let p = default_system_prompt_with_tools("/tmp/proj", false, &default_prompt_tools());
+        assert!(p.contains("[notes.md](docs/notes.md)"), "{p}");
     }
 
     #[test]
