@@ -56,7 +56,7 @@ export function MateConversation({ mate, empty }: { mate: Mate; empty: React.Rea
           {permission.kind === "secret" ? (
             <SecretCard key={permission.requestId} mate={mate} permission={permission} />
           ) : permission.kind === "questions" ? (
-            <QuestionsPanel key={permission.requestId} permission={permission} />
+            <QuestionsPanel key={permission.requestId} permission={permission} asker={mate.name} />
           ) : (
             <ApprovalPanel permission={permission} />
           )}
