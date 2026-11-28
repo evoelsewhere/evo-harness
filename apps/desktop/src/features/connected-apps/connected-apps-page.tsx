@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
 import { AppsCatalogue, CatalogueSearch, ServiceDetail, ServiceTile, serviceLine, statusTone, useConnectedServices } from "./apps-parts";
-import { KeyCard } from "./key-card";
+import { ProvidersPanel } from "./providers-panel";
 import { OfficialBadge, OfficialHeader, serverTone, useServer, ZapierHeader } from "./official-parts";
 
 // Connected apps on one page, for Evo Mates (docs/features/connected-apps/
@@ -155,9 +155,11 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
       <section className="flex flex-col gap-2">
         <button type="button" onClick={() => setKeyOpen((o) => !o)} className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <ChevronRightIcon className={cn("size-3.5 transition-transform", keyOpen && "rotate-90")} />
-          Composio key
+          Providers
         </button>
-        {keyShown && <KeyCard compact={key === "saved"} />}
+        {keyShown && (
+          <ProvidersPanel onOpenZapier={() => setOpen("zapier")} />
+        )}
       </section>
     </div>
   );

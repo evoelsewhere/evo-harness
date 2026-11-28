@@ -3,7 +3,6 @@ import {
   ChevronRightIcon,
   FolderGit2Icon,
   GlobeIcon,
-  KeyRoundIcon,
   LayoutGridIcon,
   Settings2Icon,
   LogInIcon,
@@ -22,8 +21,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { connectorLabel, mcp, type Connector, type ConnectorConfig, type ConnectorStatus, type ProjectState, type ToolPermission } from "@/lib/mcp";
-import { AppsCatalogue, KeyCard, OfficialBadge, OfficialHeader, serverTone, ServiceDetail, ServiceTile, serviceLine, statusTone, UnavailableNotice, useConnectedServices, ZapierHeader } from "@/features/connected-apps";
-import { APP_SERVER_KEY } from "@/lib/connected-apps";
+import { AppsCatalogue, OfficialBadge, ProvidersPanel, OfficialHeader, serverTone, ServiceDetail, ServiceTile, serviceLine, statusTone, UnavailableNotice, useConnectedServices, ZapierHeader } from "@/features/connected-apps";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useEngineStore } from "@/stores/engine-store";
@@ -566,35 +564,6 @@ function GroupLabel({ children, action }: { children: React.ReactNode; action?: 
   );
 }
 
-/** Connected apps' settings: the key, and the connector chats see (its tool permissions). */
-function AppsSettings({ server }: { server: Connector | undefined }) {
-  return (
-    <div className="flex flex-col gap-5">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-base font-semibold">Connected apps</h2>
-        <p className="text-[13px] text-muted-foreground">
-          Gmail, Slack, GitHub, Notion and 2,000 more, through Composio with your own project key. Each service can have
-          several accounts, each with its own label.
-        </p>
-      </header>
-      <KeyCard />
-      {server && (
-        <Collapsible>
-          <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-            <ChevronRightIcon className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
-            Advanced: the tools chats get from Composio
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="mt-3">
-              <ConnectorDetail connector={server} onEdit={() => undefined} />
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      )}
-    </div>
-  );
-}
-
 /**
  * Customize → Connectors: connected apps (Composio) and MCP servers in one list
  * (docs/features/connected-apps/spec.md, FR-3; customize spec FR-19 – FR-21).
@@ -626,7 +595,6 @@ export function ConnectorsSection({ query }: { query: string }) {
   }, [focus]);
 
   const q = query.trim().toLowerCase();
-  const appServer = servers.find((s) => s.key === APP_SERVER_KEY);
   // The app's own servers (Composio, official, Zapier) are apps, not MCP servers here.
   const list = servers.filter((s) => !s.app && (!q || s.name.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q)));
   const officials = (providers?.official ?? []).filter((o) => o.connected && (!q || o.name.toLowerCase().includes(q)));
@@ -639,7 +607,7 @@ export function ConnectorsSection({ query }: { query: string }) {
       ? `svc:${shownServices[0].toolkit}`
       : zapier
         ? "zapier"
-        : (list[0]?.key ?? (appsKey === "saved" ? "apps:browse" : "apps:settings"));
+        : (list[0]?.key ?? "apps:browse");
   const current = selected ?? fallback;
   const server = list.find((s) => s.key === current);
 
@@ -657,7 +625,7 @@ export function ConnectorsSection({ query }: { query: string }) {
         <AppsCatalogue query={query} onOpen={setSelected} />
       </div>
     ) : current === "apps:settings" ? (
-      <AppsSettings server={appServer} />
+      <ProvidersPanel onOpenZapier={() => setSelected("zapier")} />
     ) : current.startsWith("svc:") ? (
       <ServiceDetail key={current} toolkit={current.slice(4)} />
     ) : current.startsWith("off:") || current === "zapier" ? (
@@ -677,27 +645,15 @@ export function ConnectorsSection({ query }: { query: string }) {
     <>
       <Split
         list={
-          <div className="flex flex-col gap-0.5 pt-2.5">
-            <div className="flex gap-1.5">
-              <Button size="sm" className="flex-1 justify-center gap-1.5" onClick={() => setSelected("apps:browse")}>
-                <PlusIcon />
-                Connect an app
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1 justify-center gap-1.5" onClick={() => setDialog({ editing: null })}>
-                <PlusIcon />
-                MCP server
-              </Button>
-            </div>
-
-            <GroupLabel
-              action={
-                <IconAction label="Connected apps settings" onClick={() => setSelected("apps:settings")}>
-                  <Settings2Icon />
-                </IconAction>
-              }
-            >
-              Apps
-            </GroupLabel>
+          <div className="flex flex-col gap-0.5">
+            <GroupLabel>Apps</GroupLabel>
+            <ListRow
+              selected={current === "apps:browse"}
+              onSelect={() => setSelected("apps:browse")}
+              icon={<LayoutGridIcon />}
+              title="Browse apps"
+              description="Official servers and 2,000+ apps to connect"
+            />
             {officials.map((o) => {
               const server = serverOf(o.key);
               return (
@@ -707,7 +663,9 @@ export function ConnectorsSection({ query }: { query: string }) {
                   onSelect={() => setSelected(`off:${o.id}`)}
                   icon={<ServiceTile slug={o.composio[0] ?? o.id} name={o.name} className="size-7 rounded-md" />}
                   title={o.name}
-                  description={server?.status === "connected" ? `Direct · ${server.tools.length} tools` : server?.status === "failed" ? "Failed — open for the reason" : "Needs sign-in"}
+                  description={
+                    server?.status === "connected" ? `Direct · ${server.tools.length} tools` : server?.status === "failed" ? "Failed — open it for the reason" : "Needs sign-in — open it to sign in"
+                  }
                   meta={
                     <>
                       <OfficialBadge className="h-4 px-1 text-[10px]" />
@@ -717,63 +675,57 @@ export function ConnectorsSection({ query }: { query: string }) {
                 />
               );
             })}
+            {appsKey === "saved" &&
+              shownServices.map((service) => (
+                <ListRow
+                  key={service.toolkit}
+                  selected={current === `svc:${service.toolkit}`}
+                  onSelect={() => setSelected(`svc:${service.toolkit}`)}
+                  icon={<ServiceTile slug={service.toolkit} name={service.name} className="size-7 rounded-md" />}
+                  title={service.name}
+                  description={serviceLine(service)}
+                  meta={<span className={cn("size-1.5 shrink-0 rounded-full", statusTone[service.status])} />}
+                />
+              ))}
             {zapier && (
               <ListRow
                 selected={current === "zapier"}
                 onSelect={() => setSelected("zapier")}
                 icon={<ServiceTile slug="zapier" name="Zapier" className="size-7 rounded-md" />}
                 title="Zapier"
-                description={serverOf(zapier.key)?.status === "connected" ? `${serverOf(zapier.key)?.tools.length ?? 0} actions` : "Needs sign-in"}
+                description={serverOf(zapier.key)?.status === "connected" ? `${serverOf(zapier.key)?.tools.length ?? 0} actions` : "Needs sign-in — open it to sign in"}
                 meta={<span className={cn("size-1.5 shrink-0 rounded-full", serverTone(serverOf(zapier.key)?.status))} />}
               />
             )}
-            {appsKey !== "saved" ? (
-              <>
-                <ListRow
-                  selected={current === "apps:browse"}
-                  onSelect={() => setSelected("apps:browse")}
-                  icon={<LayoutGridIcon />}
-                  title="Browse apps"
-                  description="Official servers, Zapier, and Composio's 2,000+ apps"
-                />
-                <ListRow
-                  selected={current === "apps:settings"}
-                  onSelect={() => setSelected("apps:settings")}
-                  icon={<KeyRoundIcon />}
-                  title="Add a Composio key"
-                  description="For Gmail, Slack and 2,000 more, with several accounts each"
-                />
-              </>
-            ) : (
-              <>
-                {shownServices.map((service) => (
-                  <ListRow
-                    key={service.toolkit}
-                    selected={current === `svc:${service.toolkit}`}
-                    onSelect={() => setSelected(`svc:${service.toolkit}`)}
-                    icon={<ServiceTile slug={service.toolkit} name={service.name} className="size-7 rounded-md" />}
-                    title={service.name}
-                    description={serviceLine(service)}
-                    meta={<span className={cn("size-1.5 shrink-0 rounded-full", statusTone[service.status])} />}
-                  />
-                ))}
-                <ListRow
-                  selected={current === "apps:browse"}
-                  onSelect={() => setSelected("apps:browse")}
-                  icon={<LayoutGridIcon />}
-                  title="Browse apps"
-                  description={services.length ? "Connect another service or account" : "Gmail, Slack, GitHub, Notion…"}
-                />
-              </>
-            )}
+            <ListRow
+              selected={current === "apps:settings"}
+              onSelect={() => setSelected("apps:settings")}
+              icon={<Settings2Icon />}
+              title="Providers"
+              description={[
+                appsKey === "saved" ? "Composio connected" : "Composio: add a key",
+                !providers?.zapier.connected ? "Zapier: not set up" : serverOf(providers.zapier.key)?.status === "connected" ? "Zapier connected" : "Zapier needs sign-in",
+              ].join(" · ")}
+            />
 
-            <GroupLabel>MCP servers</GroupLabel>
+            <GroupLabel
+              action={
+                <IconAction label="Add an MCP server" onClick={() => setDialog({ editing: null })}>
+                  <PlusIcon />
+                </IconAction>
+              }
+            >
+              MCP servers
+            </GroupLabel>
             {cwd && <ProjectServers cwd={cwd} />}
             {error && <p className="px-2.5 text-xs text-destructive">{error}</p>}
             {loaded && list.length === 0 ? (
               <EmptyNote title={q ? "No matching servers" : "No MCP servers yet"}>
                 An MCP server is a command such as <code>npx -y @modelcontextprotocol/server-memory</code>, or a URL. Every chat
                 can use its tools; you choose which ones run without asking.
+                <Button size="xs" variant="outline" className="mx-auto mt-2 flex" onClick={() => setDialog({ editing: null })}>
+                  <PlusIcon /> Add an MCP server
+                </Button>
               </EmptyNote>
             ) : (
               list.map((connector) => (

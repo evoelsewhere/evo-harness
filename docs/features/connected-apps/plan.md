@@ -236,7 +236,7 @@ gives them the app server's saved permissions, chat switches and gate hook.
 | shell | `connected_apps/catalog.rs` | Browse merges official entries with Composio toolkits by `composio` slug, official first; Zapier as its own card | FR-20 |
 | shell | `connected_apps/run.rs`, `mates/mod.rs` | per-mate grants for every app server: Apps entries `{"service": "official:github" or "zapier", "tools": …}`; `offered` filters, calls refused; class by the tool's `readOnlyHint` (none means sending) through the existing `grants::plan` | FR-25 |
 | shell | `agent_tools/mates.rs` | `connect_app` standing: a service with an official server offers it first | FR-27 |
-| UI | `features/connected-apps/`, Customize Connectors | cards with **Official** (direct, free) and **Preview** marks, the service page (data goes only to the service, no cost from Evo), Zapier card (tasks note, link to choose actions), token dialog, Failed with the docs link | FR-20 – FR-24, FR-26 |
+| UI | `features/connected-apps/`, Customize Connectors | cards with **Official** (direct, free) and **Preview** marks, the service page (data goes only to the service, no cost from Evo), token dialog, Failed with the docs link; the Connected apps settings panel holds the providers: the Composio key card, the Zapier card (Connect, connection token, status, Disconnect, tasks note, link to choose actions), then Advanced; Browse has no Zapier card | FR-20 – FR-24, FR-26 |
 | UI | `features/connected-apps/mate-apps.tsx` | official servers and Zapier in a mate's Apps with All tools / These tools / None | FR-25 |
 
 Behaviour:
@@ -414,4 +414,22 @@ or a log; results stay tool output.
   and shows Zapier on top; Customize → Connectors lists connected official
   servers and Zapier under Apps with their status, and their page adds the
   pool's connector detail (tools, permissions, log) once connected.
+- 2026-11-28 — Zapier's card moved from Browse into the Connected apps
+  settings panel (owner's request; spec FR-20, FR-24).
+- 2026-11-28 — Connectors reorganised at the owner's request.
+  `features/connected-apps/providers-panel.tsx` (`ProvidersPanel`) replaces
+  the settings panel: one `ProviderCard` shape for Composio (state pill,
+  Replace key / Remove, the key form when not set, the unavailable notice)
+  and Zapier (Connect or Sign in, Choose actions, Open, Disconnect, the
+  token option, the tasks note), `problemOf` turning pool errors into
+  sentences (raw text under Details), and Advanced as one switch for
+  `COMPOSIO_REMOTE_BASH_TOOL` / `COMPOSIO_REMOTE_WORKBENCH` (Block / Ask).
+  The list: **Apps** — Browse apps, connected official servers, Composio
+  services, Zapier, then Providers with a state summary — and **MCP
+  servers** with an add button in its heading (the two buttons on top are
+  gone). `catalog::merge` hides Composio's "X MCP" toolkit when "X" is
+  listed (146 of 2048 on 2026-11-28); the category chips leave out "model
+  context protocol". A Composio service with an official server shows
+  Connect directly on its page. Evo Mates' page uses the same Providers
+  panel.
 
