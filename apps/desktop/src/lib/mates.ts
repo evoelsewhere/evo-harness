@@ -303,3 +303,11 @@ export interface TeamSummary {
   about: string;
   mates: { name: string; role: string; avatar: MateAvatar }[];
 }
+
+/**
+ * What wakes a mate the person just added, so it greets them and asks its
+ * setup questions first (FR-34, ux.md 5). It is not the person's message:
+ * the thread shows only the mate's answer.
+ */
+export const GREETING_PROMPT =
+  "<evo-mates-hello>\nThe person just added you in Evo Mates and opened your conversation. Greet them and ask your setup questions, as your conduct says.\n</evo-mates-hello>";

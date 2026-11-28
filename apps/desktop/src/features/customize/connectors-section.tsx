@@ -721,7 +721,7 @@ export function ConnectorsSection({ query }: { query: string }) {
             {error && <p className="px-2.5 text-xs text-destructive">{error}</p>}
             {loaded && list.length === 0 ? (
               <EmptyNote title={q ? "No matching servers" : "No MCP servers yet"}>
-                An MCP server is a command such as <code>npx -y @modelcontextprotocol/server-memory</code>, or a URL. Every chat
+                An MCP server is a command such as <code className="[overflow-wrap:anywhere]">npx -y @modelcontextprotocol/server-memory</code>, or a URL. Every chat
                 can use its tools; you choose which ones run without asking.
                 <Button size="xs" variant="outline" className="mx-auto mt-2 flex" onClick={() => setDialog({ editing: null })}>
                   <PlusIcon /> Add an MCP server

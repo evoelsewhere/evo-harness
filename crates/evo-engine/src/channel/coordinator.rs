@@ -861,9 +861,7 @@ impl Coordinator {
     ) -> Value {
         lock(&self.state).job.limit = true;
         let seats: Vec<String> = lock(&self.state).seats.values().cloned().collect();
-        let note = format!(
-            "The mates handed work back and forth {handoffs} times for this message, the most this channel allows: every mate stopped. Say how to go on."
-        );
+        let note = limit_note(handoffs);
         self.stop(harness, seats, "limit", note.clone(), cancel)
             .await;
         json!({ "outcome": "completed", "finalText": note })
@@ -1109,9 +1107,30 @@ pub fn job_entry(id: &str, message: &str, track: &JobTrack, result: &Value, at: 
     })
 }
 
+/// The notice at the hand-off limit (FR-18), in words a person reads.
+fn limit_note(handoffs: u32) -> String {
+    let how = if handoffs == 1 {
+        "on once".to_string()
+    } else {
+        format!("back and forth {handoffs} times")
+    };
+    format!(
+        "The mates handed work {how} for this message, the most this channel allows: every mate stopped. Say how to go on."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Found playing a team lead with the limit at 1 (qa-2026-11-28, C10).
+    #[test]
+    fn the_limit_notice_counts_in_words() {
+        assert!(limit_note(1).starts_with("The mates handed work on once for this message"));
+        assert!(limit_note(12)
+            .starts_with("The mates handed work back and forth 12 times for this message"));
+        assert!(limit_note(12).ends_with("every mate stopped. Say how to go on."));
+    }
 
     fn role() -> ChannelRole {
         let member = |id: &str, name: &str, role: &str| ChannelMember {

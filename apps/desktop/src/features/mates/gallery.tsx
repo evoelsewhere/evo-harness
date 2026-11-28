@@ -8,8 +8,6 @@ import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
 import { teamApi, type MateTemplate, type TeamSummary } from "@/lib/mates";
 import { cn } from "@/lib/utils";
-import { log } from "@/lib/db";
-import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
 import { ImportTeam } from "./team-import";
 
@@ -78,16 +76,8 @@ function Describe({ busy, onBusy }: { busy: boolean; onBusy(busy: boolean): void
     const description = text.trim();
     if (!description) return;
     onBusy(true);
-    const mate = await create({});
-    if (mate) {
-      try {
-        // Its engine first gets its tools (mate_profile among them).
-        await useEngineStore.getState().whenSetUp(mate.chatId);
-        await useEngineStore.getState().sendPrompt(description, []);
-      } catch (error) {
-        log("warn", "mates", `could not send the description: ${String(error)}`);
-      }
-    }
+    // The description is its first message, sent once its engine has its tools.
+    await create({}, description);
     onBusy(false);
   };
   return (

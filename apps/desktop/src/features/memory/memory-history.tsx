@@ -41,6 +41,13 @@ const BY: Record<string, string> = {
   undo: "an undo",
 };
 
+/** Who made a change, in words; `agent`: the mate's name in Evo Mates (NFR-7). */
+export function whoChanged(by: string | undefined, agentName?: string): string | undefined {
+  if (!by) return undefined;
+  if (by === "agent" && agentName?.trim()) return agentName.trim();
+  return BY[by];
+}
+
 const VERB: Record<MemoryChange["action"], string> = {
   added: "Added",
   updated: "Updated",
@@ -50,10 +57,10 @@ const VERB: Record<MemoryChange["action"], string> = {
 };
 
 /** One change: what it did, who did it, where it came from, and undo. */
-function ChangeRow({ change, onUndo }: { change: MemoryChange; onUndo(): void }) {
+function ChangeRow({ change, onUndo, agentName }: { change: MemoryChange; onUndo(): void; agentName?: string }) {
   const [open, setOpen] = React.useState(false);
   const listed = useSessionStore((s) => (change.chatId ? s.sessions.some((chat) => chat.id === change.chatId) : false));
-  const by = change.by ? BY[change.by] : undefined;
+  const by = whoChanged(change.by, agentName);
   const canUndo = change.undoable !== false;
   return (
     <div className={cn("rounded-lg px-2.5 py-1.5 transition-colors", open ? "bg-muted/60 dark:bg-accent/40" : "hover:bg-accent/50")}>
@@ -112,7 +119,16 @@ function ChangeRow({ change, onUndo }: { change: MemoryChange; onUndo(): void })
 }
 
 /** The journal, newest first. */
-export function MemoryHistory({ changes, onUndo }: { changes: MemoryChange[]; onUndo(id: number): void }) {
+export function MemoryHistory({
+  changes,
+  onUndo,
+  agentName,
+}: {
+  changes: MemoryChange[];
+  onUndo(id: number): void;
+  /** The mate whose memory this is: its changes read "by Mai", not "by the agent". */
+  agentName?: string;
+}) {
   if (changes.length === 0) return null;
   return (
     <section className="mb-3 flex flex-col gap-0.5">
@@ -121,7 +137,7 @@ export function MemoryHistory({ changes, onUndo }: { changes: MemoryChange[]; on
         <span className="shrink-0 font-normal opacity-70">Every change, newest first</span>
       </p>
       {changes.map((change) => (
-        <ChangeRow key={change.id} change={change} onUndo={() => onUndo(change.id)} />
+        <ChangeRow key={change.id} change={change} agentName={agentName} onUndo={() => onUndo(change.id)} />
       ))}
     </section>
   );

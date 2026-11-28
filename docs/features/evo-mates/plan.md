@@ -1176,3 +1176,13 @@ From the market research, FR-73 – FR-80 (2026-11-28):
 - **The limit after the usage lands.** Usage rows arrive after the run
   settles, so `spend::check_soon` checks three seconds after the chats with
   work change; checking at once missed the turn that crossed the limit.
+- **After the greeting (merge of main, 2026-11-28).** A new mate now greets
+  the person first (`GREETING_PROMPT`, spec A-14), so its thread is never
+  empty: the starters show above the message box until the person's first
+  own message, and Describe a mate passes its description to
+  `mates-store` `create(input, first)`, which sends it instead of the
+  greeting. `create` waits for the shell's set-up (`whenSetUp`) before
+  either first message: sent right after waking, the first turn ran without
+  the mate's tools, so a described mate could not save its name. `mate_profile` keeps QA's rule that the person may name a mate
+  at any time (A-15) and this round's rule that a mate sets its own role
+  only while it is still "New mate" (FR-78, A-21).

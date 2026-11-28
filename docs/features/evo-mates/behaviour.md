@@ -74,4 +74,4 @@ recording, a mate's own cloud computer, outside chat apps, phone and voice
 the 2026-11 market research — Today, starters, teams, message search,
 Knowledge, Describe a mate, check-ins from the panel and a daily spending
 limit (FR-73 – FR-80) — are taken; what that research left out is listed in
-spec A-20 and [research-2026-11.md](research-2026-11.md).
+spec A-24 and [research-2026-11.md](research-2026-11.md).

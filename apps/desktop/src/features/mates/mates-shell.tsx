@@ -3,7 +3,7 @@
 // Harness — and the empty state when no mate is open.
 
 import * as React from "react";
-import { ArrowLeftRightIcon, FolderIcon, HashIcon, HouseIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon, UploadIcon } from "lucide-react";
+import { ArrowLeftRightIcon, FolderIcon, HashIcon, HouseIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SettingsIcon, SunIcon, UploadIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { PluginsIcon } from "@/components/icons/tool-icons";
@@ -224,6 +224,10 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
           Switch to Evo Harness
         </Button>
         <div className="flex-1" />
+        {/* Settings, Evo Mates' section first (FR-29, ux.md 2). */}
+        <IconButton label="Settings" onClick={() => useUiStore.getState().openSettings("mates")}>
+          <SettingsIcon />
+        </IconButton>
         {/* Customize, the same page as in Evo Harness (connected-apps FR-3). */}
         <IconButton label="Customize" onClick={() => useUiStore.getState().openCustomize()}>
           <PluginsIcon />

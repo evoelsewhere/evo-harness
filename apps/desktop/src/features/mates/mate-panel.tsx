@@ -28,21 +28,18 @@ import { MemoryHistory, TidyNow, type MemoryChange } from "@/features/memory";
 import { MateLearning } from "./mate-learning";
 import { MateConnectedApps } from "@/features/connected-apps";
 import { ConfirmDelete } from "./confirm";
+import { panelFloats } from "./bubble-style";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
 import { Knowledge } from "./knowledge";
-import { Starters, startersFor } from "./starters";
 
 /** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
 export function MateGreeting({ mate }: { mate: Mate }) {
-  const templates = useMatesStore((s) => s.templates);
   return (
     <div className="mx-auto flex w-full max-w-(--chat-width) flex-col items-center gap-3 px-6 pb-6 text-center">
       <MateFace avatar={mate.avatar} size={88} live plate={false} label={mate.name} />
       <h1 className="text-2xl font-semibold tracking-tight text-foreground">Say hi to {mate.name}</h1>
       {mate.role && <p className="max-w-md text-sm text-muted-foreground">{mate.role}</p>}
-      {/* What to ask first (FR-74); the greeting shows only while the conversation is empty. */}
-      {!mate.paused && <Starters starters={startersFor(mate, templates)} />}
     </div>
   );
 }
@@ -62,7 +59,8 @@ export function MateBar({ mate, modelPill }: { mate: Mate; modelPill?: React.Rea
   const work = useSessionStore((s) => s.work[mate.chatId]);
   const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
   const queued = useMatesStore((s) => s.queued.includes(mate.chatId));
-  const mood = mateMood(work, busy, queued);
+  const failed = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.turns.at(-1)?.status === "error");
+  const mood = mateMood(work, busy, queued, failed);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const setPanelOpen = useMatesStore((s) => s.setPanelOpen);
   const word = mate.paused ? "Paused" : moodWord(mood);
@@ -339,11 +337,15 @@ function About({ mate }: { mate: Mate }) {
 function Settings({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
   const model = useSessionStore((s) => s.sessions.find((c) => c.id === mate.chatId)?.model ?? null);
+  // The model's name as the bar shows it, when this mate's conversation is shown.
+  const modelName = useEngineStore((s) =>
+    s.activeId === mate.chatId ? s.models.find((m) => m.provider === s.state.provider && m.id === (s.state.modelId ?? s.state.model))?.name : undefined,
+  );
   return (
     <div className="flex flex-col gap-5">
-      <Field label="Model" hint="Pick another in the message box's model menu; the mate keeps it.">
+      <Field label="Model" hint="Pick another from the model menu at the top of the conversation; the mate keeps it.">
         <div className="truncate rounded-2xl bg-muted/50 px-3 py-2 text-[13px] text-foreground">
-          {model ?? "The app's default model"}
+          {modelName ?? model ?? "The app's default model"}
         </div>
       </Field>
       <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Approvals">
@@ -519,6 +521,7 @@ function Memory({ mate }: { mate: Mate }) {
       )}
       <TidyNow owners={[`mate:${mate.id}`]} onDone={() => void request("list_memories").then(() => history())} />
       <MemoryHistory
+        agentName={mate.name}
         changes={changes}
         onUndo={(id) => void history("undo_memory_change", { change: id }).then((done) => (done ? request("list_memories") : undefined))}
       />
@@ -618,9 +621,21 @@ export function MatePanel({ mate }: { mate: Mate }) {
   const duplicate = useMatesStore((s) => s.duplicate);
   const remove = useMatesStore((s) => s.remove);
   const [confirm, setConfirm] = React.useState(false);
+  // Under 920 px the panel floats over the conversation instead of squeezing
+  // it to a sliver that scrolls sideways (ux.md 2; qa-2026-11-28, H2).
+  const [width, setWidth] = React.useState(() => window.innerWidth);
+  React.useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const floats = panelFloats(width);
   return (
     // A soft card beside the conversation, not a ruled-off column (ux.md 2).
-    <aside className="flex h-full w-[332px] shrink-0 p-2 pl-0" aria-label={`${mate.name}'s profile`}>
+    <aside
+      className={cn("flex h-full w-[332px] shrink-0 p-2 pl-0", floats && "absolute inset-y-0 right-0 z-30 max-w-full pl-2")}
+      aria-label={`${mate.name}'s profile`}
+    >
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] bg-card shadow-[0_0_0_1px_color-mix(in_srgb,var(--border)_70%,transparent),0_10px_30px_-18px_rgb(0_0_0/0.25)]">
         <div className="flex h-12 items-center justify-center px-4">
           <div className="text-[13px] font-semibold text-foreground">Mate profile</div>

@@ -10,6 +10,10 @@ import { matesApi, type Mate, type ReactionKind } from "@/lib/mates";
 import { MateComposer } from "./composer";
 import { excerpt, type ReplyTo } from "./message-markup";
 import { SecretCard } from "./secret-card";
+import { Starters, startersFor } from "./starters";
+import { isGreeting, isHeartbeat } from "./thread-rows";
+import { useEngineStore } from "@/stores/engine-store";
+import { useMatesStore } from "@/stores/mates-store";
 import { MateSuggestions } from "./suggestion-card";
 import { MateThread } from "./thread";
 
@@ -17,6 +21,12 @@ export function MateConversation({ mate, empty }: { mate: Mate; empty: React.Rea
   const permission = usePendingPermission();
   const [reply, setReply] = React.useState<ReplyTo | null>(null);
   const [reactions, setReactions] = React.useState<Record<string, ReactionKind>>({});
+  const templates = useMatesStore((s) => s.templates);
+  const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
+  // The person has written: neither a greeting nor a heartbeat is theirs.
+  const wrote = useEngineStore((s) =>
+    s.activeId === mate.chatId ? s.transcript.turns.some((t) => !isGreeting(t.prompt) && !isHeartbeat(t.prompt)) : true,
+  );
 
   React.useEffect(() => {
     setReply(null);
@@ -56,13 +66,19 @@ export function MateConversation({ mate, empty }: { mate: Mate; empty: React.Rea
           {permission.kind === "secret" ? (
             <SecretCard key={permission.requestId} mate={mate} permission={permission} />
           ) : permission.kind === "questions" ? (
-            <QuestionsPanel key={permission.requestId} permission={permission} />
+            <QuestionsPanel key={permission.requestId} permission={permission} asker={mate.name} />
           ) : (
             <ApprovalPanel permission={permission} />
           )}
         </div>
       )}
       {!permission && <MateSuggestions mate={mate} />}
+      {/* What to ask first (FR-74), until the person writes: a new mate greets first (FR-34). */}
+      {!permission && !wrote && !busy && !mate.paused && (
+        <div className="mx-auto flex w-full max-w-3xl justify-center px-4 pb-2">
+          <Starters starters={startersFor(mate, templates)} />
+        </div>
+      )}
       <div hidden={Boolean(permission)}>
         <MateComposer mate={mate} reply={reply} onReplyDone={() => setReply(null)} />
       </div>

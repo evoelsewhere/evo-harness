@@ -108,7 +108,18 @@ function QuestionCard({
   );
 }
 
-export function QuestionsPanel({ permission }: { permission: PermissionRequest }) {
+/** Who the card says is asking: the agent, or a mate by name (evo-mates NFR-7). */
+export function questionWords(count: number, asker?: string): { heading: string; skip: string; label: string } {
+  const who = asker?.trim();
+  const has = count === 1 ? "a question" : `${count} questions`;
+  return {
+    heading: `${who || "The agent"} has ${has}`,
+    skip: `Skip — let ${who || "the agent"} decide`,
+    label: `Questions from ${who || "the agent"}`,
+  };
+}
+
+export function QuestionsPanel({ permission, asker }: { permission: PermissionRequest; asker?: string }) {
   const answerQuestions = usePaneEngine((s) => s.answerQuestions);
   const questions = permission.questions ?? [];
   const [answers, setAnswers] = React.useState<Answer[]>(() => questions.map(() => ({ selected: [], other: "" })));
@@ -118,6 +129,7 @@ export function QuestionsPanel({ permission }: { permission: PermissionRequest }
   const question = questions[step];
   const ready = answers.every(answered);
   const current = answers[step];
+  const words = questionWords(count, asker);
 
   const submit = React.useCallback(() => {
     if (!ready) return;
@@ -195,10 +207,10 @@ export function QuestionsPanel({ permission }: { permission: PermissionRequest }
   if (!question || !current) return null;
 
   return (
-    <div ref={panel} className="flex flex-col gap-2" role="dialog" aria-label="Questions from the agent">
+    <div ref={panel} className="flex flex-col gap-2" role="dialog" aria-label={words.label}>
       <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
         <StatusDot tone="info" pulse />
-        The agent has {count === 1 ? "a question" : `${count} questions`}
+        {words.heading}
         <span className="ml-auto flex items-center gap-1.5">
           <Kbd>Enter</Kbd> {last ? "send" : "next"}
         </span>
@@ -244,7 +256,7 @@ export function QuestionsPanel({ permission }: { permission: PermissionRequest }
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => void answerQuestions(permission.requestId, null)}>
-            Skip — let the agent decide
+            {words.skip}
           </Button>
           <span className="ml-auto" />
           {step > 0 && (

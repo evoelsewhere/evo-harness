@@ -213,6 +213,33 @@ fn prompts_summarise_the_call() {
     assert_eq!(title, "Run plugin_tool?");
 }
 
+// Found playing Evo Mates (docs/features/evo-mates/qa-2026-11-28.md, A4): a
+// memory save asked "Allow memory?" over the call's raw JSON.
+#[test]
+fn memory_prompts_say_what_is_kept_in_plain_words() {
+    let save = json!({ "action": "save", "name": "work-team", "description": "Hung's manager and team meeting", "content": "…" });
+    let (title, text) = describe("memory", Kind::Edit, &save);
+    assert_eq!(
+        (title.as_str(), text.as_str()),
+        ("Save to memory?", "Hung's manager and team meeting")
+    );
+    let (title, text) = describe(
+        "memory",
+        Kind::Edit,
+        &json!({ "action": "update", "name": "work-team" }),
+    );
+    assert_eq!(
+        (title.as_str(), text.as_str()),
+        ("Change a memory?", "work-team")
+    );
+    let (title, _) = describe(
+        "memory",
+        Kind::Edit,
+        &json!({ "action": "delete", "name": "work-team" }),
+    );
+    assert_eq!(title, "Forget a memory?");
+}
+
 // ── The gate ────────────────────────────────────────────────────────────────
 
 fn message() -> evo_ai::types::AssistantMessage {

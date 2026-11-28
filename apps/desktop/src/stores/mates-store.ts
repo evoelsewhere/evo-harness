@@ -9,6 +9,7 @@ import { create } from "zustand";
 import type { MateMood } from "@/components/mate-face/mate-face";
 import { log } from "@/lib/db";
 import {
+  GREETING_PROMPT,
   channelsApi,
   matesApi,
   type Channel,
@@ -60,7 +61,8 @@ interface MatesStore {
   /** Open the panel at `tab`. */
   openPanel(tab: MatePanelTab): void;
   setPanelTab(tab: MatePanelTab): void;
-  create(input: CreateMate): Promise<Mate | null>;
+  /** Make a mate and open it; it greets the person, or answers `first` when given (Describe a mate, FR-78). */
+  create(input: CreateMate, first?: string): Promise<Mate | null>;
   update(id: string, patch: MatePatch): Promise<void>;
   duplicate(id: string): Promise<void>;
   remove(id: string): Promise<void>;
@@ -215,7 +217,7 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
     set({ panelTab: tab });
   },
 
-  async create(input) {
+  async create(input, first) {
     try {
       const mate = await matesApi.create(input);
       set((s) => ({ mates: [...s.mates.filter((m) => m.id !== mate.id), mate] }));
@@ -223,6 +225,21 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
       // again so the engine store can show it.
       await useSessionStore.getState().load();
       await get().open(mate.id);
+      // The new mate greets the person and asks its setup questions first
+      // (FR-34, ux.md 5): picking it is what asks for that (A-5).
+      // Once its engine is up and its (empty) history is shown: a prompt sent
+      // while the new conversation still loads is answered but never shown.
+      const engine = useEngineStore.getState();
+      if (engine.activeId === mate.chatId && (await engine.wakeEngine(mate.chatId)) && useEngineStore.getState().activeId === mate.chatId) {
+        // After the shell gave the engine its tools, or the first turn runs without
+        // `mate_profile` ("cannot configure external tools while a run is active").
+        // A described mate answers the description instead: it is the person's first message (FR-78).
+        void useEngineStore
+          .getState()
+          .whenSetUp(mate.chatId)
+          .then(() => useEngineStore.getState().sendPrompt(first ?? GREETING_PROMPT))
+          .catch(report("waking the new mate"));
+      }
       return mate;
     } catch (error) {
       report("creating a mate")(error);
@@ -265,13 +282,27 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
   },
 }));
 
-/** A mate's state for its row, header and face (ux.md 4). */
-export function mateMood(work: ChatWork | undefined, busy: boolean, queued = false): MateMood {
+/**
+ * A mate's state for its row, header and face (ux.md 4); `failed`: its last
+ * turn ended in an error, which reads "Couldn't reply" until it works again
+ * (FR-32).
+ */
+export function mateMood(work: ChatWork | undefined, busy: boolean, queued = false, failed = false): MateMood {
   if (work === "waiting") return "waiting";
   if (work === "working" || busy) return "working";
   // Waiting for room under the running limit (NFR-6).
   if (queued) return "queued";
+  if (failed) return "error";
   return "idle";
+}
+
+/**
+ * A reply the person sees as it lands is read: its conversation is shown in a
+ * window that has the focus (FR-6). The shell marks it unread when the window
+ * was in the background; coming back to it clears that.
+ */
+export function seenNow(at: { chat: string; shown: string | null; unread: boolean; focused: boolean }): boolean {
+  return at.unread && at.focused && at.shown === at.chat;
 }
 
 /** The word a state shows in a roster row or the header (ux.md 4). */

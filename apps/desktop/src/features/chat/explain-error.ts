@@ -3,7 +3,7 @@
 // Read from the text the provider or engine already sends; nothing is
 // guessed beyond the status code and a few well-known words.
 
-export type ErrorKind = "auth" | "rate" | "unavailable" | "network" | "context" | "other";
+export type ErrorKind = "setup" | "auth" | "rate" | "unavailable" | "network" | "context" | "other";
 
 export interface ExplainedError {
   kind: ErrorKind;
@@ -25,6 +25,10 @@ export function explainError(text: string, provider?: string): ExplainedError {
   const who = provider?.trim() || "The provider";
   const code = status(text);
   const lower = text.toLowerCase();
+  // No provider at all (evo-runtime's unconfigured provider): set one up.
+  if (/no model provider is connected/.test(lower)) {
+    return { kind: "setup", title: "Connect a model provider first, then send your message again.", detail };
+  }
   if (code === 401 || code === 403 || /authentication_error|invalid x-api-key|invalid api key|permission_error/.test(lower)) {
     return { kind: "auth", title: `${who} rejected the API key.`, detail };
   }

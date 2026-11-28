@@ -21,6 +21,8 @@ import { MatesEmpty, MatesSidebar } from "@/features/mates/mates-shell";
 import { FilesPage } from "@/features/mates/files-page";
 import { TodayPage } from "@/features/mates/today";
 import { startShellNotices } from "@/features/notifications/notify";
+import { Toaster } from "@/features/notifications/toaster";
+import { SettingsDialog } from "@/features/settings/settings-view";
 import { QuitDialog } from "@/features/shell/quit-dialog";
 import { WindowControls } from "@/features/shell/window-controls";
 import { installErrorLogging, log } from "@/lib/db";
@@ -28,7 +30,8 @@ import { inTauri, isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { setNativeMaterial } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
-import { useMatesStore } from "@/stores/mates-store";
+import { seenNow, useMatesStore } from "@/stores/mates-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 
 function useBootstrap() {
@@ -98,11 +101,30 @@ function MatesCustomize() {
   );
 }
 
+/**
+ * The shown mate's reply that landed while this window was in the background
+ * is read once the person is back on it (FR-6): clicking the mate already
+ * shown selects nothing, so nothing else would clear it.
+ */
+function useReadOnSight(chat: string | null, shown: string | null) {
+  const unread = useSessionStore((s) => (chat ? Boolean(s.sessions.find((c) => c.id === chat)?.unread) : false));
+  React.useEffect(() => {
+    if (!chat || !unread) return;
+    const check = () => {
+      if (seenNow({ chat, shown, unread, focused: document.hasFocus() })) useSessionStore.getState().markUnread(chat, false);
+    };
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [chat, shown, unread]);
+}
+
 function Conversation() {
   const mate = useShownMate();
   const view = useMatesStore((s) => s.view);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const shown = useEngineStore((s) => s.activeId);
+  useReadOnSight(mate?.chatId ?? null, shown);
   const customizeOpen = useUiStore((s) => s.customizeOpen);
   // Opening a mate, a channel or the gallery leaves Customize.
   React.useEffect(() => {
@@ -116,11 +138,11 @@ function Conversation() {
   if (view.kind === "files") return <FilesPage />;
   if (!mate) return <MatesEmpty />;
   return (
-    <div className="flex h-full min-h-0">
+    <div className="relative flex h-full min-h-0">
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* The conversation's bar, in its own row under the title row (ux.md 2). */}
         <div className="flex h-12 shrink-0 items-center pr-2">
-          <MateBar mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateName={mate.name} /> : null} />
+          <MateBar mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateId={mate.id} mateName={mate.name} /> : null} />
         </div>
         {/* The mate's thread, once the engine store shows its chat. */}
         <div className="min-h-0 flex-1">
@@ -170,6 +192,10 @@ export function MatesApp() {
       </div>
       {/* "N chats are working. Quit anyway?" when the shell asks in this window. */}
       <QuitDialog />
+      {/* Settings, the same as Evo Harness's (FR-29: the sidebar's footer opens it). */}
+      <SettingsDialog />
+      {/* In-app notices ("File not found", …) show here too, as in Evo Harness. */}
+      <Toaster />
     </div>
   );
 }

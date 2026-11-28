@@ -4,8 +4,11 @@
 // Pure: no React, so it is tested on its own.
 
 import type { Turn } from "@/features/chat";
+import { GREETING_PROMPT } from "@/lib/mates";
 import { picturesOf, sentFilesOf, splitMessage, type SentFile } from "./attachments";
 import { parsePrompt, type ReplyTo } from "./message-markup";
+
+export { GREETING_PROMPT };
 
 /** One bubble of the thread. */
 export interface Bubble {
@@ -53,7 +56,9 @@ export function timeLine(at: number, now = Date.now()): string {
 export function stepsLine(turn: Pick<Turn, "parts">): string | null {
   const counts = new Map<string, number>();
   for (const part of turn.parts) {
-    if (part.kind !== "tool") continue;
+    // A denied or failed step did not happen: "Edited 1 file" after Deny
+    // misleads the person (qa-2026-11-28, D5).
+    if (part.kind !== "tool" || part.phase === "error") continue;
     const word = toolWord(part.name);
     if (word) counts.set(word, (counts.get(word) ?? 0) + 1);
   }
@@ -76,6 +81,7 @@ function toolWord(name: string): string | null {
   if (name === "mate_profile") return "Saved your answers";
   if (name === "connect_app") return "Asked to connect an app";
   if (name === "request_secret") return "Asked for a secret";
+  if (name === "mate_agenda") return "Noted to follow up";
   // Its files show under its text (FR-82).
   if (name === "send_file") return "Sent {n} files";
   return "Used {n} tools";
@@ -86,7 +92,10 @@ function currentStep(turn: Turn): string | null {
   const running = [...turn.parts].reverse().find((part) => part.kind === "tool" && part.phase !== "done");
   if (!running || running.kind !== "tool") return null;
   const word = toolWord(running.name);
-  return word ? `${word.replace(" {n}", "").replace("{n} ", "")}…` : null;
+  if (!word) return null;
+  // A step with no plain word of its own: the mate is working (FR-59).
+  if (word.includes("{n} tools")) return "Working…";
+  return `${word.replace(" {n}", "").replace("{n} ", "")}…`;
 }
 
 /** The turn saved or changed a memory topic: its "Saved to memory" chip (FR-35). */
@@ -104,6 +113,11 @@ const baseKey = (turn: Turn) => turn.entryId ?? turn.id;
 /** A turn the heartbeat started: the mate decides whether to write first (FR-64). */
 export function isHeartbeat(prompt: string): boolean {
   return prompt.trimStart().startsWith("<evo-mates-heartbeat");
+}
+
+/** A turn that woke a new mate to greet the person (FR-34). */
+export function isGreeting(prompt: string): boolean {
+  return prompt.trimStart().startsWith("<evo-mates-hello>");
 }
 
 /** A reply that says nothing is worth saying (`NOTHING_TO_SAY`): never shown. */
@@ -139,7 +153,8 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
     const { text: said0, reply } = parsePrompt(turn.prompt);
     // Attached files and pasted text show as chips, not as markup (FR-81).
     const { text, files, pasted } = splitMessage(said0);
-    if (text.trim() || turn.images?.length || files.length || pasted.length) {
+    // A new mate's wake-up is not the person's message (FR-34).
+    if (!isGreeting(turn.prompt) && (text.trim() || turn.images?.length || files.length || pasted.length)) {
       push({
         key: `${base}:prompt`,
         side: "me",

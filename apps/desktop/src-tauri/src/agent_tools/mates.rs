@@ -61,11 +61,11 @@ fn definitions() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "name": { "type": "string", "description": "Your own name, when the person gives you one, or the short name you choose while you are still called \"New mate\": you are renamed to it." },
                     "callYou": { "type": "string", "description": "What the person wants to be called." },
                     "focus": { "type": "string", "description": "What to focus on." },
                     "style": { "type": "string", "description": "How they like the work done." },
                     "apps": { "type": "array", "items": { "type": "string" }, "description": "The apps they use for this work." },
-                    "name": { "type": "string", "description": "Your short name, only while you are still called \"New mate\"." },
                     "role": { "type": "string", "description": "What you do, in one line, only while you are still called \"New mate\"." }
                 },
                 "additionalProperties": false
@@ -223,48 +223,49 @@ pub fn with_setup(instructions: &str, given: &[(&str, String)]) -> String {
     format!("{own}{gap}{SETUP_MARK}\n{}", lines.join("\n"))
 }
 
-/// The `name` and `role` a mate gives itself (FR-78): one line each, kept
-/// only while it still has the from-scratch name, so nothing a named mate
-/// reads later can rename it.
-pub(crate) fn identity(current: &str, args: &Value) -> Result<(Option<String>, Option<String>), String> {
+/// A name the person gives a mate, at most.
+const NAME_CHARS: usize = 40;
+
+/// A role a new mate gives itself, at most (FR-78).
+const ROLE_CHARS: usize = 120;
+
+/// What `mate_profile` changes: the setup answers in the instructions; its
+/// name, when the person named the mate or a new mate names itself (FR-34,
+/// FR-78); and its one-line role, only while it is still called "New mate",
+/// so nothing a named mate reads later changes what it is for (FR-78).
+fn profile_patch(current: &str, instructions: &str, args: &Value) -> Result<evo_store::mates::MatePatch, String> {
+    let given = answers(args);
     let line = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
             .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
             .filter(|text| !text.is_empty())
     };
-    let (name, role) = (line("name"), line("role"));
-    if name.is_none() && role.is_none() {
-        return Ok((None, None));
+    let name = line("name")
+        .map(|name| name.chars().take(NAME_CHARS).collect::<String>().trim().to_string())
+        .filter(|name| !name.is_empty());
+    let role = line("role");
+    if role.is_some() && current != crate::mates::SCRATCH_NAME {
+        return Err(format!("You are already called {current}: only the person changes your role, in your panel."));
     }
-    if current != crate::mates::SCRATCH_NAME {
-        return Err(format!(
-            "You are already called {current}: only the person changes your name and role, in your panel."
-        ));
-    }
-    if name.as_ref().is_some_and(|n| n.chars().count() > 40) {
-        return Err("Keep your name short: 40 characters at most.".into());
-    }
-    if role.as_ref().is_some_and(|r| r.chars().count() > 120) {
+    if role.as_ref().is_some_and(|r| r.chars().count() > ROLE_CHARS) {
         return Err("Keep your role to one short line: 120 characters at most.".into());
     }
-    Ok((name, role))
+    if given.is_empty() && name.is_none() && role.is_none() {
+        return Err("Nothing to save: give at least one answer.".into());
+    }
+    Ok(evo_store::mates::MatePatch {
+        name,
+        role,
+        instructions: (!given.is_empty()).then(|| with_setup(instructions, &given)),
+        ..Default::default()
+    })
 }
 
 async fn save_profile(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Value) -> ToolOutput {
-    let given = answers(args);
-    let (name, role) = match identity(&mate.name, args) {
-        Ok(found) => found,
-        Err(why) => return ToolOutput::error(why),
-    };
-    if given.is_empty() && name.is_none() && role.is_none() {
-        return ToolOutput::error("Nothing to save: give at least one answer.");
-    }
-    let patch = evo_store::mates::MatePatch {
-        instructions: (!given.is_empty()).then(|| with_setup(&mate.instructions, &given)),
-        name,
-        role,
-        ..Default::default()
+    let patch = match profile_patch(&mate.name, &mate.instructions, args) {
+        Ok(patch) => patch,
+        Err(error) => return ToolOutput::error(error),
     };
     match crate::mates::mates_update(ctx.app.clone(), mate.id.clone(), patch).await {
         Ok(Some(_)) => ToolOutput::text(
@@ -724,16 +725,14 @@ mod tests {
     }
 
     #[test]
-    fn a_mate_names_itself_only_while_it_is_new() {
-        let args = json!({ "name": "  Penny ", "role": "Keeps receipts
-and spending in order" });
-        assert_eq!(
-            identity(crate::mates::SCRATCH_NAME, &args).unwrap(),
-            (Some("Penny".to_string()), Some("Keeps receipts and spending in order".to_string()))
-        );
-        assert_eq!(identity("Penny", &json!({ "focus": "x" })).unwrap(), (None, None), "no name asked: nothing refused");
-        assert!(identity("Penny", &json!({ "name": "Eve" })).unwrap_err().contains("already"));
-        assert!(identity(crate::mates::SCRATCH_NAME, &json!({ "name": "x".repeat(41) })).is_err(), "a short name");
+    fn a_new_mate_names_itself_and_sets_its_role_only_while_it_is_new() {
+        let scratch = crate::mates::SCRATCH_NAME;
+        let patch = profile_patch(scratch, "", &json!({ "name": "  Penny ", "role": "Keeps receipts\nand spending in order" })).unwrap();
+        assert_eq!(patch.name.as_deref(), Some("Penny"));
+        assert_eq!(patch.role.as_deref(), Some("Keeps receipts and spending in order"));
+        assert!(profile_patch("Penny", "", &json!({ "role": "Something else" })).unwrap_err().contains("already"), "a named mate keeps its role");
+        assert_eq!(profile_patch("Penny", "", &json!({ "name": "Eve" })).unwrap().name.as_deref(), Some("Eve"), "the person may still name it (FR-34)");
+        assert!(profile_patch(scratch, "", &json!({ "role": "x".repeat(121) })).is_err(), "a short role");
     }
 
     #[test]
@@ -762,6 +761,22 @@ and spending in order" });
             with_setup("", &[("style", "short".to_string())]),
             format!("{SETUP_MARK}\n- How they like the work done: short")
         );
+    }
+
+    // docs/features/evo-mates/spec.md (FR-34): the person names the mate in
+    // setup; found playing a first-time user (qa-2026-11-28, A3).
+    #[test]
+    fn the_name_the_person_gives_renames_the_mate() {
+        let patch = profile_patch("Writer", "Be brief.", &json!({ "name": "  Mai ", "focus": "planning" })).unwrap();
+        assert_eq!(patch.name.as_deref(), Some("Mai"));
+        assert!(patch.instructions.as_deref().is_some_and(|text| text.contains("- Focus on: planning")));
+        // A name alone is enough; nothing at all is not.
+        let named = profile_patch("Writer", "Be brief.", &json!({ "name": "Mai" })).unwrap();
+        assert_eq!((named.name.as_deref(), named.instructions), (Some("Mai"), None));
+        assert!(profile_patch("Writer", "Be brief.", &json!({ "name": "  " })).is_err());
+        // A name is one short line.
+        let long = profile_patch("Writer", "", &json!({ "name": "Mai\nthe very long name of a mate that goes on and on and on and on" })).unwrap();
+        assert_eq!(long.name.as_deref().map(|n| n.chars().count() <= 40 && !n.contains('\n')), Some(true));
     }
 
     #[test]
