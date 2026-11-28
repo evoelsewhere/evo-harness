@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "@/features/chat";
-import { GREETING_PROMPT, isGreeting, isHeartbeat, isSilent, stepsLine, threadRows } from "./thread-rows";
+import { GREETING_PROMPT, dayLabel, isGreeting, isHeartbeat, isLong, isSilent, stepItems, stepsLine, threadRows } from "./thread-rows";
 
 const turn = (over: Partial<Turn>): Turn =>
   ({
@@ -20,7 +20,7 @@ const text = (t: string) => ({ kind: "text" as const, key: t, text: t, streaming
 describe("mate thread rows", () => {
   test("a turn is the person's bubble, then the mate's, with one time line", () => {
     const rows = threadRows([turn({ id: "a", parts: [text("hello"), text("how can I help?")] })], false);
-    expect(rows.map((r) => r.kind)).toEqual(["time", "bubble", "bubble", "bubble"]);
+    expect(rows.map((r) => r.kind)).toEqual(["day", "time", "bubble", "bubble", "bubble"]);
     const bubbles = rows.filter((r) => r.kind === "bubble");
     expect(bubbles.map((r) => (r.kind === "bubble" ? [r.bubble.side, r.first, r.last] : null))).toEqual([
       ["me", true, true],
@@ -113,5 +113,65 @@ describe("a new mate's greeting", () => {
     const rows = threadRows([turn({ id: "g", prompt: GREETING_PROMPT, parts: [text("Hi, I'm Mai.")] })], false);
     expect(rows.filter((r) => r.kind === "bubble").map((r) => (r.kind === "bubble" ? r.bubble.side : null))).toEqual(["mate"]);
     expect(rows.some((r) => r.kind === "delivered")).toBe(false);
+  });
+});
+
+// docs/features/evo-mates-ui-v2/spec.md (FR-11, FR-14, FR-17, FR-18).
+describe("v2 thread rows", () => {
+  const at = (daysAgo: number, hour: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    d.setHours(hour, 0, 0, 0);
+    return d.getTime();
+  };
+
+  test("each day opens with its separator, once", () => {
+    const rows = threadRows(
+      [
+        turn({ id: "a", startedAt: at(2, 9), parts: [text("x")] }),
+        turn({ id: "b", startedAt: at(2, 10), parts: [text("y")] }),
+        turn({ id: "c", startedAt: at(0, 9), parts: [text("z")] }),
+      ],
+      false,
+    );
+    expect(rows.filter((r) => r.kind === "day")).toHaveLength(2);
+  });
+
+  test("day labels: Today, Yesterday, then the date", () => {
+    const now = at(0, 12);
+    expect(dayLabel(at(0, 8), now)).toBe("Today");
+    expect(dayLabel(at(1, 8), now)).toBe("Yesterday");
+    expect(dayLabel(at(3, 8), now)).not.toMatch(/Today|Yesterday/);
+  });
+
+  test("a stopped reply ends with a Stopped line", () => {
+    const rows = threadRows([turn({ status: "aborted", parts: [text("half a")] })], false);
+    expect(rows.at(-1)?.kind).toBe("stopped");
+    expect(rows.some((r) => r.kind === "delivered")).toBe(false);
+  });
+
+  test("steps carry their turn, for the chip's list", () => {
+    const rows = threadRows([turn({ parts: [tool("read"), text("done")] })], false);
+    const steps = rows.find((r) => r.kind === "steps");
+    expect(steps?.kind === "steps" ? steps.turn.parts.length : 0).toBe(2);
+  });
+
+  test("step items say what each step touched, never the tool's name", () => {
+    const read = { ...tool("read"), args: { path: "C:\\work\\docs\\notes.md" } };
+    const search = { ...tool("web_search"), args: { query: "release checklist" } };
+    const denied = { ...tool("edit"), phase: "error" as const, output: "The person denied this", args: { path: "a/b.md" } };
+    const odd = tool("sessions_search");
+    expect(stepItems({ parts: [read, search, denied, odd, tool("memory")] })).toEqual([
+      { key: "read", word: "Read", target: "notes.md", status: "done" },
+      { key: "web_search", word: "Searched the web for", target: "“release checklist”", status: "done" },
+      { key: "edit", word: "Edited", target: "b.md", status: "denied" },
+      { key: "sessions_search", word: "Used a tool", target: null, status: "done" },
+    ]);
+  });
+
+  test("long messages fold", () => {
+    expect(isLong("x".repeat(1201))).toBe(true);
+    expect(isLong(Array.from({ length: 17 }, () => "line").join("\n"))).toBe(true);
+    expect(isLong("short")).toBe(false);
   });
 });

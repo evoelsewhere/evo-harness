@@ -76,6 +76,14 @@ const report = (what: string) => (error: unknown) => log("warn", "mates", `${wha
 
 let listening = false;
 
+/** Conversations that were unread when the person opened them (evo-mates-ui-v2 FR-12, A-2). */
+const openedUnread = new Map<string, boolean>();
+
+/** Whether `chat` was unread when the person last opened it. */
+export function takeOpenedUnread(chat: string): boolean {
+  return openedUnread.get(chat) ?? false;
+}
+
 export const useMatesStore = create<MatesStore>()((set, get) => ({
   loaded: false,
   mates: [],
@@ -135,6 +143,8 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
   async open(id) {
     const mate = get().mates.find((m) => m.id === id);
     if (!mate) return;
+    // Whether it opened unread: where the thread puts its "New" line (evo-mates-ui-v2 FR-12).
+    openedUnread.set(mate.chatId, Boolean(useSessionStore.getState().sessions.find((c) => c.id === mate.chatId)?.unread));
     set({ view: { kind: "mate", id } });
     await useEngineStore.getState().selectSession(mate.chatId);
   },

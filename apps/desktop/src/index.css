@@ -675,3 +675,20 @@
     animation: none;
   }
 }
+
+/* Evo Mates UI v2 (docs/features/evo-mates-ui-v2/spec.md, FR-5, FR-16):
+   a working mate's presence mark breathes; a quoted message flashes when its
+   reply's quote is clicked. Both only under `motion-safe`. */
+@keyframes presence-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 45%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 0%, transparent); }
+}
+@keyframes mates-flash {
+  0%, 60% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+.mates-flash { animation: mates-flash 1.5s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { .mates-flash { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent); } }
+/* Find in a conversation (evo-mates-ui-v2 FR-15): every match, and the one shown. */
+::highlight(mates-find) { background-color: color-mix(in srgb, #ff990a 35%, transparent); color: inherit; }
+::highlight(mates-find-current) { background-color: #ff990a; color: #171717; }

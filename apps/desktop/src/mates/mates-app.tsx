@@ -16,9 +16,15 @@ import { MateModelPicker } from "@/features/mates/model-picker";
 import { ChannelBar, ChannelView } from "@/features/mates/channel-view";
 import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
-import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
+import { MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
+import { MateHeader } from "@/features/mates/mate-header";
 import { MatesEmpty, MatesSidebar } from "@/features/mates/mates-shell";
 import { FilesPage } from "@/features/mates/files-page";
+import { QuickSwitcher } from "@/features/mates/quick-switcher";
+import { ShortcutsSheet } from "@/features/mates/shortcuts-sheet";
+import { panelDocks, railForced, sidebarForm } from "@/features/mates/sidebar-layout";
+import { useMatesKeys } from "@/features/mates/use-mates-keys";
+import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { TodayPage } from "@/features/mates/today";
 import { startShellNotices } from "@/features/notifications/notify";
 import { Toaster } from "@/features/notifications/toaster";
@@ -33,6 +39,17 @@ import { useEngineStore } from "@/stores/engine-store";
 import { seenNow, useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+
+/** The window's width, kept current (FR-1, FR-31). */
+function useWindowWidth(): number {
+  const [width, setWidth] = React.useState(() => window.innerWidth);
+  React.useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
 
 function useBootstrap() {
   React.useEffect(() => {
@@ -120,6 +137,7 @@ function useReadOnSight(chat: string | null, shown: string | null) {
 }
 
 function Conversation() {
+  const width = useWindowWidth();
   const mate = useShownMate();
   const view = useMatesStore((s) => s.view);
   const panelOpen = useMatesStore((s) => s.panelOpen);
@@ -141,8 +159,8 @@ function Conversation() {
     <div className="relative flex h-full min-h-0">
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* The conversation's bar, in its own row under the title row (ux.md 2). */}
-        <div className="flex h-12 shrink-0 items-center pr-2">
-          <MateBar mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateId={mate.id} mateName={mate.name} /> : null} />
+        <div className="flex h-14 shrink-0 items-center border-b border-border/50">
+          <MateHeader mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateId={mate.id} mateName={mate.name} /> : null} />
         </div>
         {/* The mate's thread, once the engine store shows its chat. */}
         <div className="min-h-0 flex-1">
@@ -158,6 +176,14 @@ function Conversation() {
           )}
         </div>
       </div>
+      {/* Under 1100 px the profile floats over the conversation; a click beside it closes it (FR-31). */}
+      {panelOpen && !panelDocks(width) && (
+        <div
+          aria-hidden
+          onClick={() => useMatesStore.getState().setPanelOpen(false)}
+          className="absolute inset-0 z-20 animate-in bg-black/15 duration-200 fade-in dark:bg-black/35"
+        />
+      )}
       {panelOpen && <MatePanel mate={mate} />}
     </div>
   );
@@ -174,9 +200,15 @@ function TitleRow() {
 
 export function MatesApp() {
   useBootstrap();
+  useMatesKeys();
+  const width = useWindowWidth();
+  const folded = useMatesUiStore((s) => s.sidebarFolded);
+  const form = sidebarForm(width, folded);
   return (
     <div className="flex h-full min-h-0">
       <MatesSidebar
+        form={form}
+        forced={railForced(width)}
         titleBar={
           <div
             data-tauri-drag-region
@@ -196,6 +228,9 @@ export function MatesApp() {
       <SettingsDialog />
       {/* In-app notices ("File not found", …) show here too, as in Evo Harness. */}
       <Toaster />
+      {/* Ctrl+K and Ctrl+/ (FR-7, FR-8). */}
+      <QuickSwitcher />
+      <ShortcutsSheet />
     </div>
   );
 }

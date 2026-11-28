@@ -13,10 +13,11 @@ describe("a bubble's text", () => {
   });
 });
 
-// ux.md 2: under 920 px the mate panel floats over the conversation (H2).
+// ux.md 2: the mate panel floats over the conversation in a narrow window
+// (H2); Evo Mates UI v2 docks it only from 1100 px (FR-31).
 describe("the mate panel", () => {
   test("floats over the conversation in a narrow window", () => {
-    expect(panelFloats(919)).toBe(true);
-    expect(panelFloats(920)).toBe(false);
+    expect(panelFloats(1099)).toBe(true);
+    expect(panelFloats(1100)).toBe(false);
   });
 });
