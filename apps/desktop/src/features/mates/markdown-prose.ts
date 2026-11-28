@@ -52,7 +52,7 @@ export function mapProse(markdown: string, fn: (prose: string) => string): strin
 }
 
 /** Inline code, links, images, autolinks and bare URLs, kept whole. */
-const KEEP = /(`+)[\s\S]*?\1|!?\[[^\]]*\]\([^)]*\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*[^\s<>().,;:!?'"]|\bwww\.[^\s<>()]*[^\s<>().,;:!?'"]/gi;
+const KEEP = /(`+)[\s\S]*?\1|!?\[[^\]]*\]\([^)]*\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*[^\s<>().,;:!?'"]|\bwww\.[^\s<>()]*[^\s<>().,;:!?'"]|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\/[^\s<>()]*[^\s<>().,;:!?'"]/gi;
 
 function mapInline(text: string, fn: (prose: string) => string): string {
   let out = "";

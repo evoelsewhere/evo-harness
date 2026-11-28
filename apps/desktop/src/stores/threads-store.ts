@@ -22,11 +22,15 @@ export const useThreadsStore = create<ThreadsState>()((set, get) => ({
   byChat: {},
   async load() {
     const followed = await linksApi.followed().catch(() => null);
-    if (followed) set({ followed });
+    // A new array re-renders the sidebar and feed: only when it changed (part C review #10).
+    if (followed && JSON.stringify(followed) !== JSON.stringify(get().followed)) set({ followed });
   },
   async loadChat(chat) {
     const rows = await linksApi.threadsOf(chat).catch(() => null);
-    if (rows) set((s) => ({ byChat: { ...s.byChat, [chat]: Object.fromEntries(rows.map((r) => [r.root, r])) } }));
+    if (!rows) return;
+    const next = Object.fromEntries(rows.map((r) => [r.root, r]));
+    if (JSON.stringify(next) === JSON.stringify(get().byChat[chat] ?? null)) return;
+    set((s) => ({ byChat: { ...s.byChat, [chat]: next } }));
   },
   async set(chat, root, change) {
     await linksApi.set(chat, root, change).catch(() => undefined);

@@ -404,7 +404,8 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
                 onReply={() => actions.reply({ from: row.me ? "you" : row.name, text: plain })}
                 onPin={() => actions.pin(row.key, plain)}
                 onForward={() => actions.forward(row.me ? "You" : row.name, plain)}
-                onThread={actions.openThread ? () => actions.openThread?.(row.key) : undefined}
+                // An also-sent copy belongs to its thread (part C review #6).
+                onThread={actions.openThread ? () => actions.openThread?.(row.alsoThread ?? row.key) : undefined}
                 onShare={actions.share ? () => actions.share?.(row.key) : undefined}
                 onCopyLink={actions.copyLink ? () => actions.copyLink?.(row.key) : undefined}
               />

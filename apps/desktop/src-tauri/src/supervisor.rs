@@ -1461,6 +1461,8 @@ pub async fn on_line(app: &AppHandle, chat: &str, generation: u64, line: &Value)
             crate::learning::retro::on_channel_event(app, chat, entry);
             // A line that mentions the person (evo-mates-messaging FR-18).
             crate::mates::mentions::on_channel_event(app, chat, entry);
+            // A thread's line: the Threads list reads again (evo-mates-threads-board FR-20).
+            crate::mates::links::on_channel_event(app, entry);
         }
     }
     let kind = line.get("type").and_then(Value::as_str);

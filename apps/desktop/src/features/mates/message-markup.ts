@@ -26,6 +26,18 @@ export interface ReplyTo {
 
 const NOTE = /^<evo-mates-note>([\s\S]*?)<\/evo-mates-note>\n?/;
 const REPLY = /^<evo-mates-reply from="([^"]*)">([\s\S]*?)<\/evo-mates-reply>\n?/;
+/** Our block tags, matched case-insensitively (evo-mates-threads-board, part C review S). */
+const BLOCK_TAG = /<(\/?\s*)(evo-mates[a-z-]*|from|recent|thread|parent|quoted|channel|instructions|reactions|board-data|shared)(?=[\s>/]|$)/gi;
+
+/**
+ * `text` with any of our block tags made inert (`<from` → `‹from`), so text
+ * the window puts inside a block (a forwarded or shared line) can never
+ * close it or fake another one. The engine does the same (`neutral`).
+ */
+export function neutralMarkup(text: string): string {
+  return text.replace(BLOCK_TAG, "\u2039$1$2");
+}
+
 /** A message from a thread's box (evo-mates-threads-board FR-1, FR-22). */
 const THREAD = /^<evo-mates-thread root="([^"]*)"(\s+also="channel")?\s*\/>\n?/i;
 
@@ -55,7 +67,7 @@ export interface Shared {
 
 /** A share of `lines` from `from` (FR-16): marked as shared, never the person's request; the note is the person's words. */
 export function sharePrompt(from: string, link: string, lines: { author: string; text: string }[], note: string): string {
-  const body = lines.map((l) => `${clean(l.author)}: ${l.text.replace(/<\/?evo-mates-[a-z]+[^>]*>/g, "").trim()}`).join("\n");
+  const body = lines.map((l) => `${clean(l.author)}: ${neutralMarkup(l.text).trim()}`).join("\n");
   return `<evo-mates-share from="${clean(from)}" link="${link.replace(/"/g, "")}" lines="${lines.length}" instruction="false">\n${body}\n</evo-mates-share>\n${note.trim() || "(Shared for your information.)"}`;
 }
 
@@ -70,7 +82,7 @@ const FORWARD = /^<evo-mates-forward from="([^"]*)">\n?([\s\S]*?)\n?<\/evo-mates
 
 /** A forwarded message as the person sends it on (evo-mates-messaging FR-10): marked as quoted, not their instruction. */
 export function forwardPrompt(from: string, text: string, note: string): string {
-  const body = `<evo-mates-forward from="${clean(from)}">\n${text.replace(/<\/?evo-mates-forward[^>]*>/g, "")}\n</evo-mates-forward>\n`;
+  const body = `<evo-mates-forward from="${clean(from)}">\n${neutralMarkup(text)}\n</evo-mates-forward>\n`;
   return body + (note.trim() || "(Forwarded for your information.)");
 }
 

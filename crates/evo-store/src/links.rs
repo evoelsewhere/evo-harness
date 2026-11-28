@@ -131,8 +131,12 @@ const FOLLOW_COLUMNS: &str =
     "chat_id, root, root_excerpt, following, resolved, replies, last_ms, last_author, last_read_ms";
 
 /// A line landed in the thread under `root` (FR-20, FR-21): one more reply,
-/// the thread reopens, and `follow` makes the person follow it. The person's
-/// own line counts as read.
+/// the thread reopens. `follow_new` makes the person follow a thread seen for
+/// the first time (they started it, wrote in it or were mentioned);
+/// afterwards only `refollow` (their own line, or `@you`) follows it again,
+/// so an unfollow holds (part C review #1). The person's own line counts as
+/// read.
+#[allow(clippy::too_many_arguments)]
 pub fn thread_touched(
     conn: &Connection,
     chat: &str,
@@ -140,20 +144,42 @@ pub fn thread_touched(
     root_excerpt: &str,
     author: &str,
     at_ms: i64,
-    follow: bool,
+    follow_new: bool,
+    refollow: bool,
 ) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO thread_follows (chat_id, root, root_excerpt, following, resolved, replies, last_ms, last_author, last_read_ms)
          VALUES (?1, ?2, ?3, ?4, 0, 1, ?5, ?6, CASE WHEN ?6 = 'person' THEN ?5 ELSE 0 END)
          ON CONFLICT (chat_id, root) DO UPDATE SET
            root_excerpt = CASE WHEN root_excerpt = '' THEN excluded.root_excerpt ELSE root_excerpt END,
-           following = MAX(following, excluded.following),
+           following = CASE WHEN ?7 THEN 1 ELSE following END,
            resolved = 0,
            replies = replies + 1,
            last_ms = MAX(last_ms, excluded.last_ms),
            last_author = excluded.last_author,
            last_read_ms = CASE WHEN excluded.last_author = 'person' THEN MAX(last_read_ms, excluded.last_ms) ELSE last_read_ms END",
-        params![chat, root, root_excerpt, follow as i64, at_ms, author],
+        params![chat, root, root_excerpt, follow_new as i64, at_ms, author, refollow],
+    )?;
+    Ok(())
+}
+
+/// A thread's row from the channel's entries, for threads from before the
+/// rows were kept (part C review #9). An existing row is left as it is.
+#[allow(clippy::too_many_arguments)]
+pub fn thread_backfill(
+    conn: &Connection,
+    chat: &str,
+    root: &str,
+    root_excerpt: &str,
+    replies: i64,
+    last_ms: i64,
+    last_author: &str,
+    following: bool,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO thread_follows (chat_id, root, root_excerpt, following, replies, last_ms, last_author, last_read_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?6) ON CONFLICT (chat_id, root) DO NOTHING",
+        params![chat, root, root_excerpt, following as i64, replies, last_ms, last_author],
     )?;
     Ok(())
 }
@@ -277,10 +303,20 @@ mod tests {
     fn a_followed_thread_is_unread_until_read_and_a_reply_reopens_it() {
         let (_dir, conn) = db();
         // The person replies in Kai's thread: followed, read.
-        thread_touched(&conn, "room", "k1", "Build is green", "person", 10, true).unwrap();
+        thread_touched(
+            &conn,
+            "room",
+            "k1",
+            "Build is green",
+            "person",
+            10,
+            true,
+            true,
+        )
+        .unwrap();
         assert!(!followed_threads(&conn).unwrap()[0].unread);
         // Kai answers: unread.
-        thread_touched(&conn, "room", "k1", "", "kai", 20, false).unwrap();
+        thread_touched(&conn, "room", "k1", "", "kai", 20, false, false).unwrap();
         let t = &followed_threads(&conn).unwrap()[0];
         assert_eq!(
             (t.unread, t.replies, t.root_excerpt.as_str()),
@@ -296,11 +332,11 @@ mod tests {
                 .unwrap()
                 .resolved
         );
-        thread_touched(&conn, "room", "k1", "", "lin", 30, false).unwrap();
+        thread_touched(&conn, "room", "k1", "", "lin", 30, false, false).unwrap();
         let t = thread_follow(&conn, "room", "k1").unwrap().unwrap();
         assert!(!t.resolved && t.unread);
         // A thread nobody asked the person into is not followed, unless they follow it.
-        thread_touched(&conn, "room", "m9", "Other", "kai", 40, false).unwrap();
+        thread_touched(&conn, "room", "m9", "Other", "kai", 40, false, false).unwrap();
         assert_eq!(followed_threads(&conn).unwrap().len(), 1);
         thread_set(&conn, "room", "m9", Some(true), None).unwrap();
         let list = followed_threads(&conn).unwrap();
@@ -310,5 +346,46 @@ mod tests {
             "unread first, then the latest"
         );
         assert_eq!(threads_of(&conn, "room").unwrap().len(), 2);
+    }
+
+    // Part C review #1: an unfollow holds through replies; the person's own
+    // line or an @you follows again.
+    #[test]
+    fn an_unfollow_holds_until_the_person_writes_or_is_mentioned() {
+        let (_dir, conn) = db();
+        thread_touched(&conn, "room", "p1", "My question", "kai", 10, true, false).unwrap();
+        assert!(
+            thread_follow(&conn, "room", "p1")
+                .unwrap()
+                .unwrap()
+                .following,
+            "the person started it"
+        );
+        thread_set(&conn, "room", "p1", Some(false), None).unwrap();
+        thread_touched(&conn, "room", "p1", "", "kai", 20, true, false).unwrap();
+        assert!(
+            !thread_follow(&conn, "room", "p1")
+                .unwrap()
+                .unwrap()
+                .following,
+            "a reply does not re-follow"
+        );
+        thread_touched(&conn, "room", "p1", "", "kai", 30, true, true).unwrap();
+        assert!(
+            thread_follow(&conn, "room", "p1")
+                .unwrap()
+                .unwrap()
+                .following,
+            "an @you does"
+        );
+        // Backfill keeps an existing row and fills a missing one.
+        thread_backfill(&conn, "room", "p1", "x", 99, 1, "lin", false).unwrap();
+        assert_eq!(
+            thread_follow(&conn, "room", "p1").unwrap().unwrap().replies,
+            3
+        );
+        thread_backfill(&conn, "room", "old", "Old one", 4, 5, "kai", true).unwrap();
+        let old = thread_follow(&conn, "room", "old").unwrap().unwrap();
+        assert_eq!((old.replies, old.unread), (4, false));
     }
 }

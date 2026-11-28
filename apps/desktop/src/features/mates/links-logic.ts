@@ -36,7 +36,7 @@ function escape(text: string): string {
  */
 export function linkPlaces(markdown: string, places: readonly Place[], placeOfChat: (chat: string) => string | null): string {
   const known = [...places].filter((p) => p.word.length > 1).sort((a, b) => b.word.length - a.word.length);
-  const pattern = known.length ? new RegExp(`(^|[^\\p{L}\\p{N}\\[])(${known.map((p) => escape(p.word)).join("|")})(?![\\p{L}\\p{N}])`, "giu") : null;
+  const pattern = known.length ? new RegExp(`(^|[^\\p{L}\\p{N}\\[/.:=?&#@_-])(${known.map((p) => escape(p.word)).join("|")})(?![\\p{L}\\p{N}])`, "giu") : null;
   // A message link is a URL: it is turned into a link before prose is found.
   const linked = markdown.replace(/(^|[^\w/(\[<])(evo:\/\/mates\/[A-Za-z0-9_.:-]+\/[A-Za-z0-9_.:-]+)/g, (_, lead: string, url: string) => {
     const found = firstMessageLink(url)!;

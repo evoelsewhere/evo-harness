@@ -63,6 +63,45 @@ pub fn thread_read(app: AppHandle, chat: String, root: String) -> Result<(), Str
 
 pub const SHARE_TOOL: &str = "share_to";
 
+/// The most a mate's share may hold, in characters (part C review #3).
+pub const SHARE_CAP: usize = 4000;
+
+/// `files` resolved against `folder` (relative ones inside it), each an
+/// existing file inside it, at most 10; else why not (part C review #8).
+pub fn share_files(files: &[String], folder: &std::path::Path) -> Result<Vec<String>, String> {
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
+    let base = folder.canonicalize().map_err(|_| "you have no folder to share files from".to_string())?;
+    if files.len() > 10 {
+        return Err("Share at most 10 files at once.".into());
+    }
+    files
+        .iter()
+        .map(|file| {
+            let path = std::path::Path::new(file.trim());
+            let full = if path.is_absolute() { path.to_path_buf() } else { base.join(path) };
+            let real = full.canonicalize().map_err(|_| format!("{file}: no such file"))?;
+            if !real.starts_with(&base) {
+                return Err(format!("{file}: only files in your folder ({}) can be shared", base.display()));
+            }
+            if !real.is_file() {
+                return Err(format!("{file}: not a file"));
+            }
+            Ok(real.display().to_string())
+        })
+        .collect()
+}
+
+/// A channel line about a thread (`channel_event`): the Threads list and its
+/// badge read again at once (part C review #9).
+pub fn on_channel_event(app: &AppHandle, entry: &Value) {
+    let thread = entry.get("thread").and_then(Value::as_str).is_some();
+    if thread && entry.get("kind").and_then(Value::as_str) == Some("message") {
+        changed(app);
+    }
+}
+
 pub fn share_definition() -> Value {
     json!({
         "name": SHARE_TOOL,
@@ -114,18 +153,26 @@ pub async fn share_to(ctx: &crate::agent_tools::ToolCtx, mate: &evo_store::mates
     if text.is_empty() && files.is_empty() {
         return Err("Nothing to share: give the text (and any files).".into());
     }
+    // A share is a short summary: what the person is asked about is all of it (part C review #3).
+    if text.chars().count() > SHARE_CAP {
+        return Err(format!("That is {} characters: share a summary of at most {SHARE_CAP}, and attach files for the rest.", text.chars().count()));
+    }
     let db = app.state::<Db>();
-    let (mine, settings, from_place, from_direct) = db.with(|conn| {
+    let (mine, settings, from_place, from_direct, folder) = db.with(|conn| {
         let all = evo_store::channels::list_channels(conn)?;
         let mine: Vec<_> = all.into_iter().filter(|c| c.members.iter().any(|m| m.mate_id == mate.id)).collect();
         let settings = evo_store::settings::get(conn, "mates.share")?;
         let seat_channel = super::reactions::channel_of_seat(conn, &ctx.chat);
-        let (place, direct) = match seat_channel.and_then(|id| mine.iter().find(|c| c.id == id).cloned()) {
-            Some(channel) => (format!("#{}", channel.name), false),
-            None => (format!("your conversation with {}", mate.name), ctx.chat == mate.chat_id),
+        // The folder the mate works in here: its channel's, else its own (part C review #8).
+        let own = mate.project_folder.clone().unwrap_or_else(|| mate.folder.clone());
+        let (place, direct, folder) = match seat_channel.and_then(|id| mine.iter().find(|c| c.id == id).cloned()) {
+            Some(channel) => (format!("#{}", channel.name), false, channel.folder.clone().unwrap_or(own)),
+            None => (format!("your conversation with {}", mate.name), ctx.chat == mate.chat_id, own),
         };
-        Ok((mine, settings, place, direct))
+        Ok((mine, settings, place, direct, folder))
     })?;
+    // Files only from that folder, as for hand-offs (part C review #8).
+    let files = share_files(&files, std::path::Path::new(&folder))?;
     let Some(channel) = channel_named(to, &mine).cloned() else {
         return Err(format!(
             "You can share only into a channel you are in: {}.",
@@ -140,10 +187,9 @@ pub async fn share_to(ctx: &crate::agent_tools::ToolCtx, mate: &evo_store::mates
         return Err("The person turned sharing across conversations off for you.".into());
     }
     if must_ask(mode, from_direct) {
-        let excerpt: String = text.chars().take(400).collect();
         let more = if files.is_empty() { String::new() } else { format!("\n{} file(s): {}", files.len(), files.join(", ")) };
         let choice = ctx
-            .ask(&format!("Share with #{}?", channel.name), &format!("{} wants to share from {from_place}:\n{excerpt}{more}", mate.name), &["Share", "Don't share"])
+            .ask(&format!("Share with #{}?", channel.name), &format!("{} wants to share from {from_place}:\n{text}{more}", mate.name), &["Share", "Don't share"])
             .await;
         if choice != 0 {
             return Err("The person did not want that shared.".into());
@@ -179,6 +225,22 @@ pub async fn share_to(ctx: &crate::agent_tools::ToolCtx, mate: &evo_store::mates
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_files_stay_in_the_mates_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let inside = dir.path().join("notes.md");
+        std::fs::write(&inside, "x").unwrap();
+        let resolved = share_files(&["notes.md".into()], dir.path()).unwrap();
+        assert!(resolved[0].ends_with("notes.md"));
+        let other = tempfile::tempdir().unwrap();
+        let outside = other.path().join("secret.txt");
+        std::fs::write(&outside, "x").unwrap();
+        assert!(share_files(&[outside.display().to_string()], dir.path()).unwrap_err().contains("only files in your folder"));
+        assert!(share_files(&["../x".into()], dir.path()).is_err());
+        assert!(share_files(&["missing.md".into()], dir.path()).unwrap_err().contains("no such file"));
+        assert_eq!(share_files(&[], dir.path()).unwrap(), Vec::<String>::new());
+    }
 
     #[test]
     fn sharing_asks_by_default_and_always_from_the_direct_chat() {

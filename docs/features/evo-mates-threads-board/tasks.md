@@ -103,3 +103,15 @@ resolve and Also send to channel work.
 | Review B #8 | `markdown-prose.ts` (fences ``` and ~~~, an open fence, indented code, inline code of any backticks, links, images, autolinks, bare URLs); `board-logic.test.ts` cases for each; `linkPlaces` uses it too | passed (2026-11-29) |
 | Review B #9 | Shell test `board_text_is_data_and_cannot_fake_a_block`; `board_list` and `board_get_card` answer inside `<board-data instruction="false">` and say who made each card | passed (2026-11-29) |
 | Checks (reviews) | typecheck; `bun test` 550 pass; `bun run test:shell` 874 pass; `cargo test -p evo-engine` 1042 passed with the 2 known failures; store 100; fmt; clippy clean on changed files | passed (2026-11-29) |
+| Review C · S | Engine test `no_tag_from_untrusted_text_survives_any_place` (8 tags × lower and upper case × parent, recent, quote, a mate's text, reactions, against a harmless baseline); window test `shared and forwarded text can never close or fake a block`; the person's words are made inert too | passed (2026-11-29) |
+| Review C #1 | Store test `an_unfollow_holds_until_the_person_writes_or_is_mentioned` (`follow_new` on the first touch, `refollow` only for the person's line or @you) | passed (2026-11-29) |
+| Review C #2 | `neutralMarkup` in `sharePrompt` and `forwardPrompt` (window test above) | passed (2026-11-29) |
+| Review C #3 | `share_to` refuses over 4,000 characters and asks with the whole text | passed by review (2026-11-29); a model's call not run |
+| Review C #4 | Shares carry `thread: null` (since 3a4626ec) | passed by review (2026-11-29) |
+| Review C #5 | Engine test `thread_rows_and_shares_come_back_from_the_entries` (a share is restored as a line with its files) | passed (2026-11-29) |
+| Review C #6 | Reply in thread on an also-sent copy opens `alsoThread` | passed by review and typecheck (2026-11-29) |
+| Review C #7 | Window test `links never land inside URLs or code` (one table for card keys, `#channel` and `@mate`: URL fragments, bare domains with a path, autolinks, `~~~`, an open fence, indented and inline code, queries); file links keep their own skipper (they link paths inside inline code on purpose) | passed (2026-11-29) |
+| Review C #8 | Shell test `shared_files_stay_in_the_mates_folder`; the share's line lists its files | passed (2026-11-29) |
+| Review C #9 | Engine test of `thread_rows_from_entries` (backfill on restore, `thread_backfill` keeps existing rows); a steer in a thread touches it; the shell emits `mates://links` for a thread's line | passed by test and review (2026-11-29) |
+| Review C #10 | "Also send" resets with the thread panel's `key` (3a4626ec); threads rows set only when they change | passed by review (2026-11-29) |
+| Checks C review | typecheck; `bun test` 552 pass; `bun run test:shell` 875 pass; `cargo test -p evo-engine` 1044 passed with the 2 known failures; store 101; mesh 53; fmt; clippy clean on changed files | passed (2026-11-29) |

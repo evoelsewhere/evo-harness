@@ -235,3 +235,13 @@ agent's recommended answers:
   asks first, moves its cards to the neighbouring column with a logged move
   each and one board line; board text reaches mates as board data with the
   markup made inert.
+- 2026-11-29 — D11 accepted by the product owner. Review fixes for part C
+  (review of 6c5d9c19): one neutraliser for our block tags, case-insensitive,
+  in the engine (`neutral`, also on the person's words) and the window
+  (`neutralMarkup`, for forwarded and shared text); an unfollow holds until
+  the person writes or is mentioned; `share_to` refuses more than 4,000
+  characters, asks with the whole text and takes files only from the
+  mate's folder; shares are the channel's lines and come back after a
+  restart; threads from before 0021 get their rows on restore, a steer
+  counts, and a thread line refreshes the Threads list at once; place links
+  skip URLs, bare domains with a path and code.
