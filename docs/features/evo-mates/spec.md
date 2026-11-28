@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | desktop shell, desktop UI, engine, protocol, `evo-store`, packaging |
 | Created | 2026-11-25 |
-| Updated | 2026-11-25 |
+| Updated | 2026-11-28 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | UX | [ux.md](ux.md): layout, messages, states, interactions, avatars |
@@ -533,6 +533,27 @@ None.
   @ and every such line woke the named mate, so greetings looped until the
   hand-off limit stopped everyone. An imperative request without "?" is
   given by mail with "[assign]", as the delivery tells the mate.
+- A-13 (2026-11-28, owner away) With no Background model set, a channel's
+  retro runs on its lead's model — the closest reading of learning-layers
+  FR-24 ("a mate with no Background model set uses its own model"); before,
+  every retro was skipped for want of a model ([QA log](qa-2026-11-28.md)
+  C4). With neither, **Run retro** says so in the channel's bar.
+- A-14 (2026-11-28, owner away) **Add** and **Start from scratch** wake the
+  new mate once so it greets the person and asks its setup questions
+  (FR-34, ux.md 5) with a marked prompt the thread never shows as the
+  person's message. Picking a role is the person asking for that turn, so
+  A-5 still holds: nothing runs before they pick. Duplicates and imports
+  are not woken.
+- A-15 (2026-11-28, owner away) "What to call you" in setup is the mate's
+  own name: a name the person gives it there or later in its conversation
+  renames it at once (`mate_profile`'s `name`, one line of at most 40
+  characters), as the panel's Name field does; there is no confirmation
+  step, since the panel and the roster show the new name and the person
+  can change it back.
+- A-16 (2026-11-28, owner away) The sidebar footer's **Settings** in Evo
+  Mates opens the same Settings as Evo Harness, on the Evo Mates section
+  (FR-29); a turn that failed because no provider is connected offers
+  **Open Providers** there (US-3 #3).
 
 ## 7. History
 
@@ -556,3 +577,4 @@ None.
 - 2026-11-28 — Owner asked for the same Customize page in Evo Mates as in Evo Harness (skills, subagents, connectors with connected apps and providers, plugins, hooks, instructions), opened from the sidebar footer and from a mate's Apps tab, so both apps manage them in one place ([Connected apps](../connected-apps/spec.md) FR-3, A-3).
 - 2026-11-28 — Owner asked that Evo Mates' Customize show only what concerns mates: Instructions (personal and project instructions reach a mate's turns), Skills, Connectors (apps, providers, MCP servers) and Plugins (FR-39); Subagents, Hooks and Code intelligence are Evo Harness's only. A section hidden here opens Skills, or Connectors when no mate is open.
 - 2026-11-28 — Owner asked that Evo Harness's agents use the mates' faces so both apps look alike: ux.md 6 changed; the agents' side is [subagents](../subagents-and-nested-sessions/spec.md) FR-25.
+- 2026-11-28 — QA by acting out people in the app ([qa-2026-11-28.md](qa-2026-11-28.md)), owner away: A-13 – A-16 recorded; the fixes keep FR-7, FR-10, FR-24, FR-28, FR-32, FR-34 and US-3 true as written.
