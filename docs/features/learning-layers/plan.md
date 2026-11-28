@@ -6,7 +6,7 @@
 | Tasks | [tasks.md](tasks.md) |
 | Updated | 2026-11-28 |
 | ADD sections | [4 Process view](../../architecture/README.md#4-process-view), [5.1 Crate layers](../../architecture/README.md#51-crate-layers), [7 Data view](../../architecture/README.md#7-data-view), [9 Cross-cutting concepts](../../architecture/README.md#9-cross-cutting-concepts) |
-| ADRs | [0028 Two front ends in one app process](../../architecture/decisions/0028-two-front-ends-in-one-app-process.md) |
+| ADRs | [0028 Two front ends in one app process](../../architecture/decisions/0028-two-front-ends-in-one-app-process.md), [0029 Evals in a dev-only crate](../../architecture/decisions/0029-harness-evals-in-a-dev-only-crate.md) (Proposed, for the owner to accept) |
 
 ## 1. Context and constraints
 
@@ -363,4 +363,14 @@ per-mate switches.
   installed or bundled skill of the same name is ever shadowed (plan 3.7).
   A mate's learned skills are always allowed to it, whatever its skill
   list; a learned skill's own switch is an `.off` file in its folder.
+- 2026-11-28 — **Evals.** The `chat` world drives the engine's own model
+  loops (the index run and a learning call) on the scripted model rather
+  than a whole RPC engine; the `channel` world drives the coordinator's
+  decision functions (routing, mention asks, hand-off counting, mail text,
+  router order, job ends) step by step rather than a hub with seats. Golden
+  replay re-runs routing and mention asks over the redacted lines. The
+  fault "a seat ran on its channel's router model" is fixed in the desktop
+  shell (`src-tauri/src/mesh.rs`), outside the evals' reach; it stays a
+  shell test (`a_seat_never_runs_on_its_channels_router_model`). A new
+  crate needs an ADR: 0029, proposed for the owner to accept.
 

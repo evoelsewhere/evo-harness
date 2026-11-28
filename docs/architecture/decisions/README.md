@@ -36,6 +36,7 @@ consequences and the alternatives rejected. The
 | [0026](0026-code-graph-indexing-in-a-short-lived-engine-process.md) | Code graph indexing runs in a short-lived engine process; indexers run only in trusted projects | Proposed | 2026-11-23 |
 | [0027](0027-widgets-are-served-from-their-own-scheme.md) | `show_widget` documents are served from their own scheme (`evo-widget`) with their own CSP | Accepted | 2026-11-25 |
 | [0028](0028-two-front-ends-in-one-app-process.md) | Evo Harness and Evo Mates are two front ends in one app process | Accepted | 2026-11-25 |
+| [0029](0029-harness-evals-in-a-dev-only-crate.md) | The harness's evals live in a dev-only crate on top of the engine | Proposed | 2026-11-28 |
 
 ## Rules
 
