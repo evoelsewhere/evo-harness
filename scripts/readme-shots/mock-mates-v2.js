@@ -194,6 +194,8 @@
       ],
     },
     "mates.mute": { "chan-research": { until: null } },
+    "computer_apps.enabled": true,
+    "mates.computer": { ava: { chrome: false } },
   });
 
   const baseSend = h.engine_send;

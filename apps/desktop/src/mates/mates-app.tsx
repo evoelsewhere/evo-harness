@@ -28,6 +28,8 @@ import { useMatesKeys } from "@/features/mates/use-mates-keys";
 import { useIconBadge } from "@/features/mates/badge";
 import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { useMatesPrefs } from "@/stores/mates-prefs-store";
+import { startChatScope } from "@/stores/chat-scope";
+import { CardLayer } from "@/features/cards";
 import { TodayPage } from "@/features/mates/today";
 import { startShellNotices } from "@/features/notifications/notify";
 import { Toaster } from "@/features/notifications/toaster";
@@ -63,6 +65,9 @@ function useBootstrap() {
         .catch(() => setNativeMaterial("none"));
       // The shell's notices about mates no window shows reach this window too.
       startShellNotices(getCurrentWindow().label);
+      // A mate's pages and apps show as live cards here, as in Evo Harness
+      // (docs/features/evo-mates-computer/spec.md, FR-1).
+      startChatScope();
     }
     void (async () => {
       try {
@@ -168,7 +173,9 @@ function Conversation() {
           <MateHeader mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateId={mate.id} mateName={mate.name} /> : null} />
         </div>
         {/* The mate's thread, once the engine store shows its chat. */}
-        <div className="min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1">
+          {/* Its pages and apps, live, over the conversation (evo-mates-computer FR-1). */}
+          {shown === mate.chatId && <CardLayer />}
           {shown === mate.chatId ? (
             <MateConversation mate={mate} empty={<MateGreeting mate={mate} />} />
           ) : (

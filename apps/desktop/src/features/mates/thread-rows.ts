@@ -112,6 +112,26 @@ const STEP_WORD: Record<string, string> = {
   connect_app: "Asked to connect",
   request_secret: "Asked for a secret",
   mate_agenda: "Noted to follow up",
+  // At the computer (docs/features/evo-mates-computer/spec.md, FR-2).
+  browser_navigate: "Opened",
+  browser_click: "Clicked",
+  browser_type: "Typed in",
+  browser_form_input: "Filled in",
+  browser_key: "Pressed",
+  browser_hover: "Pointed at",
+  browser_scroll: "Scrolled",
+  browser_read_page: "Read the page",
+  browser_find: "Looked on the page for",
+  browser_screenshot: "Took a screenshot",
+  browser_wait: "Waited",
+  browser_tabs: "Looked at the tabs",
+  browser_eval: "Ran a script on the page",
+  browser_upload: "Uploaded",
+  browser_pdf: "Saved the page as PDF",
+  browser_downloads: "Checked downloads",
+  browser_batch: "Did several steps on the page",
+  computer_app: "Used an app",
+  react: "Reacted",
 };
 
 function baseName(path: string): string {
@@ -128,6 +148,11 @@ function stepTarget(name: string, args: unknown): string | null {
   if (query) return `“${query.length > 60 ? `${query.slice(0, 59)}…` : query}”`;
   const url = str(a.url);
   if (url) return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  // A page's element, as the agent named it.
+  const element = str(a.element) ?? str(a.label) ?? str(a.description) ?? str(a.selector) ?? str(a.ref);
+  if (name.startsWith("browser_") && element) return `“${element.length > 50 ? `${element.slice(0, 49)}…` : element}”`;
+  if (name === "browser_key") return str(a.key) ?? str(a.keys);
+  if (name === "computer_app") return str(a.app) ?? str(a.window) ?? str(a.action);
   const command = str(a.command);
   if (command) return command.length > 60 ? `${command.slice(0, 59)}…` : command;
   const app = str(a.app) ?? str(a.service);
@@ -142,7 +167,10 @@ export function stepItems(turn: Pick<Turn, "parts">): StepItem[] {
     if (part.kind !== "tool") return [];
     // A saved memory has its own chip; questions and to-dos are not steps.
     if (part.name === "memory" || part.name === "ask_user" || part.name === "update_todos") return [];
-    const word = STEP_WORD[part.name] ?? (part.name.startsWith("browser_") ? "Used the browser" : part.name.startsWith("terminal_") ? "Ran a command" : "Used a tool");
+    const base = STEP_WORD[part.name] ?? (part.name.startsWith("browser_") ? "Used the browser" : part.name.startsWith("terminal_") ? "Ran a command" : "Used a tool");
+    // A step in the person's own Chrome says so (Evo Webbridge).
+    const tab = (part.args as { tab?: unknown } | null)?.tab;
+    const word = typeof tab === "string" && /^(chrome|edge):.+:\d+$/.test(tab) ? `${base} (in your Chrome)` : base;
     const denied = part.phase === "error" && /denied|not allowed|declined|rejected/i.test(part.output);
     const status: StepItem["status"] = part.phase === "error" ? (denied ? "denied" : "failed") : part.phase === "done" ? "done" : "running";
     return [{ key: part.key, word, target: stepTarget(part.name, part.args), status }];

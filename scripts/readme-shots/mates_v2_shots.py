@@ -148,6 +148,12 @@ def view_shortcode(page: Page) -> None:
     page.wait_for_timeout(500)
 
 
+def view_apps(page: Page) -> None:
+    view_profile(page)
+    page.get_by_role("tab", name="Apps").click()
+    page.wait_for_timeout(700)
+
+
 VIEWS = {
     "today": view_today,
     "mate": view_mate,
@@ -165,6 +171,7 @@ VIEWS = {
     "slash": view_slash,
     "emoji": view_emoji,
     "shortcode": view_shortcode,
+    "apps": view_apps,
 }
 
 

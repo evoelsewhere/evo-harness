@@ -4,6 +4,7 @@
 // holds the profile: About, Settings and Files; changes apply from the
 // mate's next turn.
 
+import { useMatesPrefs } from "@/stores/mates-prefs-store";
 import * as React from "react";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -516,6 +517,42 @@ function Memory({ mate }: { mate: Mate }) {
  * The apps a mate may use (FR-39): every connector Evo has, switched per mate
  * on its chat, as Harness switches them per chat (`connectors.chatOff`).
  */
+/** What the mate may do at the computer (docs/features/evo-mates-computer/spec.md, FR-3). */
+function AtTheComputer({ mate }: { mate: Mate }) {
+  const saved = useMatesPrefs((s) => s.computer[mate.id]);
+  const appControl = useMatesPrefs((s) => s.appControl);
+  React.useEffect(() => {
+    void useMatesPrefs.getState().load();
+  }, []);
+  const rows: { key: "browser" | "app" | "chrome"; label: string; hint: string; shown: boolean }[] = [
+    { key: "browser", label: "Browser", hint: `${mate.name} opens and uses web pages in Evo's own browser. You can watch and take over.`, shown: true },
+    { key: "chrome", label: "Your Chrome", hint: "Tabs of your own Chrome, through Evo Webbridge, with your sign-ins.", shown: true },
+    { key: "app", label: "App control", hint: "Use other apps on this computer. Asks first, as set in Settings › Computer.", shown: appControl },
+  ];
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h3 className="text-xs font-medium text-muted-foreground">At the computer</h3>
+      <ul className="flex flex-col gap-1.5">
+        {rows
+          .filter((row) => row.shown)
+          .map((row) => (
+            <li key={row.key} className="flex items-center gap-3 rounded-2xl bg-muted/40 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium text-foreground">{row.label}</div>
+                <div className="text-xs text-muted-foreground">{row.hint}</div>
+              </div>
+              <Switch
+                checked={saved?.[row.key] !== false}
+                onCheckedChange={(on) => useMatesPrefs.getState().setComputer(mate.id, row.key, on)}
+                aria-label={row.label}
+              />
+            </li>
+          ))}
+      </ul>
+    </section>
+  );
+}
+
 function Apps({ mate }: { mate: Mate }) {
   const servers = useConnectorsStore((s) => s.servers);
   const loaded = useConnectorsStore((s) => s.loaded);
@@ -728,6 +765,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
               <Settings mate={mate} />
             </TabsContent>
             <TabsContent value="apps" className="flex flex-col gap-6">
+              <AtTheComputer mate={mate} />
               <Apps mate={mate} />
               <MateConnectedApps mate={mate} />
               <MateSkills mate={mate} />

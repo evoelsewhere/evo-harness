@@ -199,3 +199,26 @@ describe("a forwarded message", () => {
     expect(mine?.kind === "bubble" ? [mine.bubble.text, mine.bubble.forwarded?.from] : null).toEqual(["check this", "Writer"]);
   });
 });
+
+// docs/features/evo-mates-computer/spec.md (FR-2).
+describe("steps at the computer", () => {
+  test("browser and app steps read in plain words", () => {
+    const step = (name: string, args: Record<string, unknown>) => ({ ...tool(name), args });
+    const items = stepItems({
+      parts: [
+        step("browser_navigate", { url: "https://example.com/" }),
+        step("browser_click", { element: "Sign in" }),
+        step("browser_type", { element: "Search", text: "evo" }),
+        step("browser_screenshot", {}),
+        step("computer_app", { app: "Notepad" }),
+      ],
+    });
+    expect(items.map((i) => [i.word, i.target])).toEqual([
+      ["Opened", "example.com"],
+      ["Clicked", "“Sign in”"],
+      ["Typed in", "“Search”"],
+      ["Took a screenshot", null],
+      ["Used an app", "Notepad"],
+    ]);
+  });
+});

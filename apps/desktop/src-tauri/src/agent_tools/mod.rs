@@ -620,6 +620,8 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
     // A read-only session gets only the registry tools that read (FR-13).
     let read_only = chat.as_deref().is_some_and(|chat| !chat.is_empty() && read_only_chat(&app, chat));
     let mut extra = Vec::new();
+    // A mate's switches at the computer (docs/features/evo-mates-computer/spec.md, FR-3).
+    let mate_switches = chat.as_deref().filter(|c| !c.is_empty()).and_then(|c| crate::mates::computer::of_chat(&app, c));
     if let Some(chat) = chat.filter(|c| !c.is_empty()) {
         let folder = folder.filter(|f| !f.is_empty()).map(PathBuf::from);
         for provider in providers() {
@@ -629,6 +631,11 @@ pub async fn agent_tools_definitions(app: AppHandle, chat: Option<String>, folde
     let fixed = static_definitions()
         .into_iter()
         .filter(|definition| offered(&app, definition))
+        .filter(|definition| {
+            mate_switches.is_none_or(|switches| {
+                definition.get("name").and_then(Value::as_str).is_none_or(|name| crate::mates::computer::offered(switches, name))
+            })
+        })
         .filter(|definition| !read_only || definition.get("name").and_then(Value::as_str).is_some_and(reads_only))
         .filter(|definition| !definition.get("name").and_then(Value::as_str).is_some_and(|name| hidden.contains(&name)))
         .collect();
@@ -778,6 +785,19 @@ pub async fn on_line(app: &AppHandle, chat: &str, line: &Value) {
                     "id": format!("agent-tools-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1),
                     "requestId": request_id,
                     "result": ToolOutput::error(READ_ONLY_REFUSAL.replace("{tool}", name)).to_json(),
+                });
+                let _ = app.state::<crate::engine::EngineState>().write(chat, &answer).await;
+                return;
+            }
+            // A mate's switch off: refused before it runs or asks (evo-mates-computer FR-3).
+            if let Some(why) = crate::mates::computer::of_chat(app, chat)
+                .and_then(|switches| crate::mates::computer::refusal(switches, name, &args, crate::webbridge::groups::is_tab))
+            {
+                let answer = json!({
+                    "type": "external_tool_response",
+                    "id": format!("agent-tools-{}", app.state::<AgentTools>().next.fetch_add(1, Ordering::Relaxed) + 1),
+                    "requestId": request_id,
+                    "result": ToolOutput::error(why).to_json(),
                 });
                 let _ = app.state::<crate::engine::EngineState>().write(chat, &answer).await;
                 return;

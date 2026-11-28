@@ -10,6 +10,16 @@ import { inTauri } from "@/lib/platform";
 export const PINS_KEY = "mates.pins";
 export const MUTE_KEY = "mates.mute";
 export const LINK_PREVIEWS_KEY = "mates.linkPreviews";
+export const COMPUTER_KEY = "mates.computer";
+/** Evo's own Computer setting (app control): a mate's switch cannot turn it on. */
+export const APP_CONTROL_KEY = "computer_apps.enabled";
+
+/** What a mate may do at the computer (docs/features/evo-mates-computer/spec.md, FR-3); missing means on. */
+export interface ComputerSwitches {
+  browser: boolean;
+  app: boolean;
+  chrome: boolean;
+}
 
 /** A pinned message: its key (a bubble's or a channel line's id) and a few words. */
 export interface Pin {
@@ -31,7 +41,10 @@ interface MatesPrefs {
   pins: Record<string, Pin[]>;
   mute: Record<string, Mute>;
   linkPreviews: boolean;
+  computer: Record<string, Partial<ComputerSwitches>>;
+  appControl: boolean;
   load(): Promise<void>;
+  setComputer(mate: string, key: keyof ComputerSwitches, on: boolean): void;
   togglePin(chat: string, pin: Omit<Pin, "at">): void;
   unpin(chat: string, key: string): void;
   setMute(chat: string, mute: Mute | null): void;
@@ -48,6 +61,8 @@ export const useMatesPrefs = create<MatesPrefs>()((set, get) => ({
   pins: {},
   mute: {},
   linkPreviews: false,
+  computer: {},
+  appControl: false,
   async load() {
     if (!inTauri) return set({ loaded: true });
     const all = await db.settings().catch(() => ({}) as Record<string, unknown>);
@@ -58,6 +73,8 @@ export const useMatesPrefs = create<MatesPrefs>()((set, get) => ({
       pins: pins && typeof pins === "object" ? (pins as Record<string, Pin[]>) : {},
       mute: mute && typeof mute === "object" ? (mute as Record<string, Mute>) : {},
       linkPreviews: all[LINK_PREVIEWS_KEY] === true,
+      computer: all[COMPUTER_KEY] && typeof all[COMPUTER_KEY] === "object" ? (all[COMPUTER_KEY] as Record<string, Partial<ComputerSwitches>>) : {},
+      appControl: all[APP_CONTROL_KEY] === true,
     });
   },
   togglePin(chat, pin) {
@@ -81,6 +98,11 @@ export const useMatesPrefs = create<MatesPrefs>()((set, get) => ({
     else delete all[chat];
     set({ mute: all });
     save(MUTE_KEY, all);
+  },
+  setComputer(mate, key, on) {
+    const computer = { ...get().computer, [mate]: { ...get().computer[mate], [key]: on } };
+    set({ computer });
+    save(COMPUTER_KEY, computer);
   },
   setLinkPreviews(on) {
     set({ linkPreviews: on });
