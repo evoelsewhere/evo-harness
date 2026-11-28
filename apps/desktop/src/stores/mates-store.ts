@@ -29,6 +29,8 @@ export type MatesView =
   | { kind: "mate"; id: string }
   | { kind: "channel"; id: string }
   | { kind: "gallery" }
+  /** Evo Mates' home (FR-73). */
+  | { kind: "today" }
   | { kind: "empty" };
 
 /** The mate panel's tabs. */
@@ -50,6 +52,7 @@ interface MatesStore {
   /** Show the mate whose conversation `chat` is (a notice, Harness's Needs you). */
   openChat(chat: string): Promise<void>;
   showGallery(): void;
+  showToday(): void;
   setPanelOpen(open: boolean): void;
   /** Open the panel at `tab`. */
   openPanel(tab: MatePanelTab): void;
@@ -187,6 +190,10 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
 
   showGallery() {
     set({ view: { kind: "gallery" } });
+  },
+
+  showToday() {
+    set({ view: { kind: "today" }, panelOpen: false });
   },
 
   setPanelOpen(open) {

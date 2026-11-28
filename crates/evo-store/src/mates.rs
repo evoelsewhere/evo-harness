@@ -789,6 +789,42 @@ mod tests {
     }
 
     #[test]
+    fn a_mates_usage_since_a_time_counts_its_seats_and_nothing_older() {
+        let (_dir, mut conn) = db();
+        create_mate(&mut conn, &writer("m1"), "ask").unwrap();
+        conn.execute(
+            "INSERT INTO chats (id, title, kind, mate_id, created_at, updated_at) VALUES ('seat-1', 'Writer', 'seat', 'm1', 1, 1)",
+            [],
+        )
+        .unwrap();
+        for (at, chat, cost) in [
+            (50, "chat-m1", 9.0),
+            (150, "chat-m1", 0.25),
+            (160, "seat-1", 0.5),
+        ] {
+            conn.execute(
+                "INSERT INTO usage_events (at_ms, chat_id, source, provider_id, model_id, cost_usd) VALUES (?1, ?2, 'chat', 'p', 'm', ?3)",
+                params![at, chat, cost],
+            )
+            .unwrap();
+        }
+        let today = crate::usage::summary(
+            &conn,
+            &crate::usage::UsageQuery {
+                from_ms: Some(100),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(today.by_mate.len(), 1);
+        assert_eq!(
+            today.by_mate[0].totals.requests, 2,
+            "its direct chat and its seat"
+        );
+        assert!((today.by_mate[0].totals.cost_usd - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
     fn usage_accepts_the_mates_source() {
         let (_dir, conn) = db();
         conn.execute(

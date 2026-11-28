@@ -137,6 +137,16 @@ pub fn due_items(conn: &Connection, mate: &str, now: i64) -> Result<Vec<Item>, D
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
+/// Every mate's open items due before `until`, soonest first: Evo Mates'
+/// Today page (docs/features/evo-mates/spec.md, FR-73).
+pub fn upcoming(conn: &Connection, until: i64) -> Result<Vec<Item>, DbError> {
+    let mut statement = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM mate_agenda WHERE status = 'open' AND due_at < ?1 ORDER BY due_at, created_at"
+    ))?;
+    let rows = statement.query_map([until], item_row)?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
 /// The mates with an open item due at `now`.
 pub fn mates_with_due(conn: &Connection, now: i64) -> Result<Vec<String>, DbError> {
     let mut statement =
@@ -396,5 +406,47 @@ mod tests {
         );
         assert!(delete_item(&conn, "m", "c").unwrap());
         assert!(get_item(&conn, "c").unwrap().is_none());
+    }
+
+    #[test]
+    fn upcoming_lists_every_mates_open_items_in_time_order() {
+        let (_dir, mut conn) = db();
+        create_mate(
+            &mut conn,
+            &NewMate {
+                id: "n".into(),
+                chat_id: "d".into(),
+                name: "Bo".into(),
+                avatar: json!({}),
+                folder: "/n".into(),
+                ..NewMate::default()
+            },
+            "ask",
+        )
+        .unwrap();
+        add_item(&conn, &item("late", "promise", "Later", 900)).unwrap();
+        add_item(&conn, &item("soon", "event", "Soon", 200)).unwrap();
+        add_item(
+            &conn,
+            &NewItem {
+                mate_id: "n".into(),
+                ..item("bo", "checkin", "Brief", 300)
+            },
+        )
+        .unwrap();
+        add_item(&conn, &item("gone", "question", "Settled", 250)).unwrap();
+        set_status(&conn, "m", "gone", "done").unwrap();
+        add_item(&conn, &item("held", "checkin", "Paused one", 260)).unwrap();
+        set_status(&conn, "m", "held", "paused").unwrap();
+        let ids: Vec<String> = upcoming(&conn, 500)
+            .unwrap()
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        assert_eq!(
+            ids,
+            ["soon", "bo"],
+            "open items before the time, soonest first"
+        );
     }
 }

@@ -20,6 +20,7 @@ pub mod limit;
 pub mod team_file;
 pub mod secrets;
 pub mod template;
+pub mod today;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

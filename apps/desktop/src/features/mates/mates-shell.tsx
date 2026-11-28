@@ -3,7 +3,7 @@
 // Harness — and the empty state when no mate is open.
 
 import * as React from "react";
-import { ArrowLeftRightIcon, HashIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon, UploadIcon } from "lucide-react";
+import { ArrowLeftRightIcon, HashIcon, HouseIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon, UploadIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { PluginsIcon } from "@/components/icons/tool-icons";
@@ -104,6 +104,33 @@ function Channels() {
   );
 }
 
+/** The sidebar's first row: Evo Mates' home, Today (FR-73), with a dot while anything waits. */
+function TodayRow() {
+  const active = useMatesStore((s) => s.view.kind === "today" || s.view.kind === "empty");
+  const showToday = useMatesStore((s) => s.showToday);
+  const mates = useMatesStore((s) => s.mates);
+  const channels = useMatesStore((s) => s.channels);
+  const waiting = useSessionStore((s) =>
+    [...mates.map((m) => m.chatId), ...channels.map((c) => c.chatId)].some((chat) => s.work[chat] === "waiting"),
+  );
+  return (
+    <div className="px-2 pt-2">
+      <button
+        type="button"
+        onClick={showToday}
+        className={cn(
+          "no-drag flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent/70",
+          active && "bg-sidebar-accent",
+        )}
+      >
+        <HouseIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="flex-1">Today</span>
+        {waiting && <span className="size-2 rounded-full bg-primary" aria-label="Something needs you" />}
+      </button>
+    </div>
+  );
+}
+
 /** The 280 px sidebar on the window's material. */
 export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
   const { resolved, setTheme } = useTheme();
@@ -166,6 +193,7 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
         </IconButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+        {!query && <TodayRow />}
         <Roster query={query} />
         <Channels />
       </div>

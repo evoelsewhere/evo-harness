@@ -18,6 +18,7 @@ import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
 import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
 import { MatesEmpty, MatesSidebar } from "@/features/mates/mates-shell";
+import { TodayPage } from "@/features/mates/today";
 import { startShellNotices } from "@/features/notifications/notify";
 import { QuitDialog } from "@/features/shell/quit-dialog";
 import { WindowControls } from "@/features/shell/window-controls";
@@ -109,6 +110,8 @@ function Conversation() {
   if (customizeOpen) return <MatesCustomize />;
   if (view.kind === "gallery") return <Gallery />;
   if (view.kind === "channel") return <ChannelPane id={view.id} />;
+  // With no conversation open, Evo Mates shows its home (FR-73).
+  if (view.kind === "today" || view.kind === "empty") return <TodayPage />;
   if (!mate) return <MatesEmpty />;
   return (
     <div className="flex h-full min-h-0">

@@ -250,6 +250,8 @@ pub fn run() {
             mates::secrets::mates_secrets,
             mates::secrets::mates_delete_secret,
             mates::mates_pause_all,
+            // From the market research (docs/features/evo-mates/plan.md 3.10).
+            mates::today::mates_today,
             widgets::widget_open,
             widgets::widget_close,
             plugin_runtime::plugin_runtime_state,

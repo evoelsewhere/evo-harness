@@ -124,6 +124,8 @@ export const matesApi = {
   /** Change a check-in's schedule (`{kind: "daily" | "weekdays" | "weekly", time, days?}`). */
   rescheduleAgenda: (id: string, item: string, repeat: CheckinSchedule) =>
     invoke<AgendaItem>("mates_agenda_reschedule", { id, item, repeat }),
+  /** Coming up and each mate's day so far, for Today (FR-73). */
+  today: () => invoke<{ coming: AgendaItem[]; team: { mateId: string; replies: number; costUsd: number }[] }>("mates_today"),
 };
 
 export type Initiative = "off" | "low" | "medium";
