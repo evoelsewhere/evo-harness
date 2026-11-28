@@ -4,7 +4,7 @@
 // can be paused.
 
 import * as React from "react";
-import { BellRingIcon, CalendarClockIcon, CheckIcon, MessageCircleQuestionIcon, PauseIcon, PlayIcon } from "lucide-react";
+import { BellRingIcon, CalendarClockIcon, CheckIcon, MessageCircleQuestionIcon, PauseIcon, PlayIcon, PlusIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { matesApi, type AgendaItem, type CheckinSchedule, type Initiative, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,76 @@ export function dueWords(at: number, now = Date.now()): string {
   if (days === 1) return `Tomorrow ${time}`;
   if (days === -1) return `Yesterday ${time}`;
   return `${date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })} ${time}`;
+}
+
+/** Add check-in's presets (FR-79). */
+export const CHECKIN_PRESETS: { label: string; text: string; schedule: CheckinSchedule }[] = [
+  { label: "Morning brief", text: "Brief me on today: what is due, what is open, what I should look at first", schedule: { kind: "weekdays", time: "09:00" } },
+  { label: "End of day", text: "Sum up what we did today and what is left for tomorrow", schedule: { kind: "weekdays", time: "17:30" } },
+  { label: "Weekly review", text: "Review the week: what got done, what slipped, what to plan next", schedule: { kind: "weekly", time: "16:00", days: [5] } },
+];
+
+/** Add a check-in without asking in chat (FR-79). */
+function AddCheckin({ mate }: { mate: Mate }) {
+  const [open, setOpen] = React.useState(false);
+  const [text, setText] = React.useState("");
+  const [schedule, setSchedule] = React.useState<CheckinSchedule>({ kind: "weekdays", time: "09:00", days: [1] });
+  const [error, setError] = React.useState<string | null>(null);
+  if (!open)
+    return (
+      <Button size="xs" variant="secondary" className="h-7 self-start rounded-full px-3 text-xs" onClick={() => setOpen(true)}>
+        <PlusIcon />
+        Add check-in
+      </Button>
+    );
+  return (
+    <div className="flex flex-col gap-1.5 rounded-2xl bg-muted/40 p-2.5">
+      <div className="flex flex-wrap gap-1">
+        {CHECKIN_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            type="button"
+            onClick={() => {
+              setText(preset.text);
+              setSchedule(preset.schedule);
+            }}
+            className={cn(
+              "rounded-full bg-background/70 px-2.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground",
+              text === preset.text && "bg-brand/10 text-foreground shadow-[0_0_0_1px_var(--brand)]",
+            )}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <input
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder={`What should ${mate.name} look at?`}
+        aria-label="What the check-in is about"
+        className="rounded-xl bg-background/70 px-2.5 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground"
+      />
+      <CheckinEditor
+        key={JSON.stringify(schedule)}
+        initial={schedule}
+        onCancel={() => {
+          setOpen(false);
+          setError(null);
+        }}
+        onSave={(chosen) => {
+          void matesApi
+            .addCheckin(mate.id, text, chosen)
+            .then(() => {
+              setOpen(false);
+              setText("");
+              setError(null);
+            })
+            .catch((e) => setError(String(e).replace(/^Error:\s*/, "")));
+        }}
+      />
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+    </div>
+  );
 }
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -197,7 +267,7 @@ export function FollowingUp({ mate }: { mate: Mate }) {
         <h3 className="text-xs font-medium text-muted-foreground">Following up</h3>
         {items.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            Nothing yet. When you mention something coming up, or ask {mate.name} for a regular check-in, it shows here.
+            Nothing yet. When you mention something coming up, or add a regular check-in, it shows here.
           </p>
         ) : (
           <ul className="flex flex-col gap-1">
@@ -259,6 +329,7 @@ export function FollowingUp({ mate }: { mate: Mate }) {
             })}
           </ul>
         )}
+        <AddCheckin mate={mate} />
       </section>
     </div>
   );

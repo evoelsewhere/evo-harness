@@ -131,6 +131,9 @@ export const matesApi = {
   addKnowledge: (id: string, paths: string[]) =>
     invoke<{ added: string[]; refused: [string, string][] }>("mates_knowledge_add", { id, paths }),
   removeKnowledge: (id: string, name: string) => invoke<void>("mates_knowledge_remove", { id, name }),
+  /** A check-in the person adds in the panel (FR-79). */
+  addCheckin: (id: string, text: string, repeat: CheckinSchedule) =>
+    invoke<AgendaItem>("mates_agenda_add_checkin", { id, text, repeat }),
   /** Mates' conversations and channels whose words match (FR-76). */
   search: (query: string) => invoke<MessageHit[]>("mates_search", { query }),
   /** Coming up and each mate's day so far, for Today (FR-73). */

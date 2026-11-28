@@ -262,6 +262,43 @@ pub fn mates_agenda_reschedule(app: AppHandle, id: String, item: String, repeat:
     Ok(item)
 }
 
+/// A check-in the person adds in the panel (FR-79): the same row the
+/// `mate_agenda` tool writes, its first time from `repeat`.
+pub fn new_checkin(mate: &str, chat: &str, text: &str, repeat: &Value, now: i64) -> Result<agenda::NewItem, String> {
+    use crate::agent_tools::scheduler::schedule::{next_run, schedule_from};
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return Err("Say what the check-in is about.".into());
+    }
+    let schedule = schedule_from(repeat)?;
+    let next = next_run(&schedule, now).ok_or("That schedule never comes round.")?;
+    {
+        use crate::agent_tools::scheduler::schedule::Schedule;
+        if !matches!(schedule, Schedule::Daily { .. } | Schedule::Weekdays { .. } | Schedule::Weekly { .. }) {
+            return Err("A check-in repeats: every day, on weekdays or on chosen days.".into());
+        }
+    }
+    Ok(agenda::NewItem {
+        id: super::new_id("agenda"),
+        mate_id: mate.into(),
+        kind: "checkin".into(),
+        text,
+        due_at: next,
+        repeat: Some(serde_json::to_string(&schedule).map_err(|e| e.to_string())?),
+        chat_id: Some(chat.into()),
+    })
+}
+
+#[tauri::command]
+pub fn mates_agenda_add_checkin(app: AppHandle, id: String, text: String, repeat: Value) -> Result<Item, String> {
+    let db = app.state::<Db>();
+    let mate = db.with(|conn| evo_store::mates::get_mate(conn, &id))?.ok_or("No such mate.")?;
+    let item = new_checkin(&mate.id, &mate.chat_id, &text, &repeat, evo_store::chats::now_ms())?;
+    let added = db.with(|conn| agenda::add_item(conn, &item))?.ok_or("You asked never to follow up on this.")?;
+    super::changed(&app);
+    Ok(added)
+}
+
 /// A check-in's schedule in words ("Weekdays at 09:00"), for the panel.
 #[tauri::command]
 pub fn mates_agenda_repeat_words(repeat: String) -> Option<String> {
@@ -272,6 +309,17 @@ pub fn mates_agenda_repeat_words(repeat: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_check_in_from_the_panel_comes_round_on_its_schedule() {
+        let now = 1_700_000_000_000; // a Tuesday
+        let item = new_checkin("m", "chat-m", "  What is left on the launch ", &serde_json::json!({"kind": "weekdays", "time": "09:00"}), now).unwrap();
+        assert_eq!((item.kind.as_str(), item.text.as_str(), item.mate_id.as_str()), ("checkin", "What is left on the launch", "m"));
+        assert!(item.due_at > now && item.due_at - now <= 3 * 86_400_000, "its next time");
+        assert!(item.repeat.as_deref().is_some_and(|r| r.contains("weekdays")));
+        assert!(new_checkin("m", "c", " ", &serde_json::json!({"kind": "daily", "time": "09:00"}), now).is_err(), "a text is needed");
+        assert!(new_checkin("m", "c", "x", &serde_json::json!({"kind": "manual"}), now).is_err(), "it must come round");
+    }
     use super::*;
 
     fn mate(initiative: &str, unanswered: i64, paused: bool) -> Mate {
