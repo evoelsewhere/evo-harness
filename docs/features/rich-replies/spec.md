@@ -296,7 +296,9 @@ Stage 4 — input (later)
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | FR-25 | `choose` (single or multiple choice, with an optional free answer) and `form` (text, number, select, checkbox fields) send the person's answer to the agent as their message, written as a readable list like an `ask_user` answer; the block then shows the answer and cannot be sent again. | US-8.1. |
-| FR-26 | A `run` action names a tool and its arguments. Clicking it makes the tool call go through the chat's approval mode, read-only roles and per-tool permissions exactly as if the agent called it; the approval says it came from a button in a reply. The button shows running, done or failed. | US-8.2; in Ask mode the click shows an approval. |
+| FR-26 | A `run` action names a tool and its arguments. Clicking it makes the tool call go through the chat's approval mode, read-only roles and per-tool permissions exactly as if the agent called it; the approval says it came from a button in a reply. The button shows running, done or failed. | US-8.2; in Ask mode the click shows an approval. || FR-37 | A file the reply names is a link: a relative markdown link (`[notes](docs/notes.md)`), a path in backticks, or a file name with an extension in the text (`pricing-notes.md`, `src/app.ts:42`); never inside a code block or an existing link. In Evo Harness it opens in the Files tool (at the line when one is given); in Evo Mates it opens in the person's default app for that file. Paths are relative to the chat's folder (a mate's folder for a mate, the channel's folder in a channel). A file that does not exist says so instead of opening. | Given a reply "(source: pricing-notes.md)" in a chat whose folder holds it, when the person clicks the name, then the file opens. |
+| FR-38 | The agent is told to write each file it mentions as a markdown link with its path relative to the working folder, so the link finds the file. | Given the system prompt, then it holds that rule. |
+
 ### 4.2 Non-functional
 
 | ID | Requirement | Acceptance check |
@@ -403,3 +405,4 @@ None.
 - 2026-11-19 — Amended at the person's request after trying stage 1: FR-9
   diagrams take the app's colours (and the chosen background) and open
   full screen.
+- 2026-11-28 — Owner asked that a file named in a reply be a link that opens it ("refer file why not a link click vào ra file"): FR-37, FR-38 added.

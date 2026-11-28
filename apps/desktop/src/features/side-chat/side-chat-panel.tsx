@@ -2,6 +2,7 @@ import * as React from "react";
 import { ArrowUpIcon, CheckIcon, CopyIcon, MessageSquarePlusIcon, SquareIcon } from "lucide-react";
 import { SideChatIcon } from "@/components/icons/tool-icons";
 import { Markdown } from "@/components/markdown";
+import { openFromChat } from "@/components/open-file-ref";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
@@ -71,7 +72,7 @@ function Turn({ turn }: { turn: SideTurn }) {
       </div>
       <div className="group/answer flex flex-col gap-1">
         {turn.text ? (
-          <Markdown streaming={writing} blocks>{turn.text}</Markdown>
+          <Markdown streaming={writing} blocks onLocalLink={openFromChat}>{turn.text}</Markdown>
         ) : writing ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-3.5" />

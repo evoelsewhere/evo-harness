@@ -14,6 +14,7 @@ import {
 import { useHighlightedCode } from "@/hooks/use-highlighted-code";
 import { MermaidBlock } from "@/components/reply-blocks/mermaid-block";
 import { UiBlock } from "@/components/reply-blocks/ui-block";
+import { FILE_LINK, linkFiles } from "@/components/file-refs";
 import { BLOCK_FENCE } from "@/lib/ui-blocks/types";
 import { useSmoothText } from "@/hooks/use-smooth-text";
 import { cn } from "@/lib/utils";
@@ -82,14 +83,6 @@ function MarkdownFence({ code, language }: { code: string; language: string }) {
 
 const components = { code: MarkdownCode };
 
-/** Relative links ride through link hardening under this origin. */
-const LOCAL_LINK = "https://local.link/";
-
-/** `[text](references/a.md)` → an absolute URL the hardening keeps. */
-function markLocalLinks(markdown: string): string {
-  return markdown.replace(/\]\((?!(?:[a-z][a-z0-9+.-]*:|#|\/\/))([^)\s]+)\)/gi, (_, href: string) => `](${LOCAL_LINK}${encodeURIComponent(href)})`);
-}
-
 /** The agent's reply as markdown (shadcn/ui AI Elements · Message). */
 export const Markdown = React.memo(function Markdown({
   children,
@@ -102,7 +95,7 @@ export const Markdown = React.memo(function Markdown({
   className?: string;
   /** Pass while the reply streams, so incomplete fences render safely. */
   streaming?: boolean;
-  /** Relative links (`references/a.md`) call this instead of being blocked. */
+  /** Files the text names (relative links, paths, file names) call this with the reference instead of being blocked (rich-replies FR-37). */
   onLocalLink?(href: string): void;
   /** The agent's reply: draw `evo-ui` blocks and Mermaid diagrams (docs/features/rich-replies/spec.md, FR-1, FR-9). */
   blocks?: boolean;
@@ -113,10 +106,10 @@ export const Markdown = React.memo(function Markdown({
         ? {
             ...components,
             a: ({ node: _node, href, children: label, ...props }: React.ComponentProps<"a"> & ExtraProps) =>
-              href?.startsWith(LOCAL_LINK) ? (
+              href?.startsWith(FILE_LINK) ? (
                 <button
                   type="button"
-                  onClick={() => onLocalLink(decodeURIComponent(href.slice(LOCAL_LINK.length)))}
+                  onClick={() => onLocalLink(decodeURIComponent(href.slice(FILE_LINK.length)))}
                   className="cursor-pointer text-link underline-offset-4 hover:underline"
                 >
                   {label}
@@ -132,7 +125,7 @@ export const Markdown = React.memo(function Markdown({
   );
   // Streamed text is revealed at a steady pace rather than in network bursts.
   const smooth = useSmoothText(children, streaming);
-  const text = onLocalLink ? markLocalLinks(smooth.text) : smooth.text;
+  const text = onLocalLink ? linkFiles(smooth.text) : smooth.text;
   return (
     <div
       data-selectable

@@ -5,6 +5,7 @@ import { Reasoning, seconds } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
 import { TurnError } from "./turn-error";
 import { Markdown } from "@/components/markdown";
+import { openFromChat } from "@/components/open-file-ref";
 import { AgentIcon } from "@/components/icons/agent-icon";
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message";
 import { Spinner } from "@/components/ui/spinner";
@@ -250,7 +251,7 @@ export function AssistantMessage({
 
           {shown.map((segment, index) =>
             segment.kind === "text" ? (
-              <Markdown key={segment.key} streaming={segment.streaming} blocks>
+              <Markdown key={segment.key} streaming={segment.streaming} blocks onLocalLink={openFromChat}>
                 {segment.text}
               </Markdown>
             ) : segment.kind === "widget" ? (

@@ -6,6 +6,7 @@
 import * as React from "react";
 import { ArrowUpIcon, ClipboardCheckIcon, DownloadIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
+import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -147,7 +148,7 @@ function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
   );
 }
 
-function RowView({ row, faceOf, names }: { row: ChannelRow; faceOf(id: string): Mate | undefined; names: string[] }) {
+function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
   switch (row.kind) {
     case "time":
       return <div className="py-2 text-center text-[11px] font-medium text-muted-foreground">{row.text}</div>;
@@ -192,7 +193,16 @@ function RowView({ row, faceOf, names }: { row: ChannelRow; faceOf(id: string): 
                   )}
                 </span>
               ) : (
-                <Markdown blocks>{boldMentions(row.text, names)}</Markdown>
+                <Markdown
+                  blocks
+                  onLocalLink={(reference) => {
+                    // A seat works in the channel's folder, else in its mate's (rich-replies FR-37).
+                    const author = faceOf(row.author);
+                    void openFileRef(reference, folder ?? author?.projectFolder ?? author?.folder ?? null, "mates");
+                  }}
+                >
+                  {boldMentions(row.text, names)}
+                </Markdown>
               )}
             </div>
             {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
@@ -404,6 +414,7 @@ export function ChannelView({ channel }: { channel: Channel }) {
               row={row}
               names={members.map((m) => m.name)}
               faceOf={(id) => members.find((m) => m.id === id)}
+              folder={channel.folder ?? null}
             />
           ))
         )}
