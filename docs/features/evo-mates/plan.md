@@ -732,6 +732,25 @@ spending less).
 tool writes (`kind = 'checkin'`, `repeat` in the Scheduler's shape), so the
 heartbeat, pause and the editor need no change.
 
+### 3.11 Pictures and files in messages (FR-81 – FR-83)
+
+Architecture check: display and composer work only; the engine, protocol
+and shell are unchanged. The person's attachments already travel as the
+chat composer sends them (`buildPrompt`: pictures as image parts, files as
+`@path` lines, long text as `<pasted-text>` blocks); `splitPrompt` takes a
+sent message apart for display. A mate's sent files are its `send_file`
+results (`details.externalToolResult.structuredContent.files`, as Evo
+Harness's `SentFiles` reads them); its tools' pictures are `ToolPart.images`.
+Local pictures are read as data URLs by `fs_read_file`, sizes by `fs_stat`.
+
+| Layer | Path | Responsibility | Requirements |
+| --- | --- | --- | --- |
+| desktop UI | `apps/desktop/src/features/mates/attachments.ts` (new) | Pure: `isPicture(path)`, `sentFilesOf(turn)`, `picturesOf(turn)`, `mentionedFiles(text)` | FR-81 – FR-83 |
+| desktop UI | `apps/desktop/src/features/mates/attachment-views.tsx` (new) | `Thumb` (data URL or path), `FileChip`, `PastedChip`, `PictureViewer` (full size in a dialog), `SentStrip` (a turn's files and pictures) | FR-81 – FR-83 |
+| desktop UI | `apps/desktop/src/features/mates/thread-rows.ts`, `thread.tsx` | A bubble keeps the person's files and pasted blocks; a `files` row on the mate's side per turn that sent or showed something | FR-81, FR-82 |
+| desktop UI | `apps/desktop/src/features/mates/composer.tsx` | Paste and drop as the chat composer does (`attachmentsFromTransfer`, `attachmentsFromPaths`, the webview's drop event) | FR-81 |
+| desktop UI | `apps/desktop/src/features/mates/channel-view.tsx` | The channel composer's +, paste and drop; pictures saved with `fs_save_paste`; the person's line split with `splitPrompt`; a mate's line shows the existing files it names | FR-83 |
+
 ## 4. Alternatives considered
 
 | Option | Why not |

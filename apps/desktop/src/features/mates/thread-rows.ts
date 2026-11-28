@@ -4,6 +4,8 @@
 // Pure: no React, so it is tested on its own.
 
 import type { Turn } from "@/features/chat";
+import { splitPrompt } from "@/features/chat/prompt-text";
+import { picturesOf, sentFilesOf, type SentFile } from "./attachments";
 import { parsePrompt, type ReplyTo } from "./message-markup";
 
 /** One bubble of the thread. */
@@ -13,6 +15,10 @@ export interface Bubble {
   text: string;
   reply: ReplyTo | null;
   images?: string[];
+  /** Files the person attached, by path (FR-81). */
+  files?: string[];
+  /** Long text the person pasted (FR-81). */
+  pasted?: { lines: number; text: string }[];
   streaming: boolean;
   turn: Turn;
   at: number;
@@ -24,6 +30,8 @@ export type Row =
   | { kind: "typing"; key: string; step: string | null }
   | { kind: "steps"; key: string; text: string }
   | { kind: "memory"; key: string }
+  /** What a mate's turn sent and showed: files and pictures (FR-82). */
+  | { kind: "files"; key: string; files: SentFile[]; pictures: string[] }
   /** Where a "Learned · <skill>" line may show (learning-layers FR-18). */
   | { kind: "learned"; key: string; turn: Turn }
   | { kind: "error"; key: string; turn: Turn }
@@ -127,9 +135,22 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
       });
       return;
     }
-    const { text, reply } = parsePrompt(turn.prompt);
-    if (text.trim() || turn.images?.length) {
-      push({ key: `${base}:prompt`, side: "me", text, reply, images: turn.images, streaming: false, turn, at: turn.startedAt });
+    const { text: said0, reply } = parsePrompt(turn.prompt);
+    // Attached files and pasted text show as chips, not as markup (FR-81).
+    const { text, files, pasted } = splitPrompt(said0);
+    if (text.trim() || turn.images?.length || files.length || pasted.length) {
+      push({
+        key: `${base}:prompt`,
+        side: "me",
+        text,
+        reply,
+        images: turn.images,
+        files: files.length ? files : undefined,
+        pasted: pasted.length ? pasted : undefined,
+        streaming: false,
+        turn,
+        at: turn.startedAt,
+      });
     }
     let said = 0;
     turn.parts.forEach((part) => {
@@ -144,6 +165,10 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
         at: turn.endedAt ?? turn.startedAt,
       });
     });
+    // What the turn sent and showed, under its text (FR-82).
+    const sentFiles = sentFilesOf(turn);
+    const pictures = picturesOf(turn);
+    if (sentFiles.length || pictures.length) rows.push({ kind: "files", key: `files:${base}`, files: sentFiles, pictures });
     const last = index === turns.length - 1;
     const running = turn.status === "running" && last && busy;
     const lastPart = turn.parts[turn.parts.length - 1];

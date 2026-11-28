@@ -135,6 +135,10 @@ plan 3.10).
 - [x] T82 [FR-80] Tests, then code: `spend::over` (mates at or over the limit, not paused, not excused today; none with the limit off); the check on work changes; excuse on Resume; the setting and the paused line — `src-tauri/src/mates/spend.rs`, `system.rs`, `mates/mod.rs`, `src/features/settings/sections/mates-settings.tsx`, `src/features/mates/composer.tsx` — check: `bun run test:shell mates::spend`; manual
 - [x] T81 [FR-73 – FR-80] Check each in the app on scratch data, light and dark, screenshots in `docs/features/evo-mates/assets/`; verification rows; `apps/desktop/README.md` UI map — check: rows below
 
+- [x] T83 [FR-81, FR-82, FR-83] Tests, then code: `attachments.ts` (pictures by extension, `send_file` files, tool pictures, files a reply names); thread rows keep the person's files and pasted blocks and add a mate's files row — `src/features/mates/attachments.ts`, `thread-rows.ts` — check: `bun test src/features/mates`
+- [ ] T84 [FR-81, FR-82] Thumbnails, file chips, pasted chips, the full-size viewer and the mate's files row in the thread; paste and drop in the mate composer — `attachment-views.tsx`, `thread.tsx`, `composer.tsx` — check: manual in the app
+- [ ] T85 [FR-83] The channel composer's +, paste and drop; the person's and mates' lines with their pictures and files — `channel-view.tsx` — check: manual in the app
+
 ### Phase 5 — Verify
 
 Done when: every row below is `passed` with its date.
@@ -225,6 +229,9 @@ Done when: every row below is `passed` with its date.
 | FR-78 | `bun run test:shell agent_tools::mates` (T78); manual T81 | passed (2026-11-28): `a_mate_names_itself_only_while_it_is_new`, `a_mate_role_gets_the_mate_conduct`; in the app a described mate named itself "Ledger" with a one-line role in its first turn ([assets/research-describe-light.png](assets/research-describe-light.png)); the first try exposed a tools race, fixed in `252fae8e` |
 | FR-79 | `bun run test:shell mates::initiative` (T80); manual T81 | passed (2026-11-28): `a_check_in_from_the_panel_comes_round_on_its_schedule`, presets test; in the app Morning brief added "Every weekday at 09:00" to Following up ([assets/research-add-checkin-light.png](assets/research-add-checkin-light.png)) |
 | FR-80 | `bun run test:shell mates::spend` (T82); manual T81 | passed (2026-11-28): `mates_at_or_over_the_limit_are_paused_unless_excused_or_paused_already`, `paused-line.test.ts`; in the app with a $0.05 limit, Writer ($0.18) and Researcher ($0.08) paused with the log line and the box naming the limit, Ledger ($0.04) did not, and Resume kept Researcher going ([assets/research-limit-light.png](assets/research-limit-light.png)) |
+| FR-81 | `bun test` (T83); manual T84 | not run |
+| FR-82 | `bun test` (T83); manual T84 | not run |
+| FR-83 | `bun test` (T83); manual T85 | not run |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |
