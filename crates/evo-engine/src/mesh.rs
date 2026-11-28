@@ -1203,8 +1203,11 @@ async fn take_mail(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let message =
-        evo_agent::AgentMessage::from(evo_ai::types::UserMessage::new(body.text.clone(), now));
+    // Pictures given with the mail go to the model as images (evo-mates-messaging FR-6).
+    let message = evo_agent::AgentMessage::from(evo_ai::types::UserMessage::new(
+        crate::tools::mesh::mail_content(&body.text),
+        now,
+    ));
     let lane = harness.lane("main");
     let running = harness.has_active_run();
     let (queued, result) = match (running, body.deliver) {

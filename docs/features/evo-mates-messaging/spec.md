@@ -119,7 +119,7 @@ channels, from the product owner's backlog (Train 1 with Q1 – Q4).
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | FR-1 | **Typing line** in a channel (Q1): at the feed's foot, the faces of the working mates with moving dots and "A is typing…", "A and B are typing…" or "A and N others are typing…"; hovering a face shows "Name · step"; a mate leaves the line when its line lands; no dots while a card waits; reduced motion holds them still. | Two seats working: one line with both names; one lands: one name left. |
-| FR-2 | **Message status** (M1) under the person's last message in a mate's conversation: Sent, Queued (waiting for room or for the running turn), Seen (the mate's turn started on it), Replied; in a channel, "Seen by" with the faces of the mates whose turn took it in. | A message while the mate works reads Queued, then Seen, then Replied. |
+| FR-2 | **Message status** (M1) under the person's last message in a mate's conversation: Sent, then Seen once the engine started the mate's turn on it (its first part arrived), then Replied; a turn that answered with tools or files only shows no status. A message sent while the mate works shows in the queued list (FR-9), not as a status. In a channel, "Seen by" with the faces of the mates whose turn ran on it (they answered it, or are at work on the latest message). | A message reads Sent, then Seen when the mate starts, then Replied. |
 | FR-3 | **Reactions in channels** (Q2): the person and every mate may react to any line with the six reactions of evo-mates FR-60; a line shows chips with counts and, on hover, who reacted; one reaction per reactor per line, a second pick replaces it, the same pick removes it; reactions are kept across restarts. | A 👍 from the person and from Kai shows "👍 2" with both faces after a restart. |
 | FR-4 | **Mates react** (Q2) with a tool that names a line of the channel and a reaction; it never starts a turn for anyone, does not count toward the hand-off limit, at most one per mate per line, never on its own lines; the reacted-to mate is told at its next turn as information ("Kai reacted 👍 to your line: …"). | A seat's `react` call adds the chip, no seat wakes, the limit counter is unchanged; the author's next delivery carries the note. |
 | FR-5 | **Replies in channels** (Q3): the person may reply to any line (hover Reply, Esc removes the quote); a mate's line that answers a specific line shows its quote; a quote jumps to its line and highlights it. Mates name the line they answer by its short id, which every delivery now shows. | A reply to Kai's line shows the quote; clicking it jumps to Kai's line. |
@@ -128,7 +128,7 @@ channels, from the product owner's backlog (Train 1 with Q1 – Q4).
 | FR-8 | **Try again** (M3) on the last reply in a mate's conversation: the reply is answered again, optionally with another model picked from the menu; the failed-reply Retry stays. | Try again gives a new reply in place of the old. |
 | FR-9 | **Unsend** (M4) a message that is still queued in a mate's conversation or a channel; **Delete for me** hides any message from the person's view, kept hidden across restarts. | Unsend while Queued: the mate's next turn never sees it; Delete for me hides a bubble after a restart. |
 | FR-10 | **Forward** (M5) a message with its files to a mate or channel picked from a list, with an optional note; the receiver shows "Forwarded from <name>" above it and the mate reads it as quoted, not as the person's instruction unless the note asks. | Forward Writer's reply to Analyst with "check this": Analyst's conversation shows the label and answers the note. |
-| FR-11 | **Drafts** (M6): text and attachments in a box are kept per conversation across switches and restarts; the roster row reads "Draft: …" while one waits. | Type, restart: the text is back and the row says Draft. |
+| FR-11 | **Drafts** (M6): the text in a box is kept per conversation across switches and restarts; the roster row reads "Draft: …" while one waits. Attachments are not kept (see History). | Type, restart: the text is back and the row says Draft. |
 | FR-12 | **Composer** (M11): an emoji picker button; `:shortcode` completion with arrow keys and Enter; Ctrl+B, Ctrl+I, Ctrl+E wrap the selection; ↑ in an empty box edits the last message (FR-7); in mates' conversations and channels. | Each key and the picker work in both boxes. |
 | FR-13 | **Slash commands** (M12): `/` lists `/remind`, `/checkin`, `/pause`, `/resume`, `/stop`, `/memory`, `/handoff @mate` (channels), `/clear-quote`, filtered as typed, each with a hint; Enter runs it. | `/checkin every weekday 9:00 inbox` adds a check-in in Following up. |
 | FR-14 | **Pinned messages** (M7): pin any message in a mate's conversation or channel; a bar under the header shows the latest pin, steps through them and jumps to each; Unpin from the bar or the message. | Pin three: the bar shows "1 of 3" and steps. |
@@ -214,3 +214,11 @@ ids it can name).
   forward, pins, mute and levels, link previews, mentions of the person
   (T10 – T20). FR-4 covers channel lines; a mate reacting in its direct
   conversation went to Later. Status Implemented.
+- 2026-11-29 — Review fixes for 1a and 1b (product owner's two reviews).
+  FR-11 changed: drafts keep the text only. Pictures and files are local
+  paths or large data URLs that a restart may no longer find, and the
+  window's storage is no place for them. FR-2
+  changed: no Queued status (a message waiting for the running turn already
+  sits in the queued list with Unsend); Seen waits for the engine's first
+  part; Seen by in a channel counts a mate once its turn ran on the message,
+  not when the route picked it.

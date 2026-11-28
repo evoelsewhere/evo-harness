@@ -26,7 +26,7 @@ export interface ReplyTo {
 
 const NOTE = /^<evo-mates-note>([\s\S]*?)<\/evo-mates-note>\n?/;
 const REPLY = /^<evo-mates-reply from="([^"]*)">([\s\S]*?)<\/evo-mates-reply>\n?/;
-const FORWARD = /^<evo-mates-forward from="([^"]*)">\n?([\s\S]*?)\n?<\/evo-mates-forward>\n?/;
+const FORWARD = /^<evo-mates-forward from="([^"]*)">\n?([\s\S]*?)\n?<\/evo-mates-forward>\n?/i;
 
 /** A forwarded message as the person sends it on (evo-mates-messaging FR-10): marked as quoted, not their instruction. */
 export function forwardPrompt(from: string, text: string, note: string): string {

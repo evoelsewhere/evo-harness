@@ -87,6 +87,14 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     [mate.chatId],
   );
   React.useEffect(() => setTextState(useMatesUiStore.getState().drafts[mate.chatId] ?? ""), [mate.chatId]);
+  // An edit that could not run comes back to the box (review 1a #10).
+  React.useEffect(() => {
+    const back = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === mate.chatId) setTextState(useMatesUiStore.getState().drafts[mate.chatId] ?? "");
+    };
+    window.addEventListener("mates:draft", back);
+    return () => window.removeEventListener("mates:draft", back);
+  }, [mate.chatId]);
   const [files, setFiles] = React.useState<PromptAttachment[]>([]);
   // Working by the engine store or by the shell: a run the harness retries
   // after a failed attempt reports no new start, but the shell sees it work.
@@ -166,9 +174,13 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
   const run = (command: SlashCommand, rest: string) => {
     const store = useMatesStore.getState();
     switch (command.id) {
-      case "remind":
-        void useEngineStore.getState().sendPrompt(`Please remind me: ${rest}`).catch(() => undefined);
+      case "remind": {
+        // While it works, the request joins the run (review 1a #7).
+        const engine = useEngineStore.getState();
+        const ask = `Please remind me: ${rest}`;
+        void (engine.transcript.busy || working(mate.chatId) ? engine.queueMessage(ask, [], "followUp") : engine.sendPrompt(ask)).catch(() => undefined);
         break;
+      }
       case "checkin": {
         const parsed = parseCheckin(rest);
         if (!parsed) {

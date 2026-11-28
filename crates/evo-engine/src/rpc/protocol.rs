@@ -484,6 +484,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "list_memory_changes",
     "undo_memory_change",
     "channel_post_retro",
+    "channel_line",
     "save_instructions",
     "reload_resources",
     "set_plugin_host",

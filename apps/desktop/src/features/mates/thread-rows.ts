@@ -44,8 +44,8 @@ export type Row =
   /** Where a "Learned · <skill>" line may show (learning-layers FR-18). */
   | { kind: "learned"; key: string; turn: Turn }
   | { kind: "error"; key: string; turn: Turn }
-  /** The person's last message's status: Sent, Queued or Seen; the reply itself says Replied (evo-mates-messaging FR-2). */
-  | { kind: "delivered"; key: string; word: "Sent" | "Queued" | "Seen" };
+  /** The person's last message's status: Sent, or Seen once the mate's turn started on it; the reply says Replied (evo-mates-messaging FR-2). */
+  | { kind: "delivered"; key: string; word: "Sent" | "Seen" };
 
 const GAP_MS = 15 * 60_000;
 
@@ -250,7 +250,7 @@ export function isSilent(text: string): boolean {
   return text.trim().replace(/^[.`*]+|[.`*]+$/g, "").toUpperCase() === "NOTHING_TO_SAY";
 }
 
-export function threadRows(turns: readonly Turn[], busy: boolean, retrying = false, queued = false): Row[] {
+export function threadRows(turns: readonly Turn[], busy: boolean, retrying = false): Row[] {
   const rows: Row[] = [];
   const bubbles: { bubble: Bubble }[] = [];
   let lastAt: number | null = null;
@@ -319,8 +319,11 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
     const lastPart = turn.parts[turn.parts.length - 1];
     // Under the person's last message until the reply lands (FR-2).
     const mine = rows.at(-1)?.kind === "bubble" && (rows.at(-1) as { bubble: Bubble }).bubble.side === "me";
-    if (last && mine && said === 0 && !turn.error && turn.status !== "aborted") {
-      rows.push({ kind: "delivered", key: `delivered:${base}`, word: queued ? "Queued" : running ? "Seen" : "Sent" });
+    // A turn that only used tools or sent files answered too (review 1a #6).
+    const answered = said > 0 || turn.parts.some((part) => part.kind === "tool") || sentFilesOf(turn).length > 0;
+    if (last && mine && !answered && !turn.error && turn.status !== "aborted") {
+      // Seen once the engine started on it: a first part arrived (review 1a #6).
+      rows.push({ kind: "delivered", key: `delivered:${base}`, word: running && turn.parts.length > 0 ? "Seen" : "Sent" });
     }
     if (running && !(lastPart?.kind === "text" && lastPart.text.trim())) {
       const step = turn.retry

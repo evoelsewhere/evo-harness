@@ -23,13 +23,15 @@ interface MatesUiStore {
   dialog: "new-channel" | "import" | null;
   /** Text left in a box, per chat (evo-mates-messaging FR-11). */
   drafts: Record<string, string>;
-  /** The person's prompts that were edited, per chat: their bubbles say "Edited" (FR-7). */
+  /** The keys of the person's bubbles that were edited, per chat: they say "Edited" (FR-7). */
   edited: Record<string, string[]>;
   /** Messages the person deleted for themself, per chat (FR-9). */
   hidden: Record<string, string[]>;
   setDraft(chat: string, text: string): void;
   markEdited(chat: string, prompt: string): void;
   hide(chat: string, key: string): void;
+  /** A turn got its saved entry id: deletions and edit marks keyed by its local id move to it (review 1a #5). */
+  rekey(chat: string, from: string, to: string): void;
   toggleSidebar(): void;
   toggleSection(id: string): void;
   setFilesView(view: FilesView): void;
@@ -78,6 +80,17 @@ export const useMatesUiStore = create<MatesUiStore>()(
       markEdited: (chat, prompt) =>
         set((s) => ({ edited: { ...s.edited, [chat]: [...(s.edited[chat] ?? []).filter((p) => p !== prompt), prompt].slice(-50) } })),
       hide: (chat, key) => set((s) => ({ hidden: { ...s.hidden, [chat]: [...(s.hidden[chat] ?? []).filter((k) => k !== key), key] } })),
+      rekey: (chat, from, to) =>
+        set((s) => {
+          const move = (list: string[] | undefined) => list?.map((k) => (k.startsWith(`${from}:`) ? `${to}:${k.slice(from.length + 1)}` : k));
+          const hidden = move(s.hidden[chat]);
+          const edited = move(s.edited[chat]);
+          if (JSON.stringify(hidden) === JSON.stringify(s.hidden[chat]) && JSON.stringify(edited) === JSON.stringify(s.edited[chat])) return s;
+          return {
+            hidden: hidden ? { ...s.hidden, [chat]: hidden } : s.hidden,
+            edited: edited ? { ...s.edited, [chat]: edited } : s.edited,
+          };
+        }),
       toggleSidebar: () => set((s) => ({ sidebarFolded: !s.sidebarFolded })),
       toggleSection: (id) =>
         set((s) => ({

@@ -69,6 +69,8 @@ export function useMatesKeys() {
         return;
       }
       if (!mod || event.altKey) return;
+      // A key a field already used (the box's Ctrl+B for bold) is not the window's.
+      if (event.defaultPrevented) return;
       const key = event.key.toLowerCase();
       // Ctrl+K toggles the switcher even over itself.
       if (key === "k") {

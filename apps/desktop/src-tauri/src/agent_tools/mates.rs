@@ -184,7 +184,7 @@ impl Provider for MateTools {
                 REACT_TOOL => {
                     let line = args.get("line").and_then(Value::as_str).unwrap_or_default();
                     let reaction = args.get("reaction").and_then(Value::as_str);
-                    match crate::mates::reactions::react_from_seat(&ctx.app, &ctx.chat, &mate.id, line, reaction) {
+                    match crate::mates::reactions::react_from_seat(&ctx.app, &ctx.chat, &mate.id, line, reaction).await {
                         Ok(text) => ToolOutput::text(text),
                         Err(error) => ToolOutput::error(error),
                     }

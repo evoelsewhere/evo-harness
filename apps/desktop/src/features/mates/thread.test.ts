@@ -178,15 +178,18 @@ describe("v2 thread rows", () => {
 
 // docs/features/evo-mates-messaging/spec.md (FR-2).
 describe("message status", () => {
-  test("Sent, Seen while the mate works, Queued while it waits for room, nothing once it replied", () => {
+  test("Sent until the engine starts on it, then Seen; nothing once it answered, even with tools only", () => {
     const word = (rows: ReturnType<typeof threadRows>) => {
       const row = rows.find((r) => r.kind === "delivered");
       return row?.kind === "delivered" ? row.word : null;
     };
     expect(word(threadRows([turn({ status: "done" })], false))).toBe("Sent");
-    expect(word(threadRows([turn({ status: "running" })], true))).toBe("Seen");
-    expect(word(threadRows([turn({ status: "done" })], false, false, true))).toBe("Queued");
+    // Dispatched here but nothing from the engine yet: still Sent (review 1a #6).
+    expect(word(threadRows([turn({ status: "running" })], true))).toBe("Sent");
+    const thinking = { kind: "reasoning" as const, key: "r", text: "", streaming: true, startedAt: 0 };
+    expect(word(threadRows([turn({ status: "running", parts: [thinking] })], true))).toBe("Seen");
     expect(word(threadRows([turn({ parts: [text("hi")] })], false))).toBeNull();
+    expect(word(threadRows([turn({ parts: [tool("read")] })], false))).toBeNull();
   });
 });
 

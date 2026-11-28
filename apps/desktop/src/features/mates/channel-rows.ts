@@ -143,10 +143,13 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
         break;
     }
   });
-  // Who took each of the person's messages in: the mates its route picked (FR-2, A-2).
+  // Who took each of the person's messages in: the mates whose turn ran on it,
+  // known by their lines that answer it (FR-2, A-2; review 1a #9). The view adds
+  // the mates at work on the latest message.
   const picked = new Map<string, string[]>();
   for (const entry of entries) {
-    if (entry.kind === "route") picked.set(entry.message, [...(picked.get(entry.message) ?? []), ...entry.picked]);
+    if (entry.kind === "message" && entry.author !== "person" && entry.replyTo)
+      picked.set(entry.replyTo, [...(picked.get(entry.replyTo) ?? []), entry.author]);
   }
   for (const row of rows) {
     if (row.kind === "bubble" && row.me && picked.has(row.key)) row.seenBy = Array.from(new Set(picked.get(row.key)));

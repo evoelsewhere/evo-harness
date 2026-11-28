@@ -31,11 +31,11 @@ export function matchSlash(query: string, where: "mate" | "channel"): SlashComma
   return SLASH_COMMANDS.filter((c) => (c.where === "both" || c.where === where) && c.id.startsWith(q));
 }
 
-/** A typed command and its words, when the box holds one. */
-export function parseSlash(text: string): { command: SlashCommand; rest: string } | null {
+/** A typed command of this box and its words; another box's command, or none, is `null` (sent as text). */
+export function parseSlash(text: string, where: "mate" | "channel"): { command: SlashCommand; rest: string } | null {
   const match = /^\/([a-z-]+)(?:\s+([\s\S]*))?$/i.exec(text.trim());
   if (!match) return null;
-  const command = SLASH_COMMANDS.find((c) => c.id === match[1].toLowerCase());
+  const command = SLASH_COMMANDS.find((c) => c.id === match[1].toLowerCase() && (c.where === "both" || c.where === where));
   return command ? { command, rest: (match[2] ?? "").trim() } : null;
 }
 

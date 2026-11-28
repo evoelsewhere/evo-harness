@@ -1585,6 +1585,17 @@ where
                 }
                 None => Err("this chat is not a channel".to_string()),
             },
+            // A channel line's author, for a mate's `react` (evo-mates-messaging FR-4).
+            "channel_line" => match crate::channel::coordinator::active() {
+                Some(channel) => {
+                    let line = msg.get("line").and_then(|v| v.as_str()).unwrap_or_default();
+                    match channel.line_author(line) {
+                        Some(author) => Ok(serde_json::json!({ "author": author })),
+                        None => Err(format!("no line {line} in this channel")),
+                    }
+                }
+                None => Err("this chat is not a channel".to_string()),
+            },
             "reset_memory" => {
                 let cwd = rpc_cwd(&rpc_providers);
                 match crate::memory::reset() {

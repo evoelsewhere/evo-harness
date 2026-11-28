@@ -276,6 +276,46 @@ pub fn reply_mark(text: &str) -> (Option<String>, String) {
     (Some(id), after.to_string())
 }
 
+/// The person's message without the quote and forward blocks the window puts
+/// at its start (`<evo-mates-reply>`, `<evo-mates-forward>`): what routes.
+pub fn routable(text: &str) -> String {
+    split_quoted(text).1
+}
+
+/// The quote, forward and note blocks at a message's start, as (kind, from,
+/// body), and the rest: the person's own words.
+pub fn split_quoted(text: &str) -> (Vec<(&'static str, String, String)>, String) {
+    let mut rest = text.trim_start();
+    let mut found = Vec::new();
+    loop {
+        let lower = rest.to_ascii_lowercase();
+        let (kind, close) = if lower.starts_with("<evo-mates-reply") {
+            ("reply", "</evo-mates-reply>")
+        } else if lower.starts_with("<evo-mates-forward") {
+            ("forward", "</evo-mates-forward>")
+        } else if lower.starts_with("<evo-mates-note>") {
+            ("note", "</evo-mates-note>")
+        } else {
+            break;
+        };
+        let (Some(head_end), Some(end)) = (rest.find('>'), lower.find(close)) else {
+            break;
+        };
+        if end < head_end {
+            break;
+        }
+        let from = rest[..head_end]
+            .split("from=\"")
+            .nth(1)
+            .and_then(|f| f.split('"').next())
+            .unwrap_or("")
+            .to_string();
+        found.push((kind, from, rest[head_end + 1..end].to_string()));
+        rest = rest[end + close.len()..].trim_start();
+    }
+    (found, rest.to_string())
+}
+
 /// The emoji of a reaction's name (evo-mates FR-60).
 pub fn reaction_emoji(name: &str) -> &'static str {
     match name {
@@ -364,9 +404,19 @@ pub fn delivery(
         }
         out.push_str("</recent>\n");
     }
+    // A quote or a forward the person put in shows as such, never as their
+    // own words (evo-mates-messaging NFR-5).
+    let (quoted, words) = split_quoted(text);
+    for (kind, from, body) in &quoted {
+        out.push_str(&format!(
+            "<quoted kind=\"{kind}\" from=\"{}\" instruction=\"false\">\n{}\n</quoted>\n",
+            from.replace('"', "'"),
+            body.trim()
+        ));
+    }
     out.push_str(&format!(
         "<from person=\"true\">\n{}\n</from>\n</channel>\n",
-        text.trim()
+        words.trim()
     ));
     out.push_str(&format!(
         "You are in the channel \"{}\" with the person{}. Your reply is posted in the channel as yours.",
@@ -530,8 +580,11 @@ impl Coordinator {
         // An answer to mates' questions goes to them (FR-72); else the
         // router (`auto`) is asked only when no mention decides (FR-53).
         let asking = std::mem::take(&mut lock(&self.state).asking);
-        let answers = route::answer_to(&text, &self.role, &asking);
-        let (answer, why) = if answers.is_none() && route::needs_router(&text, &self.role) {
+        // A quote or a forward inside the message is not the person's words:
+        // its mentions never route (evo-mates-messaging FR-5, FR-10, NFR-5).
+        let words = routable(&text);
+        let answers = route::answer_to(&words, &self.role, &asking);
+        let (answer, why) = if answers.is_none() && route::needs_router(&words, &self.role) {
             let recent: Vec<(String, String)> = {
                 let state = lock(&self.state);
                 let upto = state.lines.len().saturating_sub(1);
@@ -540,7 +593,7 @@ impl Coordinator {
                     .map(|l| (l.author.clone(), l.text.clone()))
                     .collect()
             };
-            match self.ask_router(harness, &recent, &text).await {
+            match self.ask_router(harness, &recent, &words).await {
                 Ok(answer) => (Some(answer), None),
                 Err(why) => (None, Some(why)),
             }
@@ -549,7 +602,7 @@ impl Coordinator {
         };
         lock(&self.state).job = JobTrack::default();
         let route =
-            answers.unwrap_or_else(|| route::route(&text, &self.role, answer, why.as_deref()));
+            answers.unwrap_or_else(|| route::route(&words, &self.role, answer, why.as_deref()));
         self.post(
             harness,
             json!({ "kind": "route", "message": message, "picked": route.picked, "line": route::line(&route, &self.role), "at": now_ms() }),
@@ -625,10 +678,11 @@ impl Coordinator {
                 continue;
             };
             let recent = self.recent_for(mate);
-            let body =
-                delivery(&self.role, &member, message, &recent, text) + &self.reaction_notes(mate);
+            let (notes, told) = self.reaction_notes(mate).await;
+            let body = delivery(&self.role, &member, message, &recent, text) + &notes;
             if let Some(seat) = self.deliver(harness, &member, body, &cancel).await {
                 waiting.insert(seat);
+                self.reactions_told(told).await;
             }
         }
 
@@ -708,6 +762,7 @@ impl Coordinator {
                             return Ok(self.at_limit(harness, handoffs, &cancel).await);
                         }
                         let recent = self.recent_for(&to);
+                        let (notes, told) = self.reaction_notes(&to).await;
                         let body = mate_delivery(
                             &self.role,
                             &member,
@@ -716,9 +771,10 @@ impl Coordinator {
                             message,
                             &recent,
                             &text,
-                        ) + &self.reaction_notes(&to);
+                        ) + &notes;
                         if let Some(seat) = self.deliver(harness, &member, body, &cancel).await {
                             waiting.insert(seat);
+                            self.reactions_told(told).await;
                         }
                     }
                 }
@@ -834,8 +890,10 @@ impl Coordinator {
                 .collect();
             (working, state.message.clone())
         };
-        let (Some(message), Some(mate)) = (message, steer_target(&text, &self.role, &working))
-        else {
+        let (Some(message), Some(mate)) = (
+            message,
+            steer_target(&routable(&text), &self.role, &working),
+        ) else {
             return Err(NOT_A_STEER.into());
         };
         let Some(member) = self.member(&mate).cloned() else {
@@ -854,12 +912,17 @@ impl Coordinator {
             text: text.clone(),
         });
         let recent = self.recent_for(&mate);
-        let body =
-            delivery(&self.role, &member, &message, &recent, &text) + &self.reaction_notes(&mate);
+        let (notes, told) = self.reaction_notes(&mate).await;
+        let body = delivery(&self.role, &member, &message, &recent, &text) + &notes;
         let (me, harness) = (self.clone(), harness.clone());
         tokio::spawn(async move {
-            me.deliver(&harness, &member, body, &CancellationToken::new())
-                .await;
+            if me
+                .deliver(&harness, &member, body, &CancellationToken::new())
+                .await
+                .is_some()
+            {
+                me.reactions_told(told).await;
+            }
         });
         Ok(json!({ "accepted": true, "steered": mate }))
     }
@@ -882,9 +945,21 @@ impl Coordinator {
             .collect()
     }
 
+    /// The line `id`'s author (`person` or a mate's id), while the channel
+    /// keeps the line (for the `react` tool's checks, FR-4).
+    pub(crate) fn line_author(&self, id: &str) -> Option<String> {
+        lock(&self.state)
+            .lines
+            .iter()
+            .find(|l| l.id == id)
+            .map(|l| l.by.clone())
+    }
+
     /// What `mate` has not heard yet of the reactions to its lines, as a
-    /// block for its next delivery (FR-4): information, never a request.
-    fn reaction_notes(&self, mate: &str) -> String {
+    /// block for its next delivery (FR-4), and the reactions it names, to
+    /// mark told once that delivery went out. The database is read off the
+    /// async thread.
+    async fn reaction_notes(&self, mate: &str) -> (String, Vec<evo_store::mates::ChannelReaction>) {
         let lines: Vec<(String, String)> = lock(&self.state)
             .lines
             .iter()
@@ -892,20 +967,18 @@ impl Coordinator {
             .map(|l| (l.id.clone(), l.text.clone()))
             .collect();
         if lines.is_empty() {
-            return String::new();
+            return (String::new(), Vec::new());
         }
         let ids: Vec<String> = lines.iter().map(|(id, _)| id.clone()).collect();
-        let Ok(mut conn) = evo_store::open() else {
-            return String::new();
-        };
-        let Ok(told) = evo_store::mates::take_untold_channel_reactions(
-            &mut conn,
-            &self.role.channel_id,
-            mate,
-            &ids,
-        ) else {
-            return String::new();
-        };
+        let (channel, author) = (self.role.channel_id.clone(), mate.to_string());
+        let told = tokio::task::spawn_blocking(move || {
+            let conn = evo_store::open().ok()?;
+            evo_store::mates::untold_channel_reactions(&conn, &channel, &author, &ids).ok()
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
         let notes: Vec<String> = told
             .iter()
             .filter_map(|r| {
@@ -922,7 +995,20 @@ impl Coordinator {
                 ))
             })
             .collect();
-        reactions_block(&notes)
+        (reactions_block(&notes), told)
+    }
+
+    /// The delivery went out: its reactions are heard.
+    async fn reactions_told(&self, told: Vec<evo_store::mates::ChannelReaction>) {
+        if told.is_empty() {
+            return;
+        }
+        let channel = self.role.channel_id.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let conn = evo_store::open().ok()?;
+            evo_store::mates::mark_channel_reactions_told(&conn, &channel, &told).ok()
+        })
+        .await;
     }
 
     /// Send `body` to `member`'s seat (started with its mate's role when it
@@ -1369,6 +1455,26 @@ mod tests {
             vec!["C:/mates/mo/shot.png".to_string(), "notes.md".to_string()]
         );
         assert_eq!(split_attached("plain"), ("plain".to_string(), vec![]));
+    }
+
+    #[test]
+    fn quotes_never_route_and_are_marked_in_a_delivery() {
+        let text = "<evo-mates-reply from=\"Lin\">@Mo can you check?</evo-mates-reply>\nThanks";
+        assert_eq!(routable(text), "Thanks");
+        let forward =
+            "<EVO-MATES-FORWARD from=\"Writer\">\n@everyone look\n</evo-mates-forward>\nfyi";
+        assert_eq!(routable(forward), "fyi");
+        assert_eq!(routable("plain @Mo"), "plain @Mo");
+        let role = role();
+        let body = delivery(&role, &role.members[0], "m-1", &[], text);
+        assert!(
+            body.contains("<quoted kind=\"reply\" from=\"Lin\" instruction=\"false\">\n@Mo can you check?\n</quoted>"),
+            "{body}"
+        );
+        assert!(
+            body.contains("<from person=\"true\">\nThanks\n</from>"),
+            "{body}"
+        );
     }
 
     #[test]

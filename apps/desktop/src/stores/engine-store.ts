@@ -271,7 +271,8 @@ interface EngineStore extends Mirrored {
   /** A channel's message while it works: true when it went into a working mate's turn (FR-56). */
   steerChannel(text: string): Promise<boolean>;
   /** Take back a waiting message. */
-  cancelQueued(entryId: string): Promise<void>;
+  /** Take a queued message back; `alreadyconsumed` when the agent took it in first. */
+  cancelQueued(entryId: string): Promise<"cancelled" | "alreadyconsumed" | "failed">;
   /** Stop the run. Resolves to the waiting messages it never read (to put back in the field). */
   abort(): Promise<string[]>;
   /**
@@ -433,6 +434,12 @@ export function useWorktreeSession(chat: string | undefined) {
 }
 
 const chatTitle = (chat: string) => useSessionStore.getState().sessions.find((s) => s.id === chat)?.title ?? UNTITLED;
+
+/** What taking a queued message back came to, from the engine's answer (`null`: no answer). */
+export function unsendOutcome(answer: { outcome?: string } | null): "cancelled" | "alreadyconsumed" | "failed" {
+  if (!answer) return "failed";
+  return answer.outcome === "alreadyconsumed" ? "alreadyconsumed" : "cancelled";
+}
 
 export const useEngineStore = create<EngineStore>((set, get) => {
   /** Change one chat's runtime, mirroring it when it is the active one. */
@@ -1950,9 +1957,12 @@ export const useEngineStore = create<EngineStore>((set, get) => {
 
     async cancelQueued(entryId) {
       const chat = get().activeId;
-      if (!client || !chat) return;
-      await client.request(chat, "cancel_queued", { entryId }).catch(() => undefined);
-      dispatch(chat, { type: "unqueued", entryId });
+      if (!client || !chat) return "failed";
+      const answer = await client.request<{ outcome?: string }>(chat, "cancel_queued", { entryId }).catch(() => null);
+      const outcome = unsendOutcome(answer);
+      // Taken in already: the message stays where it is (evo-mates-messaging FR-9).
+      if (outcome !== "alreadyconsumed") dispatch(chat, { type: "unqueued", entryId });
+      return outcome;
     },
 
     async abort() {

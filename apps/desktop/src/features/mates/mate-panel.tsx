@@ -4,7 +4,7 @@
 // holds the profile: About, Settings and Files; changes apply from the
 // mate's next turn.
 
-import { useMatesPrefs } from "@/stores/mates-prefs-store";
+import { isQuiet, useMatesPrefs } from "@/stores/mates-prefs-store";
 import * as React from "react";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -672,6 +672,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
   const { resolved } = useTheme();
   const { presence, word } = usePresence(mate);
+  const muted = useMatesPrefs((s) => isQuiet(s.mute[mate.chatId]));
   // Under 1100 px the panel floats over the conversation instead of squeezing
   // it to a sliver that scrolls sideways (ux.md 2; qa-2026-11-28, H2; v2 FR-31).
   const [width, setWidth] = React.useState(() => window.innerWidth);
@@ -726,12 +727,13 @@ export function MatePanel({ mate }: { mate: Mate }) {
             <QuickAction label={mate.paused ? "Resume" : "Pause"} active={mate.paused} onClick={() => void update(mate.id, { paused: !mate.paused })}>
               {mate.paused ? <PlayIcon /> : <PauseIcon />}
             </QuickAction>
+            {/* Mute is the mute of the messaging basics: Needs you still notifies (review 1b #3). */}
             <QuickAction
-              label={mate.notifications ? "Mute" : "Unmute"}
-              active={!mate.notifications}
-              onClick={() => void update(mate.id, { notifications: !mate.notifications })}
+              label={muted ? "Unmute" : "Mute"}
+              active={muted}
+              onClick={() => useMatesPrefs.getState().setMute(mate.chatId, muted ? null : { until: null })}
             >
-              {mate.notifications ? <BellIcon /> : <BellOffIcon />}
+              {muted ? <BellOffIcon /> : <BellIcon />}
             </QuickAction>
             <QuickAction label={mate.pinned ? "Unpin" : "Pin"} active={mate.pinned} onClick={() => void update(mate.id, { pinned: !mate.pinned })}>
               {mate.pinned ? <PinOffIcon /> : <PinIcon />}

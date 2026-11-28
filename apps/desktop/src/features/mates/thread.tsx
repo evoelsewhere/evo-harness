@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { SentByMate, SentByMe } from "./attachment-views";
 import { BUBBLE_TEXT } from "./bubble-style";
 import { useEngineStore } from "@/stores/engine-store";
-import { takeOpenedUnread, useMatesStore } from "@/stores/mates-store";
+import { takeOpenedUnread } from "@/stores/mates-store";
 import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { useSessionStore } from "@/stores/session-store";
 import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
@@ -31,6 +31,7 @@ import { ForwardDialog, type Forwarding } from "./forward-dialog";
 import { LinkCard } from "./line-tools";
 import { useMatesPrefs } from "@/stores/mates-prefs-store";
 import { excerpt } from "./message-markup";
+import { replaceVisibleText } from "./edit-prompt";
 import { StepsChip } from "./steps-chip";
 import { clockTime, dayLabel, isHeartbeat, isLong, threadRows, type Bubble, type Row } from "./thread-rows";
 
@@ -473,15 +474,17 @@ export function MateThread({
   const busy = useEngineStore((s) => s.transcript.busy);
   const queued = useEngineStore((s) => s.transcript.queued);
   const shellWorking = useSessionStore((s) => s.work[mate.chatId] === "working");
-  // Waiting for room under the running limit (NFR-6): the status says Queued (FR-2).
-  const roomQueued = useMatesStore((s) => s.queued.includes(mate.chatId));
   const hiddenKeys = useMatesUiStore((s) => s.hidden[mate.chatId]);
   const editedPrompts = useMatesUiStore((s) => s.edited[mate.chatId]);
   const rows = React.useMemo(() => {
-    const all = threadRows(turns, busy, shellWorking && !busy, roomQueued);
+    const all = threadRows(turns, busy, shellWorking && !busy);
     // Deleted for the person (FR-9).
     return hiddenKeys?.length ? all.filter((row) => !(row.kind === "bubble" && hiddenKeys.includes(row.bubble.key))) : all;
-  }, [turns, busy, shellWorking, roomQueued, hiddenKeys]);
+  }, [turns, busy, shellWorking, hiddenKeys]);
+  // A turn that got its saved entry id moves its marks along (review 1a #5).
+  React.useEffect(() => {
+    for (const turn of turns) if (turn.entryId && turn.entryId !== turn.id) useMatesUiStore.getState().rekey(mate.chatId, turn.id, turn.entryId);
+  }, [turns, mate.chatId]);
   const [editing, setEditing] = React.useState<string | null>(null);
   const [forwarding, setForwarding] = React.useState<Forwarding | null>(null);
   const pinnedKeys = useMatesPrefs((s) => s.pins[mate.chatId]);
@@ -489,6 +492,10 @@ export function MateThread({
   const lastMine = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "me");
   const lastMate = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "mate");
   const lastTurn = turns.at(-1);
+  // An edit left open closes when the mate starts working (review 1a #10).
+  React.useEffect(() => {
+    if (!idle) setEditing(null);
+  }, [idle]);
   // Up in an empty box edits the last message (FR-7, FR-12).
   React.useEffect(() => {
     const onEdit = (event: Event) => {
@@ -500,21 +507,37 @@ export function MateThread({
   }, [idle, lastMine, lastTurn, mate.chatId]);
   const saveEdit = (bubble: Bubble, text: string) => {
     setEditing(null);
-    const turn = bubble.turn;
-    // The prompt keeps its quote, notes and files: only the person's words change.
-    const at = turn.prompt.lastIndexOf(bubble.text);
-    const prompt = at >= 0 ? turn.prompt.slice(0, at) + text + turn.prompt.slice(at + bubble.text.length) : text;
-    useMatesUiStore.getState().markEdited(mate.chatId, text);
-    void useEngineStore
-      .getState()
-      .editMessage(turn.id, prompt)
-      .catch((error) => notify({ source: "mates", level: "warning", title: "Couldn't edit the message", body: String(error), system: false }));
+    const engine = useEngineStore.getState();
+    // The mate started meanwhile: the words go back to the box, not lost (review 1a #10).
+    if (engine.transcript.busy || useSessionStore.getState().work[mate.chatId] === "working") {
+      useMatesUiStore.getState().setDraft(mate.chatId, text);
+      window.dispatchEvent(new CustomEvent("mates:draft", { detail: mate.chatId }));
+      notify({ source: "mates", title: `${mate.name} started working`, body: "Your edit is in the message box.", system: false });
+      return;
+    }
+    // The prompt keeps its quote, notes and files: only the person's words change (review 1a #8).
+    const prompt = replaceVisibleText(bubble.turn.prompt, bubble.text, text);
+    if (prompt === null) {
+      notify({ source: "mates", level: "warning", title: "Couldn't edit this message", body: "Its words could not be told apart from what it carries.", system: false });
+      return;
+    }
+    void runEdit(bubble.turn.id, prompt, true);
   };
-  const retry = (bubble: Bubble) =>
-    void useEngineStore
-      .getState()
-      .editMessage(bubble.turn.id, bubble.turn.prompt)
-      .catch((error) => notify({ source: "mates", level: "warning", title: "Couldn't try again", body: String(error), system: false }));
+  // No wake may start a turn between the branch and the new prompt (review 1a #10).
+  const runEdit = async (turn: string, prompt: string, mark: boolean) => {
+    const engine = useEngineStore.getState();
+    engine.setComposing(mate.chatId, true);
+    try {
+      await engine.editMessage(turn, prompt);
+      const sent = useEngineStore.getState().transcript.turns.at(-1);
+      if (mark && sent) useMatesUiStore.getState().markEdited(mate.chatId, `${sent.entryId ?? sent.id}:prompt`);
+    } catch (error) {
+      notify({ source: "mates", level: "warning", title: mark ? "Couldn't edit the message" : "Couldn't try again", body: String(error), system: false });
+    } finally {
+      useEngineStore.getState().setComposing(mate.chatId, false);
+    }
+  };
+  const retry = (bubble: Bubble) => void runEdit(bubble.turn.id, bubble.turn.prompt, false);
   const moreFor = (bubble: Bubble): MoreActions => ({
     edit:
       idle && bubble.side === "me" && lastMine?.kind === "bubble" && lastMine.bubble.key === bubble.key && bubble.turn === lastTurn
@@ -659,7 +682,7 @@ export function MateThread({
                       onQuote={jumpTo}
                       more={moreFor(row.bubble)}
                       editing={editing === row.bubble.key}
-                      edited={row.bubble.side === "me" && Boolean(editedPrompts?.includes(row.bubble.text))}
+                      edited={row.bubble.side === "me" && Boolean(editedPrompts?.includes(row.bubble.key))}
                       onSaveEdit={(text) => saveEdit(row.bubble, text)}
                       onCancelEdit={() => setEditing(null)}
                     />
@@ -723,7 +746,15 @@ export function MateThread({
                 {message.deliverAs === "steer" ? "Queued · read at the next step" : "Queued · after this turn"}
                 <button
                   type="button"
-                  onClick={() => void useEngineStore.getState().cancelQueued(message.entryId)}
+                  onClick={() =>
+                    void useEngineStore
+                      .getState()
+                      .cancelQueued(message.entryId)
+                      .then((outcome) => {
+                        // Taken in already: the message stays, and says so (review 1a #4).
+                        if (outcome === "alreadyconsumed") notify({ source: "mates", title: "Already seen", body: `${mate.name} read it while working.`, system: false });
+                      })
+                  }
                   className="rounded-full px-1.5 hover:bg-muted hover:text-foreground"
                 >
                   Unsend

@@ -61,6 +61,94 @@ pub const TOOL_NAMES: [&str; 5] = ["send_message", "ask", "reply", "list_nodes",
 /// (docs/features/evo-mates-messaging/spec.md, FR-6).
 pub const ATTACHED_HEADER: &str = "\n\nAttached files (open them with your file tools):";
 
+/// The files a message may carry (FR-6): files in the sender's folder (its
+/// session's folder: the mate's own, or the channel's while it works there),
+/// as absolute paths; a path outside it, missing, or a folder is refused.
+pub fn check_files(files: &[String], folder: &std::path::Path) -> Result<Vec<String>, String> {
+    let base = folder
+        .canonicalize()
+        .map_err(|_| "this session has no folder to give files from".to_string())?;
+    files
+        .iter()
+        .map(|f| f.trim())
+        .filter(|f| !f.is_empty())
+        .take(10)
+        .map(|file| {
+            let path = std::path::Path::new(file);
+            let full = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                base.join(path)
+            };
+            let real = full
+                .canonicalize()
+                .map_err(|_| format!("{file}: no such file"))?;
+            if !real.starts_with(&base) {
+                return Err(format!(
+                    "{file}: only files in your folder ({}) can be given",
+                    base.display()
+                ));
+            }
+            if !real.is_file() {
+                return Err(format!("{file}: not a file"));
+            }
+            Ok(real.display().to_string())
+        })
+        .collect()
+}
+
+/// The pictures a message may carry to the receiver's model, at most.
+const MAX_PICTURE_BYTES: u64 = 5 * 1024 * 1024;
+
+/// A mail's text as the receiver's message: the pictures listed under
+/// [`ATTACHED_HEADER`] go with it as images, for a model that reads them
+/// (FR-6); other files stay paths it opens with its file tools.
+pub fn mail_content(text: &str) -> evo_ai::types::UserContent {
+    use base64::Engine as _;
+    let Some(at) = text.find(ATTACHED_HEADER) else {
+        return evo_ai::types::UserContent::Text(text.to_string());
+    };
+    let mut blocks = vec![evo_ai::types::Content::text(text)];
+    for line in text[at + ATTACHED_HEADER.len()..].lines() {
+        let Some(path) = line.trim().strip_prefix('@') else {
+            continue;
+        };
+        let lower = path.to_ascii_lowercase();
+        let mime = if lower.ends_with(".png") {
+            "image/png"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else {
+            continue;
+        };
+        let Ok(meta) = std::fs::metadata(path) else {
+            continue;
+        };
+        if !meta.is_file() || meta.len() > MAX_PICTURE_BYTES {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        blocks.push(evo_ai::types::Content::Image(evo_ai::types::ImageContent {
+            kind: Default::default(),
+            data: base64::engine::general_purpose::STANDARD
+                .encode(bytes)
+                .into(),
+            mime_type: mime.to_string(),
+        }));
+    }
+    if blocks.len() == 1 {
+        evo_ai::types::UserContent::Text(text.to_string())
+    } else {
+        evo_ai::types::UserContent::Blocks(blocks)
+    }
+}
+
 /// `message` with `files` listed under [`ATTACHED_HEADER`]; at most 10, no empty ones.
 pub fn with_files(message: &str, files: &[String]) -> String {
     let files: Vec<&str> = files
@@ -717,6 +805,13 @@ impl AgentTool for SendMessage {
                     .collect()
             })
             .unwrap_or_default();
+        // Only files in the sender's folder (FR-6).
+        let files = if files.is_empty() {
+            files
+        } else {
+            let folder = crate::hooks::cwd().unwrap_or_else(|| std::path::PathBuf::from("."));
+            check_files(&files, &folder).map_err(AgentError::Tool)?
+        };
         let message = with_files(&string_arg(&params, "message")?, &files);
         let to = match target(&me, &to)? {
             Target::Local(node) => *node,
@@ -1035,6 +1130,55 @@ mod cross_engine_mail;
 #[cfg(test)]
 mod attached_files_tests {
     use super::*;
+
+    #[test]
+    fn only_files_in_the_folder_are_given() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("shot.png"), [1u8, 2, 3]).unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        let given = check_files(&["shot.png".into()], dir.path()).unwrap();
+        assert!(given[0].ends_with("shot.png"), "{given:?}");
+        assert!(
+            check_files(&[outside.path().display().to_string()], dir.path())
+                .unwrap_err()
+                .contains("only files in your folder")
+        );
+        assert!(check_files(&["../x.png".into()], dir.path()).is_err());
+        assert!(check_files(&["sub".into()], dir.path())
+            .unwrap_err()
+            .contains("not a file"));
+        assert!(check_files(&["nope.md".into()], dir.path())
+            .unwrap_err()
+            .contains("no such file"));
+    }
+
+    #[test]
+    fn pictures_go_to_the_model_as_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let picture = dir.path().join("shot.png");
+        std::fs::write(&picture, [137u8, 80, 78, 71]).unwrap();
+        let text = with_files(
+            "Here",
+            &[
+                picture.display().to_string(),
+                dir.path().join("notes.md").display().to_string(),
+            ],
+        );
+        match mail_content(&text) {
+            evo_ai::types::UserContent::Blocks(blocks) => {
+                assert_eq!(blocks.len(), 2, "the text and one picture");
+                assert!(
+                    matches!(&blocks[1], evo_ai::types::Content::Image(image) if image.mime_type == "image/png")
+                );
+            }
+            other => panic!("expected blocks, got {other:?}"),
+        }
+        assert!(matches!(
+            mail_content("plain"),
+            evo_ai::types::UserContent::Text(_)
+        ));
+    }
 
     #[test]
     fn files_are_listed_under_the_header() {

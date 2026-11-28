@@ -107,20 +107,22 @@ export function useComposerAssist({
     const mod = modKey === "⌘" ? event.metaKey : event.ctrlKey;
     const mark = mod && !event.altKey ? ({ b: "**", i: "_", e: "`" } as Record<string, string>)[event.key.toLowerCase()] : undefined;
     if (mark) {
+      // The window's Ctrl+B / Ctrl+I (fold, profile) must not also run.
       event.preventDefault();
+      event.stopPropagation();
       const el = event.currentTarget;
       const next = wrapSelection(text, el.selectionStart, el.selectionEnd, mark);
       setText(next.text);
       requestAnimationFrame(() => el.setSelectionRange(next.start, next.end));
       return true;
     }
-    if (event.key === "ArrowUp" && !text && onEditLast) {
+    if (event.key === "ArrowUp" && !text && onEditLast && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       event.preventDefault();
       onEditLast();
       return true;
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-      const typed = parseSlash(text);
+      const typed = parseSlash(text, where);
       if (typed && (!typed.command.args || typed.rest)) {
         event.preventDefault();
         setText("");

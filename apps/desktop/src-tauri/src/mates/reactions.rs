@@ -36,8 +36,22 @@ pub fn channel_react(app: AppHandle, channel: String, message: String, reaction:
     Ok(())
 }
 
+/// The channel's chat (its coordinator's), for a channel id.
+fn channel_chat(conn: &Connection, channel: &str) -> Option<String> {
+    conn.query_row("SELECT chat_id FROM channels WHERE id = ?1", [channel], |row| row.get(0)).optional().ok().flatten()
+}
+
+/// Why a mate may not react to a line written by `author` (`None` when it may).
+pub fn refuse_line(mate: &str, author: Option<&str>) -> Option<String> {
+    match author {
+        None => Some("No such line in this channel: name a line by the id in brackets before it in your recent lines.".into()),
+        Some(author) if author == mate => Some("You cannot react to your own line.".into()),
+        Some(_) => None,
+    }
+}
+
 /// A mate's reaction from its seat in a channel; the words the tool answers with.
-pub fn react_from_seat(app: &AppHandle, seat: &str, mate: &str, line: &str, reaction: Option<&str>) -> Result<String, String> {
+pub async fn react_from_seat(app: &AppHandle, seat: &str, mate: &str, line: &str, reaction: Option<&str>) -> Result<String, String> {
     let line = line.trim();
     if line.is_empty() {
         return Err("Name the line by its id, as it shows in brackets in your recent lines.".into());
@@ -47,11 +61,28 @@ pub fn react_from_seat(app: &AppHandle, seat: &str, mate: &str, line: &str, reac
             return Err(format!("Unknown reaction \"{reaction}\": use one of {}.", mates::REACTIONS.join(", ")));
         }
     }
-    let db = app.state::<Db>();
-    let channel = db
-        .with(|conn| Ok::<_, evo_store::DbError>(channel_of_seat(conn, seat)))?
-        .ok_or_else(|| "react works in a channel, on its lines.".to_string())?;
-    db.with(|conn| mates::set_channel_reaction(conn, &channel, line, mate, reaction))?;
+    let (channel, chat) = {
+        let db = app.state::<Db>();
+        let channel = db
+            .with(|conn| Ok::<_, evo_store::DbError>(channel_of_seat(conn, seat)))?
+            .ok_or_else(|| "react works in a channel, on its lines.".to_string())?;
+        let chat = db
+            .with(|conn| Ok::<_, evo_store::DbError>(channel_chat(conn, &channel)))?
+            .ok_or_else(|| "react works in a channel, on its lines.".to_string())?;
+        (channel, chat)
+    };
+    // The channel's coordinator knows its lines and who wrote them.
+    use crate::supervisor::Host as _;
+    let host = crate::supervisor::AppHost(app.clone());
+    let author = host
+        .request(&chat, "channel_line", json!({ "line": line }))
+        .await
+        .ok()
+        .and_then(|answer| answer.get("author").and_then(|a| a.as_str()).map(str::to_string));
+    if let Some(why) = refuse_line(mate, author.as_deref()) {
+        return Err(why);
+    }
+    app.state::<Db>().with(|conn| mates::set_channel_reaction(conn, &channel, line, mate, reaction))?;
     let _ = app.emit(CHANGED, json!({ "channel": channel }));
     Ok(match reaction {
         Some(reaction) => format!("Reacted {reaction} to {line}. Nobody is woken by it."),
@@ -62,6 +93,14 @@ pub fn react_from_seat(app: &AppHandle, seat: &str, mate: &str, line: &str, reac
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_another_members_line_takes_a_reaction() {
+        assert!(refuse_line("kai", None).unwrap().contains("No such line"));
+        assert!(refuse_line("kai", Some("kai")).unwrap().contains("own line"));
+        assert!(refuse_line("kai", Some("lin")).is_none());
+        assert!(refuse_line("kai", Some("person")).is_none());
+    }
 
     #[test]
     fn a_seat_finds_its_channel() {

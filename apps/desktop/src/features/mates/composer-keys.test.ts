@@ -40,10 +40,15 @@ describe("slash commands", () => {
   });
 
   test("a typed command and its words", () => {
-    expect(parseSlash("/pause")?.command.id).toBe("pause");
-    expect(parseSlash("/checkin every weekday 9:00 inbox")?.rest).toBe("every weekday 9:00 inbox");
-    expect(parseSlash("/nothing")).toBeNull();
-    expect(parseSlash("hello /pause")).toBeNull();
+    expect(parseSlash("/pause", "mate")?.command.id).toBe("pause");
+    expect(parseSlash("/checkin every weekday 9:00 inbox", "mate")?.rest).toBe("every weekday 9:00 inbox");
+    expect(parseSlash("/nothing", "mate")).toBeNull();
+    expect(parseSlash("hello /pause", "mate")).toBeNull();
+    // Another box's command is sent as text, never swallowed (review 1a #3).
+    expect(parseSlash("/pause", "channel")).toBeNull();
+    expect(parseSlash("/remind call mum", "channel")).toBeNull();
+    expect(parseSlash("/handoff @Kai the build", "mate")).toBeNull();
+    expect(parseSlash("/stop", "channel")?.command.id).toBe("stop");
   });
 
   test("check-in schedules", () => {

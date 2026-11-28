@@ -607,8 +607,51 @@ pub fn list_channel_reactions(
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-/// The reactions to `lines` (one author's lines) not told yet, now marked
-/// told; a reactor's reaction to its own line is never told.
+/// The reactions to `lines` (one author's lines) not told yet; a reactor's
+/// reaction to its own line is never told. [`mark_channel_reactions_told`]
+/// marks them once the author's delivery went out.
+pub fn untold_channel_reactions(
+    conn: &Connection,
+    channel: &str,
+    author: &str,
+    lines: &[String],
+) -> Result<Vec<ChannelReaction>, DbError> {
+    let mut untold = Vec::new();
+    let mut select = conn.prepare(
+        "SELECT message, reactor, reaction, at_ms FROM channel_reactions
+         WHERE channel_id = ?1 AND message = ?2 AND told = 0 AND reactor != ?3 ORDER BY at_ms",
+    )?;
+    for line in lines {
+        let rows = select.query_map(params![channel, line, author], channel_reaction)?;
+        for row in rows {
+            untold.push(row?);
+        }
+    }
+    untold.sort_by_key(|r| r.at_ms);
+    Ok(untold)
+}
+
+/// Mark `told` as heard by their line's author.
+pub fn mark_channel_reactions_told(
+    conn: &Connection,
+    channel: &str,
+    told: &[ChannelReaction],
+) -> Result<(), DbError> {
+    let mut mark = conn.prepare(
+        "UPDATE channel_reactions SET told = 1 WHERE channel_id = ?1 AND message = ?2 AND reactor = ?3 AND at_ms = ?4",
+    )?;
+    for reaction in told {
+        mark.execute(params![
+            channel,
+            reaction.message,
+            reaction.reactor,
+            reaction.at_ms
+        ])?;
+    }
+    Ok(())
+}
+
+/// [`untold_channel_reactions`], marked told at once.
 pub fn take_untold_channel_reactions(
     conn: &mut Connection,
     channel: &str,

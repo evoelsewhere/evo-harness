@@ -133,10 +133,20 @@ pub fn wanted(viewers: &[String], focused: impl Fn(&str) -> bool) -> bool {
 /// needs the person or failed, since a seat's finished work answers the
 /// channel (or another mate), not the person. Other chats always.
 pub fn mate_wanted(kind: &str, switch: Option<bool>, event: Event) -> bool {
+    // What needs the person always notifies, whatever the old switch says
+    // (evo-mates-messaging FR-15: only a level of Nothing silences it).
+    if matches!(event, Event::Approval | Event::Question) {
+        return true;
+    }
     if switch == Some(false) {
         return false;
     }
     !(kind == "seat" && event == Event::ReplyReady)
+}
+
+/// A failure: it always reaches the bell; muting only spares the OS notification.
+pub fn is_failure(event: Event) -> bool {
+    matches!(event, Event::RunFailed | Event::EngineStopped | Event::CouldNotStart | Event::KeepsStopping)
 }
 
 /// The OS notification goes out when no window is focused and it is not muted.
@@ -192,10 +202,15 @@ pub(crate) fn announce(app: &AppHandle, chat: String, event: Event) {
         }
         let db = app.state::<Db>();
         let row = db.with(|conn| evo_store::chats::get_chat(conn, &chat)).ok().flatten();
+        // Muting spares a failure's OS notification only (evo-mates-messaging FR-15).
+        let mut os = true;
         if let Some(row) = row.as_ref().filter(|row| row.mate_id.is_some()) {
             let mate = db.with(|conn| evo_store::mates::mate_of_chat(conn, &chat)).ok().flatten();
             if !mate_wanted(&row.kind, mate.map(|mate| mate.notifications), event) {
-                return;
+                if !is_failure(event) {
+                    return;
+                }
+                os = false;
             }
         }
         // A muted mate or channel, or a channel's level (evo-mates-messaging FR-15):
@@ -216,7 +231,10 @@ pub(crate) fn announce(app: &AppHandle, chat: String, event: Event) {
                 _ => crate::mates::mentions::NoticeKind::Reply,
             };
             if !crate::mates::mentions::mute_wanted(mutes.as_ref(), &place, kind, super::now_ms() as i64) {
-                return;
+                if !is_failure(event) {
+                    return;
+                }
+                os = false;
             }
         }
         db.log(NewLog::new("info", "shell", format!("notice: {}", event.as_str())).chat(Some(&chat)));
@@ -226,7 +244,7 @@ pub(crate) fn announce(app: &AppHandle, chat: String, event: Event) {
         let at = super::now_ms();
         let id = format!("shell-{at:x}-{}", NEXT.fetch_add(1, Ordering::Relaxed));
         let entry = entry(event, &chat, name.as_deref(), id, at);
-        deliver(&app, entry, Some(chat));
+        deliver_with(&app, entry, Some(chat), os);
     });
 }
 
@@ -234,6 +252,11 @@ pub(crate) fn announce(app: &AppHandle, chat: String, event: Event) {
 /// open; with no window focused and not muted, an OS notification that opens
 /// `chat` (FR-10; the Scheduler's run notices too, FR-7).
 pub(crate) fn deliver(app: &AppHandle, entry: BellEntry, chat: Option<String>) {
+    deliver_with(app, entry, chat, true);
+}
+
+/// [`deliver`], with `os: false` for a notice that goes to the bell only.
+pub(crate) fn deliver_with(app: &AppHandle, entry: BellEntry, chat: Option<String>, os: bool) {
     let db = app.state::<Db>();
     let windows: Vec<String> = app.webview_windows().into_keys().collect();
     match route(&windows) {
@@ -249,7 +272,7 @@ pub(crate) fn deliver(app: &AppHandle, entry: BellEntry, chat: Option<String>) {
             }
         }
     }
-    if system_wanted(crate::agent_tools::user::any_window_focused(app), crate::agent_tools::user::muted()) {
+    if os && system_wanted(crate::agent_tools::user::any_window_focused(app), crate::agent_tools::user::muted()) {
         crate::agent_tools::user::send_os(app, &entry.title, Some(&entry.body), chat.as_deref());
     }
 }
@@ -341,18 +364,23 @@ mod tests {
                 mate_wanted("mate", Some(true), event),
                 "a mate, switch on: {event:?}"
             );
-            assert!(
-                !mate_wanted("mate", Some(false), event),
-                "a mate, switch off: {event:?}"
+            let needs_you = matches!(event, Event::Approval | Event::Question);
+            assert_eq!(
+                mate_wanted("mate", Some(false), event),
+                needs_you,
+                "a mate, switch off: only what needs the person ({event:?})"
             );
-            assert!(
-                !mate_wanted("seat", Some(false), event),
-                "a seat, switch off: {event:?}"
+            assert_eq!(
+                mate_wanted("seat", Some(false), event),
+                needs_you,
+                "a seat, switch off: only what needs the person ({event:?})"
             );
         }
         assert!(!mate_wanted("seat", Some(true), Event::ReplyReady));
         assert!(mate_wanted("seat", Some(true), Event::Approval));
         assert!(mate_wanted("seat", Some(true), Event::RunFailed));
+        assert!(is_failure(Event::RunFailed) && is_failure(Event::KeepsStopping));
+        assert!(!is_failure(Event::Approval) && !is_failure(Event::ReplyReady));
     }
     use serde_json::json;
 
