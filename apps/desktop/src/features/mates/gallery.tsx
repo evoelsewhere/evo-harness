@@ -81,6 +81,8 @@ function Describe({ busy, onBusy }: { busy: boolean; onBusy(busy: boolean): void
     const mate = await create({});
     if (mate) {
       try {
+        // Its engine first gets its tools (mate_profile among them).
+        await useEngineStore.getState().whenSetUp(mate.chatId);
         await useEngineStore.getState().sendPrompt(description, []);
       } catch (error) {
         log("warn", "mates", `could not send the description: ${String(error)}`);
@@ -133,7 +135,7 @@ export function Gallery() {
       .catch(() => undefined);
   }, []);
   const needle = query.trim().toLowerCase();
-  const categories = [ALL, ...Array.from(new Set(templates.map((t) => t.category))), ...(teams.length ? [TEAMS] : [])];
+  const categories = [ALL, ...(teams.length ? [TEAMS] : []), ...Array.from(new Set(templates.map((t) => t.category)))];
   const teamNeedle = (t: TeamSummary) =>
     !needle || [t.name, t.about, ...t.mates.map((m) => m.name)].some((text) => text.toLowerCase().includes(needle));
   const shownTeams = category === TEAMS || (category === ALL && needle) ? teams.filter(teamNeedle) : [];
@@ -188,11 +190,13 @@ export function Gallery() {
             />
           </label>
         </div>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-          {shown.map((role) => (
-            <RoleCard key={role.id} role={role} busy={busy} onAdd={() => void add(role.id)} />
-          ))}
-        </div>
+        {shown.length > 0 && (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+            {shown.map((role) => (
+              <RoleCard key={role.id} role={role} busy={busy} onAdd={() => void add(role.id)} />
+            ))}
+          </div>
+        )}
         {shownTeams.length > 0 && (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
             {shownTeams.map((team) => (

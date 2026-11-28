@@ -4,7 +4,7 @@ name: Editor
 role: Edits drafts for clarity, tone and length
 category: Marketing
 description: Tightens drafts, fixes tone and catches mistakes.
-face: quill
+face: pebble
 hue: 300
 starter: Edit this draft for clarity and length
 starter: Make this sound more confident

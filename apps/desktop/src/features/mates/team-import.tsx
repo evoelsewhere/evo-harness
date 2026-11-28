@@ -12,6 +12,7 @@ import { log } from "@/lib/db";
 import { teamApi, type TeamPreview } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useMatesStore } from "@/stores/mates-store";
+import { useSessionStore } from "@/stores/session-store";
 
 const MODE_WORDS: Record<string, string> = { ask: "Ask every time", "auto-edits": "Approve edits", auto: "Approve for me" };
 
@@ -80,6 +81,8 @@ export function ImportTeam({ open: shown, onOpenChange, team }: { open: boolean;
       const made = team ? await teamApi.importBuiltin(team, skip) : await teamApi.import(path!, skip);
       const store = useMatesStore.getState();
       await store.load();
+      // The new chats reach the session store before they can be opened, as a new mate's do.
+      await useSessionStore.getState().load();
       if (made.channel) await store.openChannel(made.channel);
       else if (made.mates[0]) await store.open(made.mates[0]);
       onOpenChange(false);

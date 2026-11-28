@@ -258,6 +258,12 @@ interface EngineStore extends Mirrored {
   /** Start a turn with `text` (and pictures). */
   sendPrompt(text: string, images?: PromptImage[]): Promise<void>;
   /**
+   * Resolves once `chat`'s engine is ready and the shell has given it its
+   * tools (at most the set-up wait): a message sent on its own the moment a
+   * chat opens (a new mate's description) must not start a run without them.
+   */
+  whenSetUp(chat: string): Promise<void>;
+  /**
    * Send a message while the agent works: `steer` reaches it at its next step,
    * `followUp` once it would otherwise stop. Shown as waiting until it does.
    */
@@ -1866,6 +1872,15 @@ export const useEngineStore = create<EngineStore>((set, get) => {
       await client.mesh(chat, "cancel", { node: node.id }).catch((error) => {
         log("warn", "engine", `could not cancel the agent: ${String(error)}`, { chatId: chat });
       });
+    },
+
+    async whenSetUp(chat) {
+      const until = Date.now() + SETUP_WAIT_MS;
+      // A deferred chat starts with its first message, which waits for the set-up itself.
+      while (!runtime(chat)?.deferred && runtime(chat)?.status !== "ready" && Date.now() < until) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await setupDone(chat);
     },
 
     async sendPrompt(text, images = []) {

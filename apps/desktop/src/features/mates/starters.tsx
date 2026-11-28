@@ -14,8 +14,11 @@ export const SCRATCH_STARTERS = [
   "What can you do with my files?",
 ];
 
-export function startersFor(mate: Pick<Mate, "template">, templates: Pick<MateTemplate, "id" | "starters">[]): string[] {
-  const role = mate.template ? templates.find((t) => t.id === mate.template) : undefined;
+/** Its role's starters: by the role it was made from, else by its role line (a team's mates). */
+export function startersFor(mate: Pick<Mate, "template" | "role">, templates: Pick<MateTemplate, "id" | "role" | "starters">[]): string[] {
+  const role =
+    (mate.template ? templates.find((t) => t.id === mate.template) : undefined) ??
+    (mate.role ? templates.find((t) => t.role === mate.role) : undefined);
   return role?.starters?.length ? role.starters : SCRATCH_STARTERS;
 }
 
@@ -26,9 +29,10 @@ export function Starters({ starters }: { starters: string[] }) {
       composerDraft.set(text.slice(0, -1) + " ");
       return;
     }
-    void useEngineStore
-      .getState()
-      .sendPrompt(text, [])
+    const engine = useEngineStore.getState();
+    const chat = engine.activeId;
+    void (chat ? engine.whenSetUp(chat) : Promise.resolve())
+      .then(() => useEngineStore.getState().sendPrompt(text, []))
       .catch((error) => log("warn", "mates", `could not send a starter: ${String(error)}`));
   };
   return (
