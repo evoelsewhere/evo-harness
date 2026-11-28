@@ -185,8 +185,8 @@ The retro
 | FR-15 | Each agent (Harness, and each mate) has **learned skills**: skills it writes itself, kept apart from the skills the person installed, listed in Customize (Harness) and the mate's panel (Mates) with a switch, **Undo last change** and **Delete**, and used like any other skill. | Given a learned skill, then it is listed as learned and can be switched off. |
 | FR-16 | After a reply is delivered in a conversation where the agent took at least the review step count of tool steps (default 10, settable 3–100) since its last review, a **skill review** reads that part of the conversation and the agent's skills, and makes at most 3 changes: update a learned skill that was in play, update a learned skill for the same kind of work, or create a learned skill named for a kind of work (never for one task, error or file). A correction of style, tone, length, approach or order of steps is a reason to change. Installed skills are never changed; a correction to one goes into a learned skill that complements it. | Given a conversation with ten tool steps and the person's correction "summary first", then a learned skill for that kind of task holds the rule. |
 | FR-17 | A review may update only a learned skill whose full text it was shown, and its change keeps every line still right; it never deletes or renames a skill. A change the review cannot apply safely is dropped. | Given a review answer that drops half of a skill, then the change is refused. |
-| FR-18 | A reply after which a skill changed shows "Learned · <skill>" under it; selecting it opens the change, with **Undo**. Every learned-skill change is a journal row like memory's (FR-1, FR-2). | Given a review that updates a skill, then the line shows and Undo restores the skill. |
-| FR-19 | A channel **job** — the work that one message of the person starts — gets a **retro** when it ends (all mates idle, or stopped, or at the hand-off limit) and the channel has been quiet for 2 minutes, if it had at least one hand-off; a job that hit a limit, was stopped by the person or had a mate fail always gets one. **Run retro** in the channel's menu starts one at once. | Given a job with three hand-offs that finished, when the channel is quiet for two minutes, then the retro runs. |
+| FR-18 | A reply after which a skill changed shows "Learned · <skill>" under it; selecting it opens the change, with **Undo**. Changes apply at once; none waits for the person's approval. Every learned-skill change is a journal row like memory's (FR-1, FR-2). | Given a review that updates a skill, then the line shows and Undo restores the skill. |
+| FR-19 | A channel **job** — the work that one message of the person starts — gets a **retro** when it ends (all mates idle, or stopped, or at the hand-off limit) and the channel has been quiet for 2 minutes, if it had at least one hand-off; a job that hit a limit, was stopped by the person or had a mate fail always gets one. **Run retro** in the channel's menu starts one at once. A retro notifies the person only when its job hit a limit, was stopped or had a mate fail; otherwise the card alone shows. | Given a job with three hand-offs that finished, when the channel is quiet for two minutes, then the retro runs. |
 | FR-20 | A retro reads the job's lines with their authors and kinds (asks, assigns, tells), the person's messages and any notice (limit, stop, failure), and returns: what went well, what went wrong, and for each mate that took part at most 2 lessons about how it should work in this team. Each lesson goes into that mate's learned skills through the skill review's rules (FR-16, FR-17); a lesson about how the team hands off goes to the lead. | Given a job where two mates asked each other the same question twice, then the retro names it and a lesson goes to each. |
 | FR-21 | The retro shows in the channel as a card: what went well, what went wrong, and the lessons, each with its mate and **Undo**. It is not a message to the mates and wakes nobody. | Given a retro, then the card shows and no mate replies to it. |
 
@@ -200,8 +200,8 @@ Settings and models
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| FR-23 | Settings › Memory (Harness) and Settings › Evo Mates (Mates) each have **Memory upkeep** (tidy-up and dream) and **Learn skills automatically** (the skill review and, in Mates, the retro), each a switch, and the review step count. [NEEDS CLARIFICATION: defaults per app] | Given the switches off, then no tidy-up, dream, review or retro runs in that app. |
-| FR-24 | The tidy-up's model step, the dream, the review and the retro run on a background model. [NEEDS CLARIFICATION: which model] Without a usable model only the steps that need none run (expiry, exact duplicates), and the settings say so. | Given no usable model, then Tidy now archives expired entries and the panel says the rest needs a model. |
+| FR-23 | Settings › Memory (Harness) and Settings › Evo Mates (Mates) each have **Memory upkeep** (tidy-up and dream) and **Learn skills automatically** (the skill review and, in Mates, the retro), each a switch, and the review step count. Both are on by default in Evo Mates and off in Evo Harness. | Given the switches off, then no tidy-up, dream, review or retro runs in that app. |
+| FR-24 | The tidy-up's model step, the dream, the review and the retro run on the **Background model**, one setting for both apps that replaces the **Index model** of [Memory topics FR-25](../memory-topics-and-chat-recall/spec.md#41-functional) (indexing is one of these steps); a mate with no Background model set uses its own model. Without a usable model only the steps that need none run (expiry, exact duplicates), and the settings say so. | Given no Background model, then a mate's dream runs on its own model; given neither usable, then Tidy now archives expired entries and the panel says the rest needs a model. |
 | FR-25 | A mate's own settings can switch its memory upkeep and its skill learning off, whatever the app's switch. | Given one mate switched off, then its dream does not run while the others' do. |
 
 Evals
@@ -243,22 +243,7 @@ Evals
 
 ### 6.1 Open
 
-1. [NEEDS CLARIFICATION: Which model runs the background steps?] —
-   proposed answer: one **Background model** setting for both apps, which
-   is today's **Index model** renamed (indexing is one of these steps);
-   a mate without it uses its own model. Without either, only the steps
-   that need no model run.
-2. [NEEDS CLARIFICATION: Defaults of Memory upkeep and Learn skills
-   automatically per app?] — proposed answer: on in Evo Mates (mates exist
-   to learn over weeks), off in Evo Harness (as automatic indexing, which
-   sends chat text to a provider and is off by default).
-3. [NEEDS CLARIFICATION: Do learned-skill changes apply at once, or wait
-   for the person?] — proposed answer: apply at once with the "Learned"
-   line and Undo (FR-18), as reviews that wait for approval pile up and go
-   unread; a mate whose skill learning is off learns nothing.
-4. [NEEDS CLARIFICATION: Does a retro card in a channel also go to the
-   person as a notification?] — proposed answer: only when the job hit a
-   limit, was stopped or had a failure; otherwise the card alone.
+None.
 
 ### 6.2 Resolved
 
@@ -269,6 +254,15 @@ Evals
   former (FR-15 – FR-21).
 - 2026-11-28 — Q: Harness, Mates or both? → A: both apps (section 1,
   FR-23).
+- 2026-11-28 — Q: Which model runs the background steps? → A: one
+  Background model for both apps, replacing the Index model; a mate without
+  it uses its own model (FR-24).
+- 2026-11-28 — Q: Defaults? → A: memory upkeep and skill learning on in
+  Evo Mates, off in Evo Harness (FR-23).
+- 2026-11-28 — Q: Do learned-skill changes wait for approval? → A: no,
+  they apply at once with the Learned line and Undo (FR-18).
+- 2026-11-28 — Q: Does a retro notify the person? → A: only when its job
+  hit a limit, was stopped or had a failure (FR-19).
 
 ### 6.3 Assumptions
 
@@ -290,3 +284,4 @@ Evals
 
 - 2026-11-28 — Draft. Owner asked to bring OpenMausBot's memory, dream,
   retro and eval layers into both apps.
+- 2026-11-28 — Owner accepted the spec with the proposed answers (Gate A).

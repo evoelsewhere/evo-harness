@@ -119,14 +119,14 @@ A person wants their mates to use Gmail and Slack.
 | --- | --- | --- |
 | FR-1 | Settings has a **Composio project key** field (in Harness under Connected apps, in Mates in Settings › Evo Mates). A saved key is checked with Composio first and kept in the system's keychain, never in a plain file, a log or a prompt. **Remove key** forgets it. | Given a key that Composio refuses, then it is not saved and the reason shows. |
 | FR-2 | Next to the key field, Evo says that service tool calls and their results go through Composio, and that the services' sign-ins are kept by Composio. | Review of the page text. |
-| FR-3 | A **Connected apps** page, in Harness's sidebar More menu and Customize, and in Mates' settings and each mate's Apps tab, lists the catalogue with search by name and category, and a **Connected** tab with every account as its own row: service, label, status (Active, Needs sign-in, Expired, Failed), connected date. | Given two Gmail accounts, then the Connected tab has two rows. |
+| FR-3 | A **Connected apps** page — in Evo Harness a section of Customize next to Connectors and a row in the sidebar's More menu; in Evo Mates a page in Settings and the Apps tab of each mate — lists the catalogue with search by name and category, and a **Connected** tab with every account as its own row: service, label, status (Active, Needs sign-in, Expired, Failed), connected date. | Given two Gmail accounts, then the Connected tab has two rows. |
 | FR-4 | **Connect** asks for a label, unique within the service and required once the service has an active account; opens Composio's sign-in in the person's default browser; and shows the account once Composio reports it active. A pending sign-in can be reopened without creating another account; after ten minutes a new link is asked for. | Given Connect then closing the browser tab, when the person chooses Open again, then the same pending account is reused. |
 | FR-5 | A service holds at most five usable accounts. A label held only by an account that is not active can be reused: that account is removed first. | Given an expired "work", when the person connects "work" again, then one "work" row remains. |
 | FR-6 | **Disconnect** revokes that account at Composio (and with it the service's grant) and removes only that row; other accounts of the service stay. **Reconnect** signs in again under the same label. | Given two accounts, when one is disconnected, then the other still works. |
 | FR-7 | Connected services' tools reach chats and mates through Evo's connector layer: one connector, **Connected apps**, whose tools obey Allow / Ask / Block, the approval modes and the tool search used past 40 tools (Customize FR-28). Customize shows it with its status and tools. | Given 300 connected tools, then a chat gets the tool search, not 300 tools. |
 | FR-8 | When a service has several active accounts, a call must name the account; a call that does not, or names one the chat or mate may not use, is refused with the accounts it may use. With one account, it is used. | Given two Gmail accounts and a call with none named, then it is refused, listing both labels. |
 | FR-9 | A call's arguments are checked against the tool's schema before it is sent; a refusal names the tool and the first problem and says it is about the call's shape, not access. | Given a missing required argument, then the call is refused with its name. |
-| FR-10 | Each mate's **Apps** setting ([Evo Mates FR-39](../evo-mates/spec.md#41-functional)) lists connected services among its choices; under **Only these**, for each service: **All tools**, **These tools** (a list) or **None**, and, for a service with two or more accounts, **Accounts this mate may use**. A mate from scratch gets all connected apps; from a template or team file, only the services it names, each off. | Given a mate on Only these with Gmail "work", then its calls to "personal" are refused and other services' tools are absent. |
+| FR-10 | Each mate's **Apps** setting ([Evo Mates FR-39](../evo-mates/spec.md#41-functional)) lists connected services among its choices; under **Only these**, for each service: **All tools**, **These tools** (a list) or **None**, and, for a service with two or more accounts, **Accounts this mate may use**. A mate from scratch gets all connected apps; from a template or team file, only the services it names, each off. A service connected later reaches every mate on **All connected apps** and no mate on **Only these**. | Given a mate on Only these with Gmail "work", then its calls to "personal" are refused and other services' tools are absent. |
 | FR-11 | A mate that needs a service that is not connected, expired, or not allowed shows its Connect / Reconnect card (Evo Mates FR-40) for that service; **Connect** runs FR-4 and, once active, the mate goes on. A service connected meanwhile is offered to it without restarting. | Given the card and a finished sign-in, then the mate continues its task. |
 | FR-12 | In Evo Harness, connected apps follow the chat's connector switches: the `+` menu switches them off for one chat (Customize FR-27), and a project can switch them off for its chats. | Given connected apps off in a chat, then its tool list has none of their tools. |
 | FR-13 | A tool that sends, posts, publishes, pays or deletes is classed as such and follows **Sending on your behalf** (Evo Mates FR-42) and never offers Always allow (Evo Mates FR-41); a tool that only reads may. Approval cards name the service, the account and the arguments. | Given a send tool under Send without asking off, then a card shows before the call. |
@@ -158,14 +158,7 @@ A person wants their mates to use Gmail and Slack.
 
 ### 6.1 Open
 
-1. [NEEDS CLARIFICATION: Where does Connected apps live in Evo Harness's
-   UI?] — proposed answer: a section of Customize next to Connectors, and a
-   sidebar row in the More menu; in Mates, a page in Settings and the Apps
-   tab of each mate.
-2. [NEEDS CLARIFICATION: Do all mates get every connected app by default
-   when the person connects a new one?] — proposed answer: a mate on **All
-   connected apps** gets it (that is what All means); a mate on **Only
-   these** does not.
+None.
 
 ### 6.2 Resolved
 
@@ -173,11 +166,17 @@ A person wants their mates to use Gmail and Slack.
   the person's own project key, through Evo's connector layer (section 1,
   FR-1, FR-7).
 - 2026-11-28 — Q: Harness, Mates or both? → A: both apps (section 2.1).
+- 2026-11-28 — Q: Where does it live? → A: Harness: Customize next to
+  Connectors and the More menu; Mates: Settings and each mate's Apps tab
+  (FR-3).
+- 2026-11-28 — Q: Which mates get a newly connected service? → A: those
+  on All connected apps, not those on Only these (FR-10).
 
 ### 6.3 Assumptions
 
-- A-1 Five usable accounts per service and a ten-minute sign-in link —
-  because those are Composio's limits.
+- A-1 Five usable accounts per service — Composio allows 2 to 10 per
+  session; five keeps the list short, as OpenMausBot does. A sign-in link
+  lives ten minutes — Composio's lifetime for a link.
 - A-2 The catalogue is cached for a day — because it changes rarely and the
   page must open offline.
 
@@ -185,3 +184,4 @@ A person wants their mates to use Gmail and Slack.
 
 - 2026-11-28 — Draft. Owner asked to bring connected apps into both apps,
   on Composio with their own key.
+- 2026-11-28 — Owner accepted the spec with the proposed answers (Gate A).
