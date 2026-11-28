@@ -373,29 +373,89 @@ pub fn move_column(
     Ok(())
 }
 
-/// Remove a column; its cards move to the first remaining column. The last
-/// column cannot go.
-pub fn remove_column(conn: &mut Connection, channel: &str, column: &str) -> Result<(), DbError> {
+/// What removing a column did: its cards' keys and where they went.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedColumn {
+    pub column: String,
+    pub to: String,
+    pub moved: Vec<String>,
+}
+
+/// Remove a column (FR-8; board review #5). Its cards move to the column on
+/// its left (the right for the first), after that column's cards, every
+/// position renumbered, and each move is logged. The last column cannot go.
+pub fn remove_column(
+    conn: &mut Connection,
+    channel: &str,
+    column: &str,
+    actor: &str,
+) -> Result<RemovedColumn, DbError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let cols = columns(&tx, channel)?;
-    let Some(to) = cols.iter().find(|c| c.id != column) else {
-        return Err(DbError::Invalid("a board keeps at least one column".into()));
+    let Some(at) = cols.iter().position(|c| c.id == column) else {
+        return Err(DbError::Invalid("no such column".into()));
     };
-    let start: f64 = tx.query_row(
-        "SELECT COALESCE(MAX(position), 0) FROM board_cards WHERE column_id = ?1",
-        [&to.id],
+    if cols.len() == 1 {
+        return Err(DbError::Invalid("a board keeps at least one column".into()));
+    }
+    let to = if at == 0 {
+        cols[1].clone()
+    } else {
+        cols[at - 1].clone()
+    };
+    let removed = cols[at].name.clone();
+    let ids = |col: &str| -> Result<Vec<(String, i64)>, DbError> {
+        let mut stmt = tx.prepare("SELECT id, number FROM board_cards WHERE channel_id = ?1 AND column_id = ?2 ORDER BY position, number")?;
+        let rows = stmt.query_map(params![channel, col], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    };
+    let staying = ids(&to.id)?;
+    let moving = ids(column)?;
+    let key: String = tx.query_row(
+        "SELECT key FROM boards WHERE channel_id = ?1",
+        [channel],
         |row| row.get(0),
     )?;
-    tx.execute(
-        "UPDATE board_cards SET column_id = ?2, position = ?3 + position + 1 WHERE column_id = ?1",
-        params![column, to.id, start],
-    )?;
+    for (i, (id, _)) in staying.iter().chain(moving.iter()).enumerate() {
+        tx.execute(
+            "UPDATE board_cards SET column_id = ?3, position = ?4 WHERE channel_id = ?1 AND id = ?2",
+            params![channel, id, to.id, i as f64],
+        )?;
+    }
+    let mut moved = Vec::new();
+    for (id, number) in &moving {
+        let card_key = format!("{key}-{number}");
+        log(
+            &tx,
+            id,
+            actor,
+            "moved",
+            &format!("moved {card_key} to {} (column {removed} removed)", to.name),
+        )?;
+        moved.push(card_key);
+    }
     tx.execute(
         "DELETE FROM board_columns WHERE channel_id = ?1 AND id = ?2",
         params![channel, column],
     )?;
     tx.commit()?;
-    Ok(())
+    Ok(RemovedColumn {
+        column: removed,
+        to: to.name,
+        moved,
+    })
+}
+
+/// How many cards a column holds (to confirm its removal).
+pub fn column_count(conn: &Connection, channel: &str, column: &str) -> Result<i64, DbError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM board_cards WHERE channel_id = ?1 AND column_id = ?2",
+        params![channel, column],
+        |row| row.get(0),
+    )?)
 }
 
 const CARD_COLUMNS: &str = "c.id, c.channel_id, b.key, c.number, c.column_id, c.position, c.title, c.description, c.assignee, c.priority, c.due_ms, c.labels, c.checklist, c.links, c.thread_root, c.source, c.created_by, c.created_ms, c.updated_ms";
@@ -752,6 +812,143 @@ pub fn update_card(
     get_card(conn, id)?.ok_or_else(|| DbError::Invalid("no such card".into()))
 }
 
+/// A checklist item named by its number (1-based, as tools and the sheet
+/// show it) or by its words.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ItemRef {
+    Number(usize),
+    Text(String),
+}
+
+/// Changes to a checklist, applied to what it holds now (never a blind
+/// replace): add items, tick, untick or remove them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChecklistEdit {
+    #[serde(default)]
+    pub add: Vec<String>,
+    #[serde(default)]
+    pub check: Vec<ItemRef>,
+    #[serde(default)]
+    pub uncheck: Vec<ItemRef>,
+    #[serde(default)]
+    pub remove: Vec<ItemRef>,
+}
+
+fn find_item(items: &[CheckItem], item: &ItemRef) -> Option<usize> {
+    match item {
+        ItemRef::Number(n) => (*n >= 1 && *n <= items.len()).then(|| n - 1),
+        ItemRef::Text(text) => {
+            let want = text.trim().to_lowercase();
+            items
+                .iter()
+                .position(|i| i.text.trim().to_lowercase() == want)
+                .or_else(|| {
+                    items
+                        .iter()
+                        .position(|i| i.text.to_lowercase().contains(&want))
+                })
+        }
+    }
+}
+
+/// `items` after `edit`; an item that names nothing is an error.
+pub fn apply_checklist(
+    items: &[CheckItem],
+    edit: &ChecklistEdit,
+) -> Result<Vec<CheckItem>, String> {
+    let mut out = items.to_vec();
+    for (refs, done) in [(&edit.check, true), (&edit.uncheck, false)] {
+        for item in refs {
+            let at = find_item(&out, item)
+                .ok_or_else(|| format!("No checklist item {}", describe(item)))?;
+            out[at].done = done;
+        }
+    }
+    let mut gone: Vec<usize> = Vec::new();
+    for item in &edit.remove {
+        gone.push(
+            find_item(&out, item).ok_or_else(|| format!("No checklist item {}", describe(item)))?,
+        );
+    }
+    gone.sort_unstable();
+    gone.dedup();
+    for at in gone.into_iter().rev() {
+        out.remove(at);
+    }
+    for text in &edit.add {
+        if !text.trim().is_empty() {
+            out.push(CheckItem {
+                text: text.trim().to_string(),
+                done: false,
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn describe(item: &ItemRef) -> String {
+    match item {
+        ItemRef::Number(n) => format!("number {n}"),
+        ItemRef::Text(t) => format!("\"{t}\""),
+    }
+}
+
+/// Change a card's checklist from what it holds now (board review #3, #6).
+pub fn edit_checklist(
+    conn: &mut Connection,
+    id: &str,
+    edit: &ChecklistEdit,
+    actor: &str,
+) -> Result<Card, DbError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let card = get_card(&tx, id)?.ok_or_else(|| DbError::Invalid("no such card".into()))?;
+    let items = apply_checklist(&card.checklist, edit).map_err(DbError::Invalid)?;
+    tx.commit()?;
+    update_card(
+        conn,
+        id,
+        &CardPatch {
+            checklist: Some(items),
+            ..CardPatch::default()
+        },
+        actor,
+    )
+}
+
+/// Add and remove labels on what a card holds now (board review #3, #6).
+pub fn edit_labels(
+    conn: &mut Connection,
+    id: &str,
+    add: &[String],
+    remove: &[String],
+    actor: &str,
+) -> Result<Card, DbError> {
+    let card = get_card(conn, id)?.ok_or_else(|| DbError::Invalid("no such card".into()))?;
+    let gone: Vec<String> = remove.iter().map(|l| l.trim().to_lowercase()).collect();
+    let mut labels: Vec<String> = card
+        .labels
+        .into_iter()
+        .filter(|l| !gone.contains(&l.to_lowercase()))
+        .collect();
+    for label in add {
+        let label = label.trim();
+        if !label.is_empty() && !labels.iter().any(|l| l.eq_ignore_ascii_case(label)) {
+            labels.push(label.to_string());
+        }
+    }
+    update_card(
+        conn,
+        id,
+        &CardPatch {
+            labels: Some(labels),
+            ..CardPatch::default()
+        },
+        actor,
+    )
+}
+
 /// Move a card to `column` at `index` (end when `None`) (FR-10, FR-11);
 /// logs "moved KEY to Column" when the column changes.
 pub fn move_card(
@@ -862,44 +1059,36 @@ pub fn review_column(board: &Board) -> Option<&Column> {
         })
 }
 
-/// The newest open card made from an assignment of `from` to `to` in the
-/// channel (FR-12): open means before the review column.
-pub fn assignment_card(
-    conn: &Connection,
-    channel: &str,
-    from: &str,
-    to: &str,
-) -> Result<Option<Card>, DbError> {
-    let Some(board) = board_on(conn, channel)? else {
+/// A member reported on the assignment card `card` (FR-12, D8): move it to
+/// the review column when it is still before it; `None` when it was already
+/// there or past it, or the board is off. The column's name with the card.
+pub fn report_moves_card(
+    conn: &mut Connection,
+    card: &str,
+    actor: &str,
+) -> Result<Option<(Card, String)>, DbError> {
+    let Some(found) = get_card(conn, card)? else {
         return Ok(None);
     };
-    let review = review_column(&board)
-        .map(|c| c.position)
-        .unwrap_or(i64::MAX);
-    let cards = list_cards(conn, channel)?;
-    let positions: std::collections::HashMap<&str, i64> = board
+    let Some(board) = board_on(conn, &found.channel_id)? else {
+        return Ok(None);
+    };
+    let Some(review) = review_column(&board).cloned() else {
+        return Ok(None);
+    };
+    let here = board
         .columns
         .iter()
-        .map(|c| (c.id.as_str(), c.position))
-        .collect();
-    Ok(cards
-        .into_iter()
-        .filter(|c| c.assignee.as_deref() == Some(to))
-        .filter(|c| {
-            positions
-                .get(c.column_id.as_str())
-                .copied()
-                .unwrap_or(i64::MAX)
-                < review
-        })
-        .filter(|c| {
-            c.source
-                .as_ref()
-                .and_then(|s| s.get("from"))
-                .and_then(Value::as_str)
-                == Some(from)
-        })
-        .max_by_key(|c| c.created_ms))
+        .find(|c| c.id == found.column_id)
+        .map(|c| c.position)
+        .unwrap_or(i64::MAX);
+    if here >= review.position {
+        return Ok(None);
+    }
+    Ok(Some((
+        move_card(conn, card, &review.id, None, actor)?,
+        review.name,
+    )))
 }
 
 #[cfg(test)]
@@ -1208,21 +1397,41 @@ mod tests {
             "lin",
         )
         .unwrap();
+        // A report moves exactly that card, once, and only forward.
+        let (moved, column) = report_moves_card(&mut conn, &card.id, "kai")
+            .unwrap()
+            .unwrap();
         assert_eq!(
-            assignment_card(&conn, "ch", "lin", "kai")
-                .unwrap()
-                .map(|c| c.id),
-            Some(card.id.clone())
+            (moved.column_id.as_str(), column.as_str()),
+            (board.columns[2].id.as_str(), "Review")
         );
+        assert_eq!(
+            report_moves_card(&mut conn, &card.id, "kai").unwrap(),
+            None,
+            "already in Review"
+        );
+        move_card(&mut conn, &card.id, &board.columns[1].id, None, "person").unwrap();
         assert_eq!(
             review_column(&board).map(|c| c.name.as_str()),
             Some("Review")
         );
-        remove_column(&mut conn, "ch", &board.columns[1].id).unwrap();
+        // Removing In progress moves its card left, to To do, logged.
+        assert_eq!(column_count(&conn, "ch", &board.columns[1].id).unwrap(), 1);
+        let removed = remove_column(&mut conn, "ch", &board.columns[1].id, "person").unwrap();
+        assert_eq!(
+            (removed.to.as_str(), removed.moved.clone()),
+            ("To do", vec!["LAUNCH-1".to_string()])
+        );
         assert_eq!(
             get_card(&conn, &card.id).unwrap().unwrap().column_id,
             board.columns[0].id
         );
+        assert!(card_events(&conn, &card.id)
+            .unwrap()
+            .last()
+            .unwrap()
+            .text
+            .contains("column In progress removed"));
         move_column(&mut conn, "ch", &board.columns[3].id, 0).unwrap();
         assert_eq!(
             get_board(&conn, "ch").unwrap().unwrap().columns[0].name,
@@ -1238,5 +1447,93 @@ mod tests {
             .map(|c| c.name)
             .collect();
         assert_eq!(names, ["Done", "Backlog", "Review", "Blocked"]);
+    }
+
+    #[test]
+    fn checklist_and_labels_change_from_what_the_card_holds() {
+        let (_dir, mut conn) = db();
+        enable_board(&mut conn, "ch", "LAUNCH").unwrap();
+        let card = create_card(
+            &mut conn,
+            "ch",
+            &NewCard {
+                title: "Notes".into(),
+                labels: vec!["docs".into()],
+                ..NewCard::default()
+            },
+            "person",
+        )
+        .unwrap();
+        let edit = ChecklistEdit {
+            add: vec!["Highlights".into(), "Fixes".into(), "Links".into()],
+            ..ChecklistEdit::default()
+        };
+        let card = edit_checklist(&mut conn, &card.id, &edit, "lin").unwrap();
+        let edit: ChecklistEdit =
+            serde_json::from_value(json!({ "check": [1, "fix"], "remove": ["links"] })).unwrap();
+        let card = edit_checklist(&mut conn, &card.id, &edit, "lin").unwrap();
+        assert_eq!(
+            card.checklist,
+            vec![
+                CheckItem {
+                    text: "Highlights".into(),
+                    done: true
+                },
+                CheckItem {
+                    text: "Fixes".into(),
+                    done: true
+                }
+            ]
+        );
+        let bad: ChecklistEdit = serde_json::from_value(json!({ "check": [9] })).unwrap();
+        assert!(edit_checklist(&mut conn, &card.id, &bad, "lin").is_err());
+        let card = edit_labels(
+            &mut conn,
+            &card.id,
+            &["release".into(), "DOCS".into()],
+            &[],
+            "lin",
+        )
+        .unwrap();
+        assert_eq!(card.labels, ["docs", "release"], "kept, added once");
+        let card = edit_labels(&mut conn, &card.id, &[], &["Docs".into()], "lin").unwrap();
+        assert_eq!(card.labels, ["release"]);
+    }
+
+    #[test]
+    fn removing_the_first_column_moves_cards_right() {
+        let (_dir, mut conn) = db();
+        let board = enable_board(&mut conn, "ch", "LAUNCH").unwrap();
+        create_card(
+            &mut conn,
+            "ch",
+            &NewCard {
+                title: "a".into(),
+                column_id: Some(board.columns[1].id.clone()),
+                ..NewCard::default()
+            },
+            "person",
+        )
+        .unwrap();
+        create_card(
+            &mut conn,
+            "ch",
+            &NewCard {
+                title: "b".into(),
+                ..NewCard::default()
+            },
+            "person",
+        )
+        .unwrap();
+        let removed = remove_column(&mut conn, "ch", &board.columns[0].id, "person").unwrap();
+        assert_eq!(removed.to, "In progress");
+        let cards = list_cards(&conn, "ch").unwrap();
+        assert_eq!(
+            cards
+                .iter()
+                .map(|c| (c.title.as_str(), c.position))
+                .collect::<Vec<_>>(),
+            [("a", 0.0), ("b", 1.0)]
+        );
     }
 }

@@ -72,4 +72,19 @@ describe("board", () => {
     expect(splitCardKeys("see LAUNCH-2 now", ["LAUNCH"])).toEqual([{ text: "see " }, { text: "LAUNCH-2", key: "LAUNCH-2" }, { text: " now" }]);
     expect(splitCardKeys("PRELAUNCH-2", ["LAUNCH"])).toEqual([{ text: "PRELAUNCH-2" }]);
   });
+
+  // Board review #8: never inside code, URLs or links.
+  test("card keys are not linked inside code, URLs or links", () => {
+    const keys = ["LAUNCH"];
+    const same = (text: string) => expect(linkCards(text, keys)).toBe(text);
+    same("~~~\nLAUNCH-3\n~~~");
+    same("```\nstill streaming LAUNCH-3");
+    same("text\n\n    LAUNCH-3 in indented code");
+    same("``a ` LAUNCH-3``");
+    same("see https://tracker.example/issue?ticket=LAUNCH-3 now");
+    same("see <https://tracker.example/LAUNCH-3>");
+    same("tag #LAUNCH-3 and x=LAUNCH-3");
+    same("![img](https://a/LAUNCH-3.png)");
+    expect(linkCards("LAUNCH-3, then `LAUNCH-4`", keys)).toBe(`[LAUNCH-3](${CARD_LINK}LAUNCH-3), then \`LAUNCH-4\``);
+  });
 });

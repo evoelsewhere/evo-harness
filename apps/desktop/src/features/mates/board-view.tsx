@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { useBoardStore } from "@/stores/board-store";
 import { cardsIn, dropIndex, dueLabel, filterCards, filtering, labelsOf, NO_FILTER, overdue, PRIORITIES, type CardFilter } from "./board-logic";
 import { useMembers } from "./channel-header";
+import { ConfirmDelete } from "./confirm";
 
 /** A card's assignee as a face: a mate's, or "You" for the person. */
 export function AssigneeFace({ id, members, size = 20 }: { id: string | null; members: Mate[]; size?: number }) {
@@ -173,6 +174,8 @@ export function BoardView({ channel }: { channel: Channel }) {
   const [newColumn, setNewColumn] = React.useState<string | null>(null);
   const [renaming, setRenaming] = React.useState<string | null>(null);
   const [drag, setDrag] = React.useState<{ id: string; column: string; before: string | null } | null>(null);
+  // Removing a column asks first, with what happens to its cards (board review #5).
+  const [removing, setRemoving] = React.useState<{ id: string; name: string; count: number; to: string } | null>(null);
   React.useEffect(() => {
     void useBoardStore.getState().load(channel.id);
   }, [channel.id]);
@@ -209,6 +212,21 @@ export function BoardView({ channel }: { channel: Channel }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <ConfirmDelete
+        open={removing !== null}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title={`Remove the column ${removing?.name ?? ""}?`}
+        action="Remove column"
+        description={
+          removing?.count
+            ? `Its ${removing.count} ${removing.count === 1 ? "card moves" : "cards move"} to ${removing.to}, and each move goes in the card's activity.`
+            : "It has no cards."
+        }
+        onConfirm={() => {
+          if (removing) columnAction("remove", removing.id);
+          setRemoving(null);
+        }}
+      />
       {/* Filters and search (FR-10). */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2.5">
         <label className="flex h-8 min-w-0 flex-1 basis-40 items-center gap-1.5 rounded-full border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-brand/20">
@@ -354,7 +372,16 @@ export function BoardView({ channel }: { channel: Channel }) {
                         Move right
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" disabled={board.columns.length === 1} onClick={() => columnAction("remove", column.id)}>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        disabled={board.columns.length === 1}
+                        onClick={() =>
+                          void boardsApi
+                            .columnCount(channel.id, column.id)
+                            .then((count) => setRemoving({ id: column.id, name: column.name, count, to: (board.columns[index - 1] ?? board.columns[index + 1])?.name ?? "" }))
+                            .catch(() => undefined)
+                        }
+                      >
                         <Trash2Icon />
                         Remove column
                       </DropdownMenuItem>

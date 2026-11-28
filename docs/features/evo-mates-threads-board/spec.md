@@ -123,7 +123,7 @@ Unresolve.
 | FR-8 | **Board, opt-in** (B1): **Turn on board** in the channel's panel asks for a key (proposed from the name, 2 – 6 capitals) and adds a **Board** tab beside **Chat**. Columns start as To do, In progress, Review, Done; they can be renamed, added, reordered or removed. Turning it off hides the tab and keeps the cards. Cards are numbered `KEY-n`, never reused. | Turning it on shows four empty columns. |
 | FR-9 | **Cards** (B2): title, Markdown description, assignee (a mate of the channel or the person, with a face), priority (None, Low, Medium, High, Urgent), due date, labels, checklist, links (messages, files, threads), and an activity log of every change with who made it and when. | A mate's move logs "Writer moved LAUNCH-12 to Review". |
 | FR-10 | **The person works the board** (B3): drag cards between and within columns; quick add at a column's top; open a card in a side sheet to edit every field; filters by assignee, label and priority; search by key and words; a list view beside the columns. | Dragging to Done saves and shows at once; "assignee: Writer" leaves Writer's cards. |
-| FR-11 | **Mates' board tools** (B4): `board_list`, `board_create`, `board_update`, `board_move`, `board_comment`, offered to a seat whose channel's board is on, acting only on that board; no approval (6.2 D7); mates cannot delete cards. | A seat lists, creates, moves and comments; another channel's card is refused. |
+| FR-11 | **Mates' board tools** (B4): `board_list`, `board_get_card`, `board_create`, `board_update` (fields, and labels and checklist items added, removed or ticked by name or number: never a blind replace), `board_move`, `board_comment`; board text reaches mates labelled as board data; offered to a seat whose channel's board is on, acting only on that board; no approval (6.2 D7); mates cannot delete cards. | A seat lists, creates, moves and comments; another channel's card is refused. |
 | FR-12 | **Assignments become cards** (B4): with the board on, a lead's assign creates a card in the first column assigned to the member, linked to the thread or message it came from; the member's report back moves it to Review (or the last column but one when there is no Review; Done when there are two columns or fewer). | The lead assigns two tasks: two cards appear; reporting moves them. |
 | FR-13 | Every board change by a mate or by the coordinator posts a short line in the channel ("Analyst moved LAUNCH-7 to Done"), shown as a board line, never delivered to mates as a message. | The line shows in the feed. |
 | FR-14 | **Beyond one channel** (B5): Today shows **My cards** (assigned to the person, overdue first); a mate's profile shows its open cards across channels; `KEY-n` of a board in any message is a link that opens the card. | A card assigned to the person shows on Today; `LAUNCH-12` in a mate's chat opens it. |
@@ -226,3 +226,12 @@ agent's recommended answers:
   runs once behind a lock, retries after a failed read and rebuilds what
   each seat was given; untrusted text in deliveries is made inert. FR-5
   says 20 lines (the code's limit), not 30.
+- 2026-11-29 — Review fixes for part B (the product owner's review of
+  678d0b2f): a report moves exactly the card its assignment made, only
+  forward, and an answer to a question moves none; a re-sent identical
+  assignment makes no second card; mates read a card in full
+  (`board_get_card`) and change labels and checklists additively; a due
+  date that does not read is an error, never a clear; removing a column
+  asks first, moves its cards to the neighbouring column with a logged move
+  each and one board line; board text reaches mates as board data with the
+  markup made inert.

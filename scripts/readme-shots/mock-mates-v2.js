@@ -241,6 +241,7 @@
   h.board_get = ({ channel }) =>
     channel === "launch" ? { board: BOARD, cards: ALL, proposedKey: "LAUNCH" } : { board: null, cards: [], proposedKey: "RESEARCH" };
   h.board_keys = () => ["LAUNCH"];
+  h.board_column_count = ({ column }) => ALL.filter((c) => c.columnId === column).length;
   h.cards_assigned = ({ assignee }) => ALL.filter((c) => c.assignee === assignee && c.columnId !== "col-done").slice(0, 8).map(placed);
   h.card_by_key = ({ key }) => {
     const c = ALL.find((x) => x.key === key);

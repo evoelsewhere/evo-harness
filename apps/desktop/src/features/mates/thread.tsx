@@ -9,7 +9,7 @@
 import * as React from "react";
 import { LearnedLine } from "@/components/learned-line";
 import { ArrowDownIcon, CopyIcon, EyeOffIcon, ForwardIcon, InfoIcon, LinkIcon, PencilIcon, PinIcon, PinOffIcon, ReplyIcon, RotateCcwIcon, Share2Icon, SquareIcon, XIcon } from "lucide-react";
-import { openAppLink, copyMessageLink } from "./app-links";
+import { openAppLink, copyMessageLink, openLinkPath } from "./app-links";
 import { linkPlaces, type Place } from "./links-logic";
 import { ShareDialog, type Sharing } from "./share-dialog";
 import { SharedCard } from "./line-tools";
@@ -37,7 +37,7 @@ import { useMatesPrefs } from "@/stores/mates-prefs-store";
 import { excerpt } from "./message-markup";
 import { replaceVisibleText } from "./edit-prompt";
 import { StepsChip } from "./steps-chip";
-import { useBoardStore } from "@/stores/board-store";
+import { showCardLink, useBoardStore } from "@/stores/board-store";
 import { linkCards } from "./board-logic";
 import { clockTime, dayLabel, isHeartbeat, isLong, threadRows, type Bubble, type Row } from "./thread-rows";
 
@@ -300,8 +300,8 @@ function BubbleView({
                       streaming={bubble.streaming}
                       blocks
                       onLocalLink={openRef}
-                      onCardLink={(key) => useBoardStore.getState().showCard(key)}
-                      onAppLink={(path) => void openAppLink(path)}
+                      onCardLink={showCardLink}
+                      onAppLink={openLinkPath}
                     >
                       {linkCards(linkPlaces(bubble.text, places, placeOfChat), cardKeys)}
                     </Markdown>

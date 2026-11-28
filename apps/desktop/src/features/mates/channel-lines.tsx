@@ -5,9 +5,9 @@
 
 import * as React from "react";
 import { ArrowRightIcon, CheckIcon, ChevronRightIcon, Columns3Icon, Share2Icon } from "lucide-react";
-import { openAppLink } from "./app-links";
+import { openAppLink, openLinkPath } from "./app-links";
 import { linkPlaces, splitLinks, type Place } from "./links-logic";
-import { useBoardStore } from "@/stores/board-store";
+import { showCardLink, useBoardStore } from "@/stores/board-store";
 import { linkCards } from "./board-logic";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
@@ -365,8 +365,8 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
               ) : (
                 <Markdown
                   blocks
-                  onCardLink={(key) => useBoardStore.getState().showCard(key)}
-                  onAppLink={(path) => void openAppLink(path)}
+                  onCardLink={showCardLink}
+                  onAppLink={openLinkPath}
                   onLocalLink={(reference) => {
                     // A seat works in the channel's folder, else in its mate's (rich-replies FR-37).
                     const author = faceOf(row.author);

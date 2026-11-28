@@ -4,6 +4,7 @@
 // split at card keys, message links and channel names.
 
 import { APP_LINK } from "@/components/file-refs";
+import { mapProse } from "./markdown-prose";
 
 /** A message's link, as Copy link gives it. */
 export function messageLink(chat: string, line: string): string {
@@ -36,27 +37,19 @@ function escape(text: string): string {
 export function linkPlaces(markdown: string, places: readonly Place[], placeOfChat: (chat: string) => string | null): string {
   const known = [...places].filter((p) => p.word.length > 1).sort((a, b) => b.word.length - a.word.length);
   const pattern = known.length ? new RegExp(`(^|[^\\p{L}\\p{N}\\[])(${known.map((p) => escape(p.word)).join("|")})(?![\\p{L}\\p{N}])`, "giu") : null;
-  return markdown
-    .split(/(```[\s\S]*?```|`[^`\n]*`|\[[^\]]*\]\([^)]*\))/g)
-    .map((part, i) => {
-      if (i % 2 === 1) return part;
-      let out = part.replace(MESSAGE_LINK, (_, chat: string, line: string) => `[${placeOfChat(chat) ? `message in ${placeOfChat(chat)}` : "a message"}](${APP_LINK}message/${chat}/${line})`);
-      if (pattern) {
-        out = out
-          .split(/(\[[^\]]*\]\([^)]*\))/g)
-          .map((piece, j) =>
-            j % 2 === 1
-              ? piece
-              : piece.replace(pattern, (_, lead: string, word: string) => {
-                  const place = known.find((p) => p.word.toLowerCase() === word.toLowerCase());
-                  return place ? `${lead}[${word}](${APP_LINK}${place.path})` : `${lead}${word}`;
-                }),
-          )
-          .join("");
-      }
-      return out;
-    })
-    .join("");
+  // A message link is a URL: it is turned into a link before prose is found.
+  const linked = markdown.replace(/(^|[^\w/(\[<])(evo:\/\/mates\/[A-Za-z0-9_.:-]+\/[A-Za-z0-9_.:-]+)/g, (_, lead: string, url: string) => {
+    const found = firstMessageLink(url)!;
+    const place = placeOfChat(found.chat);
+    return `${lead}[${place ? `message in ${place}` : "a message"}](${APP_LINK}message/${found.chat}/${found.line})`;
+  });
+  if (!pattern) return linked;
+  return mapProse(linked, (prose) =>
+    prose.replace(pattern, (_, lead: string, word: string) => {
+      const place = known.find((p) => p.word.toLowerCase() === word.toLowerCase());
+      return place ? `${lead}[${word}](${APP_LINK}${place.path})` : `${lead}${word}`;
+    }),
+  );
 }
 
 export interface Piece {

@@ -54,7 +54,8 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   },
   async loadKeys() {
     const keys = await boardsApi.keys().catch(() => null);
-    if (keys) set({ keys });
+    // A new array re-renders every line that links keys: only when they changed (board review #7).
+    if (keys && keys.join("\n") !== get().keys.join("\n")) set({ keys });
   },
   setTab: (chat, tab) => set((s) => ({ tab: { ...s.tab, [chat]: tab } })),
   showCard: (key) => set({ openCard: key }),
@@ -84,10 +85,19 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       const cards = view.cards.map((c) => (c.id === id ? { ...c, columnId: column, position } : c));
       set((s) => ({ views: { ...s.views, [channel]: { ...view, cards } } }));
     }
-    await boardsApi.move(id, column, index).catch(warn("could not move the card"));
-    await get().load(channel);
+    try {
+      await boardsApi.move(id, column, index).catch(warn("could not move the card"));
+    } finally {
+      // A failed move shows where the card really is (board review #6).
+      await get().load(channel);
+    }
   },
 }));
+
+/** Open a card by its key: one function, so Markdown that links keys keeps its memo (board review #7). */
+export function showCardLink(key: string): void {
+  useBoardStore.getState().showCard(key);
+}
 
 /** Read boards again when they change (once per window). */
 export function watchBoards(): () => void {

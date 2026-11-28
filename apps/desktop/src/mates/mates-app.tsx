@@ -64,6 +64,7 @@ function useWindowWidth(): number {
 
 function useBootstrap() {
   React.useEffect(() => {
+    const stops: (() => void)[] = [];
     installErrorLogging();
     if (inTauri) {
       invoke<"mica" | "vibrancy" | "none">("window_material")
@@ -74,10 +75,9 @@ function useBootstrap() {
       // A mate's pages and apps show as live cards here, as in Evo Harness
       // (docs/features/evo-mates-computer/spec.md, FR-1).
       startChatScope();
-      // Boards read again when they change (evo-mates-threads-board FR-8 – FR-15).
-      watchBoards();
-      // Followed threads (FR-20).
-      watchThreads();
+      // Boards read again when they change (evo-mates-threads-board FR-8 – FR-15),
+      // followed threads (FR-20); both stop with the window (board review #7).
+      stops.push(watchBoards(), watchThreads());
     }
     void (async () => {
       try {
@@ -89,6 +89,7 @@ function useBootstrap() {
       // Pins, mutes and link previews (evo-mates-messaging FR-14, FR-15, FR-17).
       await useMatesPrefs.getState().load();
     })();
+    return () => stops.forEach((stop) => stop());
   }, []);
 }
 

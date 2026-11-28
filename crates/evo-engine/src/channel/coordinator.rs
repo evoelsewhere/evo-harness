@@ -103,19 +103,49 @@ pub fn hand_off(
 }
 
 /// The answers members owe each other for the open message (FR-18): who
-/// asked or assigned whom. One answer back pays the debt.
+/// asked or assigned whom, oldest first. One answer back pays the oldest
+/// debt. An assignment that made a board card carries the card's id, so its
+/// report moves exactly that card and an answer to a mere question moves
+/// none (evo-mates-threads-board FR-12; board review #1, #2).
 #[derive(Debug, Default)]
-pub struct Owed(HashSet<(String, String)>);
+pub struct Owed(HashMap<(String, String), std::collections::VecDeque<Option<String>>>);
 
 impl Owed {
     /// `asker` asked or assigned `asked` something.
     pub fn owe(&mut self, asker: &str, asked: &str) {
-        self.0.insert((asked.to_string(), asker.to_string()));
+        self.0
+            .entry((asked.to_string(), asker.to_string()))
+            .or_default()
+            .push_back(None);
+    }
+
+    /// The newest debt of `asked` to `asker` was an assignment that made `card`.
+    pub fn attach(&mut self, asker: &str, asked: &str, card: &str) {
+        if let Some(last) = self
+            .0
+            .get_mut(&(asked.to_string(), asker.to_string()))
+            .and_then(|debts| debts.back_mut())
+        {
+            *last = Some(card.to_string());
+        }
+    }
+
+    /// `from` telling `to` answers what `to` gave it: the oldest debt is
+    /// paid. `None` when nothing was owed; `Some(card)` names the card of a
+    /// paid assignment, if it made one.
+    pub fn settle(&mut self, from: &str, to: &str) -> Option<Option<String>> {
+        let key = (from.to_string(), to.to_string());
+        let debts = self.0.get_mut(&key)?;
+        let paid = debts.pop_front();
+        if debts.is_empty() {
+            self.0.remove(&key);
+        }
+        paid
     }
 
     /// Whether `from` telling `to` answers what `to` gave it (then paid).
     pub fn pays(&mut self, from: &str, to: &str) -> bool {
-        self.0.remove(&(from.to_string(), to.to_string()))
+        self.settle(from, to).is_some()
     }
 }
 
@@ -967,6 +997,8 @@ impl Coordinator {
         // Who asked or assigned each member, so its answer goes back to them.
         let mut asked_by: HashMap<String, String> = HashMap::new();
         let mut owed = Owed::default();
+        // The assignments this message made, to never make a card twice.
+        let mut assigned: HashSet<(String, String, String)> = HashSet::new();
         let deadline = tokio::time::Instant::now() + TURN_LIMIT;
         while !waiting.is_empty() {
             lock(&self.state).working = waiting.clone();
@@ -1024,9 +1056,14 @@ impl Coordinator {
                         let Some(member) = self.member(&to).cloned() else {
                             continue;
                         };
-                        let report = kind == "tells" && owed.pays(&author, &to);
-                        if report {
-                            self.assignment_reported(harness, &author, &to).await;
+                        let settled = if kind == "tells" {
+                            owed.settle(&author, &to)
+                        } else {
+                            None
+                        };
+                        let report = settled.is_some();
+                        if let Some(Some(card)) = settled {
+                            self.assignment_reported(harness, &author, &card).await;
                         }
                         let verdict = self.count_handoff(&mut handoffs, &author, &to, report);
                         if verdict == HandOff::PairLimit {
@@ -1066,14 +1103,15 @@ impl Coordinator {
                     // Mail that asks or assigns is owed an answer: the
                     // member's next reply goes back to the sender, and that
                     // answer (or a mail back) is a report.
-                    let report = match handoff_kind(&op, &text) {
-                        "tells" => owed.pays(&from_mate, &to_mate),
+                    let settled = match handoff_kind(&op, &text) {
+                        "tells" => owed.settle(&from_mate, &to_mate),
                         _ => {
                             owed.owe(&from_mate, &to_mate);
                             asked_by.insert(to_mate.clone(), from_mate.clone());
-                            false
+                            None
                         }
                     };
+                    let report = settled.is_some();
                     if report && asked_by.get(&from_mate) == Some(&to_mate) {
                         asked_by.remove(&from_mate);
                     }
@@ -1096,13 +1134,24 @@ impl Coordinator {
                     }
                     self.post_handoff(harness, &from, &to, &op, &text, message)
                         .await;
-                    // The board tracks the lead's assignments (FR-12).
+                    // The board tracks the lead's assignments (FR-12): a card per
+                    // assignment (a re-sent identical one makes none), moved
+                    // when that assignment is reported on.
                     if handoff_kind(&op, &text) == "assigns" {
-                        self.assignment_card(harness, &from_mate, &to_mate, &text, message)
-                            .await;
-                    } else if report {
-                        self.assignment_reported(harness, &from_mate, &to_mate)
-                            .await;
+                        if assigned.insert((
+                            from_mate.clone(),
+                            to_mate.clone(),
+                            text.trim().to_string(),
+                        )) {
+                            if let Some(card) = self
+                                .assignment_card(harness, &from_mate, &to_mate, &text, message)
+                                .await
+                            {
+                                owed.attach(&from_mate, &to_mate, &card);
+                            }
+                        }
+                    } else if let Some(Some(card)) = settled {
+                        self.assignment_reported(harness, &from_mate, &card).await;
                     }
                     // Members never assign the lead (FR-55): the lead gets it as
                     // information, and the channel says so.
@@ -1419,9 +1468,9 @@ impl Coordinator {
         to: &str,
         text: &str,
         message: &str,
-    ) {
+    ) -> Option<String> {
         if self.role.lead.as_deref() != Some(from) || from == to {
-            return;
+            return None;
         }
         let (body, _) = split_attached(text);
         let new = assignment_new_card(
@@ -1440,41 +1489,33 @@ impl Coordinator {
         .await
         .ok()
         .flatten();
-        if let Some(card) = made {
-            let line = format!(
-                "{} added {} {} for {}",
-                self.name_of(from),
-                card.key,
-                card.title,
-                self.name_of(to)
-            );
-            self.post_board_line(harness, &line, &card.key, &card.id, true)
-                .await;
-        }
+        let card = made?;
+        let line = format!(
+            "{} added {} {} for {}",
+            self.name_of(from),
+            card.key,
+            card.title,
+            self.name_of(to)
+        );
+        self.post_board_line(harness, &line, &card.key, &card.id, true)
+            .await;
+        Some(card.id)
     }
 
-    /// A member reported back to whoever assigned it: its card moves to
-    /// Review (FR-12, D8).
+    /// A member reported on the assignment that made `card`: that card moves
+    /// to Review when it is still before it (FR-12, D8; board review #2).
     async fn assignment_reported(
         &self,
         harness: &evo_harness::agent_harness::AgentHarness,
         member: &str,
-        asker: &str,
+        card: &str,
     ) {
-        let (channel, member_id, asker_id) = (
-            self.role.channel_id.clone(),
-            member.to_string(),
-            asker.to_string(),
-        );
+        let (card_id, member_id) = (card.to_string(), member.to_string());
         let moved = tokio::task::spawn_blocking(move || {
             let mut conn = evo_store::open().ok()?;
-            let board = evo_store::boards::board_on(&conn, &channel).ok()??;
-            let card = evo_store::boards::assignment_card(&conn, &channel, &asker_id, &member_id)
-                .ok()??;
-            let column = evo_store::boards::review_column(&board)?.clone();
-            evo_store::boards::move_card(&mut conn, &card.id, &column.id, None, &member_id)
+            evo_store::boards::report_moves_card(&mut conn, &card_id, &member_id)
                 .ok()
-                .map(|card| (card, column.name))
+                .flatten()
         })
         .await
         .ok()
@@ -2590,6 +2631,26 @@ mod tests {
             hand_off(&mut count, 4, &mut pairs, "a", "lead", 0, false),
             HandOff::MessageLimit
         );
+    }
+
+    // Board review #1, #2: an answer to a question moves no card; each
+    // assignment's report pays its own card, oldest first.
+    #[test]
+    fn a_report_pays_its_own_assignments_card() {
+        let mut owed = Owed::default();
+        owed.owe("ava", "kai");
+        owed.attach("ava", "kai", "card-5");
+        owed.owe("ava", "kai");
+        owed.attach("ava", "kai", "card-6");
+        owed.owe("ava", "kai");
+        assert_eq!(owed.settle("kai", "ava"), Some(Some("card-5".into())));
+        assert_eq!(owed.settle("kai", "ava"), Some(Some("card-6".into())));
+        assert_eq!(
+            owed.settle("kai", "ava"),
+            Some(None),
+            "the question's answer moves nothing"
+        );
+        assert_eq!(owed.settle("kai", "ava"), None, "nothing more owed");
     }
 
     #[test]

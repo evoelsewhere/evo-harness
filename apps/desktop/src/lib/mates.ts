@@ -424,6 +424,11 @@ export const boardsApi = {
   column: (channel: string, action: "add" | "rename" | "move" | "remove", args: { column?: string; name?: string; index?: number }) =>
     invoke<BoardView>("board_column", { channel, action, column: args.column ?? null, name: args.name ?? null, index: args.index ?? null }),
   keys: () => invoke<string[]>("board_keys"),
+  columnCount: (channel: string, column: string) => invoke<number>("board_column_count", { channel, column }),
+  /** Labels and checklist change from what the card holds now (board review #6). */
+  labels: (id: string, add: string[], remove: string[]) => invoke<Card>("card_labels", { id, add, remove }),
+  checklist: (id: string, edit: { add?: string[]; check?: (number | string)[]; uncheck?: (number | string)[]; remove?: (number | string)[] }) =>
+    invoke<Card>("card_checklist", { id, edit: { add: [], check: [], uncheck: [], remove: [], ...edit } }),
   create: (channel: string, card: NewCard) => invoke<Card>("card_create", { channel, card }),
   update: (id: string, patch: CardPatch) => invoke<Card>("card_update", { id, patch }),
   move: (id: string, column: string, index: number | null) => invoke<Card>("card_move", { id, column, index }),

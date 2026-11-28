@@ -39,6 +39,11 @@ export async function openAppLink(path: string): Promise<void> {
   }
 }
 
+/** `openAppLink` for Markdown's `onAppLink`: one function, so its memo holds (board review #7). */
+export function openLinkPath(path: string): void {
+  void openAppLink(path);
+}
+
 /** Copy a line's link (FR-17). */
 export function copyMessageLink(chat: string, line: string): void {
   void navigator.clipboard

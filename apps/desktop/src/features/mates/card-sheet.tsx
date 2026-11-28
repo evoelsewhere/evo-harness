@@ -41,6 +41,20 @@ export function CardSheet() {
   const channels = useMatesStore((s) => s.channels);
   const mates = useMatesStore((s) => s.mates);
   const view = useBoardStore((s) => (placed ? s.views[placed.card.channelId] : undefined));
+  // The title follows changes made elsewhere, but never while the person types (board review #6).
+  const titleRef = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    const el = titleRef.current;
+    if (el && placed && document.activeElement !== el && el.value !== placed.card.title) el.value = placed.card.title;
+  }, [placed]);
+  // Labels and checklist change from what the card holds now, never from this snapshot (board review #6).
+  const after = (work: Promise<unknown>) =>
+    void work
+      .then(() => {
+        void reload();
+        if (placed) void useBoardStore.getState().load(placed.card.channelId);
+      })
+      .catch(() => undefined);
 
   const reload = React.useCallback(async () => {
     if (!key) return;
@@ -100,7 +114,8 @@ export function CardSheet() {
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             <textarea
-              key={`title:${card.id}:${card.updatedMs}`}
+              key={`title:${card.id}`}
+              ref={titleRef}
               defaultValue={card.title}
               aria-label="Title"
               rows={1}
@@ -164,7 +179,7 @@ export function CardSheet() {
                   {card.labels.map((l) => (
                     <span key={l} className="flex items-center gap-0.5 rounded-full bg-brand/10 py-0.5 pr-1 pl-2 text-[12px] text-brand">
                       {l}
-                      <button type="button" aria-label={`Remove ${l}`} onClick={() => save({ labels: card.labels.filter((x) => x !== l) })} className="rounded-full p-0.5 hover:bg-brand/15">
+                      <button type="button" aria-label={`Remove ${l}`} onClick={() => after(boardsApi.labels(card.id, [], [l]))} className="rounded-full p-0.5 hover:bg-brand/15">
                         <XIcon className="size-3" />
                       </button>
                     </span>
@@ -176,7 +191,7 @@ export function CardSheet() {
                     onChange={(e) => setLabel(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && label.trim()) {
-                        if (!card.labels.includes(label.trim())) save({ labels: [...card.labels, label.trim()] });
+                        after(boardsApi.labels(card.id, [label.trim()], []));
                         setLabel("");
                       }
                     }}
@@ -216,13 +231,13 @@ export function CardSheet() {
                     role="checkbox"
                     aria-checked={c.done}
                     aria-label={c.text}
-                    onClick={() => save({ checklist: card.checklist.map((x, j) => (j === i ? { ...x, done: !x.done } : x)) })}
+                    onClick={() => after(boardsApi.checklist(card.id, c.done ? { uncheck: [i + 1] } : { check: [i + 1] }))}
                     className={cn("flex size-4 shrink-0 items-center justify-center rounded border", c.done ? "border-brand bg-brand text-brand-foreground" : "border-border")}
                   >
                     {c.done && <CheckIcon className="size-3" />}
                   </button>
                   <span className={cn("min-w-0 flex-1 text-[13px]", c.done && "text-muted-foreground line-through")}>{c.text}</span>
-                  <button type="button" aria-label={`Remove ${c.text}`} onClick={() => save({ checklist: card.checklist.filter((_, j) => j !== i) })} className="hidden rounded p-0.5 text-muted-foreground group-hover/item:block hover:text-destructive">
+                  <button type="button" aria-label={`Remove ${c.text}`} onClick={() => after(boardsApi.checklist(card.id, { remove: [i + 1] }))} className="hidden rounded p-0.5 text-muted-foreground group-hover/item:block hover:text-destructive">
                     <XIcon className="size-3.5" />
                   </button>
                 </li>
@@ -237,7 +252,7 @@ export function CardSheet() {
                 onChange={(e) => setItem(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && item.trim()) {
-                    save({ checklist: [...card.checklist, { text: item.trim(), done: false }] });
+                    after(boardsApi.checklist(card.id, { add: [item.trim()] }));
                     setItem("");
                   }
                 }}

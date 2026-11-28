@@ -8,12 +8,15 @@ export function ConfirmDelete({
   title,
   description,
   onConfirm,
+  action = "Delete",
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
   title: string;
   description: string;
   onConfirm(): void;
+  /** The confirm button's word. */
+  action?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -33,7 +36,7 @@ export function ConfirmDelete({
               onConfirm();
             }}
           >
-            Delete
+            {action}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -4,6 +4,7 @@
 // message as a link to its card.
 
 import { CARD_LINK } from "@/components/file-refs";
+import { mapProse } from "./markdown-prose";
 import type { Card, CardPriority } from "@/lib/mates";
 
 /** How each priority reads and looks (FR-9). */
@@ -104,12 +105,10 @@ export function linkCards(markdown: string, keys: readonly string[]): string {
   if (keys.length === 0) return markdown;
   const known = keys.map((k) => k.replace(/[^A-Z0-9]/g, "")).filter(Boolean);
   if (known.length === 0) return markdown;
-  const pattern = new RegExp(`(^|[^\\w/\\[-])((?:${known.join("|")})-\\d+)(?![\\w-])`, "g");
-  // Leave code spans, fences and existing links alone.
-  return markdown
-    .split(/(```[\s\S]*?```|`[^`\n]*`|\[[^\]]*\]\([^)]*\))/g)
-    .map((part, i) => (i % 2 === 1 ? part : part.replace(pattern, (_, lead: string, key: string) => `${lead}[${key}](${CARD_LINK}${key})`)))
-    .join("");
+  // Not after a word, a path, a query (`?ticket=`), `#`, `-` or `.` (board review #8).
+  const pattern = new RegExp(`(^|[^\\w/\\[#?=&.-])((?:${known.join("|")})-\\d+)(?![\\w-])`, "g");
+  // Code, URLs and existing links stay as written.
+  return mapProse(markdown, (prose) => prose.replace(pattern, (_, lead: string, key: string) => `${lead}[${key}](${CARD_LINK}${key})`));
 }
 
 /** `text` in pieces, each `KEY-n` of a known board apart with its key (FR-14). */
