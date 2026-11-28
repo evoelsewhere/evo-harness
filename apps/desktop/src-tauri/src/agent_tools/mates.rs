@@ -61,6 +61,7 @@ fn definitions() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "name": { "type": "string", "description": "Your own name, when the person gives you one: you are renamed to it." },
                     "callYou": { "type": "string", "description": "What the person wants to be called." },
                     "focus": { "type": "string", "description": "What to focus on." },
                     "style": { "type": "string", "description": "How they like the work done." },
@@ -221,15 +222,33 @@ pub fn with_setup(instructions: &str, given: &[(&str, String)]) -> String {
     format!("{own}{gap}{SETUP_MARK}\n{}", lines.join("\n"))
 }
 
-async fn save_profile(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Value) -> ToolOutput {
+/// A name the person gives a mate, at most.
+const NAME_CHARS: usize = 40;
+
+/// What `mate_profile` changes: the setup answers in the instructions and,
+/// when the person named the mate, its name (FR-34).
+fn profile_patch(instructions: &str, args: &Value) -> Result<evo_store::mates::MatePatch, &'static str> {
     let given = answers(args);
-    if given.is_empty() {
-        return ToolOutput::error("Nothing to save: give at least one answer.");
+    let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .map(|name| name.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|name| name.chars().take(NAME_CHARS).collect::<String>().trim().to_string())
+        .filter(|name| !name.is_empty());
+    if given.is_empty() && name.is_none() {
+        return Err("Nothing to save: give at least one answer.");
     }
-    let instructions = with_setup(&mate.instructions, &given);
-    let patch = evo_store::mates::MatePatch {
-        instructions: Some(instructions),
+    Ok(evo_store::mates::MatePatch {
+        name,
+        instructions: (!given.is_empty()).then(|| with_setup(instructions, &given)),
         ..Default::default()
+    })
+}
+
+async fn save_profile(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Value) -> ToolOutput {
+    let patch = match profile_patch(&mate.instructions, args) {
+        Ok(patch) => patch,
+        Err(error) => return ToolOutput::error(error),
     };
     match crate::mates::mates_update(ctx.app.clone(), mate.id.clone(), patch).await {
         Ok(Some(_)) => ToolOutput::text(
@@ -714,6 +733,22 @@ mod tests {
             with_setup("", &[("style", "short".to_string())]),
             format!("{SETUP_MARK}\n- How they like the work done: short")
         );
+    }
+
+    // docs/features/evo-mates/spec.md (FR-34): the person names the mate in
+    // setup; found playing a first-time user (qa-2026-11-28, A3).
+    #[test]
+    fn the_name_the_person_gives_renames_the_mate() {
+        let patch = profile_patch("Be brief.", &json!({ "name": "  Mai ", "focus": "planning" })).unwrap();
+        assert_eq!(patch.name.as_deref(), Some("Mai"));
+        assert!(patch.instructions.as_deref().is_some_and(|text| text.contains("- Focus on: planning")));
+        // A name alone is enough; nothing at all is not.
+        let named = profile_patch("Be brief.", &json!({ "name": "Mai" })).unwrap();
+        assert_eq!((named.name.as_deref(), named.instructions), (Some("Mai"), None));
+        assert!(profile_patch("Be brief.", &json!({ "name": "  " })).is_err());
+        // A name is one short line.
+        let long = profile_patch("", &json!({ "name": "Mai\nthe very long name of a mate that goes on and on and on and on" })).unwrap();
+        assert_eq!(long.name.as_deref().map(|n| n.chars().count() <= 40 && !n.contains('\n')), Some(true));
     }
 
     #[test]
