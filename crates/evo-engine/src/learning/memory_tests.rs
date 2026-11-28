@@ -578,3 +578,47 @@ async fn a_review_writes_a_learned_skill_after_the_reply() {
         ("review", "skill", Some("e4"), "mate:m1")
     );
 }
+
+// FR-20, FR-21: a retro's lessons go into each mate's learned skills; the card names them.
+#[tokio::test]
+async fn a_retro_gives_each_mate_its_lessons() {
+    let _w = world();
+    let args = crate::args::Args::default();
+    let lines = vec![
+        json!({ "kind": "message", "id": "m-1", "author": "person", "text": "Draft the launch post." }),
+        json!({ "kind": "handoff", "handoff": "asks", "from": "lead", "fromName": "Planner", "to": "w1", "toName": "Writer", "text": "Audience?" }),
+        json!({ "kind": "handoff", "handoff": "asks", "from": "w1", "fromName": "Writer", "to": "lead", "toName": "Planner", "text": "Audience?" }),
+        json!({ "kind": "job", "id": "j-1", "message": "m-1", "status": "limit", "handoffs": 2 }),
+    ];
+    let job = crate::learning::retro::job_of(&lines, None).unwrap();
+    let skill = |name: &str, line: &str| {
+        serde_json::to_string(&json!({ "changes": [{ "action": "create", "skill_name": name,
+            "skill_md": format!("---\nname: {name}\ndescription: Working in a team\n---\n\n- {line}\n"), "gist": line }] }))
+        .unwrap()
+    };
+    let retro_answer = r#"{"well":["Fast start."],"wrong":["They asked each other the same question."],
+        "lessons":[{"mate":"w1","text":"Answer a question before asking it back."},
+                   {"mate":"team","text":"Agree on the audience first."}]}"#;
+    let (lead_skill, writer_skill) = (
+        skill("team-hand-offs", "Agree on the audience first."),
+        skill("answering-teammates", "Answer before asking back."),
+    );
+    let retro = step(
+        crate::learning::run::Task::Retro,
+        "personal",
+        &args,
+        vec![retro_answer, &lead_skill, &writer_skill],
+    );
+    let result = crate::learning::retro::retro_with(&retro, "root-1", &job, Some("lead")).await;
+    assert!(result["error"].is_null(), "{result}");
+    let card = &result["card"];
+    assert_eq!(card["notify"], true, "a job at the limit notifies");
+    assert_eq!(card["lessons"].as_array().unwrap().len(), 2);
+    assert_eq!(card["lessons"][1]["skill"], "answering-teammates");
+    let conn = crate::app_db::open().unwrap();
+    let rows = crate::app_db::journal::list(&conn, &["mate:w1", "mate:lead"], "skill", 10).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .all(|row| row.by == "retro" && row.reply_id.as_deref() == Some("m-1")));
+}
