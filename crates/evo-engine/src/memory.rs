@@ -533,6 +533,40 @@ pub fn update_in(
     Ok((updated, diff))
 }
 
+/// Replace a topic's body, keeping its name, description, type and marks;
+/// `expected` is the file as it was read, and a topic that changed since is
+/// left alone (learning-layers plan 3.6). The file before and after.
+pub fn rewrite_body_in(
+    dir: &Path,
+    name: &str,
+    body: &str,
+    expected: &str,
+) -> Result<(String, String), String> {
+    let name = clean_name(name)?;
+    let path = dir.join(format!("{name}.md"));
+    let before = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    if before != expected {
+        return Err(format!("`{name}` changed since it was read"));
+    }
+    let current = read(&path).ok_or_else(|| format!("no memory named `{name}`"))?;
+    let body = body.trim();
+    check_content(body)?;
+    write_through_rename(
+        &path,
+        &topic_file(
+            &name,
+            &current.description,
+            &current.kind,
+            body,
+            current.by.as_deref(),
+            current.sensitive,
+        ),
+    )?;
+    write_index(dir)?;
+    let after = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    Ok((before, after))
+}
+
 pub fn delete_in(dir: &Path, name: &str) -> Result<(), String> {
     let name = clean_name(name)?;
     match std::fs::remove_file(dir.join(format!("{name}.md"))) {

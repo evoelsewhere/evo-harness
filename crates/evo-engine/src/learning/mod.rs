@@ -8,12 +8,16 @@
 pub mod entries;
 pub mod redact;
 pub mod run;
+pub mod tidy;
 
 use serde_json::Value;
 
 /// Run one step (`--mode learn`).
 pub async fn dispatch(step: &run::Step<'_>) -> Value {
-    run::skipped(step.task, &step.owner.id, "not built yet")
+    match step.task {
+        run::Task::Tidy => tidy::run(step).await,
+        _ => run::skipped(step.task, &step.owner.id, "not built yet"),
+    }
 }
 
 #[cfg(test)]

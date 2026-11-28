@@ -1644,7 +1644,8 @@ where
                         crate::memory::describe(&cwd, rpc_chat_memory(&rpc_providers)).map(
                             |mut described| {
                                 if let Some(current) = conflict {
-                                    described["conflict"] = serde_json::json!({ "current": current });
+                                    described["conflict"] =
+                                        serde_json::json!({ "current": current });
                                 }
                                 described
                             },

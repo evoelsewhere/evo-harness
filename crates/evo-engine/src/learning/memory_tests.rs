@@ -278,3 +278,113 @@ async fn a_stale_panel_save_is_refused() {
     ));
     assert!(topic_file(&w.cwd, "plans").contains("Ship in July."));
 }
+
+/// A step for `owner` in the test's agent folder, on a scripted model.
+fn step<'a>(
+    task: crate::learning::run::Task,
+    owner: &str,
+    args: &'a crate::args::Args,
+    answers: Vec<&str>,
+) -> crate::learning::run::Step<'a> {
+    use evo_ai::providers::faux::{FauxProvider, FauxScript, FauxStep};
+    let agent = crate::config::agent_dir().unwrap();
+    let script = FauxScript::new();
+    script.set_responses(answers.into_iter().map(FauxStep::text).collect());
+    let provider = FauxProvider::new(script);
+    let model = provider.default_model().clone();
+    let provider: Arc<dyn evo_ai::provider::Provider> = provider;
+    crate::learning::run::Step {
+        task,
+        owner: crate::learning::run::Owner::parse(owner, &agent).unwrap(),
+        args,
+        today: "2026-11-28".into(),
+        model: Some((provider, model)),
+    }
+}
+
+// FR-6: Tidy now archives, strikes the older of a contradicting pair, and
+// journals each change.
+#[tokio::test]
+async fn tidy_now_archives_strikes_and_journals() {
+    let w = world();
+    let dir = crate::config::agent_dir()
+        .unwrap()
+        .join("mates")
+        .join("m1")
+        .join("memory");
+    let body = "- 2026-10-01 · agent · Lives in Hanoi\n\
+- 2026-10-02 · agent · Likes tea\n\
+- 2026-10-03 · agent · Works at Acme\n\
+- 2026-10-04 · agent · Drives a red car\n\
+- 2026-10-05 · agent · Trip to Hue · until 2026-11-01\n\
+- 2026-11-20 · agent · Lives in Da Nang\n\
+- 2026-11-21 · agent · Allergic to shellfish";
+    memory::save_in(
+        &dir,
+        "about",
+        "About the person",
+        "user",
+        body,
+        None,
+        memory::Meta::default(),
+    )
+    .unwrap();
+    let args = crate::args::Args::default();
+    let tidy = step(
+        crate::learning::run::Task::Tidy,
+        "mate:m1",
+        &args,
+        vec![r#"{"contradictions":[{"older":1,"newer":5,"keep":""}]}"#],
+    );
+    let result = crate::learning::tidy::run(&tidy).await;
+    assert!(result["error"].is_null(), "{result}");
+    assert_eq!(
+        (result["archived"].as_u64(), result["struck"].as_u64()),
+        (Some(1), Some(1))
+    );
+    let file = std::fs::read_to_string(dir.join("about.md")).unwrap();
+    assert!(
+        file.contains("- ~~2026-10-01 · agent · Lives in Hanoi~~ · superseded 2026-11-28"),
+        "{file}"
+    );
+    assert!(!file.contains("Trip to Hue"));
+    assert!(std::fs::read_to_string(dir.join("archive.md"))
+        .unwrap()
+        .contains("Trip to Hue"));
+    assert!(
+        memory::list_dir(&dir).iter().all(|m| m.name != "archive"),
+        "the archive is not a topic"
+    );
+    let conn = crate::app_db::open().unwrap();
+    let rows = crate::app_db::journal::list(&conn, &["mate:m1"], "memory", 10).unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|r| (r.by.as_str(), r.action.as_str()))
+            .collect::<Vec<_>>(),
+        [("tidy", "updated"), ("tidy", "archived")]
+    );
+    drop(w);
+}
+
+// FR-24: without a model, Tidy now still archives, and says the rest needs one.
+#[tokio::test]
+async fn tidy_without_a_model_archives_only() {
+    let _w = world();
+    let dir = crate::config::agent_dir().unwrap().join("memory");
+    memory::save_in(
+        &dir,
+        "trips",
+        "",
+        "user",
+        "- 2026-10-05 · agent · Trip to Hue · until 2026-11-01\nKeeps a travel diary.",
+        None,
+        memory::Meta::default(),
+    )
+    .unwrap();
+    let args = crate::args::Args::default();
+    let mut tidy = step(crate::learning::run::Task::Tidy, "personal", &args, vec![]);
+    tidy.model = None;
+    let result = crate::learning::tidy::run(&tidy).await;
+    assert_eq!(result["skipped"], "contradictions need a model");
+    assert_eq!(result["archived"], 1);
+}
