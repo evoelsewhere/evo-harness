@@ -24,6 +24,13 @@ person's grants and approvals. It runs on **Composio** with the person's own
 Composio project key: Composio holds the sign-ins and runs the tools; Evo
 never sees a service's password or token.
 
+Two more ways to connect sit beside Composio in the same place. **Official
+MCP servers**: many services (GitHub, Notion, Linear, Atlassian, Slack…)
+run their own MCP server; Evo lists them and connects the person directly
+to the service, free and with no third party in between. **Zapier**: for
+people who already use Zapier, its MCP server brings the actions they
+enabled there, on their own Zapier plan.
+
 ## 2. Scope
 
 ### 2.1 Goals
@@ -41,6 +48,10 @@ never sees a service's password or token.
 - Local files handed to a service's tool, only from allowed places and
   shown before sending.
 
+- A catalogue of official MCP servers that connect straight to the
+  service, free and private.
+- Zapier's MCP server for people who use Zapier.
+
 ### 2.2 Non-goals
 
 - A managed Composio service run by Evo: there is none; the person brings
@@ -52,6 +63,9 @@ never sees a service's password or token.
   tools.
 - Signing in to a service for the person: the sign-in is always the
   person's, in their browser.
+- Several accounts of one official MCP server: one sign-in per server.
+- Setting up the person's Zapier account or its actions: that is done on
+  Zapier's site.
 
 ## 3. User scenarios
 
@@ -136,6 +150,14 @@ A person wants their mates to use Gmail and Slack.
 | FR-17 | Removing or changing the key, or Composio being unreachable, shows every service as not connected or unavailable with the reason, and chats keep working with their other tools. | Given Composio unreachable, when a chat starts, then it starts and Connected apps shows "unavailable". |
 | FR-18 | The same Composio user is kept for the installation across restarts and updates, so connected accounts come back; a reinstall with the same key finds the earlier user when there is exactly one with a live account. | Given a restart, then the accounts are still connected. |
 | FR-19 | Connected-app tool calls are listed in the transcript as "Called <service> · <tool> (<account>)" and their cost (none from Evo's side) does not count as model usage. | Manual check in the running app. |
+| FR-20 | **Browse apps** lists three ways to connect: **Official** (the service's own MCP server), Composio apps and **Zapier**. A service that has both an official server and a Composio app shows once, with both ways; the official way comes first, marked as direct and free. | Given Notion, then one card offers Official first and Composio second. |
+| FR-21 | The list of official servers ships with Evo: for each, the service's name, logo, category, its MCP address and how it signs in (the service's OAuth, or a key or token the service issues), and **Preview** when the service calls its server a preview. It covers at least GitHub, Notion, Linear, Atlassian, Asana, Slack, Sentry, Stripe and HubSpot. | Given a fresh install, then each listed service shows with its sign-in kind. |
+| FR-22 | Connecting an official server adds it as an MCP server and opens the service's own sign-in in the person's browser (Customize FR-24); for a key or token sign-in, Evo asks for it and keeps it in the system keychain. Its page says the data goes only to that service and that Evo adds no cost. **Disconnect** signs out and removes it. | Given GitHub, when the person connects, then GitHub's sign-in opens and, once done, GitHub's tools reach chats. |
+| FR-23 | An official server is one account: connecting it again replaces the sign-in. | Given Linear connected, when Connect is chosen again, then one Linear server remains. |
+| FR-24 | **Zapier** connects to Zapier's MCP server with Zapier's sign-in in the browser, or with a connection token the person pastes, kept in the keychain and sent only as a header. Its tools are the actions the person enabled in Zapier, with a link to choose them there. The card says each successful call uses tasks of the person's Zapier plan, at Zapier's rate. | Given a Zapier sign-in with two actions enabled, then exactly those two tools reach chats. |
+| FR-25 | Official servers and Zapier follow the same rules as every connector and Composio app: Allow / Ask / Block, tool search, the chat's switches, **Sending on your behalf** and **Always allow** by the tool's read-only mark (a tool without the mark counts as sending), and per-mate grants in the Apps setting (All tools / These tools / None per server; a new server reaches mates on All connected apps only). | Given a mate on Only these without Zapier, then Zapier's tools are absent from its turns. |
+| FR-26 | An official server that stops answering, or refuses sign-in, shows **Failed** with the reason and a link to the service's documentation, and other connectors keep working. | Given an unreachable address, then that server shows Failed and chats start. |
+| FR-27 | A mate's Connect card (FR-11) for a service with an official server offers the official way first. | Given a mate asked to read Notion with nothing connected, then its card offers Notion's official server first. |
 
 ### 4.2 Non-functional
 
@@ -145,6 +167,7 @@ A person wants their mates to use Gmail and Slack.
 | NFR-2 | Service output is treated as untrusted data, as connector output today. | Review: results are wrapped as tool output, never as instructions. |
 | NFR-3 | Opening the Connected apps page shows the catalogue within 2 s on a normal connection, and from a cache when offline. | Timed manual check. |
 | NFR-4 | No request goes to Composio while no key is saved. | Given no key, then a session makes no request to Composio. |
+| NFR-5 | An official server's requests go only to that service's address; nothing about them passes through Composio or Zapier. | Review: an official connection's config has only the service's URL. |
 
 ## 5. Success criteria
 
@@ -174,6 +197,9 @@ None.
 - 2026-11-28 — Q: Connectors and Connected apps as two Customize sections?
   → A: one section, Connectors, holding both, with its inside redesigned
   (owner, while building; FR-3 changed).
+- 2026-11-28 — Q: Which providers beside Composio? → A: official MCP
+  servers first, then Zapier's MCP server (owner, after a comparison of
+  six platforms; FR-20 – FR-27).
 
 ### 6.3 Assumptions
 
@@ -197,6 +223,16 @@ None.
   through the shell and its cache; a letter tile while it loads or when
   there is none. (First taken as letter tiles only; the owner asked for
   logos.)
+- A-7 (2026-11-28) One sign-in per official server — because MCP sign-in
+  is kept per server, and several accounts of one service are what Composio
+  is for.
+- A-8 (2026-11-28) The list of official servers is part of Evo and changes
+  with Evo's updates; each address is checked against the service's own
+  documentation when it is added — because the list is small and a wrong
+  address must never send a person's sign-in elsewhere.
+- A-9 (2026-11-28) Zapier signs in with OAuth first; the connection token
+  is the fallback for when OAuth fails — because Zapier recommends OAuth
+  and warns that a token is long-lived.
 
 ## 7. History
 
@@ -206,3 +242,4 @@ None.
 - 2026-11-28 — Owner accepted the plan (Gate B). Status Accepted.
 - 2026-11-28 — Implementation started. Status In progress.
 - 2026-11-28 — Owner asked to merge Connectors and Connected apps into one section and redesign it; FR-3 changed, 6.2 recorded. Owner asked for service logos; A-6 changed. Owner asked to drop the More menu row (Connectors is reached through Customize); FR-3 changed.
+- 2026-11-28 — Owner asked to add official MCP servers and Zapier's MCP server beside Composio and to build them at once; FR-20 – FR-27, NFR-5, A-7 – A-9 added. Taken as accepted on that instruction (Gate A).

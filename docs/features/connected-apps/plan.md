@@ -220,6 +220,47 @@ about the call's shape, not access`).
 
 Changes apply at once: the pool and the chats' tools are refreshed.
 
+### 3.9 Official MCP servers and Zapier (FR-20 – FR-27)
+
+Both are **app servers**: servers the app supplies in code, like Composio's
+session, not entries of the person's `mcp.json`. That keeps a pasted token
+in the keychain and in a runtime header only (FR-22, FR-24, NFR-1), and
+gives them the app server's saved permissions, chat switches and gate hook.
+
+| Layer | Path | Responsibility | Requirements |
+| --- | --- | --- | --- |
+| crate | `crates/evo-mcp/src/pool.rs` | `set_app_servers(Vec<AppServer>)`: several app servers by name (`app:connected_apps`, `app:official_<id>`, `app:zapier`); one changes without restarting the others; `sign_in` / `sign_out` already work by key | FR-22, FR-24 |
+| shell | `connected_apps/official.json`, `official.rs` | the list (FR-21): `{id, name, category, url, auth: "oauth" or "token", tokenHeader?, docs, preview, composio?}`, loaded with `include_str!`; every `url` must be `https`; `composio` is the matching Composio toolkit slug | FR-20, FR-21, A-8 |
+| shell | `connected_apps/providers.rs` | which official servers and whether Zapier are connected (`app_settings` `connectedApps.official` `[ids]`, `connectedApps.zapier` bool); tokens in the keychain (`official:<id>`, `zapier`, with the build's identifier suffix as for the key); builds the `AppServer` list and hands it to the pool | FR-22 – FR-24 |
+| shell | `connected_apps/mod.rs` | commands `apps_connect_official(id, token?)`, `apps_disconnect_official(id)`, `apps_connect_zapier(token?)`, `apps_disconnect_zapier()`; OAuth through `Pool::sign_in` with the opener; `apps://changed` | FR-22 – FR-24 |
+| shell | `connected_apps/catalog.rs` | Browse merges official entries with Composio toolkits by `composio` slug, official first; Zapier as its own card | FR-20 |
+| shell | `connected_apps/run.rs`, `mates/mod.rs` | per-mate grants for every app server: Apps entries `{"service": "official:github" or "zapier", "tools": …}`; `offered` filters, calls refused; class by the tool's `readOnlyHint` (none means sending) through the existing `grants::plan` | FR-25 |
+| shell | `agent_tools/mates.rs` | `connect_app` standing: a service with an official server offers it first | FR-27 |
+| UI | `features/connected-apps/`, Customize Connectors | cards with **Official** (direct, free) and **Preview** marks, the service page (data goes only to the service, no cost from Evo), Zapier card (tasks note, link to choose actions), token dialog, Failed with the docs link | FR-20 – FR-24, FR-26 |
+| UI | `features/connected-apps/mate-apps.tsx` | official servers and Zapier in a mate's Apps with All tools / These tools / None | FR-25 |
+
+Behaviour:
+
+- **Connect official, OAuth**: add `app:official_<id>` (`url`, no
+  header), then `Pool::sign_in` opens the service's sign-in; on success the
+  pool connects and tools reach chats. **Token**: the person pastes it, it
+  goes to the keychain, and the header (`tokenHeader`, default
+  `Authorization: Bearer`) is added when the server is built. Connecting
+  again replaces the sign-in (FR-23). **Disconnect**: `sign_out`, forget
+  the token, drop the server.
+- **Zapier**: `app:zapier` at `https://mcp.zapier.com/api/v1/connect`;
+  OAuth first, token on failure (A-9). Its tools are what Zapier offers for
+  the person's server; the page links to `https://mcp.zapier.com` to choose
+  actions.
+- **Failed** (FR-26): the pool's status and reason, with `docs` from the
+  list; other servers are untouched.
+- **Mates**: app servers other than Composio's have no accounts; a grant is
+  per server and per tool.
+
+Security: an official server's config holds only its listed `https` URL
+(NFR-5); the list is reviewed in code; a token never goes in a URL, a file
+or a log; results stay tool output.
+
 ## 4. Alternatives considered
 
 | Option | Why not |

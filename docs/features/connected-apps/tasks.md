@@ -51,6 +51,21 @@ Connect card works; Harness chats switch them per chat.
 - [x] T18 [FR-12] Harness `+` menu switch and project switch for Connected apps — `features/chat/composer-*`, `agent_tools/mcp.rs` — check: shell test `connected_apps_off_in_a_chat_offers_none`
 - [x] T19 [FR-19] Transcript label "Called <service> · <tool> (<account>)" — `components/ai-elements/tool-labels.ts` — check: UI unit test
 
+### Phase 6 — Official MCP servers and Zapier
+
+Done when: an official server (GitHub or another) and Zapier connect from
+Browse in both apps, their tools obey the same permissions and mate grants
+as Composio apps, and a token never leaves the keychain except as a header.
+
+- [ ] T23 [FR-21, A-8] The list of official servers: for each service, its MCP address and sign-in kind checked against the service's own documentation (record the doc URL); `official.json`, `official.rs` with tests that every address is https and every id unique — `connected_apps/official.{json,rs}` — check: shell test `official_servers_are_https_and_unique`
+- [ ] T24 [FR-22, FR-24] Failing pool tests then `set_app_servers`: several app servers, one changed without restarting the others, headers never saved, sign-in by key — `crates/evo-mcp/src/pool.rs` — check: `cargo test -p evo-mcp app_servers`
+- [ ] T25 [FR-22 – FR-24, NFR-1, NFR-5] `providers.rs` and the commands: connect and disconnect official (OAuth and token) and Zapier, tokens in the keychain, settings, re-send tools — `connected_apps/{providers,mod}.rs`, `lib.rs` — check: shell tests `an_official_token_is_only_a_header`, `connecting_again_replaces_the_sign_in`
+- [ ] T26 [FR-20] Browse merges official and Composio by service, official first; Zapier card — `connected_apps/catalog.rs` — check: shell test `notion_shows_once_official_first`
+- [ ] T27 [FR-25] Mate grants and class for every app server — `connected_apps/run.rs`, `mates/mod.rs` — check: shell test `a_mate_without_zapier_gets_none_of_its_tools`
+- [ ] T28 [FR-27] Connect card offers the official server first — `agent_tools/mates.rs` — check: shell test `the_connect_card_offers_official_first`
+- [ ] T29 [FR-20 – FR-24, FR-26] UI: Official and Preview marks, service page, token dialog, Zapier card with the tasks note and its link, Failed with the docs link; mate Apps for servers — `features/connected-apps/` — check: UI tests; manual
+- [ ] T30 Manual end to end on scratch data: connect one official OAuth server and Zapier (owner signs in), a mate on Only these reaches only what it is granted — check: recorded in section 2
+
 ### Phase 5 — Verify and docs
 
 - [ ] T20 Manual end to end with the owner's key on a scratch agent dir: connect Gmail twice, a mate on Only these reads "work" and is refused "personal", a send asks, a file from `~/.ssh` is refused — check: recorded in section 2
@@ -80,7 +95,16 @@ Connect card works; Harness chats switch them per chat.
 | FR-17 | `a_new_key_starts_clean`; manual offline | not run |
 | FR-18 | `a_restart_keeps_the_session` | passed (2026-11-28); also `a_reinstall_finds_the_one_earlier_user` |
 | FR-19 | tool-label unit test | passed (2026-11-28): `connected-app-label.test.ts` |
+| FR-20 | `notion_shows_once_official_first` | not run |
+| FR-21 | `official_servers_are_https_and_unique` | not run |
+| FR-22 | `an_official_token_is_only_a_header`; manual OAuth sign-in | not run |
+| FR-23 | `connecting_again_replaces_the_sign_in` | not run |
+| FR-24 | manual Zapier sign-in; `app_servers` pool tests | not run |
+| FR-25 | `a_mate_without_zapier_gets_none_of_its_tools` | not run |
+| FR-26 | manual: an unreachable address shows Failed | not run |
+| FR-27 | `the_connect_card_offers_official_first` | not run |
 | NFR-1 | review: no secret in `evo.db`, logs, `mcp.json` | not run |
 | NFR-2 | review: results are tool output | not run |
 | NFR-3 | timed manual check | not run |
 | NFR-4 | `no_key_no_request` | passed (2026-11-28) |
+| NFR-5 | review: an official server's config holds only its URL | not run |
