@@ -121,12 +121,17 @@ impl Apps {
         };
         let mut grants = BTreeMap::new();
         for entry in list {
-            let Some(toolkit) = entry
-                .get("service")
-                .and_then(Value::as_str)
-                .and_then(|s| s.strip_prefix(SERVICE_PREFIX))
-            else {
+            let Some(service) = entry.get("service").and_then(Value::as_str) else {
                 continue;
+            };
+            // A Composio service by its toolkit; an official server or Zapier
+            // by its own name (`app:official:github`, `app:zapier`).
+            let toolkit = match service.strip_prefix(SERVICE_PREFIX) {
+                Some(toolkit) => toolkit.to_string(),
+                None if service.starts_with("official:") || service == "zapier" => {
+                    format!("app:{service}")
+                }
+                None => continue,
             };
             let tools = match entry.get("tools") {
                 Some(Value::Array(names)) => Tools::These(
@@ -163,6 +168,20 @@ impl Apps {
             }),
             Apps::Only(grants) => grants.get(toolkit).cloned(),
         }
+    }
+
+    /// Whether tool `tool` of the app server `key` (`app:official_github`,
+    /// `app:zapier`) may be used: its `apps` entry is `official:github` or
+    /// `zapier` (FR-25).
+    pub fn allows_server(&self, key: &str, tool: &str) -> bool {
+        let Some(name) = key.strip_prefix("app:") else {
+            return true;
+        };
+        let service = match name.strip_prefix("official_") {
+            Some(id) => format!("app:official:{id}"),
+            None => format!("app:{name}"),
+        };
+        self.allows(&service, tool)
     }
 
     /// Whether any tool of `toolkit` may be used.

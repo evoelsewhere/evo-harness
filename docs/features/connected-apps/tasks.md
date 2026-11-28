@@ -61,7 +61,7 @@ as Composio apps, and a token never leaves the keychain except as a header.
 - [x] T24 [FR-22, FR-24] Failing pool tests then `set_app_servers`: several app servers, one changed without restarting the others, headers never saved, sign-in by key — `crates/evo-mcp/src/pool.rs` — check: `cargo test -p evo-mcp app_servers`
 - [x] T25 [FR-22 – FR-24, NFR-1, NFR-5] `providers.rs` and the commands: connect and disconnect official (OAuth and token) and Zapier, tokens in the keychain, settings, re-send tools — `connected_apps/{providers,mod}.rs`, `lib.rs` — check: shell tests `an_official_token_is_only_a_header`, `connecting_again_replaces_the_sign_in`
 - [x] T26 [FR-20] Browse merges official and Composio by service, official first; Zapier card — `connected_apps/catalog.rs` — check: shell test `notion_shows_once_official_first`
-- [ ] T27 [FR-25] Mate grants and class for every app server — `connected_apps/run.rs`, `mates/mod.rs` — check: shell test `a_mate_without_zapier_gets_none_of_its_tools`
+- [x] T27 [FR-25] Mate grants and class for every app server — `connected_apps/run.rs`, `mates/mod.rs` — check: shell test `a_mate_without_zapier_gets_none_of_its_tools`
 - [ ] T28 [FR-27] Connect card offers the official server first — `agent_tools/mates.rs` — check: shell test `the_connect_card_offers_official_first`
 - [ ] T29 [FR-20 – FR-24, FR-26] UI: Official and Preview marks, service page, token dialog, Zapier card with the tasks note and its link, Failed with the docs link; mate Apps for servers — `features/connected-apps/` — check: UI tests; manual
 - [ ] T30 Manual end to end on scratch data: connect one official OAuth server and Zapier (owner signs in), a mate on Only these reaches only what it is granted — check: recorded in section 2

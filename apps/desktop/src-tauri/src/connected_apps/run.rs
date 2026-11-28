@@ -161,20 +161,24 @@ pub fn project_off(folder: &Path) -> bool {
 /// Whether a connector tool is offered: anything but connected apps is;
 /// a connected-apps tool is not in a project that switched them off, and
 /// its sandbox never reaches a mate with limited apps (plan 3.7).
-pub fn offered_to(tool: &ChatTool, limited_mate: bool, project_off: bool) -> bool {
-    if tool.server != gate::KEY {
-        return true;
+pub fn offered_to(tool: &ChatTool, apps: &Apps, project_off: bool) -> bool {
+    if tool.server == gate::KEY {
+        return !(project_off || (apps.limited() && gate::meta(&tool.tool) == Meta::Sandbox));
     }
-    !(project_off || (limited_mate && gate::meta(&tool.tool) == Meta::Sandbox))
+    // An official server or Zapier: the mate's grant per server and tool (FR-25).
+    if tool.server.starts_with("app:") {
+        return !project_off && apps.allows_server(&tool.server, &tool.tool);
+    }
+    true
 }
 
 /// [`offered_to`] for `chat` working in `folder`.
 pub fn offered(app: &AppHandle, chat: &str, folder: &Path, tool: &ChatTool) -> bool {
-    if tool.server != gate::KEY {
+    if !tool.server.starts_with("app:") {
         return true;
     }
-    let limited = mate_of(app, chat).is_some_and(|m| Apps::of_mate(m.apps.as_ref()).limited());
-    offered_to(tool, limited, project_off(folder))
+    let apps = Apps::of_mate(mate_of(app, chat).and_then(|m| m.apps).as_ref());
+    offered_to(tool, &apps, project_off(folder))
 }
 
 /// The folders files may come from, and Evo's own data.
@@ -913,25 +917,63 @@ mod tests {
         }
     }
 
+    fn limited() -> Apps {
+        Apps::of_mate(Some(&vec![json!({"service": "composio:gmail"})]))
+    }
+
+    fn server_tool(server: &str, tool: &str) -> ChatTool {
+        ChatTool {
+            server: server.into(),
+            tool: tool.into(),
+            name: format!("mcp__{}__{tool}", server.trim_start_matches("app:")),
+            ..meta_tool(tool)
+        }
+    }
+
+    // docs/features/connected-apps/spec.md (FR-25; T27).
+    #[test]
+    fn a_mate_without_zapier_gets_none_of_its_tools() {
+        let zap = server_tool("app:zapier", "gmail_send_email");
+        let gh = server_tool("app:official_github", "list_issues");
+        let gh_write = server_tool("app:official_github", "create_issue");
+        // Only these, without Zapier: none of its tools.
+        assert!(!offered_to(&zap, &limited(), false));
+        // Only these with GitHub's list_issues: that one only.
+        let apps = Apps::of_mate(Some(&vec![
+            json!({"service": "official:github", "tools": ["list_issues"]}),
+            json!({"service": "zapier", "tools": "none"}),
+        ]));
+        assert!(offered_to(&gh, &apps, false));
+        assert!(!offered_to(&gh_write, &apps, false));
+        assert!(!offered_to(&zap, &apps, false));
+        // All connected apps: a server connected later is its.
+        assert!(offered_to(&zap, &Apps::All, false));
+        // A project that switched connected apps off: none.
+        assert!(!offered_to(&gh, &Apps::All, true));
+        // A Composio toolkit named zapier is not the Zapier server.
+        let composio_zapier = Apps::of_mate(Some(&vec![json!({"service": "composio:zapier"})]));
+        assert!(!offered_to(&zap, &composio_zapier, false));
+    }
+
     #[test]
     fn the_sandbox_is_closed_to_a_limited_mate() {
         let bash = meta_tool("COMPOSIO_REMOTE_BASH_TOOL");
         let run = meta_tool(gate::MULTI_EXECUTE);
         assert!(
-            !offered_to(&bash, true, false),
+            !offered_to(&bash, &limited(), false),
             "a limited mate never gets the sandbox"
         );
         assert!(
-            offered_to(&bash, false, false),
+            offered_to(&bash, &Apps::All, false),
             "others follow its permission (blocked by default in the pool)"
         );
-        assert!(offered_to(&run, true, false));
+        assert!(offered_to(&run, &limited(), false));
         let other = ChatTool {
             server: "github".into(),
             ..meta_tool("create_issue")
         };
         assert!(
-            offered_to(&other, true, true),
+            offered_to(&other, &limited(), true),
             "other connectors are not touched"
         );
     }
@@ -950,7 +992,11 @@ mod tests {
         )
         .unwrap();
         assert!(project_off(&project.join("src")));
-        assert!(!offered_to(&meta_tool(gate::MULTI_EXECUTE), false, true));
+        assert!(!offered_to(
+            &meta_tool(gate::MULTI_EXECUTE),
+            &Apps::All,
+            true
+        ));
         std::fs::write(
             project.join(".evo").join("settings.json"),
             r#"{"connectedApps": true}"#,
