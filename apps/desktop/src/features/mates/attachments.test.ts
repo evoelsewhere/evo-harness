@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "@/features/chat";
-import { isPicture, mentionedFiles, picturesOf, sentFilesOf } from "./attachments";
+import { splitPrompt } from "@/features/chat/prompt-text";
+import { channelMessage, isPicture, mentionedFiles, picturesOf, sentFilesOf } from "./attachments";
 import { threadRows } from "./thread-rows";
 
 // docs/features/evo-mates/spec.md (FR-81 - FR-83).
@@ -63,5 +64,29 @@ describe("attachments", () => {
     );
     const files = rows.find((r) => r.kind === "files");
     expect(files?.kind === "files" && files.files.map((f) => f.name)).toEqual(["a.pdf"]);
+  });
+});
+
+describe("channel attachments", () => {
+  test("a channel message carries every attachment by path, saving pictures that have none", async () => {
+    const saved: string[] = [];
+    const text = await channelMessage(
+      "see these",
+      [
+        { kind: "image", name: "Pasted image 1.png", blob: new Blob(["x"]) },
+        { kind: "file", name: "a.pdf", path: "C:/in/a.pdf" },
+        { kind: "text", name: "pasted", text: "one\ntwo" },
+      ],
+      async (_blob, name) => {
+        saved.push(name);
+        return `C:/cache/${name}`;
+      },
+    );
+    expect(saved).toEqual(["Pasted image 1.png"]);
+    expect(splitPrompt(text)).toEqual({
+      text: "see these",
+      pasted: [{ lines: 2, text: "one\ntwo" }],
+      files: ["C:/cache/Pasted image 1.png", "C:/in/a.pdf"],
+    });
   });
 });

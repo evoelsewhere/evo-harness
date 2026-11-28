@@ -45,3 +45,30 @@ export function mentionedFiles(text: string): string[] {
   }
   return out;
 }
+
+/**
+ * A channel message's text with its attachments (FR-83): every member reads
+ * the message as text, so pictures without a file of their own are saved
+ * first (`save`) and every attachment goes as an `@path` line.
+ */
+export async function channelMessage(
+  text: string,
+  attachments: {
+    kind?: string;
+    path?: string;
+    blob?: Blob;
+    name: string;
+    text?: string;
+  }[],
+  save: (blob: Blob, name: string) => Promise<string>,
+): Promise<string> {
+  const pasted: string[] = [];
+  const refs: string[] = [];
+  for (const file of attachments) {
+    if (file.kind === "text" && file.text) {
+      pasted.push(`<pasted-text lines="${file.text.split("\n").length}">\n${file.text}\n</pasted-text>`);
+    } else if (file.path) refs.push(`@${file.path}`);
+    else if (file.blob) refs.push(`@${await save(file.blob, file.name)}`);
+  }
+  return [text.trim(), ...pasted, refs.join("\n")].filter(Boolean).join("\n");
+}

@@ -17,6 +17,7 @@ import { TurnError, type Turn } from "@/features/chat";
 import { formatCost, formatDuration } from "@/lib/format";
 import type { Mate, ReactionKind } from "@/lib/mates";
 import { cn } from "@/lib/utils";
+import { SentByMate, SentByMe } from "./attachment-views";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
@@ -147,13 +148,8 @@ function BubbleView({
                 />
               }
             >
-              {bubble.images?.length ? (
-                <div className="mb-1 flex flex-wrap gap-1">
-                  {bubble.images.map((src, i) => (
-                    <img key={i} src={src} alt="" className="max-h-40 rounded-xl" />
-                  ))}
-                </div>
-              ) : null}
+              {/* The person's pictures, files and pasted text (FR-81). */}
+              <SentByMe images={bubble.images} files={bubble.files} pasted={bubble.pasted} />
               {me ? (
                 <span className="whitespace-pre-wrap break-words">{bubble.text}</span>
               ) : (
@@ -283,6 +279,13 @@ export function MateThread({
                     onReply({ from: row.bubble.side === "me" ? "you" : mate.name, text: row.bubble.text })
                   }
                 />
+              );
+            case "files":
+              // What the turn sent and showed, on the mate's side (FR-82).
+              return (
+                <div key={row.key} className="mt-1 flex px-4">
+                  <SentByMate files={row.files} pictures={row.pictures} />
+                </div>
               );
             case "typing":
               return <Typing key={row.key} step={row.step} />;

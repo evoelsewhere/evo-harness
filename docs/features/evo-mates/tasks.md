@@ -136,8 +136,8 @@ plan 3.10).
 - [x] T81 [FR-73 – FR-80] Check each in the app on scratch data, light and dark, screenshots in `docs/features/evo-mates/assets/`; verification rows; `apps/desktop/README.md` UI map — check: rows below
 
 - [x] T83 [FR-81, FR-82, FR-83] Tests, then code: `attachments.ts` (pictures by extension, `send_file` files, tool pictures, files a reply names); thread rows keep the person's files and pasted blocks and add a mate's files row — `src/features/mates/attachments.ts`, `thread-rows.ts` — check: `bun test src/features/mates`
-- [ ] T84 [FR-81, FR-82] Thumbnails, file chips, pasted chips, the full-size viewer and the mate's files row in the thread; paste and drop in the mate composer — `attachment-views.tsx`, `thread.tsx`, `composer.tsx` — check: manual in the app
-- [ ] T85 [FR-83] The channel composer's +, paste and drop; the person's and mates' lines with their pictures and files — `channel-view.tsx` — check: manual in the app
+- [x] T84 [FR-81, FR-82] Thumbnails, file chips, pasted chips, the full-size viewer and the mate's files row in the thread; paste and drop in the mate composer — `attachment-views.tsx`, `thread.tsx`, `composer.tsx` — check: manual in the app
+- [x] T85 [FR-83] The channel composer's +, paste and drop; the person's and mates' lines with their pictures and files — `channel-view.tsx` — check: manual in the app
 
 ### Phase 5 — Verify
 

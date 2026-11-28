@@ -4,7 +4,13 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowUpIcon, ClipboardCheckIcon, DownloadIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpIcon, ClipboardCheckIcon, DownloadIcon, HashIcon, PlusIcon, SettingsIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open as pickFiles } from "@tauri-apps/plugin-dialog";
+import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
+import { attachmentsFromPaths, attachmentsFromTransfer, isLongPaste, releaseAttachment, textAttachment } from "@/features/chat";
+import { splitPrompt } from "@/features/chat/prompt-text";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
@@ -29,6 +35,8 @@ import {
 } from "./channel-rows";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
+import { channelMessage } from "./attachments";
+import { NamedFiles, SentByMe } from "./attachment-views";
 import { RetroCard } from "./retro-card";
 import { exportTeam } from "./team-import";
 
@@ -143,6 +151,9 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
       return <RetroCard card={row.card} />;
     case "bubble": {
       const mate = row.me ? undefined : faceOf(row.author);
+      // The person's pictures, files and pasted text show as chips (FR-83).
+      const said = row.me ? splitPrompt(row.text) : null;
+      const root = folder ?? mate?.projectFolder ?? mate?.folder ?? null;
       return (
         <div className={cn("flex items-end gap-2 px-4", row.me ? "justify-end" : "justify-start", row.first ? "mt-2" : "mt-0.5")}>
           {!row.me && (
@@ -161,9 +172,10 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
                 "[&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_ul]:pl-4 [&_ol]:pl-4",
               )}
             >
+              {said && <SentByMe files={said.files} pasted={said.pasted} />}
               {row.me ? (
                 <span className="whitespace-pre-wrap break-words">
-                  {mentionParts(row.text, names).map((part, i) =>
+                  {mentionParts(said?.text ?? row.text, names).map((part, i) =>
                     part.mention ? (
                       <span key={i} className="rounded-md bg-white/20 px-0.5 font-semibold">
                         {part.text}
@@ -186,6 +198,8 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
                 </Markdown>
               )}
             </div>
+            {/* The files a mate's line names that exist, under it (FR-83). */}
+            {!row.me && <NamedFiles text={row.text} root={root} />}
             {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
           </div>
         </div>
@@ -209,6 +223,7 @@ function seatOf(channel: Channel, mate: string): string | null {
 
 function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
   const [text, setText] = React.useState("");
+  const [files, setFiles] = React.useState<PromptAttachment[]>([]);
   const [mention, setMention] = React.useState<{ start: number; query: string } | null>(null);
   const [pick, setPick] = React.useState(0);
   const busy = useEngineStore((s) => s.activeId === channel.chatId && s.transcript.busy);
@@ -236,9 +251,56 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
     requestAnimationFrame(() => el.setSelectionRange(next.caret, next.caret));
   };
 
+  const addFiles = (added: PromptAttachment[]) => setFiles((current) => [...current, ...added]);
+
+  // Files dropped on the window attach to the message (FR-83).
+  React.useEffect(() => {
+    let stop: (() => void) | undefined;
+    let live = true;
+    let webview: ReturnType<typeof getCurrentWebview>;
+    try {
+      webview = getCurrentWebview();
+    } catch {
+      return;
+    }
+    void webview
+      .onDragDropEvent((event) => {
+        if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+          void attachmentsFromPaths(event.payload.paths).then(addFiles);
+          field.current?.focus();
+        }
+      })
+      .then((unlisten) => {
+        if (live) stop = unlisten;
+        else unlisten();
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, []);
+
   const send = async () => {
-    const message = text.trim();
+    if (!text.trim() && files.length === 0) return;
+    // Members read the message as text: pictures are saved and every attachment goes by path (FR-83).
+    const message = await channelMessage(text, files, async (blob, name) =>
+      invoke<string>("fs_save_paste", {
+        name,
+        data: await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+          reader.onerror = () => reject(reader.error ?? new Error("could not read the picture"));
+          reader.readAsDataURL(blob);
+        }),
+      }),
+    ).catch((error) => {
+      log("warn", "mates", `could not attach: ${String(error)}`);
+      return null;
+    });
     if (!message) return;
+    files.forEach(releaseAttachment);
+    setFiles([]);
     setText("");
     // While the mates answer, a message for only a mate at work steers it;
     // any other waits its turn (FR-56).
@@ -289,8 +351,56 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           })}
         </div>
       )}
-      <div className="flex min-w-0 items-end rounded-[20px] border border-border bg-background pr-1 pl-3.5 transition-colors focus-within:border-brand/70 focus-within:ring-2 focus-within:ring-brand/15">
+      {files.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
+          {files.map((file) => (
+            <span key={file.id} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
+              {file.preview && <img src={file.preview} alt="" className="-ml-1.5 size-6 rounded-full object-cover" />}
+              <span className="max-w-40 truncate">{file.kind === "text" ? "Pasted text" : file.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => {
+                  releaseAttachment(file);
+                  setFiles((current) => current.filter((f) => f.id !== file.id));
+                }}
+                className="rounded-full hover:text-destructive"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+      <button
+        type="button"
+        aria-label="Attach files"
+        onClick={() =>
+          void pickFiles({ multiple: true, title: `Send to #${channel.name}` }).then((picked) => {
+            const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
+            if (paths.length) void attachmentsFromPaths(paths).then(addFiles);
+          })
+        }
+        className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <PlusIcon className="size-4" />
+      </button>
+      <div className="flex min-w-0 flex-1 items-end rounded-[20px] border border-border bg-background pr-1 pl-3.5 transition-colors focus-within:border-brand/70 focus-within:ring-2 focus-within:ring-brand/15">
         <textarea
+          onPaste={(event) => {
+            const data = event.clipboardData;
+            if (data.files.length > 0 || [...data.items].some((item) => item.kind === "file")) {
+              event.preventDefault();
+              void attachmentsFromTransfer(data).then(addFiles);
+              return;
+            }
+            const pasted = data.getData("text/plain");
+            if (pasted && isLongPaste(pasted)) {
+              event.preventDefault();
+              addFiles([textAttachment(pasted)]);
+            }
+          }}
           ref={field}
           rows={1}
           value={text}
@@ -325,7 +435,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           }}
           className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none outline-none placeholder:text-muted-foreground focus-visible:outline-none"
         />
-        {busy && !text.trim() ? (
+        {busy && !text.trim() && files.length === 0 ? (
           <button
             type="button"
             aria-label="Stop"
@@ -339,16 +449,17 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           <button
             type="button"
             aria-label="Send"
-            disabled={!text.trim()}
+            disabled={!text.trim() && files.length === 0}
             onClick={() => void send()}
             className={cn(
               "my-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground transition-all",
-              text.trim() ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0",
+              text.trim() || files.length ? "scale-100 opacity-100" : "pointer-events-none scale-75 opacity-0",
             )}
           >
             <ArrowUpIcon className="size-4" />
           </button>
         )}
+      </div>
       </div>
     </div>
   );

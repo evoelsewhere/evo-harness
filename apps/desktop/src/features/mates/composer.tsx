@@ -9,7 +9,16 @@ import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ArrowUpIcon, ClockIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
-import { attachmentsFromPaths, buildPrompt, composerDraft, releaseAttachment } from "@/features/chat";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import {
+  attachmentsFromPaths,
+  attachmentsFromTransfer,
+  buildPrompt,
+  composerDraft,
+  isLongPaste,
+  releaseAttachment,
+  textAttachment,
+} from "@/features/chat";
 import { db, log } from "@/lib/db";
 import { matesApi, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
@@ -89,6 +98,51 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     return () => void composerDraft.listeners.delete(fill);
   }, []);
 
+  // Pictures and files from the clipboard; long text becomes a chip (FR-81).
+  const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const data = event.clipboardData;
+    if (data.files.length > 0 || [...data.items].some((item) => item.kind === "file")) {
+      event.preventDefault();
+      void attachmentsFromTransfer(data)
+        .then((added) => setFiles((current) => [...current, ...added]))
+        .catch((error) => log("warn", "mates", `could not attach: ${String(error)}`));
+      return;
+    }
+    const pasted = data.getData("text/plain");
+    if (pasted && isLongPaste(pasted)) {
+      event.preventDefault();
+      setFiles((current) => [...current, textAttachment(pasted)]);
+    }
+  };
+
+  // Files dropped on the window attach to the message (FR-81).
+  React.useEffect(() => {
+    let stop: (() => void) | undefined;
+    let live = true;
+    let webview: ReturnType<typeof getCurrentWebview>;
+    try {
+      webview = getCurrentWebview();
+    } catch {
+      return;
+    }
+    void webview
+      .onDragDropEvent((event) => {
+        if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+          void attachmentsFromPaths(event.payload.paths).then((added) => setFiles((current) => [...current, ...added]));
+          field.current?.focus();
+        }
+      })
+      .then((unlisten) => {
+        if (live) stop = unlisten;
+        else unlisten();
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, []);
+
   // A new reply puts the caret in the box.
   React.useEffect(() => {
     if (reply) field.current?.focus();
@@ -166,7 +220,10 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
         <div className="mb-1.5 flex flex-wrap gap-1.5">
           {files.map((file) => (
             <span key={file.id} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
-              <span className="max-w-40 truncate">{file.name}</span>
+              {file.preview && <img src={file.preview} alt="" className="-ml-1.5 size-6 rounded-full object-cover" />}
+              <span className="max-w-40 truncate">
+                {file.kind === "text" ? `Pasted text · ${file.text?.split(/\r?\n/).length ?? 0} lines` : file.name}
+              </span>
               <button
                 type="button"
                 aria-label={`Remove ${file.name}`}
@@ -199,6 +256,7 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
             disabled={!ready}
             placeholder={ready ? `Message ${mate.name}` : "Starting…"}
             onChange={(event) => setText(event.target.value)}
+            onPaste={onPaste}
             onKeyDown={(event) => {
               if (event.key === "Escape" && reply) {
                 event.preventDefault();
