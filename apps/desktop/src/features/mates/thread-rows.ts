@@ -46,7 +46,9 @@ export function timeLine(at: number, now = Date.now()): string {
 export function stepsLine(turn: Pick<Turn, "parts">): string | null {
   const counts = new Map<string, number>();
   for (const part of turn.parts) {
-    if (part.kind !== "tool") continue;
+    // A denied or failed step did not happen: "Edited 1 file" after Deny
+    // misleads the person (qa-2026-11-28, D5).
+    if (part.kind !== "tool" || part.phase === "error") continue;
     const word = toolWord(part.name);
     if (word) counts.set(word, (counts.get(word) ?? 0) + 1);
   }
@@ -69,6 +71,7 @@ function toolWord(name: string): string | null {
   if (name === "mate_profile") return "Saved your answers";
   if (name === "connect_app") return "Asked to connect an app";
   if (name === "request_secret") return "Asked for a secret";
+  if (name === "mate_agenda") return "Noted to follow up";
   return "Used {n} tools";
 }
 
@@ -77,7 +80,10 @@ function currentStep(turn: Turn): string | null {
   const running = [...turn.parts].reverse().find((part) => part.kind === "tool" && part.phase !== "done");
   if (!running || running.kind !== "tool") return null;
   const word = toolWord(running.name);
-  return word ? `${word.replace(" {n}", "").replace("{n} ", "")}…` : null;
+  if (!word) return null;
+  // A step with no plain word of its own: the mate is working (FR-59).
+  if (word.includes("{n} tools")) return "Working…";
+  return `${word.replace(" {n}", "").replace("{n} ", "")}…`;
 }
 
 /** The turn saved or changed a memory topic: its "Saved to memory" chip (FR-35). */

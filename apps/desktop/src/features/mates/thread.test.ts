@@ -13,6 +13,7 @@ const turn = (over: Partial<Turn>): Turn =>
     ...over,
   }) as Turn;
 
+const tool = (name: string) => ({ kind: "tool" as const, key: name, callId: name, name, args: {}, argsText: "", phase: "done" as const, output: "", startedAt: 0 });
 const text = (t: string) => ({ kind: "text" as const, key: t, text: t, streaming: false });
 
 // docs/features/evo-mates/spec.md (FR-58, FR-59).
@@ -55,10 +56,29 @@ describe("mate thread rows", () => {
   });
 
   test("steps read in plain words", () => {
-    const tool = (name: string) => ({ kind: "tool" as const, key: name, callId: name, name, args: {}, argsText: "", phase: "done" as const, output: "", startedAt: 0 });
     expect(stepsLine({ parts: [tool("read"), tool("read"), tool("web_search")] })).toBe("Read 2 files · Searched the web");
     expect(stepsLine({ parts: [tool("read")] })).toBe("Read 1 file");
     expect(stepsLine({ parts: [tool("memory")] })).toBeNull();
+  });
+
+  // Found playing a careful user (qa-2026-11-28): after Deny the line said
+  // "Edited 1 file", and a follow-up noted read "Used 3 tools".
+  test("a step that was denied or failed is not counted as done", () => {
+    const denied = { ...tool("write"), phase: "error" as const };
+    expect(stepsLine({ parts: [denied] })).toBeNull();
+    expect(stepsLine({ parts: [denied, tool("read")] })).toBe("Read 1 file");
+  });
+
+  test("a mate's own steps read in plain words", () => {
+    expect(stepsLine({ parts: [tool("mate_agenda"), tool("mate_agenda")] })).toBe("Noted to follow up");
+    expect(stepsLine({ parts: [tool("sessions_search")] })).toBe("Used 1 tool");
+  });
+
+  test("a working step with no plain word reads as working", () => {
+    const running = { ...tool("some_tool"), phase: "running" as const };
+    const rows = threadRows([turn({ status: "running", parts: [running] })], true);
+    const last = rows.at(-1);
+    expect(last?.kind === "typing" ? last.step : null).toBe("Working…");
   });
 });
 
