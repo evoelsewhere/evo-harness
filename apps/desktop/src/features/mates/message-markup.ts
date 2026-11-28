@@ -41,6 +41,31 @@ export function withThread(root: string, text: string, also = false): string {
   return `<evo-mates-thread root="${root.replace(/"/g, "")}"${also ? ' also="channel"' : ""}/>\n${text}`;
 }
 
+/** Lines shared from another conversation (evo-mates-threads-board FR-16). */
+const SHARE = /^<evo-mates-share from="([^"]*)" link="([^"]*)" lines="(\d+)"[^>]*>\n?([\s\S]*?)\n?<\/evo-mates-share>\n?/i;
+
+export interface Shared {
+  /** Where they come from: "#Launch room" or a mate's name. */
+  from: string;
+  /** `evo://mates/<chat>/<line>` of the first shared line. */
+  link: string;
+  lines: number;
+  text: string;
+}
+
+/** A share of `lines` from `from` (FR-16): marked as shared, never the person's request; the note is the person's words. */
+export function sharePrompt(from: string, link: string, lines: { author: string; text: string }[], note: string): string {
+  const body = lines.map((l) => `${clean(l.author)}: ${l.text.replace(/<\/?evo-mates-[a-z]+[^>]*>/g, "").trim()}`).join("\n");
+  return `<evo-mates-share from="${clean(from)}" link="${link.replace(/"/g, "")}" lines="${lines.length}" instruction="false">\n${body}\n</evo-mates-share>\n${note.trim() || "(Shared for your information.)"}`;
+}
+
+/** The share at a message's start, and the rest. */
+export function parseShare(prompt: string): { shared: Shared | null; text: string } {
+  const match = SHARE.exec(prompt);
+  if (!match) return { shared: null, text: prompt };
+  return { shared: { from: match[1]!, link: match[2]!, lines: Number(match[3]), text: match[4]! }, text: prompt.slice(match[0].length) };
+}
+
 const FORWARD = /^<evo-mates-forward from="([^"]*)">\n?([\s\S]*?)\n?<\/evo-mates-forward>\n?/i;
 
 /** A forwarded message as the person sends it on (evo-mates-messaging FR-10): marked as quoted, not their instruction. */
@@ -71,8 +96,10 @@ export function composePrompt(text: string, reply: ReplyTo | null, reactions: re
 }
 
 /** A sent message as the thread shows it. */
-export function parsePrompt(prompt: string): { text: string; reply: ReplyTo | null; forwarded?: ReplyTo } {
+export function parsePrompt(prompt: string): { text: string; reply: ReplyTo | null; forwarded?: ReplyTo; shared?: Shared } {
   let rest = prompt;
+  const share = parseShare(rest);
+  rest = share.text;
   const note = NOTE.exec(rest);
   if (note) rest = rest.slice(note[0].length);
   const reply = REPLY.exec(rest);
@@ -83,5 +110,6 @@ export function parsePrompt(prompt: string): { text: string; reply: ReplyTo | nu
     text: rest,
     reply: reply ? { from: reply[1]!, text: reply[2]! } : null,
     ...(forward ? { forwarded: { from: forward[1]!, text: forward[2]! } } : {}),
+    ...(share.shared ? { shared: share.shared } : {}),
   };
 }

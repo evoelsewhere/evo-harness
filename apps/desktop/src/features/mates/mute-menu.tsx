@@ -3,7 +3,7 @@
 // setting the shell reads before a notice.
 
 import { BellIcon, BellOffIcon, CheckIcon } from "lucide-react";
-import { DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { isQuiet, muteUntil, useMatesPrefs, type Level } from "@/stores/mates-prefs-store";
 
 const LEVELS: { id: Level; label: string }[] = [
@@ -18,6 +18,8 @@ export function MuteMenuItems({ chat, levels = false }: { chat: string; levels?:
   const muted = mute?.until === null || (typeof mute?.until === "number" && mute.until > Date.now());
   return (
     <>
+      {/* A menu label lives in a group (Base UI's Menu.Group): without it the menu fails to open. */}
+      <DropdownMenuGroup>
       <DropdownMenuLabel className="text-xs text-muted-foreground">Notifications</DropdownMenuLabel>
       {muted ? (
         <DropdownMenuItem onClick={() => set(undefined)}>
@@ -44,8 +46,9 @@ export function MuteMenuItems({ chat, levels = false }: { chat: string; levels?:
           </DropdownMenuItem>
         </>
       )}
+      </DropdownMenuGroup>
       {levels && (
-        <>
+        <DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-xs text-muted-foreground">Notify me about</DropdownMenuLabel>
           {LEVELS.map((level) => (
@@ -54,7 +57,7 @@ export function MuteMenuItems({ chat, levels = false }: { chat: string; levels?:
               {level.label}
             </DropdownMenuItem>
           ))}
-        </>
+        </DropdownMenuGroup>
       )}
     </>
   );

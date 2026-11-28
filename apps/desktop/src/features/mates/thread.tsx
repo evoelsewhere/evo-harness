@@ -8,7 +8,11 @@
 
 import * as React from "react";
 import { LearnedLine } from "@/components/learned-line";
-import { ArrowDownIcon, CopyIcon, EyeOffIcon, ForwardIcon, InfoIcon, PencilIcon, PinIcon, PinOffIcon, ReplyIcon, RotateCcwIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowDownIcon, CopyIcon, EyeOffIcon, ForwardIcon, InfoIcon, LinkIcon, PencilIcon, PinIcon, PinOffIcon, ReplyIcon, RotateCcwIcon, Share2Icon, SquareIcon, XIcon } from "lucide-react";
+import { openAppLink, copyMessageLink } from "./app-links";
+import { linkPlaces, type Place } from "./links-logic";
+import { ShareDialog, type Sharing } from "./share-dialog";
+import { SharedCard } from "./line-tools";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -22,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { SentByMate, SentByMe } from "./attachment-views";
 import { BUBBLE_TEXT } from "./bubble-style";
 import { useEngineStore } from "@/stores/engine-store";
-import { takeOpenedUnread } from "@/stores/mates-store";
+import { takeOpenedUnread, useMatesStore } from "@/stores/mates-store";
 import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { useSessionStore } from "@/stores/session-store";
 import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
@@ -74,6 +78,9 @@ interface MoreActions {
   pinned: boolean;
   /** Forward it (FR-10). */
   forward(): void;
+  /** Share it into another conversation, and copy its link (evo-mates-threads-board FR-16, FR-17). */
+  share(): void;
+  copyLink(): void;
 }
 
 /** The hover bar (FR-13): reactions, Reply, Copy and, on a mate's reply, its details. */
@@ -136,6 +143,12 @@ function BubbleActions({
       </BarButton>
       <BarButton label="Forward" onClick={more.forward}>
         <ForwardIcon className="size-3.5" />
+      </BarButton>
+      <BarButton label="Share…" onClick={more.share}>
+        <Share2Icon className="size-3.5" />
+      </BarButton>
+      <BarButton label="Copy link" onClick={more.copyLink}>
+        <LinkIcon className="size-3.5" />
       </BarButton>
       {details.length > 0 && (
         <Tooltip>
@@ -215,6 +228,20 @@ function BubbleView({
   const root = mate.projectFolder ?? mate.folder;
   // `KEY-n` of a board opens its card (evo-mates-threads-board FR-14).
   const cardKeys = useBoardStore((s) => s.keys);
+  // `#channel`, `@mate` and message links in a reply (FR-17).
+  const allMates = useMatesStore((s) => s.mates);
+  const allChannels = useMatesStore((s) => s.channels);
+  const places = React.useMemo<Place[]>(
+    () => [
+      ...allChannels.filter((c) => !c.hidden).map((c) => ({ word: `#${c.name}`, path: `channel/${c.id}` })),
+      ...allMates.filter((m) => !m.hidden).map((m) => ({ word: `@${m.name}`, path: `mate/${m.id}` })),
+    ],
+    [allChannels, allMates],
+  );
+  const placeOfChat = React.useCallback(
+    (chat: string) => (allChannels.find((c) => c.chatId === chat) ? `#${allChannels.find((c) => c.chatId === chat)!.name}` : (allMates.find((m) => m.chatId === chat)?.name ?? null)),
+    [allChannels, allMates],
+  );
   const openRef = React.useCallback((reference: string) => void openFileRef(reference, root, "mates"), [root]);
   const details = !me && last && !bubble.streaming ? metaParts(bubble.turn) : [];
   return (
@@ -260,6 +287,7 @@ function BubbleView({
               {bubble.forwarded && (
                 <div className="mb-1 border-l-2 border-white/40 pl-2 text-[13px] whitespace-pre-wrap opacity-90">{bubble.forwarded.text}</div>
               )}
+              {bubble.shared && <SharedCard shared={bubble.shared} me onOpen={(path) => void openAppLink(path)} />}
               {editing ? (
                 <EditField text={bubble.text} onSave={onSaveEdit} onCancel={onCancelEdit} />
               ) : (
@@ -268,8 +296,14 @@ function BubbleView({
                   {me ? (
                     <span className="whitespace-pre-wrap break-words">{bubble.text}</span>
                   ) : (
-                    <Markdown streaming={bubble.streaming} blocks onLocalLink={openRef} onCardLink={(key) => useBoardStore.getState().showCard(key)}>
-                      {linkCards(bubble.text, cardKeys)}
+                    <Markdown
+                      streaming={bubble.streaming}
+                      blocks
+                      onLocalLink={openRef}
+                      onCardLink={(key) => useBoardStore.getState().showCard(key)}
+                      onAppLink={(path) => void openAppLink(path)}
+                    >
+                      {linkCards(linkPlaces(bubble.text, places, placeOfChat), cardKeys)}
                     </Markdown>
                   )}
                 </div>
@@ -329,6 +363,14 @@ function BubbleView({
               <DropdownMenuItem onClick={more.forward}>
                 <ForwardIcon />
                 Forward…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={more.share}>
+                <Share2Icon />
+                Share to a conversation…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={more.copyLink}>
+                <LinkIcon />
+                Copy link
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={more.hide}>
@@ -491,6 +533,7 @@ export function MateThread({
   }, [turns, mate.chatId]);
   const [editing, setEditing] = React.useState<string | null>(null);
   const [forwarding, setForwarding] = React.useState<Forwarding | null>(null);
+  const [sharing, setSharing] = React.useState<Sharing | null>(null);
   const pinnedKeys = useMatesPrefs((s) => s.pins[mate.chatId]);
   const idle = !busy && !shellWorking;
   const lastMine = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "me");
@@ -560,6 +603,8 @@ export function MateThread({
     pinned: Boolean(pinnedKeys?.some((p) => p.key === bubble.key)),
     pin: () => useMatesPrefs.getState().togglePin(mate.chatId, { key: bubble.key, excerpt: excerpt(bubble.text, 120) }),
     forward: () => setForwarding({ from: bubble.side === "me" ? "You" : mate.name, text: bubble.text, chat: mate.chatId }),
+    share: () => setSharing({ chat: mate.chatId, place: mate.name, lines: [{ id: bubble.key, author: bubble.side === "me" ? "You" : mate.name, text: bubble.text }] }),
+    copyLink: () => copyMessageLink(mate.chatId, bubble.key),
   });
   const scroller = React.useRef<HTMLDivElement>(null);
   const pinned = React.useRef(true);
@@ -639,6 +684,7 @@ export function MateThread({
   return (
     <div className="relative h-full">
       <ForwardDialog item={forwarding} onClose={() => setForwarding(null)} />
+      <ShareDialog item={sharing} onClose={() => setSharing(null)} />
       <div
         ref={scroller}
         id={scopeId}

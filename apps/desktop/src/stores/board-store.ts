@@ -12,15 +12,15 @@ import { log } from "@/lib/db";
 interface BoardState {
   views: Record<string, BoardView>;
   keys: string[];
-  /** Per channel chat: the conversation or the board (FR-8). */
-  tab: Record<string, "chat" | "board">;
+  /** Per channel chat: the conversation, its threads or the board (FR-8). */
+  tab: Record<string, "chat" | "threads" | "board">;
   /** The card whose sheet is open, by key. */
   openCard: string | null;
   /** A thread asked to open from a card (FR-15). */
   openThread: { chat: string; root: string } | null;
   load(channel: string): Promise<BoardView | null>;
   loadKeys(): Promise<void>;
-  setTab(chat: string, tab: "chat" | "board"): void;
+  setTab(chat: string, tab: "chat" | "threads" | "board"): void;
   showCard(key: string | null): void;
   showThread(target: { chat: string; root: string } | null): void;
   turn(channel: string, on: boolean, key?: string): Promise<void>;

@@ -5,7 +5,7 @@
 // Find, and a ⋯ menu for Run retro, Export, Settings and Delete.
 
 import * as React from "react";
-import { ChevronDownIcon, ClipboardCheckIcon, Columns3Icon, CrownIcon, DownloadIcon, HashIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquareIcon, Trash2Icon, UsersIcon } from "lucide-react";
+import { ChevronDownIcon, ClipboardCheckIcon, Columns3Icon, CrownIcon, Link2Icon, DownloadIcon, HashIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquareIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -35,6 +35,7 @@ import { exportTeam } from "./team-import";
 import { MuteMenuItems } from "./mute-menu";
 import { useBoardStore } from "@/stores/board-store";
 import { BoardKeyDialog } from "./board-key-dialog";
+import { LinkedDialog } from "./linked-list";
 
 export function useMembers(channel: Channel): Mate[] {
   const mates = useMatesStore((s) => s.mates);
@@ -90,6 +91,7 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
   const boardOn = Boolean(boardView?.board?.enabled);
   const tab = useBoardStore((s) => s.tab[channel.chatId] ?? "chat");
   const [boardKey, setBoardKey] = React.useState(false);
+  const [linked, setLinked] = React.useState(false);
   // Why Run retro did not run, for a few seconds (learning-layers FR-19).
   const [retroNote, setRetroNote] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -129,9 +131,10 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
           </span>
         </span>
       </button>
-      {boardOn && (
-        <div className="no-drag flex h-8 shrink-0 items-center rounded-full bg-muted p-0.5" role="tablist" aria-label="Chat or board">
-          {(["chat", "board"] as const).map((t) => (
+      {/* Chat, its threads, and the board when it is on (FR-8, FR-23). */}
+      {(
+        <div className="no-drag flex h-8 shrink-0 items-center rounded-full bg-muted p-0.5" role="tablist" aria-label="Channel views">
+          {(boardOn ? (["chat", "threads", "board"] as const) : (["chat", "threads"] as const)).map((t) => (
             <button
               key={t}
               type="button"
@@ -140,7 +143,7 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
               onClick={() => useBoardStore.getState().setTab(channel.chatId, t)}
               className={cn("h-7 rounded-full px-3 text-[12.5px]", tab === t ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
             >
-              {t === "chat" ? "Chat" : "Board"}
+              {t === "chat" ? "Chat" : t === "threads" ? "Threads" : "Board"}
             </button>
           ))}
         </div>
@@ -262,6 +265,10 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
               <ClipboardCheckIcon />
               Run retro
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLinked(true)}>
+              <Link2Icon />
+              Linked conversations…
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => void exportTeam({ channel: channel.id }, channel.name)}>
               <DownloadIcon />
               Export channel…
@@ -308,6 +315,7 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
         </DropdownMenu>
       </div>
       <ChannelSettings open={settings} onOpenChange={setSettings} channel={channel} />
+      <LinkedDialog chat={channel.chatId} name={`#${channel.name}`} open={linked} onOpenChange={setLinked} />
       <BoardKeyDialog
         open={boardKey}
         onOpenChange={setBoardKey}

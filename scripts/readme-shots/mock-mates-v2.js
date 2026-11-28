@@ -178,6 +178,12 @@
     { kind: "handoff", message: "t1", handoff: "asks", from: "kai", fromName: "Kai", to: "mo", toName: "Mo", text: "@Mo can you add arm64 to the download page screenshot?", thread: "k1", at: ago(6) },
     { kind: "message", id: "t3", author: "mo", name: "Mo", text: "Yes, I will retake it once the page lists arm64.", thread: "k1", at: ago(4) },
     { kind: "job", id: "j2", message: "t1", status: "done", handoffs: 1, thread: "k1", at: ago(4) },
+    // Linking (evo-mates-threads-board FR-16 – FR-22): a reply also sent to the
+    // channel, a thread under Ava's plan, and Lin's share from #Research notes.
+    { kind: "message", id: "t4", author: "person", text: "Thanks Kai, arm64 is in the matrix now.", thread: "k1", alsoChannel: true, at: ago(3) },
+    { kind: "message", id: "t5", author: "person", text: "Can Mo take the screenshots after Lin's notes?", thread: "a1", at: ago(15) },
+    { kind: "message", id: "t6", author: "ava", name: "Ava", text: "Yes, I moved it after the notes on the board.", thread: "a1", at: ago(14) },
+    { kind: "share", id: "s1", by: "lin", name: "Lin", from: "#Research notes", text: "Two papers measured arm64 builds 8% faster with LTO on. Worth a line in the notes?", at: ago(2) },
   ];
   h.channel_reactions = ({ channel }) =>
     channel === "launch"
@@ -249,6 +255,22 @@
           { id: 4, cardId: id, actor: "person", kind: "comment", text: "Keep the highlights to five.", atMs: ago(4) },
         ]
       : [{ id: 1, cardId: id, actor: "ava", kind: "created", text: "created the card", atMs: ago(17) }];
+  // ── Threads and links (evo-mates-threads-board FR-16 – FR-22) ──
+  const THREADS = [
+    { chatId: "chan-launch", root: "k1", rootExcerpt: "Build is green on all three platforms. CHANGELOG.md has 14 entries under 4.14.", following: true, resolved: false, replies: 4, lastMs: ago(3), lastAuthor: "mo", lastReadMs: ago(6), unread: true },
+    { chatId: "chan-launch", root: "a1", rootExcerpt: "On it. Kai takes the release build and the changelog, Lin writes the notes…", following: true, resolved: true, replies: 2, lastMs: ago(14), lastAuthor: "ava", lastReadMs: ago(14), unread: false },
+    { chatId: "chan-research", root: "r9", rootExcerpt: "Two papers worth reading on build times.", following: true, resolved: false, replies: 3, lastMs: ago(60), lastAuthor: "rio", lastReadMs: ago(70), unread: true },
+  ];
+  h.threads_followed = () => THREADS;
+  h.threads_of = ({ chat }) => THREADS.filter((t) => t.chatId === chat);
+  h.linked_of = ({ chat }) =>
+    chat === "chan-launch" || chat === "chat-ava"
+      ? [
+          { id: "sh1", fromChat: "chan-research", fromLines: ["r9"], excerpt: "Two papers measured arm64 builds 8% faster with LTO on.", toChat: "chan-launch", note: "", by: "lin", atMs: ago(2) },
+          { id: "sh2", fromChat: "chan-launch", fromLines: ["k1", "l1"], excerpt: "Build is green… I will use those 14 entries", toChat: "chat-ava", note: "Plan the wrap-up from these", by: "person", atMs: ago(20) },
+        ]
+      : [];
+  for (const name of ["share_record", "thread_set", "thread_read"]) h[name] = () => null;
   for (const name of ["board_set", "board_column", "card_create", "card_update", "card_move", "card_delete", "card_comment"]) h[name] = () => null;
   h.link_preview = ({ url }) => ({ url, title: "Release notes and docs for 4.14", site: "Example Docs", description: "Everything new in this release.", image: null });
   const baseSettings = h.settings_all;

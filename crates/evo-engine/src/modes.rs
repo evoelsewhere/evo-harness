@@ -1600,6 +1600,31 @@ where
                 }
                 None => Err("this chat is not a channel".to_string()),
             },
+            // A mate's `share_to` into this channel (evo-mates-threads-board
+            // FR-18): a share card, read as information, waking nobody.
+            "channel_post_share" => match crate::channel::coordinator::active() {
+                Some(channel) => {
+                    let field = |key: &str| {
+                        msg.get(key)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string()
+                    };
+                    let files: Vec<String> = msg
+                        .get("files")
+                        .and_then(|v| v.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|f| f.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    channel
+                        .post_share(harness, &field("by"), &field("from"), &field("text"), files)
+                        .await
+                }
+                None => Err("this chat is not a channel".to_string()),
+            },
             // A channel line's author, for a mate's `react` (evo-mates-messaging FR-4).
             "channel_line" => match crate::channel::coordinator::active() {
                 Some(channel) => {

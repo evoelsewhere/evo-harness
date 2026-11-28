@@ -8,7 +8,7 @@ import {
   ArrowLeftRightIcon,
   ChevronRightIcon,
   FolderIcon,
-  HouseIcon,
+  HouseIcon, MessagesSquareIcon,
   MoonIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
@@ -40,6 +40,7 @@ import { MessageHits } from "./message-hits";
 import { ChannelRow, ChannelTile, MateRow, MateTile, PinnedTile } from "./roster";
 import type { SidebarForm } from "./sidebar-layout";
 import { ImportTeam } from "./team-import";
+import { useThreadsStore } from "@/stores/threads-store";
 
 function IconButton({
   label,
@@ -89,8 +90,10 @@ function useAttention() {
 function HomeRows() {
   const view = useMatesStore((s) => s.view.kind);
   const { needsYou } = useAttention();
+  const unreadThreads = useThreadsStore((s) => s.followed.filter((t) => t.unread && !t.resolved).length);
   const rows = [
     { id: "today", label: "Today", icon: HouseIcon, active: view === "today" || view === "empty", run: () => useMatesStore.getState().showToday(), badge: needsYou },
+    { id: "threads", label: "Threads", icon: MessagesSquareIcon, active: view === "threads", run: () => useMatesStore.getState().showThreads(), badge: unreadThreads },
     { id: "files", label: "Files", icon: FolderIcon, active: view === "files", run: () => useMatesStore.getState().showFiles(), badge: 0 },
   ];
   return (
@@ -272,10 +275,12 @@ function RailLists() {
   const channels = useMatesStore((s) => s.channels);
   const view = useMatesStore((s) => s.view);
   const { needsYou } = useAttention();
+  const unreadThreads = useThreadsStore((s) => s.followed.filter((t) => t.unread && !t.resolved).length);
   const shown = mates.filter((m) => !m.hidden);
   const ordered = [...shown.filter((m) => m.pinned), ...shown.filter((m) => !m.pinned)];
   const homes = [
     { id: "today", label: "Today", icon: HouseIcon, active: view.kind === "today" || view.kind === "empty", run: () => useMatesStore.getState().showToday(), badge: needsYou },
+    { id: "threads", label: "Threads", icon: MessagesSquareIcon, active: view.kind === "threads", run: () => useMatesStore.getState().showThreads(), badge: unreadThreads },
     { id: "files", label: "Files", icon: FolderIcon, active: view.kind === "files", run: () => useMatesStore.getState().showFiles(), badge: 0 },
   ];
   return (

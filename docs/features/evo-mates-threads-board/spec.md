@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | In progress |
+| Status | Implemented |
 | Area | desktop UI, desktop shell, engine (channel), `evo-store` |
 | Created | 2026-11-29 |
 | Updated | 2026-11-29 |
@@ -130,11 +130,12 @@ Unresolve.
 | FR-15 | **Thread ↔ card** (B12): **Track on board** on a thread creates a card linked to it; a card's sheet opens its thread; an assignment made in a thread links its card to that thread; the thread's header shows the card's key and column, live. | Track on board creates LAUNCH-13 linked both ways; moving it updates the header. |
 | FR-16 | **Share to another conversation** (B6): pick one line, several (select mode) or a stretch (from a line to the end), choose a mate's chat or a channel, add a note. The receiver shows a "Shared from #launch-room" card with the excerpt and a link back; its mate reads it as `<shared from=… instruction="false">`, the note as the person's words. | Sharing three lines into Analyst's chat shows one card; Analyst's next turn can quote it. |
 | FR-17 | **Links** (B7): `#channel` and `@mate` in any message are links that open the place; **Copy link** on a line gives `evo://mates/<chat>/<line>`; pasted anywhere, it shows as a link card and opens that line in its place. | Clicking a pasted link opens the original line. |
-| FR-18 | **`share_to` for mates** (B8): a mate posts a short summary or a file into a channel it is in or a mate it knows, under its **Share across conversations** setting: Ask every time (default), Allow, Never. A share out of the mate's direct conversation with the person always asks. On Ask the person gets an approval with the target and the text. | Writer asks "Share the launch draft with #marketing?"; on Allow the card shows there. |
+| FR-18 | **`share_to` for mates** (B8): a mate posts a short summary or a file into a channel it is in (into another mate's own conversation: Later, see History), under its **Share across conversations** setting: Ask every time (default), Allow, Never. A share out of the mate's direct conversation with the person always asks. On Ask the person gets an approval with the target and the text. | Writer asks "Share the launch draft with #marketing?"; on Allow the card shows there. |
 | FR-19 | **Linked** (B9): a channel's or a mate chat's panel lists the conversations linked to it (shared into, shared from, cards with links there), newest first, each opening the place. | After FR-16 both conversations list each other. |
 | FR-20 | **Following threads** (B13): the person follows threads they started, replied in or were mentioned in (and can follow or unfollow any); **Threads** in the sidebar lists followed threads with unread first and a count; opening one reads it. | A mate's reply in a followed thread marks it unread. |
 | FR-21 | **Resolve** a thread: it folds in the channel to its parent with "Resolved", the panel shows Unresolve; a new message reopens it. | Resolving folds it. |
 | FR-22 | **Also send to channel** under the thread composer posts the reply in the channel too, marked "replied in a thread". | The reply shows in both. |
+| FR-23 | **Threads tab** (the owner's ask, 2026-11-29): a channel's header switches between **Chat**, **Threads** and, with the board on, **Board**. Threads lists the channel's threads, the latest reply first, with the line each started from, replies, who wrote last, the card and whether it is unread; resolved ones fold into their own list. A row opens the thread beside the conversation. | A channel with two threads lists both; the resolved one sits under Resolved. |
 
 ### 4.2 Non-functional
 
@@ -208,3 +209,11 @@ agent's recommended answers:
   recommended answers (6.2). Gate B (same): plan and tasks; status Accepted.
 - 2026-11-29 — Part A (threads, FR-1 – FR-7) built and verified; status In progress.
 - 2026-11-29 — Part B (board, FR-8 – FR-15) built and verified (migration 0020).
+- 2026-11-29 — Part C (linking, FR-16 – FR-22) built and verified (migration
+  0021). FR-18 narrowed (D11, for the product owner to confirm): `share_to`
+  posts into channels the mate is in, as a card that wakes nobody; sharing
+  into another mate's own conversation is Later, because a card there would
+  start that mate's turn (there is no way yet to show it without one). The
+  person's Share goes anywhere (FR-16). FR-23 added at the owner's ask
+  ("nên thêm option thread nữa"): a Threads tab beside Chat and Board.
+  Status Implemented.

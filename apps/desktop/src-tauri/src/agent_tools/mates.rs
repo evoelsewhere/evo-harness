@@ -159,6 +159,8 @@ impl Provider for MateTools {
         Box::pin(async move {
             if mate_of(&app, &chat).is_some() {
                 let mut all = definitions();
+                // Sharing into a channel the mate is in (evo-mates-threads-board FR-18).
+                all.push(crate::mates::links::share_definition());
                 if is_seat(&app, &chat) {
                     all.push(react_definition());
                     // The board's tools, while its channel's board is on
@@ -181,6 +183,7 @@ impl Provider for MateTools {
             || name == AGENDA_TOOL
             || name == REACT_TOOL
             || crate::mates::board::TOOLS.contains(&name)
+            || name == crate::mates::links::SHARE_TOOL
     }
 
     fn run(&self, ctx: ToolCtx, name: String, args: Value) -> BoxFuture<ToolOutput> {
@@ -205,6 +208,10 @@ impl Provider for MateTools {
                         Err(error) => ToolOutput::error(error),
                     }
                 }
+                crate::mates::links::SHARE_TOOL => match crate::mates::links::share_to(&ctx, &mate, &args).await {
+                    Ok(text) => ToolOutput::text(text),
+                    Err(error) => ToolOutput::error(error),
+                },
                 SECRET_TOOL => request_secret(&ctx, &mate, &args).await,
                 _ => connect(&ctx, &mate, &args).await,
             }

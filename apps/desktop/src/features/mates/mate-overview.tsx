@@ -19,6 +19,7 @@ import { EmptyState } from "./empty-state";
 import { dueWords } from "./following-up";
 import type { MateFile } from "./files-page";
 import { PlacedCardRow, useAssignedCards } from "./assigned-cards";
+import { LinkedList } from "./linked-list";
 
 const APPROVAL: Record<string, string> = { ask: "Asks every time", "auto-edits": "Edits on its own", auto: "Acts without asking" };
 const KIND_ICON = { promise: CheckIcon, event: CalendarClockIcon, question: MessageCircleQuestionIcon, checkin: BellRingIcon } as const;
@@ -146,6 +147,10 @@ export function MateOverview({ mate }: { mate: Mate }) {
           </ul>
         </Card>
       )}
+      {/* Shared into or out of its conversation (FR-19). */}
+      <Card title="Linked">
+        <LinkedList chat={mate.chatId} />
+      </Card>
       <Card title="Channels">
         {channels.length === 0 ? (
           <EmptyState compact text={`${mate.name} is in no channel yet.`} className="py-2" />

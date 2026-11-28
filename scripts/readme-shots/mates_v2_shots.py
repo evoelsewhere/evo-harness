@@ -119,6 +119,35 @@ def view_board_big(page: Page) -> None:
     print(f"  500 cards: board shown {page.evaluate('performance.now()') - started:.0f} ms after the click (with fixed waits)")
 
 
+def view_threads_tab(page: Page) -> None:
+    view_channel(page)
+    page.get_by_role("tab", name="Threads").click()
+    page.wait_for_timeout(800)
+
+
+def view_threads_page(page: Page) -> None:
+    page.get_by_role("button", name=re.compile(r"^Threads")).first.click()
+    page.wait_for_timeout(800)
+
+
+def view_share(page: Page) -> None:
+    view_channel(page)
+    line = page.locator('[data-entry="k1"]')
+    line.hover()
+    page.get_by_role("button", name="Share to another conversation").first.click()
+    page.locator('[data-entry="l1"] [data-bubble]').click()
+    page.wait_for_timeout(300)
+    page.get_by_role("button", name="Share…").click()
+    page.wait_for_timeout(700)
+
+
+def view_linked(page: Page) -> None:
+    view_channel(page)
+    page.get_by_role("button", name="#Launch room: more").click()
+    page.get_by_role("menuitem", name="Linked conversations…").click()
+    page.wait_for_timeout(700)
+
+
 def view_members(page: Page) -> None:
     view_channel(page)
     page.keyboard.press("Control+i")
@@ -198,6 +227,10 @@ VIEWS = {
     "members": view_members,
     "thread": view_thread,
     "board": view_board,
+    "threads-tab": view_threads_tab,
+    "threads-page": view_threads_page,
+    "share": view_share,
+    "linked": view_linked,
     "board-list": view_board_list,
     "card": view_card,
     "board-big": view_board_big,

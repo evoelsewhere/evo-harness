@@ -71,6 +71,13 @@ const MODES: { id: ApprovalMode; label: string; hint: string }[] = [
   { id: "auto", label: "Approve for me", hint: "Acts without asking." },
 ];
 
+/** A mate's `share_to` into its channels (evo-mates-threads-board FR-18). */
+const SHARE_MODES = [
+  { id: "ask" as const, label: "Ask every time", hint: "It asks you before sharing into a channel." },
+  { id: "allow" as const, label: "Allow", hint: "It shares into channels it is in; from your chat it still asks." },
+  { id: "never" as const, label: "Never", hint: "It cannot share across conversations." },
+];
+
 const SENDING: { id: Mate["sending"]; label: string; hint: string }[] = [
   {
     id: "ask",
@@ -320,6 +327,7 @@ function About({ mate }: { mate: Mate }) {
 
 function Settings({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
+  const shareMode = useMatesPrefs((s) => s.share[mate.id] ?? "ask");
   const model = useSessionStore((s) => s.sessions.find((c) => c.id === mate.chatId)?.model ?? null);
   // The model's name as the bar shows it, when this mate's conversation is shown.
   const modelName = useEngineStore((s) =>
@@ -363,6 +371,26 @@ function Settings({ mate }: { mate: Mate }) {
             className={cn(
               "flex flex-col items-start rounded-2xl bg-muted/40 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/80",
               mate.sending === choice.id && "bg-brand/5 shadow-[0_0_0_1.5px_var(--brand)]",
+            )}
+          >
+            <span className="text-[13px] font-medium text-foreground">{choice.label}</span>
+            <span className="text-xs text-muted-foreground">{choice.hint}</span>
+          </button>
+        ))}
+      </div>
+      {/* Share across conversations (evo-mates-threads-board FR-18). */}
+      <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Share across conversations">
+        <span className="text-xs font-medium text-muted-foreground">Share across conversations</span>
+        {SHARE_MODES.map((choice) => (
+          <button
+            key={choice.id}
+            type="button"
+            role="radio"
+            aria-checked={shareMode === choice.id}
+            onClick={() => useMatesPrefs.getState().setShare(mate.id, choice.id)}
+            className={cn(
+              "flex flex-col items-start rounded-2xl bg-muted/40 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/80",
+              shareMode === choice.id && "bg-brand/5 shadow-[0_0_0_1.5px_var(--brand)]",
             )}
           >
             <span className="text-[13px] font-medium text-foreground">{choice.label}</span>

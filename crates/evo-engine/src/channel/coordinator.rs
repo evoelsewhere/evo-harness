@@ -368,6 +368,9 @@ pub fn split_quoted(text: &str) -> (Vec<(&'static str, String, String)>, String)
             ("forward", "</evo-mates-forward>")
         } else if lower.starts_with("<evo-mates-note>") {
             ("note", "</evo-mates-note>")
+        } else if lower.starts_with("<evo-mates-share") {
+            // Lines shared from another conversation (evo-mates-threads-board FR-16).
+            ("share", "</evo-mates-share>")
         } else {
             break;
         };
@@ -708,7 +711,12 @@ impl Coordinator {
         }
         let message = self.next_id("m");
         lock(&self.state).thread = thread.clone();
-        self.post(harness, json!({ "kind": "message", "id": message, "author": "person", "text": text, "at": now_ms() })).await;
+        // **Also send to channel** shows the reply in the feed too (FR-22).
+        let also = thread.is_some() && mark.as_ref().is_some_and(|m| m.also);
+        self.post(harness, json!({ "kind": "message", "id": message, "author": "person", "text": text, "alsoChannel": also, "at": now_ms() })).await;
+        if let Some(root) = &thread {
+            self.touch_thread(root, "person", &text, true).await;
+        }
         lock(&self.state).lines.push(Line {
             id: message.clone(),
             by: "person".into(),
@@ -1227,6 +1235,76 @@ impl Coordinator {
             .map(|l| l.by.clone())
     }
 
+    /// A line landed in the thread under `root` (FR-20, FR-21): the person
+    /// follows the threads they started, wrote in or were mentioned in; a
+    /// line reopens a resolved thread.
+    async fn touch_thread(&self, root: &str, author: &str, text: &str, person: bool) {
+        let (parent_by, parent_text) = {
+            let state = lock(&self.state);
+            state
+                .lines
+                .iter()
+                .find(|l| l.id == root)
+                .map(|l| (l.by.clone(), l.text.clone()))
+                .unwrap_or_default()
+        };
+        let follow = person || parent_by == "person" || mentions_you(text);
+        let (chat, root, author, excerpt) = (
+            self.role.channel_id.clone(),
+            root.to_string(),
+            author.to_string(),
+            excerpt(&routable(&parent_text), 120),
+        );
+        let _ = tokio::task::spawn_blocking(move || {
+            let conn = evo_store::open().ok()?;
+            let chat = evo_store::channels::get_channel(&conn, &chat)
+                .ok()??
+                .chat_id;
+            evo_store::links::thread_touched(
+                &conn,
+                &chat,
+                &root,
+                &excerpt,
+                &author,
+                now_ms(),
+                follow,
+            )
+            .ok()
+        })
+        .await;
+    }
+
+    /// A mate's share into this channel (FR-18): a card in the feed, and a
+    /// line the channel's mates read as information; nobody is woken.
+    pub(crate) async fn post_share(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        by: &str,
+        from: &str,
+        text: &str,
+        files: Vec<String>,
+    ) -> Result<Value, String> {
+        if text.trim().is_empty() && files.is_empty() {
+            return Err("nothing to share".into());
+        }
+        self.restore(harness).await;
+        let id = self.next_id("s");
+        let name = self.name_of(by);
+        lock(&self.state).lines.push(Line {
+            id: id.clone(),
+            by: by.to_string(),
+            author: format!("{name} (shared from {from})"),
+            text: text.trim().to_string(),
+            thread: None,
+        });
+        self.post(
+            harness,
+            json!({ "kind": "share", "id": id, "by": by, "name": name, "from": from, "text": text.trim(), "files": files, "at": now_ms() }),
+        )
+        .await;
+        Ok(json!({ "posted": id }))
+    }
+
     /// A board line (evo-mates-threads-board FR-13): a card's change shown in
     /// the channel; not a line mates read.
     pub(crate) async fn post_board_line(
@@ -1514,6 +1592,9 @@ impl Coordinator {
             json!({ "kind": "message", "id": id, "author": mate, "name": name, "text": text, "status": status, "replyTo": reply_to, "quote": quote, "thread": thread, "at": now_ms() }),
         )
         .await;
+        if let Some(root) = &thread {
+            self.touch_thread(root, &mate, &text, false).await;
+        }
     }
 
     async fn post_handoff(
@@ -1659,6 +1740,17 @@ pub fn assignment_new_card(
         source: Some(json!({ "from": from, "to": to, "message": message })),
         ..Default::default()
     }
+}
+
+/// Whether a mate's line mentions the person (`@you`, evo-mates-messaging FR-18).
+pub fn mentions_you(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.match_indices("@you").any(|(at, _)| {
+        let before = lower[..at].chars().next_back();
+        let after = lower[at + 4..].chars().next();
+        !before.is_some_and(|c| c.is_alphanumeric() || c == '@')
+            && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
 }
 
 /// Who a thread message goes to (evo-mates-threads-board FR-4): a mention
@@ -2053,6 +2145,16 @@ mod tests {
         let long = assignment_new_card(&"x".repeat(200), "kai", "ava", "m-1", None);
         assert_eq!(long.title.chars().count(), 80);
         assert_eq!(long.thread_root.as_deref(), Some("m-1"));
+    }
+
+    #[test]
+    fn shared_lines_are_quoted_and_mentions_of_the_person_found() {
+        let text = "<evo-mates-share from=\"#Launch room\" link=\"evo://mates/room/k1\" lines=\"1\" instruction=\"false\">\nKai: @Lin check\n</evo-mates-share>\nfor you";
+        assert_eq!(routable(text), "for you");
+        let (quoted, _) = split_quoted(text);
+        assert_eq!(quoted[0].0, "share");
+        assert!(mentions_you("@you can you confirm?") && mentions_you("thanks, @You."));
+        assert!(!mentions_you("@young") && !mentions_you("mail@you.com") && !mentions_you("you"));
     }
 
     #[test]

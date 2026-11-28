@@ -14,7 +14,7 @@ import {
 import { useHighlightedCode } from "@/hooks/use-highlighted-code";
 import { MermaidBlock } from "@/components/reply-blocks/mermaid-block";
 import { UiBlock } from "@/components/reply-blocks/ui-block";
-import { CARD_LINK, FILE_LINK, linkFiles } from "@/components/file-refs";
+import { APP_LINK, CARD_LINK, FILE_LINK, linkFiles } from "@/components/file-refs";
 import { BLOCK_FENCE } from "@/lib/ui-blocks/types";
 import { useSmoothText } from "@/hooks/use-smooth-text";
 import { cn } from "@/lib/utils";
@@ -90,6 +90,7 @@ export const Markdown = React.memo(function Markdown({
   streaming = false,
   onLocalLink,
   onCardLink,
+  onAppLink,
   blocks = false,
 }: {
   children: string;
@@ -100,16 +101,22 @@ export const Markdown = React.memo(function Markdown({
   onLocalLink?(href: string): void;
   /** A board card's key written as a link (`KEY-n`, evo-mates-threads-board FR-14) calls this. */
   onCardLink?(key: string): void;
+  /** A place or a message in Evo Mates written as a link (evo-mates-threads-board FR-17) calls this with its path. */
+  onAppLink?(path: string): void;
   /** The agent's reply: draw `evo-ui` blocks and Mermaid diagrams (docs/features/rich-replies/spec.md, FR-1, FR-9). */
   blocks?: boolean;
 }) {
   const localComponents = React.useMemo(
     () =>
-      onLocalLink || onCardLink
+      onLocalLink || onCardLink || onAppLink
         ? {
             ...components,
             a: ({ node: _node, href, children: label, ...props }: React.ComponentProps<"a"> & ExtraProps) =>
-              href?.startsWith(CARD_LINK) && onCardLink ? (
+              href?.startsWith(APP_LINK) && onAppLink ? (
+                <button type="button" onClick={() => onAppLink(decodeURIComponent(href.slice(APP_LINK.length)))} className="cursor-pointer font-medium text-link hover:underline">
+                  {label}
+                </button>
+              ) : href?.startsWith(CARD_LINK) && onCardLink ? (
                 <button
                   type="button"
                   onClick={() => onCardLink(decodeURIComponent(href.slice(CARD_LINK.length)))}
@@ -132,7 +139,7 @@ export const Markdown = React.memo(function Markdown({
               ),
           }
         : components,
-    [onLocalLink, onCardLink],
+    [onLocalLink, onCardLink, onAppLink],
   );
   // Streamed text is revealed at a steady pace rather than in network bursts.
   const smooth = useSmoothText(children, streaming);

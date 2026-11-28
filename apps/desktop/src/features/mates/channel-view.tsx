@@ -4,7 +4,12 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowUpIcon, Columns3Icon, MessagesSquareIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, BellIcon, BellOffIcon, CheckCircle2Icon, Columns3Icon, MessagesSquareIcon, PlusIcon, Share2Icon, SquareIcon, XIcon } from "lucide-react";
+import { useThreadsStore } from "@/stores/threads-store";
+import { ShareDialog, type Sharing } from "./share-dialog";
+import { copyMessageLink } from "./app-links";
+import type { Place } from "./links-logic";
+import { useMatesStore } from "@/stores/mates-store";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
@@ -32,7 +37,7 @@ import { LineContext, RowView, type LineActions } from "./channel-lines";
 import { TypingLine } from "./typing-line";
 import { ForwardDialog, type Forwarding } from "./forward-dialog";
 import { useChannelReactions } from "./line-tools";
-import { composePrompt, excerpt, threadMark, withThread, type ReplyTo } from "./message-markup";
+import { composePrompt, excerpt, parsePrompt, threadMark, withThread, type ReplyTo } from "./message-markup";
 import { PinsBar } from "./pins-bar";
 import { useBoardStore } from "@/stores/board-store";
 import { channelsApi, matesApi } from "@/lib/mates";
@@ -84,6 +89,8 @@ function Composer({
   const [files, setFiles] = React.useState<PromptAttachment[]>([]);
   const [mention, setMention] = React.useState<{ start: number; query: string } | null>(null);
   const [pick, setPick] = React.useState(0);
+  // **Also send to channel** under a thread's box (evo-mates-threads-board FR-22).
+  const [also, setAlso] = React.useState(false);
   const busy = useEngineStore((s) => s.activeId === channel.chatId && s.transcript.busy);
   const field = React.useRef<HTMLTextAreaElement>(null);
 
@@ -176,7 +183,8 @@ function Composer({
     setFiles([]);
     setText("");
     // A thread's box marks its message for the coordinator (FR-1).
-    const sent = thread ? withThread(thread, message) : message;
+    const sent = thread ? withThread(thread, message, also) : message;
+    setAlso(false);
     // While the mates answer, a message for only a mate at work steers it;
     // any other waits its turn (FR-56; one job at a time, D1).
     if (busy) {
@@ -261,6 +269,12 @@ function Composer({
             </span>
           ))}
         </div>
+      )}
+      {thread && (
+        <label className="mb-1.5 flex w-fit cursor-pointer items-center gap-1.5 px-1 text-[12px] text-muted-foreground select-none">
+          <input type="checkbox" checked={also} onChange={(e) => setAlso(e.target.checked)} className="size-3.5 accent-[var(--brand)]" />
+          Also send to #{channel.name}
+        </label>
       )}
       <div className="flex items-end gap-2">
       <button
@@ -416,6 +430,11 @@ function ThreadPanel({
   const card = board?.cards.find((c) => c.threadRoot === root);
   const column = card ? board?.board?.columns.find((c) => c.id === card.columnId)?.name : undefined;
   const parent = entries.find((e) => e.kind === "message" && e.id === root);
+  // Follow, resolve, and reading it (FR-20, FR-21).
+  const state = useThreadsStore((s) => s.byChat[channel.chatId]?.[root]);
+  React.useEffect(() => {
+    void useThreadsStore.getState().read(channel.chatId, root);
+  }, [channel.chatId, root, rows.length, state?.unread]);
   const track = () => {
     const words = parent && parent.kind === "message" ? threadMark(parent.text).text : "";
     void useBoardStore
@@ -455,6 +474,24 @@ function ThreadPanel({
             </button>
           )
         )}
+        <button
+          type="button"
+          aria-label={state?.following ? "Unfollow thread" : "Follow thread"}
+          title={state?.following ? "Following: replies show under Threads. Click to unfollow." : "Follow: replies show under Threads"}
+          onClick={() => void useThreadsStore.getState().set(channel.chatId, root, { following: !state?.following })}
+          className={cn("rounded-full p-1.5 hover:bg-muted", state?.following ? "text-brand" : "text-muted-foreground hover:text-foreground")}
+        >
+          {state?.following ? <BellIcon className="size-4" /> : <BellOffIcon className="size-4" />}
+        </button>
+        <button
+          type="button"
+          aria-label={state?.resolved ? "Unresolve thread" : "Resolve thread"}
+          title={state?.resolved ? "Unresolve" : "Resolve: fold it in the channel"}
+          onClick={() => void useThreadsStore.getState().set(channel.chatId, root, { resolved: !state?.resolved })}
+          className={cn("rounded-full p-1.5 hover:bg-muted", state?.resolved ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground hover:text-foreground")}
+        >
+          <CheckCircle2Icon className="size-4" />
+        </button>
         <button type="button" aria-label="Close thread" onClick={onClose} className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
           <XIcon className="size-4" />
         </button>
@@ -488,6 +525,15 @@ function ThreadPanel({
           <div ref={bottom} />
         </div>
       </LineContext.Provider>
+      {state?.resolved && (
+        <div className="mx-4 mb-1 flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3 py-1.5 text-[12px] text-emerald-800 dark:text-emerald-200">
+          <CheckCircle2Icon className="size-3.5" />
+          Resolved. A new reply opens it again.
+          <button type="button" onClick={() => void useThreadsStore.getState().set(channel.chatId, root, { resolved: false })} className="ml-auto font-medium hover:underline">
+            Unresolve
+          </button>
+        </div>
+      )}
       <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} thread={root} canStop={here} />
     </aside>
   );
@@ -532,6 +578,48 @@ export function ChannelView({ channel }: { channel: Channel }) {
       useBoardStore.getState().showThread(null);
     }
   }, [asked, channel.chatId]);
+  // Threads' state, read again as the feed changes (FR-20, FR-21).
+  const threadRows = useThreadsStore((s) => s.byChat[channel.chatId]);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => void useThreadsStore.getState().loadChat(channel.chatId), 400);
+    return () => window.clearTimeout(timer);
+  }, [channel.chatId, entries.length]);
+  const resolved = React.useMemo(() => new Set(Object.values(threadRows ?? {}).filter((t) => t.resolved).map((t) => t.root)), [threadRows]);
+  // Select mode for sharing (FR-16).
+  const [selecting, setSelecting] = React.useState<Set<string> | null>(null);
+  const [sharing, setSharing] = React.useState<Sharing | null>(null);
+  React.useEffect(() => setSelecting(null), [channel.chatId]);
+  const allMates = useMatesStore((s) => s.mates);
+  const allChannels = useMatesStore((s) => s.channels);
+  const places = React.useMemo<Place[]>(
+    () => [
+      ...allChannels.filter((c) => !c.hidden).map((c) => ({ word: `#${c.name}`, path: `channel/${c.id}` })),
+      ...allMates.filter((m) => !m.hidden).map((m) => ({ word: `@${m.name}`, path: `mate/${m.id}` })),
+    ],
+    [allChannels, allMates],
+  );
+  const placeOfChat = React.useCallback(
+    (chat: string) => {
+      const c = allChannels.find((x) => x.chatId === chat);
+      if (c) return `#${c.name}`;
+      return allMates.find((m) => m.chatId === chat)?.name ?? null;
+    },
+    [allChannels, allMates],
+  );
+  const shareSelected = () => {
+    if (!selecting?.size) return;
+    const lines = entries
+      .filter((e): e is Extract<ChannelEntry, { kind: "message" }> => e.kind === "message" && selecting.has(e.id))
+      .map((e) => ({ id: e.id, author: e.author === "person" ? "You" : e.name || nameOf(e.author), text: parsePrompt(threadMark(e.text).text).text }));
+    setSharing({ chat: channel.chatId, place: `#${channel.name}`, lines });
+    setSelecting(null);
+  };
+  const selectToEnd = () => {
+    if (!selecting?.size) return;
+    const feed = rows.filter((r) => r.kind === "bubble").map((r) => r.key);
+    const first = feed.findIndex((k) => selecting.has(k));
+    if (first >= 0) setSelecting(new Set(feed.slice(first)));
+  };
   // A board line from the engine (a card made or moved) reads the board again (FR-12, FR-13).
   const boardLines = React.useMemo(() => entries.filter((e) => e.kind === "board").length, [entries]);
   React.useEffect(() => {
@@ -553,8 +641,21 @@ export function ChannelView({ channel }: { channel: Channel }) {
       forward: (from, text) => setForwarding({ from, text, chat: channel.chatId }),
       nameOf: (id) => members.find((m) => m.id === id)?.name ?? id,
       openThread: setThread,
+      share: (line) => setSelecting(new Set([line])),
+      selecting,
+      toggleSelect: (line) =>
+        setSelecting((current) => {
+          const next = new Set(current ?? []);
+          if (next.has(line)) next.delete(line);
+          else next.add(line);
+          return next.size ? next : null;
+        }),
+      copyLink: (line) => copyMessageLink(channel.chatId, line),
+      resolved,
+      places,
+      placeOfChat,
     }),
-    [reactions, pins, channel.id, channel.chatId, members],
+    [reactions, pins, channel.id, channel.chatId, members, selecting, resolved, places, placeOfChat],
   );
 
   React.useEffect(() => {
@@ -650,7 +751,28 @@ export function ChannelView({ channel }: { channel: Channel }) {
         <div ref={bottom} />
       </div>
       </div>
-      <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} />
+      {selecting ? (
+        <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-4 pb-4">
+          <span className="text-[13px] font-medium text-foreground">
+            {selecting.size} selected
+          </span>
+          <span className="text-[12px] text-muted-foreground">Click messages to add or remove them.</span>
+          <span className="flex-1" />
+          <button type="button" onClick={selectToEnd} className="h-8 rounded-full px-3 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground">
+            Select to the end
+          </button>
+          <button type="button" onClick={() => setSelecting(null)} className="h-8 rounded-full px-3 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground">
+            Cancel
+          </button>
+          <button type="button" onClick={shareSelected} className="flex h-8 items-center gap-1.5 rounded-full bg-brand px-3.5 text-[12.5px] font-medium text-brand-foreground">
+            <Share2Icon className="size-3.5" />
+            Share…
+          </button>
+        </div>
+      ) : (
+        <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} />
+      )}
+      <ShareDialog item={sharing} onClose={() => setSharing(null)} />
     </div>
     </LineContext.Provider>
     {thread && (

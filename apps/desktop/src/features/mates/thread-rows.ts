@@ -6,7 +6,7 @@
 import type { Turn } from "@/features/chat";
 import { GREETING_PROMPT } from "@/lib/mates";
 import { picturesOf, sentFilesOf, splitMessage, type SentFile } from "./attachments";
-import { parsePrompt, type ReplyTo } from "./message-markup";
+import { parsePrompt, type ReplyTo, type Shared } from "./message-markup";
 
 export { GREETING_PROMPT };
 
@@ -18,6 +18,8 @@ export interface Bubble {
   reply: ReplyTo | null;
   /** A message the person forwarded here (evo-mates-messaging FR-10). */
   forwarded?: ReplyTo;
+  /** Lines the person shared here from another conversation (evo-mates-threads-board FR-16). */
+  shared?: Shared;
   images?: string[];
   /** Files the person attached, by path (FR-81). */
   files?: string[];
@@ -278,17 +280,18 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
       });
       return;
     }
-    const { text: said0, reply, forwarded } = parsePrompt(turn.prompt);
+    const { text: said0, reply, forwarded, shared } = parsePrompt(turn.prompt);
     // Attached files and pasted text show as chips, not as markup (FR-81).
     const { text, files, pasted } = splitMessage(said0);
     // A new mate's wake-up is not the person's message (FR-34).
-    if (!isGreeting(turn.prompt) && (text.trim() || forwarded || turn.images?.length || files.length || pasted.length)) {
+    if (!isGreeting(turn.prompt) && (text.trim() || forwarded || shared || turn.images?.length || files.length || pasted.length)) {
       push({
         key: `${base}:prompt`,
         side: "me",
         text,
         reply,
         forwarded,
+        shared,
         images: turn.images,
         files: files.length ? files : undefined,
         pasted: pasted.length ? pasted : undefined,

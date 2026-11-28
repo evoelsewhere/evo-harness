@@ -486,6 +486,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "channel_post_retro",
     "channel_line",
     "channel_post_line",
+    "channel_post_share",
     "save_instructions",
     "reload_resources",
     "set_plugin_host",

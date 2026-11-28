@@ -272,6 +272,8 @@ export type ChannelEntry =
       quote?: string | null;
       /** The thread it is in: its parent line's id (evo-mates-threads-board FR-3). */
       thread?: string | null;
+      /** A thread reply also shown in the channel (FR-22). */
+      alsoChannel?: boolean;
     }
   | { kind: "route"; message: string; picked: string[]; line: string; at: number; thread?: string | null }
   | {
@@ -293,6 +295,8 @@ export type ChannelEntry =
   | { kind: "job"; id: string; message: string; status: string; handoffs: number; at: number; thread?: string | null }
   /** A retro's card (learning-layers FR-21). */
   | ({ kind: "retro"; id: string; at: number } & RetroCard)
+  /** A mate's `share_to` into this channel (evo-mates-threads-board FR-18): a card, information only. */
+  | { kind: "share"; id: string; by: string; name: string; from: string; text: string; files?: string[]; at: number; thread?: string | null }
   /** A card's change on the channel's board (evo-mates-threads-board FR-13); never delivered to mates. */
   | { kind: "board"; text: string; card: string; cardId: string; at: number; thread?: string | null };
 
@@ -428,6 +432,44 @@ export const boardsApi = {
   events: (id: string) => invoke<CardEvent[]>("card_events", { id }),
   byKey: (key: string) => invoke<PlacedCard | null>("card_by_key", { key }),
   assigned: (assignee: string) => invoke<PlacedCard[]>("cards_assigned", { assignee }),
+};
+
+// ── Linked conversations and threads (evo-mates-threads-board FR-16 – FR-22) ──
+
+export interface Share {
+  id: string;
+  fromChat: string;
+  fromLines: string[];
+  excerpt: string;
+  toChat: string;
+  note: string;
+  /** `person` or a mate's id. */
+  by: string;
+  atMs: number;
+}
+
+export interface ThreadFollow {
+  chatId: string;
+  root: string;
+  rootExcerpt: string;
+  following: boolean;
+  resolved: boolean;
+  replies: number;
+  lastMs: number;
+  lastAuthor: string;
+  lastReadMs: number;
+  unread: boolean;
+}
+
+export const linksApi = {
+  record: (share: { fromChat: string; fromLines: string[]; excerpt: string; toChat: string; note: string }) =>
+    invoke<Share>("share_record", { share: { ...share, by: "person" } }),
+  linked: (chat: string) => invoke<Share[]>("linked_of", { chat }),
+  followed: () => invoke<ThreadFollow[]>("threads_followed"),
+  threadsOf: (chat: string) => invoke<ThreadFollow[]>("threads_of", { chat }),
+  set: (chat: string, root: string, change: { following?: boolean; resolved?: boolean }) =>
+    invoke<void>("thread_set", { chat, root, following: change.following ?? null, resolved: change.resolved ?? null }),
+  read: (chat: string, root: string) => invoke<void>("thread_read", { chat, root }),
 };
 
 // ── Team files (FR-20, FR-21, FR-27) ───────────────────────────────────────

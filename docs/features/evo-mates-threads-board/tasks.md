@@ -39,12 +39,13 @@ cards, Today shows my cards.
 Done when: shares, links, `share_to` with consent, Linked, Threads list,
 resolve and Also send to channel work.
 
-- [ ] T14 [FR-16, FR-20, NFR-1] Migration 0021 (`mate_shares`, `thread_follows`) with tests; downgrade script
-- [ ] T15 [FR-16, FR-19] Share lines (select mode, dialog, card, markup read as quoted), Linked panel
-- [ ] T16 [FR-17] Links: `#channel`, `@mate`, Copy link, `evo://mates/…` cards
-- [ ] T17 [FR-18, NFR-6] `share_to` tool with the per-mate setting and approval
-- [ ] T18 [FR-20 – FR-22] Follow, Threads in the sidebar, unread, resolve, Also send to channel
-- [ ] T19 [NFR-4] Shots and scan
+- [x] T14 [FR-16, FR-20, NFR-1] Migration 0021 (`mate_shares`, `thread_follows`) with tests; downgrade script
+- [x] T15 [FR-16, FR-19] Share lines (select mode, dialog, card, markup read as quoted), Linked panel
+- [x] T16 [FR-17] Links: `#channel`, `@mate`, Copy link, `evo://mates/…` cards
+- [x] T17 [FR-18, NFR-6] `share_to` tool with the per-mate setting and approval
+- [x] T18 [FR-20 – FR-22] Follow, Threads in the sidebar, unread, resolve, Also send to channel
+- [x] T20 [FR-23] Threads tab in the channel header — `features/mates/channel-threads.tsx`, `channel-rows.ts` (`channelThreads`), `channel-header.tsx`, `mates-app.tsx` — shots
+- [x] T19 [NFR-4] Shots and scan
 
 ## Verification
 
@@ -73,3 +74,15 @@ resolve and Also send to channel work.
 | NFR-4 (B) | Shots of board, list, card, thread, Today and channel at 1440, 1000, 720 px, light and dark; `--scan`: nothing sideways (the columns scroll on purpose, marked `data-scrolls-x`) | passed (2026-11-29, B) |
 | NFR-5 | 500-card fixture: the board draws 820 ms after the Board tab's click in the Vite dev build (headless, unminified, includes the fetch); shot | passed (2026-11-29); not measured in a release build |
 | Checks B | typecheck; `bun test` 545 pass; `bun run test:shell` 871 pass; `cargo test -p evo-engine` 1034 passed with the 2 known failures; store 96, mesh 53; clippy clean on the changed files; fmt, `git diff --check` | passed (2026-11-29) |
+| FR-16 | `links-logic.test.ts` (share markup round-trip, `instruction="false"`); coordinator test `shared_lines_are_quoted_and_mentions_of_the_person_found`; Playwright on the fake IPC: select Kai's and Lin's lines, Share into Ava with a note → `share_record` (both line ids, the note) and a prompt to `chat-ava` starting `<evo-mates-share from="#Launch room" … lines="2" instruction="false">` | passed (2026-11-29, C); the mate's next turn quoting it not run in the real app |
+| FR-17 | `links-logic.test.ts` (message links, `#channel` / `@mate` links, longest name first, not in code); Copy link put `evo://mates/chan-launch/k1` on the clipboard; link cards by review | passed (2026-11-29, C) |
+| FR-18 | Shell test `sharing_asks_by_default_and_always_from_the_direct_chat`; refusals (not a member, never, the same channel) by review; the card through `channel_post_share` | passed by test and review (2026-11-29, C); a model's call not run; mate conversations as targets: Later (D11) |
+| FR-19 | Linked dialog shot (shared from #Research notes, shared into Ava); `links.rs` test `a_share_links_both_conversations`; mate Overview › Linked | passed (2026-11-29, C) |
+| FR-20 | `links.rs` test `a_followed_thread_is_unread_until_read_and_a_reply_reopens_it`; Threads page shot with unread first and the sidebar count; Unfollow → `thread_set(following: false)`; opening the thread → `thread_read` | passed (2026-11-29, C) |
+| FR-21 | Same `links.rs` test (resolve, a reply reopens); Resolve → `thread_set(resolved: true)`; shots of "Resolved" on the summary and the panel's Unresolve | passed (2026-11-29, C) |
+| FR-22 | Also send to #Launch room → prompt `<evo-mates-thread root="k1" also="channel"/>`; the coordinator posts `alsoChannel`; shot of "Replied in a thread · View" in the feed | passed (2026-11-29, C) |
+| FR-23 | Threads tab shots at 1440, 1000, 720 px, light and dark (open thread with its LAUNCH-5 chip, the resolved one folded) | passed (2026-11-29, C) |
+| NFR-1 (0021) | `downgrade-0021.py` on a scratch copy taken 18 → 21 with a share and a follow: back to 20, 35 tables as at 20, integrity ok, backup written | passed (2026-11-29) |
+| NFR-2, NFR-6 | Shares reach mates as `<evo-mates-share … instruction="false">` (quoted, never routed); `share_to` only into the mate's own channels, asking by default and always from its direct chat | passed by test and review (2026-11-29) |
+| NFR-4 (C) | Shots of the threads tab, Threads page, thread, share, Linked, channel and board at 1440, 1000, 720 px, light and dark; `--scan`: nothing sideways | passed (2026-11-29, C) |
+| Checks C | typecheck; `bun test` 549 pass; `bun run test:shell` 872 pass; `cargo test -p evo-engine` 1035 passed with the 2 known failures; store 98, mesh 53; clippy clean on changed files; fmt, `git diff --check` | passed (2026-11-29) |

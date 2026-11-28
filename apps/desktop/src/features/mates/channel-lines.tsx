@@ -4,9 +4,11 @@
 // the channel's feed and its thread panel (evo-mates-threads-board FR-1).
 
 import * as React from "react";
-import { ArrowRightIcon, ChevronRightIcon, Columns3Icon } from "lucide-react";
+import { ArrowRightIcon, CheckIcon, ChevronRightIcon, Columns3Icon, Share2Icon } from "lucide-react";
+import { openAppLink } from "./app-links";
+import { linkPlaces, splitLinks, type Place } from "./links-logic";
 import { useBoardStore } from "@/stores/board-store";
-import { linkCards, splitCardKeys } from "./board-logic";
+import { linkCards } from "./board-logic";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
@@ -20,18 +22,21 @@ import { BUBBLE_TEXT } from "./bubble-style";
 import { splitMessage } from "./attachments";
 import { NamedFiles, SentByMe } from "./attachment-views";
 import { RetroCard } from "./retro-card";
-import { LineBar, LinkCard, ReactionChips } from "./line-tools";
+import { LineBar, LinkCard, MessageLinkCard, ReactionChips, SharedCard } from "./line-tools";
 import { parsePrompt, type ReplyTo } from "./message-markup";
 import { jumpToMessage } from "./pins-bar";
 
 /** "3 replies · Writer, Analyst · 2 min ago" under a thread's parent (FR-2). */
 function ThreadSummaryButton({
   summary,
+  resolved,
   faceOf,
   nameOf,
   onOpen,
 }: {
   summary: ThreadSummary;
+  /** Resolved threads fold to this line (FR-21). */
+  resolved: boolean;
   faceOf(id: string): Mate | undefined;
   nameOf(id: string): string;
   onOpen(): void;
@@ -53,6 +58,7 @@ function ThreadSummaryButton({
             return mate ? <MateFace key={id} avatar={mate.avatar} size={16} plate={false} label={mate.name} className="rounded-full ring-1 ring-background" /> : null;
           })}
       </span>
+      {resolved && <span className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Resolved</span>}
       <span className="shrink-0 font-medium text-brand">
         {summary.count} {summary.count === 1 ? "reply" : "replies"}
       </span>
@@ -134,6 +140,17 @@ export interface LineActions {
   nameOf(id: string): string;
   /** Open the thread under a line; absent inside a thread (evo-mates-threads-board FR-1, D3). */
   openThread?(root: string): void;
+  /** Start sharing from a line (FR-16), and select mode's lines. */
+  share?(line: string): void;
+  selecting?: Set<string> | null;
+  toggleSelect?(line: string): void;
+  /** Copy a line's link (FR-17). */
+  copyLink?(line: string): void;
+  /** Threads resolved in this channel (FR-21). */
+  resolved?: Set<string>;
+  /** `#channel` and `@mate` as links, and a chat's place name (FR-17). */
+  places?: Place[];
+  placeOfChat?(chat: string): string | null;
 }
 export const LineContext = React.createContext<LineActions | null>(null);
 
@@ -166,6 +183,8 @@ export function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceO
       return <HandoffCard row={row} faceOf={faceOf} folder={folder ?? faceOf(row.from)?.folder ?? null} />;
     case "notice":
       return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
+    case "share":
+      return <ShareLine row={row} faceOf={faceOf} />;
     case "board":
       // A card's change: its key opens the card (evo-mates-threads-board FR-13).
       return (
@@ -190,9 +209,35 @@ export function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceO
   }
 }
 
+/** A mate's share into this channel (FR-18): who, from where, what. */
+function ShareLine({ row, faceOf }: { row: Extract<ChannelRow, { kind: "share" }>; faceOf(id: string): Mate | undefined }) {
+  const mate = faceOf(row.by);
+  return (
+    <div data-entry={row.key} className="flex justify-start gap-2 px-4 pt-2">
+      <span className="w-7 shrink-0">{mate && <MateFace avatar={mate.avatar} size={28} plate={false} label={mate.name} />}</span>
+      <div className="flex max-w-[75%] min-w-0 flex-col items-start">
+        <span className="mb-0.5 ml-2 text-[11px] font-medium text-muted-foreground">{row.name}</span>
+        <div className="rounded-[20px] rounded-bl-[6px] bg-muted px-3.5 py-2 text-[14px] leading-[20px]">
+          <div className="mb-1 flex items-center gap-1.5 text-[11.5px] font-medium text-muted-foreground">
+            <Share2Icon className="size-3" />
+            Shared from {row.from}
+          </div>
+          <div className={cn("whitespace-pre-wrap", BUBBLE_TEXT)}>{row.text}</div>
+        </div>
+        {row.files.length > 0 && <NamedFiles text="" paths={row.files} root={null} />}
+      </div>
+    </div>
+  );
+}
+
 function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, { kind: "bubble" }>; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
   const actions = React.useContext(LineContext);
   const cardKeys = useBoardStore((s) => s.keys);
+  const places = actions?.places ?? [];
+  const channelPlaces = React.useMemo(() => places.filter((p) => p.word.startsWith("#")), [places]);
+  const placeOfChat = actions?.placeOfChat ?? (() => null);
+  const selecting = actions?.selecting ?? null;
+  const selected = Boolean(selecting?.has(row.key));
   {
       const mate = row.me ? undefined : faceOf(row.author);
       // The person's pictures, files and pasted text show as chips (FR-83);
@@ -216,13 +261,37 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
       return (
         <div
           data-entry={row.key}
+          onClickCapture={
+            selecting
+              ? (event) => {
+                  // Select mode (FR-16): a click picks the line instead of acting on it.
+                  event.preventDefault();
+                  event.stopPropagation();
+                  actions?.toggleSelect?.(row.key);
+                }
+              : undefined
+          }
+          aria-selected={selecting ? selected : undefined}
           className={cn(
             "group/line relative flex items-end gap-2 px-4 pt-1",
             row.me ? "justify-end" : "justify-start",
             row.first ? "mt-2" : "mt-0.5",
             mentionsYou && "bg-amber-500/[0.06] shadow-[inset_2px_0_0_0_rgb(245_158_11/0.7)]",
+            selecting && "cursor-pointer",
+            selected && "bg-brand/[0.07]",
           )}
         >
+          {selecting && (
+            <span
+              aria-hidden
+              className={cn(
+                "absolute top-1/2 left-1 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border",
+                selected ? "border-brand bg-brand text-brand-foreground" : "border-muted-foreground/50 bg-background",
+              )}
+            >
+              {selected && <CheckIcon className="size-3" />}
+            </span>
+          )}
           {!row.me && (
             <span className="w-7 shrink-0">
               {row.last && mate && <MateFace avatar={mate.avatar} size={28} plate={false} label={mate.name} />}
@@ -261,6 +330,7 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
               )}
             >
               {said && <SentByMe files={said.files} pasted={said.pasted} />}
+              {parsed?.shared && <SharedCard shared={parsed.shared} me onOpen={(path) => void openAppLink(path)} />}
               {parsed?.forwarded && (
                 <div className="mb-1 border-l-2 border-white/40 pl-2 text-[13px] whitespace-pre-wrap opacity-90">{parsed.forwarded.text}</div>
               )}
@@ -274,10 +344,15 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
                       </span>
                     ) : (
                       <React.Fragment key={i}>
-                        {splitCardKeys(part.text, cardKeys).map((piece, j) =>
-                          piece.key ? (
-                            <button key={j} type="button" onClick={() => useBoardStore.getState().showCard(piece.key!)} className="rounded bg-white/20 px-0.5 font-medium underline-offset-2 hover:underline">
-                              {piece.text}
+                        {splitLinks(part.text, cardKeys, channelPlaces).map((piece, j) =>
+                          piece.card || piece.path ? (
+                            <button
+                              key={j}
+                              type="button"
+                              onClick={() => (piece.card ? useBoardStore.getState().showCard(piece.card) : void openAppLink(piece.path!))}
+                              className="rounded bg-white/20 px-0.5 font-medium underline-offset-2 hover:underline"
+                            >
+                              {piece.path?.startsWith("message/") ? `message in ${placeOfChat(piece.path.split("/")[1]!) ?? "a conversation"}` : piece.text}
                             </button>
                           ) : (
                             <React.Fragment key={j}>{piece.text}</React.Fragment>
@@ -291,13 +366,14 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
                 <Markdown
                   blocks
                   onCardLink={(key) => useBoardStore.getState().showCard(key)}
+                  onAppLink={(path) => void openAppLink(path)}
                   onLocalLink={(reference) => {
                     // A seat works in the channel's folder, else in its mate's (rich-replies FR-37).
                     const author = faceOf(row.author);
                     void openFileRef(reference, folder ?? author?.projectFolder ?? author?.folder ?? null, "mates");
                   }}
                 >
-                  {linkCards(boldMentions(row.text, [...names, "you"]), cardKeys)}
+                  {linkCards(boldMentions(linkPlaces(row.text, places, placeOfChat), [...names, "you"]), cardKeys)}
                 </Markdown>
               )}
               </div>
@@ -305,6 +381,12 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
             {/* The files a mate's line names that exist, under it (FR-83). */}
             {!row.me && <NamedFiles text={row.text} root={root} />}
             {!row.me && <LinkCard text={row.text} />}
+            <MessageLinkCard text={plain} placeOfChat={placeOfChat} onOpen={(path) => void openAppLink(path)} />
+            {row.alsoThread && actions?.openThread && (
+              <button type="button" onClick={() => actions.openThread?.(row.alsoThread!)} className="mt-0.5 mr-2 text-[11px] text-muted-foreground hover:text-foreground hover:underline">
+                Replied in a thread · View
+              </button>
+            )}
             {actions && (
               <ReactionChips
                 reactions={reactions}
@@ -323,11 +405,13 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
                 onPin={() => actions.pin(row.key, plain)}
                 onForward={() => actions.forward(row.me ? "You" : row.name, plain)}
                 onThread={actions.openThread ? () => actions.openThread?.(row.key) : undefined}
+                onShare={actions.share ? () => actions.share?.(row.key) : undefined}
+                onCopyLink={actions.copyLink ? () => actions.copyLink?.(row.key) : undefined}
               />
             )}
             {/* Its thread: replies, who, when (evo-mates-threads-board FR-2). */}
             {actions?.openThread && row.thread && (
-              <ThreadSummaryButton summary={row.thread} faceOf={faceOf} nameOf={actions.nameOf} onOpen={() => actions.openThread?.(row.key)} />
+              <ThreadSummaryButton summary={row.thread} resolved={Boolean(actions.resolved?.has(row.key))} faceOf={faceOf} nameOf={actions.nameOf} onOpen={() => actions.openThread?.(row.key)} />
             )}
             {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
             {row.me && !row.steers && row.seenBy && row.seenBy.length > 0 && (

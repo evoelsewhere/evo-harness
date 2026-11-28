@@ -58,6 +58,7 @@ pub mod chats;
 pub mod computer;
 pub mod journal;
 pub mod learning;
+pub mod links;
 pub mod logs;
 pub mod mail;
 pub mod mates;
@@ -171,6 +172,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 20,
         name: "boards",
         sql: include_str!("migrations/0020_boards.sql"),
+    },
+    Migration {
+        version: 21,
+        name: "links",
+        sql: include_str!("migrations/0021_links.sql"),
     },
 ];
 

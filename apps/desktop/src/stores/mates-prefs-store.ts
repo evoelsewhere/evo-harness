@@ -42,6 +42,9 @@ interface MatesPrefs {
   mute: Record<string, Mute>;
   linkPreviews: boolean;
   computer: Record<string, Partial<ComputerSwitches>>;
+  /** Per mate: Share across conversations (evo-mates-threads-board FR-18). */
+  share: Record<string, "ask" | "allow" | "never">;
+  setShare(mate: string, mode: "ask" | "allow" | "never"): void;
   appControl: boolean;
   load(): Promise<void>;
   setComputer(mate: string, key: keyof ComputerSwitches, on: boolean): void;
@@ -58,6 +61,7 @@ function save(key: string, value: unknown) {
 
 export const useMatesPrefs = create<MatesPrefs>()((set, get) => ({
   loaded: false,
+  share: {},
   pins: {},
   mute: {},
   linkPreviews: false,
@@ -75,6 +79,7 @@ export const useMatesPrefs = create<MatesPrefs>()((set, get) => ({
       linkPreviews: all[LINK_PREVIEWS_KEY] === true,
       computer: all[COMPUTER_KEY] && typeof all[COMPUTER_KEY] === "object" ? (all[COMPUTER_KEY] as Record<string, Partial<ComputerSwitches>>) : {},
       appControl: all[APP_CONTROL_KEY] === true,
+      share: all["mates.share"] && typeof all["mates.share"] === "object" ? (all["mates.share"] as Record<string, "ask" | "allow" | "never">) : {},
     });
   },
   togglePin(chat, pin) {
@@ -103,6 +108,12 @@ export const useMatesPrefs = create<MatesPrefs>()((set, get) => ({
     const computer = { ...get().computer, [mate]: { ...get().computer[mate], [key]: on } };
     set({ computer });
     save(COMPUTER_KEY, computer);
+  },
+  setShare(mate, mode) {
+    const share = { ...get().share, [mate]: mode };
+    if (mode === "ask") delete share[mate];
+    set({ share });
+    save("mates.share", share);
   },
   setLinkPreviews(on) {
     set({ linkPreviews: on });

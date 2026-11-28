@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Status | In progress |
+| Status | Implemented |
 | Updated | 2026-11-29 |
 
 ## 1. Context and constraints
@@ -202,3 +202,12 @@ thread markup gains `also="channel"`, which posts the reply in both.
   `mates-app.tsx`); the board's state is `stores/board-store.ts`. The
   downgrade script also refuses when `user_version` and
   `schema_migrations` disagree, and backs the file up before applying.
+- Part C: the coordinator writes each thread's row (`thread_touched`) as
+  lines land, so follows and unread need no window open; the window reads
+  rows on `mates://links`, on feed changes and every 30 s. Place and message
+  links use `https://local.app/<path>` and Markdown's `onAppLink`. Shares go
+  through the person's normal send (like Forward) after `share_record`.
+  `share_to` starts an idle channel's engine (`Reason::Mail`) to post its
+  card. Found while shooting: the channel's and roster rows' ⋯ menus failed
+  to open since 1b (a menu label outside `Menu.Group`); fixed in
+  `mute-menu.tsx`. Added at the owner's ask: the Threads tab (FR-23).

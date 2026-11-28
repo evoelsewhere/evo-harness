@@ -4,7 +4,9 @@
 
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ForwardIcon, MessagesSquareIcon, PinIcon, PinOffIcon, ReplyIcon } from "lucide-react";
+import { ArrowUpRightIcon, ForwardIcon, LinkIcon, MessagesSquareIcon, PinIcon, PinOffIcon, ReplyIcon, Share2Icon } from "lucide-react";
+import { firstMessageLink } from "./links-logic";
+import type { Shared } from "./message-markup";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { channelsApi, matesApi, type ChannelReaction, type LinkPreview, type ReactionKind } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
@@ -92,6 +94,8 @@ export function LineBar({
   onPin,
   onForward,
   onThread,
+  onShare,
+  onCopyLink,
 }: {
   side: "start" | "end";
   mine?: ReactionKind;
@@ -102,6 +106,10 @@ export function LineBar({
   onForward(): void;
   /** Reply in thread (evo-mates-threads-board FR-1). */
   onThread?(): void;
+  /** Share it, or select more to share (FR-16). */
+  onShare?(): void;
+  /** Copy its link (FR-17). */
+  onCopyLink?(): void;
 }) {
   const button = "flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground";
   return (
@@ -141,7 +149,57 @@ export function LineBar({
       <button type="button" aria-label="Forward" title="Forward" onClick={onForward} className={button}>
         <ForwardIcon className="size-3.5" />
       </button>
+      {onShare && (
+        <button type="button" aria-label="Share to another conversation" title="Share…" onClick={onShare} className={button}>
+          <Share2Icon className="size-3.5" />
+        </button>
+      )}
+      {onCopyLink && (
+        <button type="button" aria-label="Copy link" title="Copy link" onClick={onCopyLink} className={button}>
+          <LinkIcon className="size-3.5" />
+        </button>
+      )}
     </div>
+  );
+}
+
+/** Lines shared from another conversation, as a card with a link back (evo-mates-threads-board FR-16). */
+export function SharedCard({ shared, onOpen, me = false }: { shared: Shared; onOpen(path: string): void; me?: boolean }) {
+  const link = firstMessageLink(shared.link);
+  return (
+    <div className={cn("mb-1.5 rounded-xl px-2.5 py-2 text-[12.5px]", me ? "bg-white/15" : "bg-background/70 shadow-[0_0_0_1px_var(--border)]")}>
+      <div className={cn("mb-1 flex items-center gap-1.5 text-[11.5px] font-medium", me ? "text-brand-foreground/80" : "text-muted-foreground")}>
+        <Share2Icon className="size-3" />
+        Shared from {shared.from} · {shared.lines} {shared.lines === 1 ? "message" : "messages"}
+        {link && (
+          <button type="button" onClick={() => onOpen(`message/${link.chat}/${link.line}`)} className="ml-auto flex items-center gap-0.5 underline-offset-2 hover:underline">
+            Open
+            <ArrowUpRightIcon className="size-3" />
+          </button>
+        )}
+      </div>
+      <div className="line-clamp-6 text-[13px] whitespace-pre-wrap">{shared.text}</div>
+    </div>
+  );
+}
+
+/** A message link in a line, as a card that opens the message (FR-17). */
+export function MessageLinkCard({ text, placeOfChat, onOpen }: { text: string; placeOfChat(chat: string): string | null; onOpen(path: string): void }) {
+  const link = firstMessageLink(text);
+  if (!link) return null;
+  const place = placeOfChat(link.chat);
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(`message/${link.chat}/${link.line}`)}
+      className="mt-1 flex max-w-72 items-center gap-2 rounded-xl bg-muted/60 px-3 py-1.5 text-left text-[12.5px] shadow-[0_0_0_1px_var(--border)] hover:bg-muted"
+    >
+      <LinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate">
+        A message in <span className="font-medium text-foreground">{place ?? "another conversation"}</span>
+      </span>
+      <ArrowUpRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    </button>
   );
 }
 

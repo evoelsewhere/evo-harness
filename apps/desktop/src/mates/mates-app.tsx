@@ -16,6 +16,9 @@ import { MateModelPicker } from "@/features/mates/model-picker";
 import { ChannelView } from "@/features/mates/channel-view";
 import { BoardView } from "@/features/mates/board-view";
 import { CardSheet } from "@/features/mates/card-sheet";
+import { ChannelThreads } from "@/features/mates/channel-threads";
+import { ThreadsPage } from "@/features/mates/threads-page";
+import { watchThreads } from "@/stores/threads-store";
 import { useBoardStore, watchBoards } from "@/stores/board-store";
 import { ChannelHeader } from "@/features/mates/channel-header";
 import { MateConversation } from "@/features/mates/conversation";
@@ -73,6 +76,8 @@ function useBootstrap() {
       startChatScope();
       // Boards read again when they change (evo-mates-threads-board FR-8 – FR-15).
       watchBoards();
+      // Followed threads (FR-20).
+      watchThreads();
     }
     void (async () => {
       try {
@@ -106,6 +111,8 @@ function ChannelPane({ id }: { id: string }) {
       <div className="min-h-0 flex-1">
         {boardOn && tab === "board" ? (
           <BoardView channel={channel} />
+        ) : tab === "threads" && shown === channel.chatId ? (
+          <ChannelThreads channel={channel} />
         ) : shown === channel.chatId ? (
           <ChannelView channel={channel} />
         ) : (
@@ -177,6 +184,7 @@ function Conversation() {
   // With no conversation open, Evo Mates shows its home (FR-73).
   if (view.kind === "today" || view.kind === "empty") return <TodayPage />;
   if (view.kind === "files") return <FilesPage />;
+  if (view.kind === "threads") return <ThreadsPage />;
   if (!mate) return <MatesEmpty />;
   return (
     <div className="relative flex h-full min-h-0">

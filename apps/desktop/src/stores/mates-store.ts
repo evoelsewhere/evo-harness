@@ -34,6 +34,8 @@ export type MatesView =
   | { kind: "today" }
   /** Every file the mates keep (FR-84). */
   | { kind: "files" }
+  /** The threads the person follows (evo-mates-threads-board FR-20). */
+  | { kind: "threads" }
   | { kind: "empty" };
 
 /** The mate panel's tabs. */
@@ -57,6 +59,7 @@ interface MatesStore {
   showGallery(): void;
   showToday(): void;
   showFiles(): void;
+  showThreads(): void;
   setPanelOpen(open: boolean): void;
   /** Open the panel at `tab`. */
   openPanel(tab: MatePanelTab): void;
@@ -213,6 +216,10 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
 
   showFiles() {
     set({ view: { kind: "files" }, panelOpen: false });
+  },
+
+  showThreads() {
+    set({ view: { kind: "threads" }, panelOpen: false });
   },
 
   setPanelOpen(open) {

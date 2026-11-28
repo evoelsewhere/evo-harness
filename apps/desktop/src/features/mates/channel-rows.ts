@@ -51,7 +51,11 @@ export type ChannelRow =
       quote?: { id: string; name: string; text: string };
       /** Its thread, when it has replies (evo-mates-threads-board FR-2). */
       thread?: ThreadSummary;
+      /** A thread reply also sent to the channel: the thread's parent (FR-22). */
+      alsoThread?: string;
     }
+  /** A mate's share into the channel (FR-18). */
+  | { kind: "share"; key: string; by: string; name: string; from: string; text: string; files: string[] }
   /** Who answers; `picked` are the mates' ids, for their faces (evo-mates-ui-v2 FR-20). */
   | { kind: "route"; key: string; text: string; picked: string[] }
   | { kind: "handoff"; key: string; from: string; fromName: string; to: string; toName: string; handoff: string; text: string; files: string[] }
@@ -96,6 +100,18 @@ export function threadSummaries(entries: readonly ChannelEntry[]): Map<string, T
   return out;
 }
 
+/** Every thread of the channel with its parent line, the latest reply first (FR-23). */
+export function channelThreads(entries: readonly ChannelEntry[]): ({ root: string; parent: Extract<ChannelEntry, { kind: "message" }> } & ThreadSummary)[] {
+  const summaries = threadSummaries(entries);
+  const out: ({ root: string; parent: Extract<ChannelEntry, { kind: "message" }> } & ThreadSummary)[] = [];
+  for (const entry of entries) {
+    if (entry.kind !== "message" || entry.thread) continue;
+    const summary = summaries.get(entry.id);
+    if (summary) out.push({ root: entry.id, parent: entry, ...summary });
+  }
+  return out.sort((a, b) => b.last - a.last);
+}
+
 /**
  * The message the channel still works on, and its thread (`null`: the
  * channel), or `null` when none runs: a route without its job (FR-1, D1).
@@ -120,7 +136,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
   const all = entries;
   entries = thread
     ? entries.filter((e) => ("thread" in e && e.thread === thread) || (e.kind === "message" && e.id === thread))
-    : entries.filter((e) => !("thread" in e && e.thread));
+    : entries.filter((e) => !("thread" in e && e.thread) || (e.kind === "message" && e.alsoChannel));
   // Each line by its id, for the quotes that point at it (FR-5).
   const lines = new Map<string, { name: string; text: string }>();
   for (const entry of all) {
@@ -152,6 +168,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
           steers: entry.steers ? nameOf(entry.steers) : undefined,
           quote: entry.quote && lines.has(entry.quote) ? { id: entry.quote, ...lines.get(entry.quote)! } : undefined,
           thread: summaries?.get(entry.id),
+          alsoThread: !thread && entry.thread && entry.alsoChannel ? entry.thread : undefined,
         });
         break;
       }
@@ -174,6 +191,9 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
         break;
       case "notice":
         rows.push({ kind: "notice", key, text: entry.text, stop: entry.notice === "limit" || entry.notice === "stopped" });
+        break;
+      case "share":
+        rows.push({ kind: "share", key: entry.id || key, by: entry.by, name: entry.name, from: entry.from, text: entry.text, files: entry.files ?? [] });
         break;
       case "board":
         rows.push({ kind: "board", key, text: entry.text, card: entry.card });
