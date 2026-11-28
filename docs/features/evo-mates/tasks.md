@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-25 |
+| Updated | 2026-11-28 |
 
 ## 1. Phases
 
@@ -110,6 +110,31 @@ and its Following up list and check-ins can be edited.
 - [x] T62 [FR-53] Router budget 6 s — `crates/evo-engine/src/channel/router.rs` — check: `cargo test -p evo-engine channel`
 - [ ] T63 [SC-7, FR-66] Conduct set: a scripted week of five events; review of first messages — `crates/evo-engine/tests/mates_conduct.rs` — check: results recorded in `conduct-results.md`
 
+### Phase 6 — From the market research
+
+Done when: Evo Mates opens on Today with what needs the person, what is
+new, what is coming and what each mate did today; new mates start from 16
+roles or a ready-made team or a description, with starters to click; the
+roster search finds messages; a mate reads its Knowledge files; a check-in
+can be added from the panel ([research-2026-11.md](research-2026-11.md),
+plan 3.10).
+
+- [ ] T68 [FR-73] Tests, then code: `agenda::upcoming` (open items of every mate before a time, in order; done, never and paused left out); a test that a mate's usage since a time counts its seats and nothing older — `crates/evo-store/src/agenda.rs`, `mates.rs` (tests) — check: `cargo test -p evo-store upcoming a_mates_usage_since`
+- [ ] T69 [FR-73] `mates_today`; `todaySections` with tests (waiting first, unread newest first, hidden mates left out); the Today page and its sidebar row, shown when no conversation is open — `src-tauri/src/mates/today.rs`, `src/features/mates/today*.ts(x)`, `mates-shell.tsx`, `src/mates/mates-app.tsx`, `src/stores/mates-store.ts` — check: `bun test src/features/mates`; manual
+- [ ] T70 [FR-8, FR-74] Tests, then code: `starter:` lines in role files; every role has 3–4 starters; at least 16 roles in at least 6 categories; eight new roles — `src-tauri/src/mates/template.rs`, `templates/*.md` — check: `bun run test:shell mates::template`
+- [ ] T71 [FR-74] Starter chips under the greeting; from-scratch starters; choosing one sends it — `src/features/mates/starters.tsx`, `mate-panel.tsx`, `src/lib/mates.ts` — check: `bun test` (`startersFor`); manual
+- [ ] T72 [FR-75] Tests, then code: every built-in team reads as a team file with a lead among its mates and previews with the app's mode; `mates_teams`, `team_preview_builtin`, `team_import_builtin` over the file's preview and import — `src-tauri/src/mates/teams.rs`, `templates/teams/*.md`, `team_file.rs` — check: `bun run test:shell mates::teams`
+- [ ] T73 [FR-75] Teams tab in the gallery and Add team through the import preview — `src/features/mates/gallery.tsx`, `team-import.tsx` — check: manual: Cancel creates nothing, Confirm creates the channel
+- [ ] T74 [FR-76] Tests, then code: `mates::search_messages` finds mates' and channels' chats only, with a snippet from a line that is not an envelope — `crates/evo-store/src/mates.rs` — check: `cargo test -p evo-store search_messages`
+- [ ] T75 [FR-76] `mates_search` and **Messages** under the roster while searching — `src-tauri/src/mates/mod.rs`, `src/features/mates/message-hits.tsx`, `roster.tsx` — check: manual
+- [ ] T76 [FR-77] Tests, then code: Knowledge add refuses folders, hidden files, links, files over 25 MB and the 51st file, keeps names unique; the role's instructions list the files; an export does not — `src-tauri/src/mates/knowledge.rs`, `mates/mod.rs` — check: `bun run test:shell mates::knowledge`
+- [ ] T77 [FR-77] Knowledge in the Files tab: Add files, list, Remove — `src/features/mates/knowledge.tsx`, `mate-panel.tsx` — check: manual; the mate names a knowledge file it read
+- [ ] T78 [FR-78] Tests, then code: `mate_profile` saves `name` and `role` only while the mate is "New mate"; the conduct rule for a describing first message — `src-tauri/src/agent_tools/mates.rs`, `crates/evo-engine/src/session_roles.rs` — check: `bun run test:shell agent_tools::mates`, `cargo test -p evo-engine session_roles`
+- [ ] T79 [FR-78] **Describe a mate** in the gallery — `src/features/mates/gallery.tsx` — check: manual: the mate names itself in its first turn
+- [ ] T80 [FR-79] Tests, then code: `mates_agenda_add_checkin` makes an open check-in whose first time follows its schedule; presets; **Add check-in** in Following up — `src-tauri/src/mates/initiative.rs`, `src/features/mates/following-up.tsx` — check: `bun run test:shell mates::initiative`, `bun test following-up`; manual
+- [ ] T82 [FR-80] Tests, then code: `spend::over` (mates at or over the limit, not paused, not excused today; none with the limit off); the check on work changes; excuse on Resume; the setting and the paused line — `src-tauri/src/mates/spend.rs`, `system.rs`, `mates/mod.rs`, `src/features/settings/sections/mates-settings.tsx`, `src/features/mates/composer.tsx` — check: `bun run test:shell mates::spend`; manual
+- [ ] T81 [FR-73 – FR-80] Check each in the app on scratch data, light and dark, screenshots in `docs/features/evo-mates/assets/`; verification rows; `apps/desktop/README.md` UI map — check: rows below
+
 ### Phase 5 — Verify
 
 Done when: every row below is `passed` with its date.
@@ -192,6 +217,14 @@ Done when: every row below is `passed` with its date.
 | FR-70 | Manual T61 | partly (2026-11-26): the list, Initiative and the check-in editor (every day, weekdays, weekly days and time) are in Settings, editor tests passed; a manual pass of each action: not run |
 | FR-71 | Shell tests T58; manual Usage | passed (2026-11-26): pause skips; heartbeat turns and a channel's calls record under usage source `mates` (engine test); manual check of Usage: not run |
 | FR-72 | `cargo test -p evo-engine channel session_roles` (T64); manual | passed (2026-11-26): `a_reply_goes_to_the_mates_who_asked`, `a_question_to_the_person_is_one_that_mentions_no_member`, `a_seat_asks_in_its_reply_not_with_a_card`; manual in a channel with **Everyone**: the mate asked numbered questions in its reply, the answer without a mention went only to it ("Hạnh Sale, who asked you") and it wrote the draft |
+| FR-73 | `cargo test -p evo-store upcoming mates_since` (T68); `bun test` (T69); manual T81 | not run |
+| FR-74 | `bun run test:shell mates::template` (T70); manual T81 | not run |
+| FR-75 | `bun run test:shell mates::teams` (T72); manual T81 | not run |
+| FR-76 | `cargo test -p evo-store search_messages` (T74); manual T81 | not run |
+| FR-77 | `bun run test:shell mates::knowledge` (T76); manual T81 | not run |
+| FR-78 | `bun run test:shell agent_tools::mates` (T78); manual T81 | not run |
+| FR-79 | `bun run test:shell mates::initiative` (T80); manual T81 | not run |
+| FR-80 | `bun run test:shell mates::spend` (T82); manual T81 | not run |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |

@@ -5,7 +5,7 @@
 | Status | In progress |
 | Area | desktop shell, desktop UI, engine, protocol, `evo-store`, packaging |
 | Created | 2026-11-25 |
-| Updated | 2026-11-25 |
+| Updated | 2026-11-28 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | UX | [ux.md](ux.md): layout, messages, states, interactions, avatars |
@@ -290,7 +290,7 @@ Acceptance scenarios:
 | FR-5 | The tray menu must open either app. | Given the tray menu, then it has **Open Evo Harness** and **Open Evo Mates**, and each brings its window forward. |
 | FR-6 | Evo Mates must show a roster of mates and channels with avatar, name, role, last message and state: idle, working, queued, needs you or unread. | Given mates in each state, then each row shows the right state and updates without reopening. |
 | FR-7 | The person must be able to create a mate from a role template or from scratch. A new mate starts with the app's approval mode, or with the mode its role card suggests when the person picks that role; every field (name, avatar, role, instructions, model, thinking level, Apps, skills, approval mode, sending setting) can be changed later in the mate panel. | Given the gallery, when a role is picked, then a mate exists with that role's settings and opens on its conversation; given **Start from scratch**, then the conversation opens with no form first. |
-| FR-8 | Evo must ship a gallery of role templates, each with face, name, one-line description, instructions, suggested apps and, where the role needs it, a suggested approval mode shown on its card. | Given a fresh install, then the gallery lists the templates, each creates a working mate, and a role suggesting a looser mode shows it on the card. |
+| FR-8 | Evo must ship a gallery of role templates, each with face, name, one-line description, instructions, suggested apps and, where the role needs it, a suggested approval mode shown on its card. | Given a fresh install, then the gallery lists at least 16 roles in at least 6 categories, each creates a working mate, and a role suggesting a looser mode shows it on the card. |
 | FR-9 | Each mate must have one conversation that lasts across restarts, is never split into separate chats, is summarised for the model when it grows too long, and stays fully scrollable and searchable for the person. | Given a conversation past the model's context window, then the mate still answers and a search finds the first message. |
 | FR-10 | A mate must answer as itself: its name and avatar on its messages, its instructions and model on every turn; a profile change applies from the next turn. | Given a changed model, when the person writes, then the next reply uses the new model, shown in its details. |
 | FR-11 | Each mate must keep its own private memory across its conversation and channels, and also read the person's general memories, never Evo Harness's project memories. | Given a fact told to mate A in a direct message, when asked in a channel A is in, then A answers from memory and mate B does not know it; given a Harness project memory, then no mate can read it. |
@@ -355,6 +355,14 @@ Acceptance scenarios:
 | FR-70 | A mate's panel must show its **Following up** list: each agenda item and check-in with its time; the person can remove an item, mark it "never follow up on this", or change a check-in. A removed or "never" item is not followed up. | Manual check of each action; a "never" item does not come back after a new mention of it. |
 | FR-71 | Proactive work must be visible and bounded: each heartbeat decision, first message and read-only run is recorded in the mate's usage (source `mates`) and in the app log; **Pause** (FR-45) stops a mate's initiative too. | Usage shows proactive cost per mate; a paused mate never writes first. |
 | FR-72 | In a channel a mate must ask the person in its reply, as plain text (numbered when there are several questions, each with what it would assume), never with a question card, which the channel cannot show; the person answers in the channel. A message of the person with no mention that follows such a question goes to the mates who asked, whatever the reply rule. | Given a channel with **Everyone** and a mate that asked a question, when the person replies without a mention, then only that mate gets it and the route line reads "{name}, who asked you"; a mate's seat has no `ask_user` tool. |
+| FR-73 | Evo Mates must have a home, **Today**, at the top of the sidebar and shown whenever no conversation is open, that gathers across every mate and channel: **Needs you** (each mate or channel waiting for an approval, an answer, a sign-in or a secret), **New** (conversations and channels with unread replies or first messages, newest first, each with its first line), **Coming up** (agenda items and check-ins due before the end of tomorrow, in time order, each with its mate) and **Your team today** (each mate that replied today, with its replies and cost today). Every row opens its conversation, channel or Following up list. Today is built from Evo's own data and makes no model call. | Given a waiting mate, an unread channel, an item due tomorrow and a mate that replied twice today, then each shows in its section with the right counts and opens its place; opening Today records no usage. |
+| FR-74 | Each gallery role must carry three or four **conversation starters**, requests in the person's words that show what the role does. A mate's conversation with no message yet shows its role's starters under the greeting (a mate made from scratch shows starters that help set it up); choosing one sends it as the person's message. Starters stop showing once the conversation has a message. | Given every gallery role, then each has 3–4 starters; given a new mate from a role, when a starter is chosen, then it is sent as the person's first message and the starters go. |
+| FR-75 | The gallery must offer ready-made **teams**: a channel with its name, rule, lead and instructions, and its mates, each with its faces, name, one line and **Add team**. Add team shows the import preview of FR-21 and creates nothing until the person confirms; the mates and channel it creates follow FR-21 (the app's approval mode, Apps off, skills off, Ask every time). Teams ship in the team file format (FR-27). | Given every built-in team, then it reads as a team file; given Add team, then the preview shows and Cancel creates nothing; Confirm creates the mates and the channel with its lead. |
+| FR-76 | The roster search must also find messages: from two characters on it lists, under the matching mates and channels, **Messages** — mates' conversations and channels whose text holds the words, each with its mate's face or the channel's name, a snippet around the first match and its time, at most 20 — and choosing one opens that conversation or channel. Evo Harness chats never show, and Evo Harness's search never shows mates' conversations (FR-24). | Given a word written only in one channel and one mate's conversation, when the person searches it, then both show with their snippets and each opens; a Harness chat with the word does not show. |
+| FR-77 | Each mate must have **Knowledge**: files the person adds in the mate panel are copied into a `knowledge` folder in the mate's own folder and listed there with **Remove**. Every turn of the mate, in its conversation and its channels, names those files and tells the mate to read the ones that bear on the request before answering. Knowledge stays on the device; it is never written to a team file. At most 50 files, each at most 25 MB; folders, hidden files and links are refused with the reason. | Given a file added to a mate's Knowledge, then it is in the folder and the mate's next turn names it; after Remove, neither the folder nor the turn has it; a team file export of the mate does not name it. |
+| FR-78 | The gallery must have **Describe a mate**: the person writes what they need in their own words; Evo creates a mate from scratch and sends that text as the person's first message. In its first turn the mate chooses a short name and a one-line role from it and saves them, with the description's specifics, through its setup answers (FR-34), then asks only what the description left open. A mate may rename itself or change its role only while it still has the name it was created with from scratch. | Given "someone to keep my receipts and monthly spending in order", then a mate is created with that first message, and after its first turn its name and role are set; given a mate already named, then a later rename by the mate is refused. |
+| FR-79 | The mate panel's Following up list must let the person **add a check-in** without asking in chat: a short text of what to look at, and a schedule (every day, weekdays or weekly on chosen days, at a time), with presets **Morning brief** (weekdays 09:00), **End of day** (weekdays 17:30) and **Weekly review** (Fridays 16:00). It is the same check-in as one the mate sets up (FR-69): it pauses, changes and is removed the same way. | Given **Morning brief** chosen, then a weekday 09:00 check-in shows in Following up with its next time, and at that time the mate writes (FR-64). |
+| FR-80 | Settings › Evo Mates must have a **daily spending limit per mate**, off by default. When a mate's cost today (its conversation and its seats, as Today shows it) reaches the limit, Evo pauses that mate (FR-45) at the end of the turn that reached it, says so in its conversation and roster row ("Paused: reached today's limit of $2.00") and notifies the person. **Resume** lets the mate go on for the rest of the day; the limit applies again from the next day. Changing the limit takes effect at once. | Given a limit of $0.50 and a mate whose turns cost $0.60 today, then after that turn the mate is paused with the line and a notification; after Resume, a further turn is not stopped that day; with the limit off, nothing is paused. |
 
 ### 4.2 Non-functional
 
@@ -533,6 +541,38 @@ None.
   @ and every such line woke the named mate, so greetings looped until the
   hand-off limit stopped everyone. An imperative request without "?" is
   given by mail with "[assign]", as the delivery tells the mate.
+- A-13 (2026-11-28, owner away) The round's gaps come from the market
+  research ([research-2026-11.md](research-2026-11.md)), chosen for one
+  person with a few mates on their own computer: Today, starters, teams,
+  message search, Knowledge, Describe a mate, check-ins from the panel and a
+  daily spending limit (FR-73 – FR-80), and 16 gallery roles (FR-8).
+- A-14 (2026-11-28, owner away) Today replaces the "Pick a mate" screen and
+  is the sidebar's first row; the gallery still greets a person with no mate
+  (A-5). "Replies" are model answers recorded in Usage, so a heartbeat that
+  stayed silent counts too: it was paid for.
+- A-15 (2026-11-28, owner away) A built-in team is imported like a team
+  file, with the same safe defaults (FR-21): apps and skills off, the app's
+  approval mode, Ask every time before sending.
+- A-16 (2026-11-28, owner away) Knowledge files are copied into the mate's
+  folder, not linked, so the mate reads what the person chose even if the
+  original moves; removing one deletes only Evo's copy. Limits: 50 files,
+  25 MB each.
+- A-17 (2026-11-28, owner away) A mate names itself (FR-78) only while it
+  is still called "New mate", so nothing a named mate reads later can
+  rename it.
+- A-18 (2026-11-28, owner away) The spending limit is one amount for every
+  mate, off by default, checked when a turn ends (a turn already running is
+  not cut off), in the providers' prices as Usage records them. A mate over
+  its limit stays paused until Resume; it is not resumed by itself the next
+  day, so the person sees why it stopped.
+- A-19 (2026-11-28, owner away) Message search lists conversations, not
+  single messages, opening the conversation at its end — the search text is
+  kept per conversation; jumping to the message is left for later.
+- A-20 (2026-11-28, owner away) Left out of this round, each needing the
+  owner: app-event triggers and onboarding from the person's mail (data to a
+  new third party), a shared "brain" for every mate (which memory wins over
+  a mate's own), threads in channels, a task board across mates, channel
+  memory and schedules, outside chat apps and phones (spec 2.2).
 
 ## 7. History
 
@@ -556,3 +596,4 @@ None.
 - 2026-11-28 — Owner asked for the same Customize page in Evo Mates as in Evo Harness (skills, subagents, connectors with connected apps and providers, plugins, hooks, instructions), opened from the sidebar footer and from a mate's Apps tab, so both apps manage them in one place ([Connected apps](../connected-apps/spec.md) FR-3, A-3).
 - 2026-11-28 — Owner asked that Evo Mates' Customize show only what concerns mates: Instructions (personal and project instructions reach a mate's turns), Skills, Connectors (apps, providers, MCP servers) and Plugins (FR-39); Subagents, Hooks and Code intelligence are Evo Harness's only. A section hidden here opens Skills, or Connectors when no mate is open.
 - 2026-11-28 — Owner asked that Evo Harness's agents use the mates' faces so both apps look alike: ux.md 6 changed; the agents' side is [subagents](../subagents-and-nested-sessions/spec.md) FR-25.
+- 2026-11-28 — Owner away, asked for Evo Mates to match the best AI-teammate apps: market research of about forty products ([research-2026-11.md](research-2026-11.md)); FR-73 – FR-80 added (Today, starters, teams, message search, Knowledge, Describe a mate, check-ins from the panel, daily spending limit), FR-8 raised to 16 roles; A-13 – A-20 recorded.

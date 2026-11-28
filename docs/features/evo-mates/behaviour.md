@@ -5,7 +5,7 @@
 | Spec | [spec.md](spec.md) (FR-39 – FR-58) |
 | UX | [ux.md](ux.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-25 |
+| Updated | 2026-11-28 |
 
 How mates behave: with connections, plugins and skills, with the person in
 a direct conversation, and with each other in a channel. The owner asked
@@ -68,6 +68,10 @@ what Evo already has. "Today" names the Evo feature a behaviour reuses.
 
 ## 5. Not taken in this release
 
-Uninvited contributions in channels, routines and triggers, morning briefs,
-memory suggestions ("Update / Not now"), teaching by recording, a mate's own
-cloud computer, outside chat apps, phone and voice — see spec 2.2.
+Uninvited contributions in channels, triggers from app events, teaching by
+recording, a mate's own cloud computer, outside chat apps, phone and voice
+— see spec 2.2. Check-ins and follow-ups (FR-63 – FR-71) and the round from
+the 2026-11 market research — Today, starters, teams, message search,
+Knowledge, Describe a mate, check-ins from the panel and a daily spending
+limit (FR-73 – FR-80) — are taken; what that research left out is listed in
+spec A-20 and [research-2026-11.md](research-2026-11.md).

@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) · UX: [ux.md](ux.md) · Behaviour: [behaviour.md](behaviour.md) |
 | Tasks | [tasks.md](tasks.md) |
-| Updated | 2026-11-25 |
+| Updated | 2026-11-28 |
 | ADD sections | [4. Process view](../../architecture/README.md#4-process-view), [5.2 Desktop app](../../architecture/README.md#52-desktop-app), [6.2 Sessions talking to sessions](../../architecture/README.md#62-sessions-talking-to-sessions), [7. Data view](../../architecture/README.md#7-data-view), [10. Deployment view](../../architecture/README.md#10-deployment-view) |
 | ADRs | [0028 Evo Harness and Evo Mates are two front ends in one app process](../../architecture/decisions/0028-two-front-ends-in-one-app-process.md), [0018 The shell hosts engines](../../architecture/decisions/0018-the-shell-hosts-engines-windows-attach.md), [0010 The engine enforces the approval mode](../../architecture/decisions/0010-engine-enforces-approval-mode.md), [0007 One transcript file per chat](../../architecture/decisions/0007-one-transcript-file-per-chat.md) |
 
@@ -641,6 +641,95 @@ commands. Heartbeat turns' usage is recorded with source `mates`; each
 decision is logged (`mates` source in the app log).
 
 **Router budget** (FR-53): `channel/router.rs` `BUDGET` 1.5 s → 6 s.
+
+### 3.10 From the market research (FR-73 – FR-80, FR-8)
+
+The gaps chosen from [research-2026-11.md](research-2026-11.md). Architecture
+check: nothing here decides what an agent does. The shell keeps files and
+rows and builds a mate's role text as it already does; the UI reads Evo's
+own data. No new process, protocol plane, crate, network host or trust
+boundary; no migration (every piece reads tables that exist).
+
+| Layer | Path | Responsibility | Requirements |
+| --- | --- | --- | --- |
+| crate | `crates/evo-store/src/agenda.rs` | `upcoming(conn, until)`: open agenda items and check-ins of every mate due before `until`, in time order | FR-73 |
+| crate | `crates/evo-store/src/mates.rs` | `search_messages(conn, transcripts, query, limit)`: chats of kind `mate` and `channel` whose search text holds the words, with a snippet around the first match on a line that is not an envelope (`<…`) | FR-76 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/today.rs` (new) | `mates_today`: `upcoming` until the end of tomorrow, and each mate's replies and cost since the start of today (`mates_since`, from `usage::summary`'s per-mate sums, which count its seats), local time | FR-73, FR-80 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/template.rs`, `templates/*.md` | `starter:` lines (one per starter) in a role's front matter, returned with the gallery's summary; at least 16 roles in 6 categories | FR-8, FR-74 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/teams.rs` (new), `templates/teams/*.md` | Built-in teams in the team file format with an id and one line; `mates_teams`, `team_preview_builtin`, `team_import_builtin` over the same preview and import as a file (`team_file::preview_text`, `import_text`) | FR-75 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/knowledge.rs` (new), `mates/mod.rs` | `mates_knowledge`, `mates_knowledge_add` (copies the picked files into `<mate>/knowledge`, refusing folders, hidden files, links, files over 25 MB and the 51st file), `mates_knowledge_remove`; `instructions` lists the files after the mate's own text, so its direct chat and its seats name them; a change rewrites the roles as a profile change does | FR-77 |
+| desktop shell | `apps/desktop/src-tauri/src/agent_tools/mates.rs`, `crates/evo-engine/src/session_roles.rs` | `mate_profile` takes `name` and `role`, kept only while the mate is still called "New mate"; the conduct block tells a mate whose first message describes what it is for to name itself from it | FR-78 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/initiative.rs` | `mates_agenda_add_checkin(id, text, repeat)`: a check-in from the panel, its first time from the schedule | FR-79 |
+| desktop UI | `apps/desktop/src/features/mates/today.tsx`, `today-sections.ts` (new) | The Today page: Needs you and New from the session store's work and unread rows, Coming up and Your team today from `mates_today`; `todaySections` is a pure function with tests | FR-73 |
+| desktop UI | `apps/desktop/src/features/mates/starters.tsx` (new), `mate-panel.tsx` | Starter chips under the greeting; a mate with no role's starters gets the from-scratch ones | FR-74 |
+| desktop UI | `apps/desktop/src/features/mates/gallery.tsx`, `team-import.tsx` | A **Teams** tab with team cards; Add team opens the import preview on a built-in team; **Describe a mate** box | FR-75, FR-78 |
+| desktop UI | `apps/desktop/src/features/mates/roster.tsx`, `message-hits.tsx` (new) | **Messages** under the roster while searching | FR-76 |
+| desktop UI | `apps/desktop/src/features/mates/knowledge.tsx` (new), `mate-panel.tsx` | Knowledge in the Files tab: Add files, the list, Remove | FR-77 |
+| desktop UI | `apps/desktop/src/features/mates/following-up.tsx` | **Add check-in** with the three presets and the check-in editor | FR-79 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/spend.rs` (new), `system.rs`, `mates/mod.rs` | The daily limit (`mates.dailyLimitUsd`): when the chats with work change, mates over the limit today are paused with a notice; a mate resumed while over it is excused until the day ends | FR-80 |
+| desktop UI | `apps/desktop/src/features/settings/sections/mates-settings.tsx`, `composer.tsx` | The limit's field; the paused line names the limit | FR-80 |
+
+**Today** (FR-73). `MatesView` gains `{ kind: "today" }`; the sidebar has a
+**Today** row above the pinned tiles, and the view that was `empty` shows
+Today (the gallery still greets a person with no mate, A-5). Needs you and
+New need no new data: the session store already holds each chat's `work`
+(`waiting`) and `unread` with its preview. Coming up and Your team today
+come from one shell call; the page reads it again on `mates://changed` and
+when a turn ends. "Replies" counts usage rows of the mate's chats, one per
+model answer, which is what the person was charged for.
+
+**Starters** (FR-74). Front matter keeps `key: value` lines, so each
+starter is its own `starter:` line (a starter may hold commas). The UI looks
+a mate's starters up by its `template`; a mate with none shows the
+from-scratch set ("Here is what I need help with…", "Ask me what you need to
+know to help me", "What can you do with my files?").
+
+**Teams** (FR-75). A team's file is the team file of FR-27, so a team is
+previewed and imported by the same code as a file; `teams.rs` holds
+`(id, one line, text)` for each. `team_file` splits `team_preview` and
+`team_import` into `preview_text` / `import_text` over the file's text.
+
+**Message search** (FR-76). The chat search text (`chat_search`, kept by
+`refresh_search`) already holds every chat's words, mates' included; Harness's
+`search_chats` keeps `kind = 'chat'`. `search_messages` keeps `kind IN
+('mate', 'channel')`, so seats (a channel's inner sessions) never show; the
+UI maps each chat to its mate or channel and debounces the query by 200 ms.
+
+**Knowledge** (FR-77). Files go to `<agent dir>/mates/<id>/knowledge/`,
+beside the mate's `work` and `memory` folders, so a channel's project folder
+does not hide them. The role text ends with:
+
+```text
+Your knowledge files, in <folder>: a.pdf, notes.md. Read the ones that bear
+on a request before you answer it, and say which you used.
+```
+
+Reads never ask (approval modes), so a mate reads them under any mode. The
+team file writes the mate's stored instructions, which never hold this
+block.
+
+**Describe a mate** (FR-78). The gallery creates a mate from scratch, opens
+it and sends the text with the engine store's `sendPrompt`. The setup rule
+in `MATE_CONDUCT` gains: when the first message already says what you are
+for, save a short name and a one-line role with `mate_profile`, then ask
+only what is still open. `mate_profile` refuses `name` and `role` (and says
+why) once the mate's name is not the from-scratch name, so text that reaches
+a named mate later cannot rename it.
+
+**Daily spending limit** (FR-80). Usage rows are written by the engines,
+so the shell checks after the fact: `system.rs` already calls
+`mates::apply_pending` whenever the chats with work change; `spend::check`
+runs there too, reads the limit and `mates_since(start of today)`, and for
+each mate at or over it that is not paused and not excused today sets
+`paused` (no stop: its turn has ended) and sends a notice through the
+mate's notification rule. `mates_update` with `paused: false` on a mate
+over its limit records it as excused for that day (in memory; a restart
+forgets it, and the next check pauses it again, which errs on the side of
+spending less).
+
+**Check-ins from the panel** (FR-79). The same row as the `mate_agenda`
+tool writes (`kind = 'checkin'`, `repeat` in the Scheduler's shape), so the
+heartbeat, pause and the editor need no change.
 
 ## 4. Alternatives considered
 
