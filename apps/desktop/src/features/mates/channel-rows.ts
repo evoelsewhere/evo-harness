@@ -160,3 +160,12 @@ export function boldMentions(markdown: string, names: string[]): string {
     })
     .join("");
 }
+
+/** Why **Run retro** did not run, in plain words (learning-layers FR-19, FR-24). */
+export function retroFailure(error: string): string {
+  const reason = error.replace(/^Error:\s*/, "").replace(/^no retro:\s*/, "");
+  if (reason === "no model") return "No model for the retro: pick a Background model in Settings › Evo Mates, or a model for the lead.";
+  if (reason === "no job") return "Nothing to look back on yet.";
+  if (/already running/.test(reason)) return "A retro is already running.";
+  return "The retro did not run.";
+}

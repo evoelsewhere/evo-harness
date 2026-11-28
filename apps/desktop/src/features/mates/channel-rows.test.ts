@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelEntry } from "@/lib/mates";
-import { boldMentions, channelRows, handoffLine, insertMention, mentionAt, mentionParts } from "./channel-rows";
+import { boldMentions, channelRows, handoffLine, insertMention, mentionAt, mentionParts, retroFailure } from "./channel-rows";
 
 // docs/features/evo-mates/spec.md (FR-14 – FR-19, FR-58).
 const at = (minutes: number) => 1_700_000_000_000 + minutes * 60_000;
@@ -128,4 +128,14 @@ test("a retro is a card and a job end shows nothing", () => {
   expect(rows.map((row) => row.kind)).toEqual(["time", "bubble", "retro"]);
   const retro = rows[2];
   expect(retro.kind === "retro" && retro.card.lessons[0].row).toBe(7);
+});
+
+// learning-layers FR-19, FR-24 (qa-2026-11-28, C4): Run retro says why it did not run.
+describe("a retro that did not run", () => {
+  test("says what to do in plain words", () => {
+    expect(retroFailure("no retro: no model")).toBe("No model for the retro: pick a Background model in Settings › Evo Mates, or a model for the lead.");
+    expect(retroFailure("no retro: no job")).toBe("Nothing to look back on yet.");
+    expect(retroFailure("no retro: a learning step for personal is already running")).toBe("A retro is already running.");
+    expect(retroFailure("boom")).toBe("The retro did not run.");
+  });
 });

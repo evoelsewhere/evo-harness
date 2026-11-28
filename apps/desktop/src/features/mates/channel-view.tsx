@@ -24,6 +24,7 @@ import {
   insertMention,
   mentionAt,
   mentionParts,
+  retroFailure,
   type ChannelRow,
 } from "./channel-rows";
 import { ChannelSettings, RULES } from "./channel-settings";
@@ -61,6 +62,13 @@ export function ChannelBar({ channel }: { channel: Channel }) {
   const removeChannel = useMatesStore((s) => s.removeChannel);
   const [settings, setSettings] = React.useState(false);
   const [confirm, setConfirm] = React.useState(false);
+  // Why Run retro did not run, for a few seconds (learning-layers FR-19).
+  const [retroNote, setRetroNote] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!retroNote) return;
+    const timer = window.setTimeout(() => setRetroNote(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [retroNote]);
   const rule = RULES.find((r) => r.id === channel.replyRule);
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2 pl-3">
@@ -86,12 +94,23 @@ export function ChannelBar({ channel }: { channel: Channel }) {
         </span>
       )}
       <div className="flex-1" />
+      {retroNote && (
+        <span role="status" className="max-w-[45%] truncate text-xs text-muted-foreground" title={retroNote}>
+          {retroNote}
+        </span>
+      )}
       <IconButton label="Export channel" onClick={() => void exportTeam({ channel: channel.id }, channel.name)}>
         <DownloadIcon />
       </IconButton>
       <IconButton
         label="Run retro"
-        onClick={() => void channelsApi.runRetro(channel.chatId).catch((error) => log("warn", "mates", `the retro did not run: ${String(error)}`))}
+        onClick={() => {
+          setRetroNote(null);
+          void channelsApi.runRetro(channel.chatId).catch((error) => {
+            log("warn", "mates", `the retro did not run: ${String(error)}`);
+            setRetroNote(retroFailure(String(error)));
+          });
+        }}
       >
         <ClipboardCheckIcon />
       </IconButton>
