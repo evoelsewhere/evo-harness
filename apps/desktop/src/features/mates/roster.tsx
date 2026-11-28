@@ -6,7 +6,7 @@
 // the time and an unread badge; a ⋯ button and right-click open its menu.
 
 import * as React from "react";
-import { BellIcon, BellOffIcon, HashIcon, MoreHorizontalIcon, PauseIcon, PinIcon, PinOffIcon, PlayIcon } from "lucide-react";
+import { HashIcon, MoreHorizontalIcon, PauseIcon, PinIcon, PinOffIcon, PlayIcon } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -22,6 +22,7 @@ import { plainPreview } from "./plain-preview";
 import { channelPresence } from "./presence";
 import { MatePresenceFace, PresenceMark, usePresence } from "./presence-face";
 import { exportTeam } from "./team-import";
+import { MuteMenuItems, QuietMark } from "./mute-menu";
 import { currentStep, isHeartbeat, isSilent } from "./thread-rows";
 
 /** A mate's second line, time and unread mark, from its chat (FR-4). */
@@ -66,11 +67,9 @@ function MateMenuItems({ mate, onDelete }: { mate: Mate; onDelete(): void }) {
         {mate.paused ? <PlayIcon /> : <PauseIcon />}
         {mate.paused ? "Resume" : "Pause"}
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => void store().update(mate.id, { notifications: !mate.notifications })}>
-        {mate.notifications ? <BellOffIcon /> : <BellIcon />}
-        {mate.notifications ? "Mute notifications" : "Unmute notifications"}
-      </DropdownMenuItem>
       <DropdownMenuItem onClick={() => useSessionStore.getState().markUnread(mate.chatId, true)}>Mark unread</DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <MuteMenuItems chat={mate.chatId} />
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => {
@@ -174,6 +173,7 @@ export function MateRow({ mate, active }: { mate: Mate; active: boolean }) {
         <span className="pointer-events-none min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
             <span className={cn("truncate text-[13px] leading-[18px] text-sidebar-foreground", strong ? "font-semibold" : "font-medium")}>{mate.name}</span>
+            <QuietMark chat={mate.chatId} />
             {at && (
               <span className={cn("ml-auto shrink-0 text-[11px] text-muted-foreground group-hover/row:invisible", unread && "text-foreground")}>
                 {formatRelative(at)}
@@ -316,6 +316,7 @@ export function ChannelRow({ channel, active }: { channel: Channel; active: bool
       <span className="pointer-events-none min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span className={cn("truncate text-[13px] leading-[18px] text-sidebar-foreground", strong ? "font-semibold" : "font-medium")}>{channel.name}</span>
+          <QuietMark chat={channel.chatId} />
           {at && <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{formatRelative(at)}</span>}
         </span>
         <span

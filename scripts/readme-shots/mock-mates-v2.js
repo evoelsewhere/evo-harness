@@ -157,9 +157,60 @@
     reply(ago(2), [{ type: "text", text: "**Plan for Friday**\n\n- Build: done\n- Notes: two links left\n- Screenshots: done\n\nI'll check the links again at 3 pm." }]),
   ];
 
+  // ── Messaging basics 1b (evo-mates-messaging): reactions, a quoted reply,
+  // a mention of the person with a link, a hand-off with a file, pins ──
+  const LAUNCH = [
+    { kind: "message", id: "p1", author: "person", text: "We ship 4.14 on Friday. @Ava can you split the launch work between the team?", at: ago(18) },
+    { kind: "route", message: "p1", picked: ["ava"], line: "Ava, as you mentioned", at: ago(18) },
+    { kind: "message", id: "a1", author: "ava", name: "Ava", text: "On it. Kai takes the release build and the changelog, Lin writes the notes from it, Mo refreshes the screenshots.", at: ago(17) },
+    { kind: "handoff", message: "p1", handoff: "assigns", from: "ava", fromName: "Ava", to: "kai", toName: "Kai", text: "Cut the 4.14 release build and update CHANGELOG.md", at: ago(17) },
+    { kind: "message", id: "k1", author: "kai", name: "Kai", text: "Build is green on all three platforms. CHANGELOG.md has 14 entries under 4.14.", at: ago(9) },
+    { kind: "handoff", message: "p1", handoff: "tells", from: "mo", fromName: "Mo", to: "lin", toName: "Lin", text: "The new dark screenshot for the notes", files: [`${HOME}\\.evo\\agent\\mates\\mo\\hero-dark.png`], at: ago(7) },
+    { kind: "message", id: "l1", author: "lin", name: "Lin", text: "Great, I will use those 14 entries for the highlights.", quote: "k1", at: ago(5) },
+    { kind: "message", id: "k2", author: "kai", name: "Kai", text: "@you can you confirm the two beta links before Friday? The release docs are at https://example.com/docs/release", at: ago(3) },
+  ];
+  h.channel_reactions = ({ channel }) =>
+    channel === "launch"
+      ? [
+          { message: "a1", reactor: "kai", reaction: "like", atMs: ago(16) },
+          { message: "a1", reactor: "lin", reaction: "like", atMs: ago(16) },
+          { message: "k1", reactor: "person", reaction: "heart", atMs: ago(8) },
+          { message: "k1", reactor: "ava", reaction: "heart", atMs: ago(8) },
+          { message: "k1", reactor: "lin", reaction: "emphasis", atMs: ago(6) },
+        ]
+      : [];
+  h.channel_react = () => null;
+  h.mates_mentions = () => [{ chat: "chan-launch", line: "k2", author: "kai", name: "Kai", excerpt: "@you can you confirm the two beta links before Friday?", at: ago(3) }];
+  h.mates_mentions_read = () => null;
+  h.link_preview = ({ url }) => ({ url, title: "Release notes and docs for 4.14", site: "Example Docs", description: "Everything new in this release.", image: null });
+  const baseSettings = h.settings_all;
+  h.settings_all = () => ({
+    ...baseSettings(),
+    "mates.linkPreviews": true,
+    "mates.pins": {
+      "chan-launch": [
+        { key: "a1", excerpt: "On it. Kai takes the release build and the changelog, Lin writes the notes…", at: ago(16) },
+        { key: "k1", excerpt: "Build is green on all three platforms.", at: ago(8) },
+      ],
+    },
+    "mates.mute": { "chan-research": { until: null } },
+  });
+
   const baseSend = h.engine_send;
   h.engine_send = (args) => {
     const { chat, message } = args;
+    if (message?.type === "get_session_branch" && chat === "chan-launch") {
+      setTimeout(
+        () =>
+          window.__mockEmit("engine://message", {
+            chat,
+            generation: 1,
+            message: { type: "response", id: message.id, command: message.type, success: true, data: { entries: LAUNCH.map((data) => ({ type: "custom", customType: "channel", data })) } },
+          }),
+        10,
+      );
+      return null;
+    }
     if (message?.type === "get_messages" && chat === "chat-ava") {
       setTimeout(
         () =>

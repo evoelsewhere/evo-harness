@@ -9,6 +9,7 @@ import { log } from "@/lib/db";
 import { matesApi, type Mate, type ReactionKind } from "@/lib/mates";
 import { MateComposer } from "./composer";
 import { FindBar } from "./find-bar";
+import { PinsBar } from "./pins-bar";
 import { MatePresenceFace } from "./presence-face";
 import { excerpt, type ReplyTo } from "./message-markup";
 import { SecretCard } from "./secret-card";
@@ -66,6 +67,8 @@ export function MateConversation({ mate, empty }: { mate: Mate; empty: React.Rea
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Pinned messages (evo-mates-messaging FR-14). */}
+      <PinsBar chat={mate.chatId} />
       <div className="relative min-h-0 flex-1">
         <FindBar scopeId={`thread-${mate.chatId}`} version={turnsCount} />
         <MateThread

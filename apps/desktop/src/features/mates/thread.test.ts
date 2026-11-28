@@ -189,3 +189,13 @@ describe("message status", () => {
     expect(word(threadRows([turn({ parts: [text("hi")] })], false))).toBeNull();
   });
 });
+
+// docs/features/evo-mates-messaging/spec.md (FR-10).
+describe("a forwarded message", () => {
+  test("shows where it came from, apart from the note", () => {
+    const prompt = '<evo-mates-forward from="Writer">\nThe intro is ready.\n</evo-mates-forward>\ncheck this';
+    const rows = threadRows([turn({ prompt, parts: [text("On it")] })], false);
+    const mine = rows.find((r) => r.kind === "bubble" && r.bubble.side === "me");
+    expect(mine?.kind === "bubble" ? [mine.bubble.text, mine.bubble.forwarded?.from] : null).toEqual(["check this", "Writer"]);
+  });
+});

@@ -137,5 +137,18 @@ number. Link previews: see NFR-3.
   Windows gets a 32×32 RGBA overlay the window draws; the tray keeps its
   own counts.
 - 1a: drafts keep text only, not attachments.
+- 1b: reactions are keyed by the channel's id (not its chat), so the shell's
+  tool, the window and the coordinator share one key.
+- 1b: the coordinator writes each recent line as `[id] Author: text`; a reply
+  starting with `\u21a9 id` (or `reply to id`) becomes the line's `quote`, and
+  the person's channel replies use the direct chat's quote markup.
+- 1b: mentions are found by the shell from the `channel_event` lines it
+  already relays (`mates/mentions.rs`), not by the coordinator; they are kept
+  in the app setting `mates.mentions`.
+- 1b: muting is in the app setting `mates.mute`; a muted place still notifies
+  what needs the person unless its level is Nothing; a seat follows its
+  channel.
+- 1b: link previews never follow redirects and refuse any host that resolves
+  to a non-public address.
 - 1a: `/remind` asks the mate in a message (its agenda tool keeps it), as
   the mate would if asked in words.

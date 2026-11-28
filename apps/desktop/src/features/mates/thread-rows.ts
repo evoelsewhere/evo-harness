@@ -16,6 +16,8 @@ export interface Bubble {
   side: "me" | "mate";
   text: string;
   reply: ReplyTo | null;
+  /** A message the person forwarded here (evo-mates-messaging FR-10). */
+  forwarded?: ReplyTo;
   images?: string[];
   /** Files the person attached, by path (FR-81). */
   files?: string[];
@@ -248,16 +250,17 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
       });
       return;
     }
-    const { text: said0, reply } = parsePrompt(turn.prompt);
+    const { text: said0, reply, forwarded } = parsePrompt(turn.prompt);
     // Attached files and pasted text show as chips, not as markup (FR-81).
     const { text, files, pasted } = splitMessage(said0);
     // A new mate's wake-up is not the person's message (FR-34).
-    if (!isGreeting(turn.prompt) && (text.trim() || turn.images?.length || files.length || pasted.length)) {
+    if (!isGreeting(turn.prompt) && (text.trim() || forwarded || turn.images?.length || files.length || pasted.length)) {
       push({
         key: `${base}:prompt`,
         side: "me",
         text,
         reply,
+        forwarded,
         images: turn.images,
         files: files.length ? files : undefined,
         pasted: pasted.length ? pasted : undefined,

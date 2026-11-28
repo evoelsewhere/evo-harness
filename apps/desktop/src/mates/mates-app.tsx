@@ -27,6 +27,7 @@ import { panelDocks, railForced, sidebarForm } from "@/features/mates/sidebar-la
 import { useMatesKeys } from "@/features/mates/use-mates-keys";
 import { useIconBadge } from "@/features/mates/badge";
 import { useMatesUiStore } from "@/stores/mates-ui-store";
+import { useMatesPrefs } from "@/stores/mates-prefs-store";
 import { TodayPage } from "@/features/mates/today";
 import { startShellNotices } from "@/features/notifications/notify";
 import { Toaster } from "@/features/notifications/toaster";
@@ -70,6 +71,8 @@ function useBootstrap() {
         log("error", "mates", `could not connect: ${String(error)}`);
       }
       await useMatesStore.getState().load();
+      // Pins, mutes and link previews (evo-mates-messaging FR-14, FR-15, FR-17).
+      await useMatesPrefs.getState().load();
     })();
   }, []);
 }

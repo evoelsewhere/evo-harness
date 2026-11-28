@@ -14,6 +14,9 @@
 //! * Gallery roles are Markdown files in `templates/` ([`template`]).
 
 pub mod badge;
+pub mod mentions;
+pub mod reactions;
+pub mod link_preview;
 pub mod channels;
 pub mod files;
 pub mod grants;

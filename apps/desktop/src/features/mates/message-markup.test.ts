@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { forwardPrompt } from "./message-markup";
 import { composePrompt, excerpt, parsePrompt } from "./message-markup";
 
 // docs/features/evo-mates/spec.md (FR-60, FR-61).
@@ -23,5 +24,15 @@ describe("mate message markup", () => {
   test("an excerpt is one line and short", () => {
     expect(excerpt("a\n\nb   c")).toBe("a b c");
     expect(excerpt("x".repeat(200), 10)).toHaveLength(10);
+  });
+});
+
+// docs/features/evo-mates-messaging/spec.md (FR-10).
+describe("forwarding", () => {
+  test("a forward carries its source and the note, and reads back", () => {
+    const prompt = forwardPrompt("Writer", "The intro is ready.", "check this");
+    expect(prompt).toBe('<evo-mates-forward from="Writer">\nThe intro is ready.\n</evo-mates-forward>\ncheck this');
+    expect(parsePrompt(prompt)).toEqual({ text: "check this", reply: null, forwarded: { from: "Writer", text: "The intro is ready." } });
+    expect(forwardPrompt("A", "x", "")).toContain("(Forwarded for your information.)");
   });
 });

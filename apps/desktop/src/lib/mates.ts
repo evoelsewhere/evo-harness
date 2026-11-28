@@ -140,7 +140,40 @@ export const matesApi = {
   today: () => invoke<{ coming: AgendaItem[]; team: { mateId: string; replies: number; costUsd: number }[] }>("mates_today"),
   /** A chat's open questions and approvals (`engine_questions`): what Today's Needs you waits on (evo-mates-ui-v2 FR-26). */
   questions: (chat: string) => invoke<{ kind: string; title: string; at: number }[]>("engine_questions", { chat }),
+  /** Lines that mentioned the person (`@you`), for Today (evo-mates-messaging FR-18). */
+  mentions: () => invoke<Mention[]>("mates_mentions"),
+  mentionsRead: (chat: string) => invoke<void>("mates_mentions_read", { chat }),
+  /** A link's card, when link previews are on (FR-17). */
+  linkPreview: (url: string) => invoke<LinkPreview | null>("link_preview", { url }),
 };
+
+/** A channel line that mentioned the person (FR-18). */
+export interface Mention {
+  chat: string;
+  line: string;
+  author: string;
+  name: string;
+  excerpt: string;
+  at: number;
+}
+
+/** A link's card (FR-17). */
+export interface LinkPreview {
+  url: string;
+  title: string;
+  site: string;
+  description?: string | null;
+  image?: string | null;
+}
+
+/** A reaction on a channel line, by the person or a mate (FR-3, FR-4). */
+export interface ChannelReaction {
+  message: string;
+  /** "person" or a mate's id. */
+  reactor: string;
+  reaction: ReactionKind;
+  atMs: number;
+}
 
 /** A file in a mate's Knowledge (FR-77). */
 export interface KnowledgeFile {
@@ -225,7 +258,19 @@ export type ChannelPatch = Partial<Pick<Channel, "name" | "instructions" | "repl
 
 /** One thing a channel shows, as its coordinator wrote it (`channel` entries). */
 export type ChannelEntry =
-  | { kind: "message"; id: string; author: string; name?: string; text: string; at: number; status?: string; replyTo?: string | null; steers?: string }
+  | {
+      kind: "message";
+      id: string;
+      author: string;
+      name?: string;
+      text: string;
+      at: number;
+      status?: string;
+      replyTo?: string | null;
+      steers?: string;
+      /** The line a mate's line answers (evo-mates-messaging FR-5). */
+      quote?: string | null;
+    }
   | { kind: "route"; message: string; picked: string[]; line: string; at: number }
   | {
       kind: "handoff";
@@ -236,6 +281,8 @@ export type ChannelEntry =
       to: string;
       toName: string;
       text: string;
+      /** Files given with it (FR-6). */
+      files?: string[];
       at: number;
     }
   | { kind: "notice"; notice: string; text: string; at: number; author?: string }
@@ -256,6 +303,9 @@ export interface RetroCard {
 
 export const channelsApi = {
   list: () => invoke<Channel[]>("channels_list"),
+  /** Reactions on a channel's lines (FR-3). */
+  reactions: (channel: string) => invoke<ChannelReaction[]>("channel_reactions", { channel }),
+  react: (channel: string, message: string, reaction: ReactionKind | null) => invoke<void>("channel_react", { channel, message, reaction }),
   create: (input: CreateChannel) => invoke<Channel>("channels_create", { input }),
   update: (id: string, patch: ChannelPatch) => invoke<Channel | null>("channels_update", { id, patch }),
   remove: (id: string) => invoke<void>("channels_delete", { id }),

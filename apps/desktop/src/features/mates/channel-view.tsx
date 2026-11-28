@@ -34,6 +34,12 @@ import { channelMessage, splitMessage } from "./attachments";
 import { NamedFiles, SentByMe } from "./attachment-views";
 import { RetroCard } from "./retro-card";
 import { TypingLine } from "./typing-line";
+import { ForwardDialog, type Forwarding } from "./forward-dialog";
+import { LineBar, LinkCard, ReactionChips, useChannelReactions } from "./line-tools";
+import { composePrompt, excerpt, parsePrompt, type ReplyTo } from "./message-markup";
+import { jumpToMessage, PinsBar } from "./pins-bar";
+import { channelsApi, matesApi, type ChannelReaction, type ReactionKind } from "@/lib/mates";
+import { useMatesPrefs } from "@/stores/mates-prefs-store";
 
 const EMPTY: never[] = [];
 
@@ -55,7 +61,7 @@ function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
 }
 
 /** A hand-off as a card: sender → receiver, the verb, a summary that opens (FR-20; QA C1). */
-function HandoffCard({ row, faceOf }: { row: Extract<ChannelRow, { kind: "handoff" }>; faceOf(id: string): Mate | undefined }) {
+function HandoffCard({ row, faceOf, folder }: { row: Extract<ChannelRow, { kind: "handoff" }>; faceOf(id: string): Mate | undefined; folder: string | null }) {
   const [open, setOpen] = React.useState(false);
   const from = faceOf(row.from);
   const to = faceOf(row.to);
@@ -63,7 +69,7 @@ function HandoffCard({ row, faceOf }: { row: Extract<ChannelRow, { kind: "handof
   const full = handoffSummary(row.text, 4000);
   const long = full !== summary;
   return (
-    <div className="flex justify-center px-6 py-1">
+    <div className="flex flex-col items-center px-6 py-1">
       <button
         type="button"
         aria-expanded={long ? open : undefined}
@@ -86,9 +92,30 @@ function HandoffCard({ row, faceOf }: { row: Extract<ChannelRow, { kind: "handof
         </span>
         {long && <ChevronRightIcon className={cn("mt-0.5 size-3 shrink-0 transition-transform", open && "rotate-90")} />}
       </button>
+      {/* Files given with it (evo-mates-messaging FR-6). */}
+      {row.files.length > 0 && (
+        <div className="mt-1 flex max-w-[min(560px,90%)] justify-center">
+          <NamedFiles text="" paths={row.files} root={folder} />
+        </div>
+      )}
     </div>
   );
 }
+
+/** What every line of a channel can do (evo-mates-messaging FR-3, FR-5, FR-10, FR-14). */
+interface LineActions {
+  reactions: Map<string, ChannelReaction[]>;
+  react(message: string, kind: ReactionKind | null): void;
+  reply(to: ReplyTo): void;
+  pinned: Set<string>;
+  pin(key: string, text: string): void;
+  forward(from: string, text: string): void;
+  nameOf(id: string): string;
+}
+const LineContext = React.createContext<LineActions | null>(null);
+
+/** A line that mentions the person (`@you`, FR-18). */
+const MENTIONS_YOU = /(^|[^\p{L}\p{N}@])@you(?![\p{L}\p{N}_])/iu;
 
 function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
   switch (row.kind) {
@@ -113,26 +140,76 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
         </div>
       );
     case "handoff":
-      return <HandoffCard row={row} faceOf={faceOf} />;
+      return <HandoffCard row={row} faceOf={faceOf} folder={folder ?? faceOf(row.from)?.folder ?? null} />;
     case "notice":
       return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
     case "retro":
       return <RetroCard card={row.card} />;
-    case "bubble": {
+    case "bubble":
+      return <BubbleLine row={row} faceOf={faceOf} names={names} folder={folder} />;
+  }
+}
+
+function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, { kind: "bubble" }>; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
+  const actions = React.useContext(LineContext);
+  {
       const mate = row.me ? undefined : faceOf(row.author);
-      // The person's pictures, files and pasted text show as chips (FR-83).
-      const said = row.me ? splitMessage(row.text) : null;
+      // The person's pictures, files and pasted text show as chips (FR-83);
+      // a quote they replied with, or a forward, shows above (FR-5, FR-10).
+      const split = row.me ? splitMessage(row.text) : null;
+      const parsed = split ? parsePrompt(split.text) : null;
+      const said = split && parsed ? { ...split, text: parsed.text } : null;
+      const quote = row.me ? (parsed?.reply ? { name: parsed.reply.from === "you" ? "You" : parsed.reply.from, text: parsed.reply.text, id: null as string | null } : null) : row.quote ? { ...row.quote } : null;
       const root = folder ?? mate?.projectFolder ?? mate?.folder ?? null;
+      const reactions = actions?.reactions.get(row.key) ?? [];
+      const mine = reactions.find((r) => r.reactor === "person")?.reaction;
+      const plain = said?.text ?? row.text;
+      const mentionsYou = !row.me && MENTIONS_YOU.test(row.text);
+      const jump = () => {
+        if (quote?.id && jumpToMessage(quote.id)) return;
+        // A quote of the person names no id: find the line by its words.
+        const head = (quote?.text ?? "").replace(/\u2026$/, "").slice(0, 60);
+        const found = [...document.querySelectorAll<HTMLElement>("[data-entry]")].find((el) => (el.textContent ?? "").includes(head));
+        if (found?.dataset.entry) jumpToMessage(found.dataset.entry);
+      };
       return (
-        <div className={cn("flex items-end gap-2 px-4", row.me ? "justify-end" : "justify-start", row.first ? "mt-2" : "mt-0.5")}>
+        <div
+          data-entry={row.key}
+          className={cn(
+            "group/line relative flex items-end gap-2 px-4 pt-1",
+            row.me ? "justify-end" : "justify-start",
+            row.first ? "mt-2" : "mt-0.5",
+            mentionsYou && "bg-amber-500/[0.06] shadow-[inset_2px_0_0_0_rgb(245_158_11/0.7)]",
+          )}
+        >
           {!row.me && (
             <span className="w-7 shrink-0">
               {row.last && mate && <MateFace avatar={mate.avatar} size={28} plate={false} label={mate.name} />}
             </span>
           )}
-          <div className={cn("flex max-w-[75%] min-w-0 flex-col", row.me ? "items-end" : "items-start")}>
+          <div className={cn("relative flex max-w-[75%] min-w-0 flex-col", row.me ? "items-end" : "items-start")}>
             {!row.me && row.first && <span className="mb-0.5 ml-2 text-[11px] font-medium text-muted-foreground">{row.name}</span>}
+            {parsed?.forwarded && (
+              <span className="mb-0.5 mr-2 text-[11px] text-muted-foreground">Forwarded from {parsed.forwarded.from}</span>
+            )}
+            {quote && (
+              <button
+                type="button"
+                onClick={jump}
+                title="Go to the message"
+                className={cn(
+                  "mb-0.5 flex max-w-full items-stretch gap-2 rounded-2xl bg-muted/50 py-1 pr-3 pl-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted",
+                  row.me ? "mr-2" : "ml-2",
+                )}
+              >
+                <span aria-hidden className="w-0.5 shrink-0 rounded-full bg-brand/60" />
+                <span className="min-w-0 truncate">
+                  <span className="font-medium text-foreground/80">{quote.name}</span> {quote.text}
+                </span>
+              </button>
+            )}
             <div
+              data-bubble
               className={cn(
                 "rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
                 BUBBLE_TEXT,
@@ -143,10 +220,13 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
               )}
             >
               {said && <SentByMe files={said.files} pasted={said.pasted} />}
+              {parsed?.forwarded && (
+                <div className="mb-1 border-l-2 border-white/40 pl-2 text-[13px] whitespace-pre-wrap opacity-90">{parsed.forwarded.text}</div>
+              )}
               <div data-find-text>
               {row.me ? (
                 <span className="whitespace-pre-wrap break-words">
-                  {mentionParts(said?.text ?? row.text, names).map((part, i) =>
+                  {mentionParts(plain, names).map((part, i) =>
                     part.mention ? (
                       <span key={i} className="rounded-md bg-white/20 px-0.5 font-semibold">
                         {part.text}
@@ -165,13 +245,33 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
                     void openFileRef(reference, folder ?? author?.projectFolder ?? author?.folder ?? null, "mates");
                   }}
                 >
-                  {boldMentions(row.text, names)}
+                  {boldMentions(row.text, [...names, "you"])}
                 </Markdown>
               )}
               </div>
             </div>
             {/* The files a mate's line names that exist, under it (FR-83). */}
             {!row.me && <NamedFiles text={row.text} root={root} />}
+            {!row.me && <LinkCard text={row.text} />}
+            {actions && (
+              <ReactionChips
+                reactions={reactions}
+                nameOf={actions.nameOf}
+                align={row.me ? "end" : "start"}
+                onToggle={(kind) => actions.react(row.key, mine === kind ? null : kind)}
+              />
+            )}
+            {actions && (
+              <LineBar
+                side={row.me ? "end" : "start"}
+                mine={mine}
+                pinned={actions.pinned.has(row.key)}
+                onReact={(kind) => actions.react(row.key, kind)}
+                onReply={() => actions.reply({ from: row.me ? "you" : row.name, text: plain })}
+                onPin={() => actions.pin(row.key, plain)}
+                onForward={() => actions.forward(row.me ? "You" : row.name, plain)}
+              />
+            )}
             {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
             {row.me && !row.steers && row.seenBy && row.seenBy.length > 0 && (
               <span className="mt-0.5 mr-2 flex items-center gap-1 text-[11px] text-muted-foreground" aria-label={`Seen by ${row.seenBy.map((id) => faceOf(id)?.name ?? id).join(", ")}`}>
@@ -187,7 +287,6 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
           </div>
         </div>
       );
-    }
   }
 }
 
@@ -204,7 +303,7 @@ function seatOf(channel: Channel, mate: string): string | null {
   return channel.members.find((m) => m.mateId === mate)?.seatChatId ?? null;
 }
 
-function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
+function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; members: Mate[]; reply: ReplyTo | null; onReplyDone(): void }) {
   // The box's text is a draft kept per channel (evo-mates-messaging FR-11).
   const [text, setTextState] = React.useState(() => useMatesUiStore.getState().drafts[channel.chatId] ?? "");
   const setText = React.useCallback(
@@ -247,6 +346,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
 
   // Slash commands in a channel (FR-13): /stop, /handoff @mate, /clear-quote.
   const run = (command: SlashCommand, rest: string) => {
+    if (command.id === "clear-quote") onReplyDone();
     if (command.id === "stop") void useEngineStore.getState().abort();
     else if (command.id === "handoff") {
       const next = rest.startsWith("@") ? `${rest} ` : `@${rest}`;
@@ -287,7 +387,10 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
   const send = async () => {
     if (!text.trim() && files.length === 0) return;
     // Members read the message as text: pictures are saved and every attachment goes by path (FR-83).
-    const message = await channelMessage(replaceShortcodes(text), files, async (blob, name) =>
+    // A reply carries its quote (evo-mates-messaging FR-5).
+    const quoted = composePrompt(replaceShortcodes(text), reply, []);
+    onReplyDone();
+    const message = await channelMessage(quoted, files, async (blob, name) =>
       invoke<string>("fs_save_paste", {
         name,
         data: await new Promise<string>((resolve, reject) => {
@@ -328,6 +431,16 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
   return (
     <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
       {!mention && assist.menuView}
+      {reply && (
+        <div className="mb-1.5 flex items-center gap-2 rounded-2xl bg-muted/70 px-3 py-1.5 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate">
+            Replying to <span className="font-medium text-foreground">{reply.from === "you" ? "yourself" : reply.from}</span>: {reply.text}
+          </span>
+          <button type="button" aria-label="Cancel reply" onClick={onReplyDone} className="rounded-full p-0.5 hover:bg-accent">
+            <XIcon className="size-3.5" />
+          </button>
+        </div>
+      )}
       {mention && matches.length > 0 && (
         <div className="absolute bottom-full left-4 mb-1 w-72 overflow-hidden rounded-2xl bg-popover p-1 shadow-lg ring-1 ring-border" role="listbox" aria-label="Mention a mate">
           {matches.map((m, i) => {
@@ -437,6 +550,11 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
               }
             }
             if (assist.onKeyDown(event)) return;
+            if (event.key === "Escape" && reply) {
+              event.preventDefault();
+              onReplyDone();
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void send();
@@ -485,6 +603,26 @@ export function ChannelView({ channel }: { channel: Channel }) {
   const nameOf = React.useCallback((id: string) => members.find((m) => m.id === id)?.name ?? id, [members]);
   const rows = React.useMemo(() => channelRows(entries, nameOf), [entries, nameOf]);
   const bottom = React.useRef<HTMLDivElement>(null);
+  const reactions = useChannelReactions(channel.id);
+  const [reply, setReply] = React.useState<ReplyTo | null>(null);
+  const [forwarding, setForwarding] = React.useState<Forwarding | null>(null);
+  const pins = useMatesPrefs((s) => s.pins[channel.chatId]);
+  // Opening the channel reads its mentions of the person (FR-18).
+  React.useEffect(() => {
+    void matesApi.mentionsRead(channel.chatId).catch(() => undefined);
+  }, [channel.chatId]);
+  const actions = React.useMemo<LineActions>(
+    () => ({
+      reactions,
+      react: (message, kind) => void channelsApi.react(channel.id, message, kind).catch(() => undefined),
+      reply: setReply,
+      pinned: new Set((pins ?? []).map((p) => p.key)),
+      pin: (key, text) => useMatesPrefs.getState().togglePin(channel.chatId, { key, excerpt: excerpt(text, 120) }),
+      forward: (from, text) => setForwarding({ from, text, chat: channel.chatId }),
+      nameOf: (id) => members.find((m) => m.id === id)?.name ?? id,
+    }),
+    [reactions, pins, channel.id, channel.chatId, members],
+  );
 
   React.useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -505,7 +643,10 @@ export function ChannelView({ channel }: { channel: Channel }) {
 
   if (!shown) return null;
   return (
+    <LineContext.Provider value={actions}>
     <div className="flex h-full min-h-0 flex-col">
+      <PinsBar chat={channel.chatId} />
+      <ForwardDialog item={forwarding} onClose={() => setForwarding(null)} />
       <div className="relative min-h-0 flex-1">
       <FindBar scopeId={`channel-${channel.chatId}`} version={rows.length} />
       <div id={`channel-${channel.chatId}`} className="h-full overflow-y-auto pt-2 pb-3">
@@ -583,7 +724,8 @@ export function ChannelView({ channel }: { channel: Channel }) {
         <div ref={bottom} />
       </div>
       </div>
-      <Composer channel={channel} members={members} />
+      <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} />
     </div>
+    </LineContext.Provider>
   );
 }

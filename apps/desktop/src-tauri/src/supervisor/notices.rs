@@ -51,6 +51,9 @@ pub enum Event {
     /// A channel job's retro after a limit, a stop or a failure
     /// (docs/features/learning-layers/spec.md, FR-19).
     Retro,
+    /// A mate's channel line mentioned the person (`@you`;
+    /// docs/features/evo-mates-messaging/spec.md, FR-18).
+    Mention,
 }
 
 impl Event {
@@ -66,6 +69,7 @@ impl Event {
             Event::CouldNotStart => ("The engine could not start", "error", "engine"),
             Event::KeepsStopping => ("The engine keeps stopping", "error", "engine"),
             Event::Retro => ("A retro of your channel's job", "warning", "agent"),
+            Event::Mention => ("A mate mentioned you", "info", "agent"),
         }
     }
 
@@ -79,6 +83,7 @@ impl Event {
             Event::CouldNotStart => "could-not-start",
             Event::KeepsStopping => "keeps-stopping",
             Event::Retro => "retro",
+            Event::Mention => "mention",
         }
     }
 }
@@ -190,6 +195,27 @@ pub(crate) fn announce(app: &AppHandle, chat: String, event: Event) {
         if let Some(row) = row.as_ref().filter(|row| row.mate_id.is_some()) {
             let mate = db.with(|conn| evo_store::mates::mate_of_chat(conn, &chat)).ok().flatten();
             if !mate_wanted(&row.kind, mate.map(|mate| mate.notifications), event) {
+                return;
+            }
+        }
+        // A muted mate or channel, or a channel's level (evo-mates-messaging FR-15):
+        // a seat follows its channel.
+        if let Some(row) = row.as_ref().filter(|row| matches!(row.kind.as_str(), "mate" | "channel" | "seat")) {
+            let place = if row.kind == "seat" {
+                db.with(|conn| Ok::<_, evo_store::DbError>(crate::mates::mentions::channel_chat_of_seat(conn, &chat)))
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| chat.clone())
+            } else {
+                chat.clone()
+            };
+            let mutes = db.with(|conn| evo_store::settings::get(conn, crate::mates::mentions::MUTE_KEY)).ok().flatten();
+            let kind = match event {
+                Event::Approval | Event::Question => crate::mates::mentions::NoticeKind::NeedsYou,
+                Event::Mention => crate::mates::mentions::NoticeKind::Mention,
+                _ => crate::mates::mentions::NoticeKind::Reply,
+            };
+            if !crate::mates::mentions::mute_wanted(mutes.as_ref(), &place, kind, super::now_ms() as i64) {
                 return;
             }
         }

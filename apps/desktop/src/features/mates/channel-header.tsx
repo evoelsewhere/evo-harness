@@ -32,6 +32,7 @@ import { HeaderButton } from "./mate-header";
 import { channelPresence } from "./presence";
 import { PresenceFace, usePresence } from "./presence-face";
 import { exportTeam } from "./team-import";
+import { MuteMenuItems } from "./mute-menu";
 
 export function useMembers(channel: Channel): Mate[] {
   const mates = useMatesStore((s) => s.mates);
@@ -225,7 +226,7 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
           >
             <MoreHorizontalIcon className="size-4" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-52" align="end">
+          <DropdownMenuContent className="w-60" align="end">
             <DropdownMenuItem
               onClick={() => {
                 setRetroNote(null);
@@ -246,6 +247,8 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
               <SettingsIcon />
               Channel settings
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <MuteMenuItems chat={channel.chatId} levels />
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => setConfirm(true)}>
               <Trash2Icon />

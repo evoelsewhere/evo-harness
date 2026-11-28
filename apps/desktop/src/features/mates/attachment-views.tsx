@@ -211,11 +211,13 @@ export function resolvePath(path: string, root: string | null): string {
 }
 
 /** The files a mate's line names that exist, under its text (FR-83): pictures as previews, others as cards. */
-export function NamedFiles({ text, root }: { text: string; root: string | null }) {
+export function NamedFiles({ text, root, paths: given }: { text: string; root: string | null; paths?: string[] }) {
   const [found, setFound] = React.useState<string[]>([]);
+  const key = given?.join("|") ?? "";
   React.useEffect(() => {
     let gone = false;
-    const paths = mentionedFiles(text).map((p) => resolvePath(p, root));
+    // Files given by path (a hand-off's, evo-mates-messaging FR-6), else the ones the text names.
+    const paths = (given ?? mentionedFiles(text)).map((p) => resolvePath(p, root));
     void Promise.all(
       paths.map((path) =>
         invoke<{ exists: boolean; dir: boolean }>("fs_stat", { path })
@@ -226,7 +228,9 @@ export function NamedFiles({ text, root }: { text: string; root: string | null }
     return () => {
       gone = true;
     };
-  }, [text, root]);
+    // `key` stands for the given paths.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, root, key]);
   if (!found.length) return null;
   return (
     <div className="mt-1 flex flex-col items-start gap-1">

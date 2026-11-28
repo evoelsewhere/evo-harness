@@ -47,10 +47,12 @@ export type ChannelRow =
       steers?: string;
       /** The mates that took this message of the person in (evo-mates-messaging FR-2). */
       seenBy?: string[];
+      /** The line a mate's line answers, with its author and words (FR-5). */
+      quote?: { id: string; name: string; text: string };
     }
   /** Who answers; `picked` are the mates' ids, for their faces (evo-mates-ui-v2 FR-20). */
   | { kind: "route"; key: string; text: string; picked: string[] }
-  | { kind: "handoff"; key: string; from: string; fromName: string; to: string; toName: string; handoff: string; text: string }
+  | { kind: "handoff"; key: string; from: string; fromName: string; to: string; toName: string; handoff: string; text: string; files: string[] }
   | { kind: "notice"; key: string; text: string; stop: boolean }
   | { kind: "retro"; key: string; card: RetroCard };
 
@@ -72,6 +74,11 @@ export function handoffLine(row: { fromName: string; toName: string; handoff: st
 
 export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => string, now = Date.now()): ChannelRow[] {
   const rows: ChannelRow[] = [];
+  // Each line by its id, for the quotes that point at it (FR-5).
+  const lines = new Map<string, { name: string; text: string }>();
+  for (const entry of entries) {
+    if (entry.kind === "message") lines.set(entry.id, { name: entry.author === "person" ? "You" : entry.name || nameOf(entry.author), text: entry.text });
+  }
   let lastAt: number | null = null;
   entries.forEach((entry, index) => {
     const key = `${entry.kind}:${index}`;
@@ -96,6 +103,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
           last: true,
           failed: Boolean(entry.status && entry.status !== "done"),
           steers: entry.steers ? nameOf(entry.steers) : undefined,
+          quote: entry.quote && lines.has(entry.quote) ? { id: entry.quote, ...lines.get(entry.quote)! } : undefined,
         });
         break;
       }
@@ -113,6 +121,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
           toName: entry.toName,
           handoff: entry.handoff,
           text: entry.text,
+          files: entry.files ?? [],
         });
         break;
       case "notice":

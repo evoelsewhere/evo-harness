@@ -31,17 +31,17 @@ Done when: FR-3 – FR-6, FR-10, FR-14, FR-15, FR-17, FR-18 work; engine,
 store, mesh and shell tests pass; the downgrade script is tested on a scratch
 copy; merged to main.
 
-- [ ] T10 [FR-3, NFR-1] migration 0019, store functions (+tests), downgrade script tested on a scratch copy — `crates/evo-store/`, `docs/features/evo-mates-messaging/`
-- [ ] T11 [FR-3, FR-4] shell commands and the `react` tool (+tests) — `src-tauri/src/mates/`, `src-tauri/src/agent_tools/mates.rs`
-- [ ] T12 [FR-4, FR-5] line ids, reply marks and reaction notes in deliveries (+engine tests) — `crates/evo-engine/src/channel/`
-- [ ] T13 [FR-6] attachments on mail and seat prompts (+tests) — `crates/evo-mesh/`, `crates/evo-engine/`, shell tools
-- [ ] T14 [FR-3, FR-5, FR-6] channel view: reaction chips, Reply, quotes, files on cards — `features/mates/channel-view.tsx`, `channel-rows.ts`
-- [ ] T15 [FR-10] Forward — `features/mates/forward-dialog.tsx`, `thread.tsx`, `channel-view.tsx`
-- [ ] T16 [FR-14] pins bar — `features/mates/pins-bar.tsx`
-- [ ] T17 [FR-15] mute and levels (+shell test) — `src-tauri/src/supervisor/notices.rs`, menus
-- [ ] T18 [FR-17] link previews (+shell test), the setting — `src-tauri/src/`, `features/mates/link-card.tsx`, settings
-- [ ] T19 [FR-18] mentions of the person — coordinator, `notices.rs`, Today
-- [ ] T20 harness, shots, docs; checks
+- [x] T10 [FR-3, NFR-1] migration 0019, store functions (+tests), downgrade script tested on a scratch copy — `crates/evo-store/`, `docs/features/evo-mates-messaging/`
+- [x] T11 [FR-3, FR-4] shell commands and the `react` tool (+tests) — `src-tauri/src/mates/reactions.rs`, `src-tauri/src/agent_tools/mates.rs`
+- [x] T12 [FR-4, FR-5] line ids, reply marks and reaction notes in deliveries (+engine tests) — `crates/evo-engine/src/channel/`
+- [x] T13 [FR-6] attachments on mail and seat prompts (+tests) — `crates/evo-mesh/`, `crates/evo-engine/`, shell tools
+- [x] T14 [FR-3, FR-5, FR-6] channel view: reaction chips, Reply, quotes, files on cards — `features/mates/channel-view.tsx`, `channel-rows.ts`
+- [x] T15 [FR-10] Forward — `features/mates/forward-dialog.tsx`, `thread.tsx`, `channel-view.tsx`
+- [x] T16 [FR-14] pins bar — `features/mates/pins-bar.tsx`
+- [x] T17 [FR-15] mute and levels (+shell test) — `src-tauri/src/mates/mentions.rs`, `src-tauri/src/supervisor/notices.rs`, `features/mates/mute-menu.tsx`, `stores/mates-prefs-store.ts`
+- [x] T18 [FR-17] link previews (+shell test), the setting — `src-tauri/src/mates/link_preview.rs`, `features/mates/line-tools.tsx`, `mates-settings.tsx`
+- [x] T19 [FR-18] mentions of the person — `src-tauri/src/mates/mentions.rs`, `supervisor.rs`, `today.tsx`
+- [x] T20 harness, shots, docs; checks
 
 ## Verification
 
@@ -58,4 +58,17 @@ copy; merged to main.
 | FR-16 | `badge.test.ts`; `mates/badge.rs` test; `cargo check` of the shell | passed (2026-11-29, 1a); the icon itself not seen in the real app |
 | NFR-4 | Shots of channel, edit, slash, emoji, shortcode, Today and a conversation at 1440, 1000, 720 px, light and dark; overflow scan: nothing sideways | passed (2026-11-29, 1a) |
 | Checks 1a | typecheck; `bun test` 524 pass, 0 fail; `bun run test:shell` 859 pass, 0 fail (temporary agent folder) | passed (2026-11-29) |
-| FR-3 – FR-6, FR-10, FR-14, FR-15, FR-17, FR-18 | Merge 1b | not run |
+| FR-3 | Channel shots: chips "👍 2", "❤️ 2", "‼️ 1" with who on hover; evo-store test (one per reactor, told once, never to oneself, gone with the channel) | passed (2026-11-29, 1b) |
+| FR-4 | `react` tool offered in seats only, refuses an unknown reaction or a non-channel chat (`mates/reactions.rs` test); coordinator test of the reaction note block; no seat woken (code: the tool only writes a row and emits `mates://reactions`) | passed (2026-11-29, 1b); a model's call not run in the real app |
+| FR-5 | Coordinator test of `reply_mark`; `channel-rows.test.ts` (quote resolved to its line, unknown id dropped); shot of Lin's line quoting Kai's | passed (2026-11-29, 1b) |
+| FR-6 | `with_files` and `split_attached` tests; shot of Mo's hand-off with its picture | passed (2026-11-29, 1b) |
+| FR-10 | `message-markup.test.ts` and `thread.test.ts` (forward markup and "Forwarded from") | passed (2026-11-29, 1b); sending to another place not run in the real app |
+| FR-14 | Channel shots with the pins bar ("Pinned · 2 of 2") | passed (2026-11-29, 1b) |
+| FR-15 | `mentions.rs` test of mutes and levels; `mates-prefs-store.test.ts`; roster shot with the muted bell on Research notes | passed (2026-11-29, 1b) |
+| FR-17 | `link_preview.rs` tests (public addresses only, Open Graph and title parsing); shot of the card under Kai's line; the setting off by default | passed (2026-11-29, 1b); a real fetch not run |
+| FR-18 | `mentions.rs` tests (`@you` as a word, only mates' messages, newest kept); shots of the highlighted line and Today › Mentions | passed (2026-11-29, 1b) |
+| NFR-1 | Downgrade script tested on a scratch copy of a schema-18 database: upgraded to 19 with a reaction, then back to 18 with 30 tables unchanged and integrity ok | passed (2026-11-29) |
+| NFR-3 | `link_preview.rs`: http(s) only, public addresses only, no redirects, 512 KB, 3 s, no cookies | passed by test and review (2026-11-29) |
+| NFR-4 | Shots of channel, Today, a conversation and the members list at 1440, 1000, 720 px, light and dark; overflow scan: nothing sideways | passed (2026-11-29, 1b) |
+| NFR-5 | Forwarded text, other mates' lines and reaction notes arrive labelled (`<evo-mates-forward>`, `<from mate>`, `<reactions note=…>`) | passed by test and review (2026-11-29) |
+| Checks 1b | typecheck; `bun test` 529 pass, 0 fail; `bun run test:shell` 866 pass; `cargo test -p evo-engine -p evo-store -p evo-mesh`: engine 1026 passed with the 2 known failures, store 89, mesh 53 | passed (2026-11-29) |

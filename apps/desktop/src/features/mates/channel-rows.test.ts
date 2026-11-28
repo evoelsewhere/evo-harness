@@ -175,3 +175,24 @@ describe("seen by", () => {
     expect(mine?.kind === "bubble" ? mine.seenBy : null).toEqual(["p", "w"]);
   });
 });
+
+// docs/features/evo-mates-messaging/spec.md (FR-5, FR-6).
+describe("quotes and files", () => {
+  test("a mate's line quotes the line it answers; a hand-off keeps its files", () => {
+    const rows = channelRows(
+      [
+        { kind: "message", id: "r-1", author: "p", name: "Planner", text: "Is the build green?", at: at(0) },
+        { kind: "message", id: "r-2", author: "w", name: "Writer", text: "Yes", quote: "r-1", at: at(1) },
+        { kind: "message", id: "r-3", author: "w", name: "Writer", text: "Odd", quote: "gone", at: at(2) },
+        { kind: "handoff", message: "m", handoff: "tells", from: "w", fromName: "Writer", to: "p", toName: "Planner", text: "Shot", files: ["C:/a.png"], at: at(3) },
+      ] as ChannelEntry[],
+      nameOf,
+    );
+    const answer = rows.find((r) => r.kind === "bubble" && r.key === "r-2");
+    expect(answer?.kind === "bubble" ? answer.quote : null).toEqual({ id: "r-1", name: "Planner", text: "Is the build green?" });
+    const odd = rows.find((r) => r.kind === "bubble" && r.key === "r-3");
+    expect(odd?.kind === "bubble" ? odd.quote : "x").toBeUndefined();
+    const handoff = rows.find((r) => r.kind === "handoff");
+    expect(handoff?.kind === "handoff" ? handoff.files : []).toEqual(["C:/a.png"]);
+  });
+});

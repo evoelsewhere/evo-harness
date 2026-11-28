@@ -27,6 +27,8 @@ pub const PROFILE_TOOL: &str = "mate_profile";
 pub const CONNECT_TOOL: &str = "connect_app";
 pub const SECRET_TOOL: &str = "request_secret";
 pub const AGENDA_TOOL: &str = "mate_agenda";
+/// A mate's reaction to a channel line (docs/features/evo-mates-messaging/spec.md, FR-4).
+pub const REACT_TOOL: &str = "react";
 
 /// The line that starts the setup answers in a mate's instructions.
 pub const SETUP_MARK: &str = "Setup answers (from the person):";
@@ -49,6 +51,30 @@ fn mate_of(app: &AppHandle, chat: &str) -> Option<evo_store::mates::Mate> {
         .with(|conn| evo_store::mates::mate_of_chat(conn, chat))
         .ok()
         .flatten()
+}
+
+/// `react`, offered in a seat (a mate's place in a channel) only.
+fn react_definition() -> Value {
+    json!({
+        "name": REACT_TOOL,
+        "description": "React to a line of this channel instead of writing a reply: acknowledge an assignment (like), flag a doubt (question), thank (heart). Name the line by the id in brackets before it in your recent lines. A reaction wakes nobody and is not a hand-off; its author hears of it as information. One reaction per line: a new one replaces yours, null removes it. Never react to your own lines.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "line": { "type": "string", "description": "The line's id, e.g. \"r-19c1a2b3c4d-7\"." },
+                "reaction": { "type": ["string", "null"], "enum": ["like", "heart", "laugh", "emphasis", "question", "dislike", null] }
+            },
+            "required": ["line", "reaction"],
+            "additionalProperties": false
+        }
+    })
+}
+
+/// Whether `chat` is a seat.
+fn is_seat(app: &AppHandle, chat: &str) -> bool {
+    app.try_state::<Db>()
+        .and_then(|db| db.with(|conn| evo_store::chats::get_chat(conn, chat)).ok().flatten())
+        .is_some_and(|row| row.kind == "seat")
 }
 
 fn definitions() -> Vec<Value> {
@@ -132,7 +158,11 @@ impl Provider for MateTools {
     ) -> BoxFuture<Vec<Value>> {
         Box::pin(async move {
             if mate_of(&app, &chat).is_some() {
-                definitions()
+                let mut all = definitions();
+                if is_seat(&app, &chat) {
+                    all.push(react_definition());
+                }
+                all
             } else {
                 Vec::new()
             }
@@ -140,7 +170,7 @@ impl Provider for MateTools {
     }
 
     fn claims(&self, name: &str) -> bool {
-        name == PROFILE_TOOL || name == CONNECT_TOOL || name == SECRET_TOOL || name == AGENDA_TOOL
+        name == PROFILE_TOOL || name == CONNECT_TOOL || name == SECRET_TOOL || name == AGENDA_TOOL || name == REACT_TOOL
     }
 
     fn run(&self, ctx: ToolCtx, name: String, args: Value) -> BoxFuture<ToolOutput> {
@@ -151,6 +181,14 @@ impl Provider for MateTools {
             match name.as_str() {
                 PROFILE_TOOL => save_profile(&ctx, &mate, &args).await,
                 AGENDA_TOOL => agenda(&ctx, &mate, &args),
+                REACT_TOOL => {
+                    let line = args.get("line").and_then(Value::as_str).unwrap_or_default();
+                    let reaction = args.get("reaction").and_then(Value::as_str);
+                    match crate::mates::reactions::react_from_seat(&ctx.app, &ctx.chat, &mate.id, line, reaction) {
+                        Ok(text) => ToolOutput::text(text),
+                        Err(error) => ToolOutput::error(error),
+                    }
+                }
                 SECRET_TOOL => request_secret(&ctx, &mate, &args).await,
                 _ => connect(&ctx, &mate, &args).await,
             }

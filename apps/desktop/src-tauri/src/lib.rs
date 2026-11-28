@@ -251,6 +251,11 @@ pub fn run() {
             mates::secrets::mates_delete_secret,
             mates::mates_pause_all,
             mates::badge::mates_set_badge,
+            mates::reactions::channel_reactions,
+            mates::reactions::channel_react,
+            mates::mentions::mates_mentions,
+            mates::mentions::mates_mentions_read,
+            mates::link_preview::link_preview,
             // From the market research (docs/features/evo-mates/plan.md 3.10).
             mates::today::mates_today,
             mates::files::mates_files,

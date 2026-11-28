@@ -11,7 +11,7 @@ import { BellRingIcon, CalendarClockIcon, CheckIcon, CircleDollarSignIcon, HashI
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
 import { formatCost, formatRelative } from "@/lib/format";
-import { matesApi, type AgendaItem, type Mate } from "@/lib/mates";
+import { matesApi, type AgendaItem, type Mate, type Mention } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { useMatesStore } from "@/stores/mates-store";
@@ -46,6 +46,26 @@ function useTodayData() {
     };
   }, [busy]);
   return data;
+}
+
+/** Lines that mentioned the person, newest first (evo-mates-messaging FR-18). */
+function useMentions(): Mention[] {
+  const [list, setList] = React.useState<Mention[]>([]);
+  React.useEffect(() => {
+    let gone = false;
+    const read = () =>
+      void matesApi
+        .mentions()
+        .then((all) => !gone && setList([...all].reverse()))
+        .catch(() => undefined);
+    read();
+    const stop = inTauri ? listen("mates://mentions", read) : null;
+    return () => {
+      gone = true;
+      void stop?.then((off) => off());
+    };
+  }, []);
+  return list;
 }
 
 /** What each waiting chat waits on, and since when (FR-26). */
@@ -187,6 +207,7 @@ export function TodayPage() {
   // The chats that wait: a mate's own, or a channel's seat.
   const waitingChats = places.flatMap((p) => [p.chatId, ...(p.seats ?? [])]).filter((chat, i, all) => work[chat] === "waiting" && all.indexOf(chat) === i);
   const waiting = useWaiting(waitingChats);
+  const mentions = useMentions();
   const waitingSince = Object.fromEntries(Object.entries(waiting).map(([chat, w]) => [chat, w.at]));
   const sections = todaySections({ places, rows, work, coming, team, waitingSince });
   const open = (place: Place) => void (place.kind === "mate" ? store().open(place.id) : store().openChannel(place.id));
@@ -266,6 +287,31 @@ export function TodayPage() {
             );
           })}
         </Section>
+
+        {mentions.length > 0 && (
+          <Section id="today-mentions" title="Mentions" count={mentions.length} empty="">
+            {mentions.map((mention) => {
+              const channel = channels.find((c) => c.chatId === mention.chat);
+              const mate = mates.find((m) => m.id === mention.author);
+              return (
+                <Row
+                  key={`${mention.chat}:${mention.line}`}
+                  label={`Open ${channel ? `#${channel.name}` : "the channel"}`}
+                  onClick={() => channel && void store().openChannel(channel.id)}
+                >
+                  {mate ? <MatePresenceFace mate={mate} size={32} ring="var(--card)" /> : <span className="size-8" />}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[13px] font-medium text-foreground">
+                      {mention.name} <span className="font-normal text-muted-foreground">in #{channel?.name ?? "a channel"}</span>
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">{mention.excerpt}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{formatRelative(mention.at, now)}</span>
+                </Row>
+              );
+            })}
+          </Section>
+        )}
 
         <Section id="today-new" title="New" count={sections.fresh.length} empty="You're all caught up.">
           {sections.fresh.map(({ place, line, at }) => (

@@ -8,7 +8,7 @@
 
 import * as React from "react";
 import { LearnedLine } from "@/components/learned-line";
-import { ArrowDownIcon, CopyIcon, EyeOffIcon, InfoIcon, PencilIcon, ReplyIcon, RotateCcwIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowDownIcon, CopyIcon, EyeOffIcon, ForwardIcon, InfoIcon, PencilIcon, PinIcon, PinOffIcon, ReplyIcon, RotateCcwIcon, SquareIcon, XIcon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -27,6 +27,10 @@ import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { useSessionStore } from "@/stores/session-store";
 import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
 import { replaceShortcodes } from "./emoji";
+import { ForwardDialog, type Forwarding } from "./forward-dialog";
+import { LinkCard } from "./line-tools";
+import { useMatesPrefs } from "@/stores/mates-prefs-store";
+import { excerpt } from "./message-markup";
 import { StepsChip } from "./steps-chip";
 import { clockTime, dayLabel, isHeartbeat, isLong, threadRows, type Bubble, type Row } from "./thread-rows";
 
@@ -62,6 +66,11 @@ interface MoreActions {
   edit?(): void;
   retry?(): void;
   hide(): void;
+  /** Pin or unpin it (evo-mates-messaging FR-14). */
+  pin(): void;
+  pinned: boolean;
+  /** Forward it (FR-10). */
+  forward(): void;
 }
 
 /** The hover bar (FR-13): reactions, Reply, Copy and, on a mate's reply, its details. */
@@ -119,6 +128,12 @@ function BubbleActions({
           <RotateCcwIcon className="size-3.5" />
         </BarButton>
       )}
+      <BarButton label={more.pinned ? "Unpin" : "Pin"} onClick={more.pin}>
+        {more.pinned ? <PinOffIcon className="size-3.5" /> : <PinIcon className="size-3.5" />}
+      </BarButton>
+      <BarButton label="Forward" onClick={more.forward}>
+        <ForwardIcon className="size-3.5" />
+      </BarButton>
       {details.length > 0 && (
         <Tooltip>
           <TooltipTrigger
@@ -200,6 +215,7 @@ function BubbleView({
   return (
     <div className={cn("flex w-full px-4", me ? "justify-end" : "justify-start", first ? "mt-2" : "mt-0.5")}>
       <div data-key={bubble.key} className={cn("group/bubble relative flex max-w-[78%] flex-col pt-1", me ? "items-end" : "items-start")}>
+        {bubble.forwarded && <span className="mr-2 mb-0.5 text-[11px] text-muted-foreground">Forwarded from {bubble.forwarded.from}</span>}
         {bubble.reply && (
           <button
             type="button"
@@ -236,6 +252,9 @@ function BubbleView({
             >
               {/* The person's pictures, files and pasted text (FR-81). */}
               <SentByMe images={bubble.images} files={bubble.files} pasted={bubble.pasted} />
+              {bubble.forwarded && (
+                <div className="mb-1 border-l-2 border-white/40 pl-2 text-[13px] whitespace-pre-wrap opacity-90">{bubble.forwarded.text}</div>
+              )}
               {editing ? (
                 <EditField text={bubble.text} onSave={onSaveEdit} onCancel={onCancelEdit} />
               ) : (
@@ -298,6 +317,14 @@ function BubbleView({
                   Try again
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onClick={more.pin}>
+                {more.pinned ? <PinOffIcon /> : <PinIcon />}
+                {more.pinned ? "Unpin" : "Pin"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={more.forward}>
+                <ForwardIcon />
+                Forward…
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={more.hide}>
                 <EyeOffIcon />
@@ -309,6 +336,8 @@ function BubbleView({
           <span className="mb-1 hidden shrink-0 text-[10.5px] text-muted-foreground tabular-nums group-hover/bubble:inline">{clockTime(bubble.at)}</span>
         </div>
         {edited && !editing && <span className="mt-0.5 px-2 text-[10.5px] text-muted-foreground">Edited</span>}
+        {/* A link's card, when link previews are on (evo-mates-messaging FR-17). */}
+        {!me && !bubble.streaming && <LinkCard text={bubble.text} />}
         {!editing && <BubbleActions bubble={bubble} reaction={reaction} onReact={onReact} onReply={onReply} details={details} more={more} />}
         <span className="sr-only">{me ? "You" : mate.name}</span>
       </div>
@@ -454,6 +483,8 @@ export function MateThread({
     return hiddenKeys?.length ? all.filter((row) => !(row.kind === "bubble" && hiddenKeys.includes(row.bubble.key))) : all;
   }, [turns, busy, shellWorking, roomQueued, hiddenKeys]);
   const [editing, setEditing] = React.useState<string | null>(null);
+  const [forwarding, setForwarding] = React.useState<Forwarding | null>(null);
+  const pinnedKeys = useMatesPrefs((s) => s.pins[mate.chatId]);
   const idle = !busy && !shellWorking;
   const lastMine = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "me");
   const lastMate = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "mate");
@@ -499,6 +530,9 @@ export function MateThread({
         ? () => retry(bubble)
         : undefined,
     hide: () => useMatesUiStore.getState().hide(mate.chatId, bubble.key),
+    pinned: Boolean(pinnedKeys?.some((p) => p.key === bubble.key)),
+    pin: () => useMatesPrefs.getState().togglePin(mate.chatId, { key: bubble.key, excerpt: excerpt(bubble.text, 120) }),
+    forward: () => setForwarding({ from: bubble.side === "me" ? "You" : mate.name, text: bubble.text, chat: mate.chatId }),
   });
   const scroller = React.useRef<HTMLDivElement>(null);
   const pinned = React.useRef(true);
@@ -577,6 +611,7 @@ export function MateThread({
   if (rows.length === 0) return <div className="flex h-full items-center justify-center">{empty}</div>;
   return (
     <div className="relative h-full">
+      <ForwardDialog item={forwarding} onClose={() => setForwarding(null)} />
       <div
         ref={scroller}
         id={scopeId}

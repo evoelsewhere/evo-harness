@@ -26,6 +26,13 @@ export interface ReplyTo {
 
 const NOTE = /^<evo-mates-note>([\s\S]*?)<\/evo-mates-note>\n?/;
 const REPLY = /^<evo-mates-reply from="([^"]*)">([\s\S]*?)<\/evo-mates-reply>\n?/;
+const FORWARD = /^<evo-mates-forward from="([^"]*)">\n?([\s\S]*?)\n?<\/evo-mates-forward>\n?/;
+
+/** A forwarded message as the person sends it on (evo-mates-messaging FR-10): marked as quoted, not their instruction. */
+export function forwardPrompt(from: string, text: string, note: string): string {
+  const body = `<evo-mates-forward from="${clean(from)}">\n${text.replace(/<\/?evo-mates-forward[^>]*>/g, "")}\n</evo-mates-forward>\n`;
+  return body + (note.trim() || "(Forwarded for your information.)");
+}
 
 function clean(text: string): string {
   return text.replace(/[<>]/g, "").replace(/\s+/g, " ").trim();
@@ -49,11 +56,17 @@ export function composePrompt(text: string, reply: ReplyTo | null, reactions: re
 }
 
 /** A sent message as the thread shows it. */
-export function parsePrompt(prompt: string): { text: string; reply: ReplyTo | null } {
+export function parsePrompt(prompt: string): { text: string; reply: ReplyTo | null; forwarded?: ReplyTo } {
   let rest = prompt;
   const note = NOTE.exec(rest);
   if (note) rest = rest.slice(note[0].length);
   const reply = REPLY.exec(rest);
   if (reply) rest = rest.slice(reply[0].length);
-  return { text: rest, reply: reply ? { from: reply[1]!, text: reply[2]! } : null };
+  const forward = FORWARD.exec(rest);
+  if (forward) rest = rest.slice(forward[0].length);
+  return {
+    text: rest,
+    reply: reply ? { from: reply[1]!, text: reply[2]! } : null,
+    ...(forward ? { forwarded: { from: forward[1]!, text: forward[2]! } } : {}),
+  };
 }

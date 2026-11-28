@@ -1,3 +1,4 @@
+import { useMatesPrefs } from "@/stores/mates-prefs-store";
 import * as React from "react";
 import { ChevronRightIcon, UsersRoundIcon } from "lucide-react";
 import { modelKey } from "@/components/ai-elements/model-selector";
@@ -101,6 +102,22 @@ function DailyLimit() {
   );
 }
 
+/** Link previews in Evo Mates (evo-mates-messaging FR-17): off by default. */
+function LinkPreviews() {
+  const on = useMatesPrefs((s) => s.linkPreviews);
+  React.useEffect(() => {
+    void useMatesPrefs.getState().load();
+  }, []);
+  return (
+    <SettingsRow
+      labelId="mates-link-previews"
+      label="Link previews"
+      description="Show a card with the title and picture of a web page a mate links to. Turning this on makes Evo contact the linked sites to read them."
+      control={<Switch aria-labelledby="mates-link-previews" checked={on} onCheckedChange={(next) => useMatesPrefs.getState().setLinkPreviews(next)} />}
+    />
+  );
+}
+
 export function MatesSettings() {
   const [limit, setLimit] = React.useState(DEFAULT);
   const [running, setRunning] = React.useState(RUNNING_DEFAULT);
@@ -174,6 +191,7 @@ export function MatesSettings() {
           }
         />
         <DailyLimit />
+        <LinkPreviews />
       </SettingsGroup>
       <SettingsGroup title="Channels">
         <SettingsRow

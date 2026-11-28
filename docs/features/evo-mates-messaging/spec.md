@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | In progress |
+| Status | Implemented |
 | Area | desktop UI, desktop shell, engine (channel), `evo-mesh`, `evo-store` |
 | Created | 2026-11-29 |
 | Updated | 2026-11-29 |
@@ -121,7 +121,7 @@ channels, from the product owner's backlog (Train 1 with Q1 – Q4).
 | FR-1 | **Typing line** in a channel (Q1): at the feed's foot, the faces of the working mates with moving dots and "A is typing…", "A and B are typing…" or "A and N others are typing…"; hovering a face shows "Name · step"; a mate leaves the line when its line lands; no dots while a card waits; reduced motion holds them still. | Two seats working: one line with both names; one lands: one name left. |
 | FR-2 | **Message status** (M1) under the person's last message in a mate's conversation: Sent, Queued (waiting for room or for the running turn), Seen (the mate's turn started on it), Replied; in a channel, "Seen by" with the faces of the mates whose turn took it in. | A message while the mate works reads Queued, then Seen, then Replied. |
 | FR-3 | **Reactions in channels** (Q2): the person and every mate may react to any line with the six reactions of evo-mates FR-60; a line shows chips with counts and, on hover, who reacted; one reaction per reactor per line, a second pick replaces it, the same pick removes it; reactions are kept across restarts. | A 👍 from the person and from Kai shows "👍 2" with both faces after a restart. |
-| FR-4 | **Mates react** (Q2) with a tool that names a line of the channel or a message of its conversation and a reaction; it never starts a turn for anyone, does not count toward the hand-off limit, at most one per mate per line, never on its own lines; the reacted-to mate is told at its next turn as information ("Kai reacted 👍 to your line: …"). | A seat's `react` call adds the chip, no seat wakes, the limit counter is unchanged; the author's next delivery carries the note. |
+| FR-4 | **Mates react** (Q2) with a tool that names a line of the channel and a reaction; it never starts a turn for anyone, does not count toward the hand-off limit, at most one per mate per line, never on its own lines; the reacted-to mate is told at its next turn as information ("Kai reacted 👍 to your line: …"). | A seat's `react` call adds the chip, no seat wakes, the limit counter is unchanged; the author's next delivery carries the note. |
 | FR-5 | **Replies in channels** (Q3): the person may reply to any line (hover Reply, Esc removes the quote); a mate's line that answers a specific line shows its quote; a quote jumps to its line and highlights it. Mates name the line they answer by its short id, which every delivery now shows. | A reply to Kai's line shows the quote; clicking it jumps to Kai's line. |
 | FR-6 | **Files between mates** (Q4): a mate may attach files from its folder or the channel's to a hand-off or its line; the files show under the card or line as previews and cards; the receiving mate gets them as attachments: pictures as images for a model that reads images, other files by path. | Mo hands Lin a PNG: the card shows it; Lin's turn input holds the image. |
 | FR-7 | **Edit** (M2) the person's last message in a mate's conversation once the mate is idle: the bubble shows "Edited" and the mate answers the new text; the old answer is replaced. ↑ in an empty box starts it (FR-12). | Edit "plan monday" to "plan tuesday": "Edited", and the answer is about Tuesday. |
@@ -183,7 +183,9 @@ with the agent's recommended answers:
   database), each verified and merged on its own.
 
 **Later** (not in this train): browsing earlier versions of a reply;
-Try again with another model; threads in a side panel.
+Try again with another model; threads in a side panel; a mate reacting to
+the person's messages in its direct conversation (its messages there have no
+ids it can name).
 
 ### 6.3 Assumptions
 
@@ -207,3 +209,8 @@ Try again with another model; threads in a side panel.
 - 2026-11-29 — Merge 1a done: typing line, status, edit, try again, unsend,
   delete for me, drafts, emoji and shortcodes, Markdown keys, slash commands,
   the icon badge (tasks T1 – T9).
+- 2026-11-29 — Merge 1b done: channel reactions (migration 0019 with a tested
+  downgrade), the `react` tool, replies with quotes, files on hand-offs,
+  forward, pins, mute and levels, link previews, mentions of the person
+  (T10 – T20). FR-4 covers channel lines; a mate reacting in its direct
+  conversation went to Later. Status Implemented.
