@@ -39,6 +39,11 @@ pub enum Source {
     /// Evo Mates' own work: a mate's heartbeat turn, or a channel's router
     /// (docs/features/evo-mates/spec.md, FR-28, FR-71).
     Mates,
+    /// The learning layers' steps (docs/features/learning-layers/spec.md, NFR-4).
+    Upkeep,
+    Dream,
+    Review,
+    Retro,
 }
 
 impl Source {
@@ -50,6 +55,10 @@ impl Source {
             Source::Side => "side",
             Source::Memory => "memory",
             Source::Mates => "mates",
+            Source::Upkeep => "upkeep",
+            Source::Dream => "dream",
+            Source::Review => "review",
+            Source::Retro => "retro",
         }
     }
 }

@@ -81,6 +81,10 @@ pub enum Mode {
     /// with two tools, print one result line and exit (`memory_index.rs`,
     /// docs/architecture/decisions/0016-memory-indexing-runs-in-a-short-lived-engine-process.md).
     Index,
+    /// A learning step: the tidy-up, the dream, a skill review or a retro,
+    /// tool-free, then one result line (`learning/run.rs`,
+    /// docs/features/learning-layers/plan.md, 3.3).
+    Learn,
     /// The plugin-AI engine: plugins' model calls, many at once, over JSONL
     /// on stdio (`plugin_ai/`, docs/architecture/decisions/0023-plugin-ai-runs-in-one-long-lived-engine-process.md).
     PluginAi,
@@ -222,6 +226,19 @@ pub struct Args {
     /// `--index-summary-only` (index mode): write the chat's summary but
     /// change no topic (a chat the Scheduler started).
     pub index_summary_only: bool,
+    /// `--task` (learn mode): `tidy`, `dream`, `review` or `retro`.
+    pub learn_task: Option<String>,
+    /// `--owner` (learn mode): `personal`, `project:<slug>` or `mate:<id>`.
+    pub learn_owner: Option<String>,
+    /// `--chat` (learn mode): the chat a review reads, or a channel's root
+    /// chat for a retro.
+    pub learn_chat: Option<String>,
+    /// `--job` (learn mode): the channel job entry a retro reads.
+    pub learn_job: Option<String>,
+    /// `--reply` (learn mode): the reply that ended the stretch a review reads.
+    pub learn_reply: Option<String>,
+    /// `--today` (learn mode): the local day, `YYYY-MM-DD`.
+    pub learn_today: Option<String>,
     /// `--role-file <path>`: the role this session runs as, written by the
     /// desktop from the chat's row at every start
     /// (docs/features/session-roles-and-mail/spec.md, FR-1).
@@ -387,6 +404,7 @@ pub fn parse_args(args: &[String]) -> Args {
                         "json" => Mode::Json,
                         "rpc" => Mode::Rpc,
                         "index" => Mode::Index,
+                        "learn" => Mode::Learn,
                         "plugin-ai" => Mode::PluginAi,
                         other => {
                             result.errors.push(format!(
@@ -434,6 +452,12 @@ pub fn parse_args(args: &[String]) -> Args {
             "--code-mode" => result.code_mode = true,
             "--index-after" => result.index_after = take_value(&mut result, "--index-after"),
             "--index-summary-only" => result.index_summary_only = true,
+            "--task" => result.learn_task = take_value(&mut result, "--task"),
+            "--owner" => result.learn_owner = take_value(&mut result, "--owner"),
+            "--chat" => result.learn_chat = take_value(&mut result, "--chat"),
+            "--job" => result.learn_job = take_value(&mut result, "--job"),
+            "--reply" => result.learn_reply = take_value(&mut result, "--reply"),
+            "--today" => result.learn_today = take_value(&mut result, "--today"),
             "--incognito" => {
                 result.incognito = true;
                 result.no_memory = true;

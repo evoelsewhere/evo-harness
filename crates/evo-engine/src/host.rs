@@ -183,6 +183,11 @@ async fn run_inner() -> i32 {
     if parsed.mode == crate::args::Mode::Index {
         return crate::memory_index::main(&parsed).await;
     }
+    // A learning step is not a chat either: one tool-free model call
+    // (learning/run.rs).
+    if parsed.mode == crate::args::Mode::Learn {
+        return crate::learning::run::main(&parsed).await;
+    }
     // The plugin-AI engine is not a chat either: plugins' model calls only
     // (plugin_ai/, ADR 0023).
     if parsed.mode == crate::args::Mode::PluginAi {
