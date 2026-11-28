@@ -26,13 +26,13 @@ shots pass.
 Done when: board on, cards worked by the person and mates, assignments make
 cards, Today shows my cards.
 
-- [ ] T7 [FR-8, FR-9, NFR-1] Migration 0020 and `boards.rs` with tests; downgrade script tested on a scratch copy — `crates/evo-store/` , `docs/features/evo-mates-threads-board/downgrade-0020.py`
-- [ ] T8 [FR-8 – FR-10, FR-14] Shell commands and events — `src-tauri/src/mates/board.rs`, `lib.rs`
-- [ ] T9 [FR-11, FR-13] Seat tools `board_*`, `channel_post_line` RPC, `board` entries — `src-tauri/src/agent_tools/mates.rs`, `crates/evo-engine/src/modes.rs`, `coordinator.rs`
-- [ ] T10 [FR-12, FR-15] Assignments create cards (linked to their thread), reports move them — `coordinator.rs` — tests
-- [ ] T11 [FR-8 – FR-10] Board view, card sheet, list view, filters, search, drag — `features/mates/board-*.tsx`, `lib/mates.ts`, `stores/` — tests of the pure parts, shots
-- [ ] T12 [FR-14, FR-15] My cards on Today, profile cards, `KEY-n` links, thread header chip, Track on board — shots
-- [ ] T13 [NFR-4, NFR-5] Board fixture (500 cards), shots, scan
+- [x] T7 [FR-8, FR-9, NFR-1] Migration 0020 and `boards.rs` with tests; downgrade script tested on a scratch copy — `crates/evo-store/` , `docs/features/evo-mates-threads-board/downgrade-0020.py`
+- [x] T8 [FR-8 – FR-10, FR-14] Shell commands and events — `src-tauri/src/mates/board.rs`, `src-tauri/src/lib.rs`
+- [x] T9 [FR-11, FR-13] Seat tools `board_*`, `channel_post_line` RPC, `board` entries — `src-tauri/src/agent_tools/mates.rs`, `crates/evo-engine/src/modes.rs`, `coordinator.rs`
+- [x] T10 [FR-12, FR-15] Assignments create cards (linked to their thread), reports move them — `coordinator.rs` — tests
+- [x] T11 [FR-8 – FR-10] Board view, card sheet, list view, filters, search, drag — `features/mates/board-view.tsx`, `board-logic.ts`, `board-key-dialog.tsx`, `card-sheet.tsx`, `lib/mates.ts`, `stores/board-store.ts` — tests of the pure parts, shots
+- [x] T12 [FR-14, FR-15] My cards on Today, profile cards, `KEY-n` links, thread header chip, Track on board — shots
+- [x] T13 [NFR-4, NFR-5] Board fixture (500 cards), shots, scan
 
 ## Part C — linking (merge on its own)
 
@@ -60,3 +60,16 @@ resolve and Also send to channel work.
 | NFR-2 | The parent goes as `<parent … instruction="false">` (delivery test) | passed (2026-11-29, A) |
 | NFR-4 (A) | Shots of channel and thread at 1440, 1000, 720 px, light and dark; `--scan`: nothing sideways | passed (2026-11-29, A) |
 | Checks A | typecheck; `bun test` 540 pass, 0 fail; `cargo test -p evo-engine`: 1033 passed with the 2 known failures; `cargo fmt --check`, `git diff --check` | passed (2026-11-29) |
+| FR-8 | `boards.rs` tests (on with four columns, a bad key refused, off keeps the cards and the key); shots of the Chat · Board switch and the board at 1440, 1000, 720 px | passed (2026-11-29, B) |
+| FR-9 | `boards.rs` tests (fields, priorities checked, every change logged with who: "moved LAUNCH-2 to Review", "assigned it to Lin, …"); card sheet shots | passed (2026-11-29, B) |
+| FR-10 | `board-logic.test.ts` (filters, search, order, drop index, dates); Playwright on the fake IPC: dragging LAUNCH-4 onto Done calls `card_move` (Done, index 1), "Assignee: Kai" leaves LAUNCH-5 and LAUNCH-1; list view shots | passed (2026-11-29, B) |
+| FR-11 | Shell tests `assignees_are_members_or_the_person`, `due_dates_read_as_local_time`; tools offered only to a seat whose channel's board is on (`board_of_seat`), cards of another board refused (`card_of`) | passed by test and review (2026-11-29, B); a model's tool call not run in the real app |
+| FR-12 | Coordinator test `an_assignment_makes_a_card_linked_to_its_thread`; `boards.rs` test of `assignment_card` and `review_column` | passed by test and review (2026-11-29, B); a lead's real assignment not run in the real app |
+| FR-13 | `board` entries drawn as lines with the key as a link (channel shot: "Kai moved LAUNCH-1 to Review"); they never enter the coordinator's lines | passed (2026-11-29, B) |
+| FR-14 | `boards.rs` test `my_cards_are_open_cards_on_boards_that_are_on`; `board-logic.test.ts` (`linkCards`, `splitCardKeys`); Today shot with My cards | passed (2026-11-29, B); the profile's Open cards not shot |
+| FR-15 | Thread shot with the LAUNCH-5 · In progress chip; Track on board and the card's Open its thread by review | passed by test and review (2026-11-29, B) |
+| NFR-1 (0020) | `downgrade-0020.py` on a scratch copy of a schema-18 database taken to 20 with a board and a card: back to 19, 31 tables as at 19, integrity ok, backup written; refuses when `user_version` and `schema_migrations` disagree | passed (2026-11-29) |
+| NFR-3 | The person's board commands only write the database and emit `mates://board`; no engine call | passed by review (2026-11-29) |
+| NFR-4 (B) | Shots of board, list, card, thread, Today and channel at 1440, 1000, 720 px, light and dark; `--scan`: nothing sideways (the columns scroll on purpose, marked `data-scrolls-x`) | passed (2026-11-29, B) |
+| NFR-5 | 500-card fixture: the board draws 820 ms after the Board tab's click in the Vite dev build (headless, unminified, includes the fetch); shot | passed (2026-11-29); not measured in a release build |
+| Checks B | typecheck; `bun test` 545 pass; `bun run test:shell` 871 pass; `cargo test -p evo-engine` 1034 passed with the 2 known failures; store 96, mesh 53; clippy clean on the changed files; fmt, `git diff --check` | passed (2026-11-29) |

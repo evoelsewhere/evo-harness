@@ -4,7 +4,9 @@
 // the channel's feed and its thread panel (evo-mates-threads-board FR-1).
 
 import * as React from "react";
-import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronRightIcon, Columns3Icon } from "lucide-react";
+import { useBoardStore } from "@/stores/board-store";
+import { linkCards, splitCardKeys } from "./board-logic";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
@@ -164,6 +166,23 @@ export function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceO
       return <HandoffCard row={row} faceOf={faceOf} folder={folder ?? faceOf(row.from)?.folder ?? null} />;
     case "notice":
       return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
+    case "board":
+      // A card's change: its key opens the card (evo-mates-threads-board FR-13).
+      return (
+        <Line>
+          <Columns3Icon className="mr-1 inline size-3 -translate-y-px" />
+          {row.text.split(row.card).map((part, i, all) => (
+            <React.Fragment key={i}>
+              {part}
+              {i < all.length - 1 && (
+                <button type="button" onClick={() => useBoardStore.getState().showCard(row.card)} className="font-medium text-link hover:underline">
+                  {row.card}
+                </button>
+              )}
+            </React.Fragment>
+          ))}
+        </Line>
+      );
     case "retro":
       return <RetroCard card={row.card} />;
     case "bubble":
@@ -173,6 +192,7 @@ export function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceO
 
 function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, { kind: "bubble" }>; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
   const actions = React.useContext(LineContext);
+  const cardKeys = useBoardStore((s) => s.keys);
   {
       const mate = row.me ? undefined : faceOf(row.author);
       // The person's pictures, files and pasted text show as chips (FR-83);
@@ -253,20 +273,31 @@ function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, {
                         {part.text}
                       </span>
                     ) : (
-                      <React.Fragment key={i}>{part.text}</React.Fragment>
+                      <React.Fragment key={i}>
+                        {splitCardKeys(part.text, cardKeys).map((piece, j) =>
+                          piece.key ? (
+                            <button key={j} type="button" onClick={() => useBoardStore.getState().showCard(piece.key!)} className="rounded bg-white/20 px-0.5 font-medium underline-offset-2 hover:underline">
+                              {piece.text}
+                            </button>
+                          ) : (
+                            <React.Fragment key={j}>{piece.text}</React.Fragment>
+                          ),
+                        )}
+                      </React.Fragment>
                     ),
                   )}
                 </span>
               ) : (
                 <Markdown
                   blocks
+                  onCardLink={(key) => useBoardStore.getState().showCard(key)}
                   onLocalLink={(reference) => {
                     // A seat works in the channel's folder, else in its mate's (rich-replies FR-37).
                     const author = faceOf(row.author);
                     void openFileRef(reference, folder ?? author?.projectFolder ?? author?.folder ?? null, "mates");
                   }}
                 >
-                  {boldMentions(row.text, [...names, "you"])}
+                  {linkCards(boldMentions(row.text, [...names, "you"]), cardKeys)}
                 </Markdown>
               )}
               </div>

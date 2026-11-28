@@ -14,6 +14,9 @@ import { Button } from "@/components/ui/button";
 import { CustomizePage, MATES_SECTIONS } from "@/features/customize/customize-page";
 import { MateModelPicker } from "@/features/mates/model-picker";
 import { ChannelView } from "@/features/mates/channel-view";
+import { BoardView } from "@/features/mates/board-view";
+import { CardSheet } from "@/features/mates/card-sheet";
+import { useBoardStore, watchBoards } from "@/stores/board-store";
 import { ChannelHeader } from "@/features/mates/channel-header";
 import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
@@ -68,6 +71,8 @@ function useBootstrap() {
       // A mate's pages and apps show as live cards here, as in Evo Harness
       // (docs/features/evo-mates-computer/spec.md, FR-1).
       startChatScope();
+      // Boards read again when they change (evo-mates-threads-board FR-8 – FR-15).
+      watchBoards();
     }
     void (async () => {
       try {
@@ -86,6 +91,12 @@ function useBootstrap() {
 function ChannelPane({ id }: { id: string }) {
   const channel = useMatesStore((s) => s.channels.find((c) => c.id === id));
   const shown = useEngineStore((s) => s.activeId);
+  // The board tab, while the channel's board is on (FR-8).
+  const boardOn = useBoardStore((s) => Boolean(channel && s.views[channel.id]?.board?.enabled));
+  const tab = useBoardStore((s) => (channel ? s.tab[channel.chatId] : undefined));
+  React.useEffect(() => {
+    if (channel) void useBoardStore.getState().load(channel.id);
+  }, [channel?.id]);
   if (!channel) return <MatesEmpty />;
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -93,7 +104,9 @@ function ChannelPane({ id }: { id: string }) {
         <ChannelHeader channel={channel} />
       </div>
       <div className="min-h-0 flex-1">
-        {shown === channel.chatId ? (
+        {boardOn && tab === "board" ? (
+          <BoardView channel={channel} />
+        ) : shown === channel.chatId ? (
           <ChannelView channel={channel} />
         ) : (
           <div className="flex h-full animate-in items-center justify-center text-sm text-muted-foreground delay-300 duration-500 fill-mode-both fade-in">
@@ -245,6 +258,8 @@ export function MatesApp() {
       {/* Ctrl+K and Ctrl+/ (FR-7, FR-8). */}
       <QuickSwitcher />
       <ShortcutsSheet />
+      {/* A board card, from a board, a KEY-n link, Today or a profile (FR-9, FR-14). */}
+      <CardSheet />
     </div>
   );
 }

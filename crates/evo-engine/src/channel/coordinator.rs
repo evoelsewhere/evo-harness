@@ -900,6 +900,9 @@ impl Coordinator {
                             continue;
                         };
                         let report = kind == "tells" && owed.pays(&author, &to);
+                        if report {
+                            self.assignment_reported(harness, &author, &to).await;
+                        }
                         let verdict = self.count_handoff(&mut handoffs, &author, &to, report);
                         if verdict == HandOff::PairLimit {
                             self.pair_refused(harness, &author, &to).await;
@@ -968,6 +971,14 @@ impl Coordinator {
                     }
                     self.post_handoff(harness, &from, &to, &op, &text, message)
                         .await;
+                    // The board tracks the lead's assignments (FR-12).
+                    if handoff_kind(&op, &text) == "assigns" {
+                        self.assignment_card(harness, &from_mate, &to_mate, &text, message)
+                            .await;
+                    } else if report {
+                        self.assignment_reported(harness, &from_mate, &to_mate)
+                            .await;
+                    }
                     // Members never assign the lead (FR-55): the lead gets it as
                     // information, and the channel says so.
                     if let Some(note) = self.lead_assignment(&from, &to, &op, &text) {
@@ -1214,6 +1225,102 @@ impl Coordinator {
             .iter()
             .find(|l| l.id == id)
             .map(|l| l.by.clone())
+    }
+
+    /// A board line (evo-mates-threads-board FR-13): a card's change shown in
+    /// the channel; not a line mates read.
+    pub(crate) async fn post_board_line(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        text: &str,
+        card: &str,
+        card_id: &str,
+    ) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.post(
+            harness,
+            json!({ "kind": "board", "text": text.trim(), "card": card, "cardId": card_id, "at": now_ms() }),
+        )
+        .await;
+    }
+
+    /// A lead's assignment becomes a card when the channel's board is on
+    /// (FR-12, FR-15): assigned to the member, linked to the thread (or the
+    /// message) it came from.
+    async fn assignment_card(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        from: &str,
+        to: &str,
+        text: &str,
+        message: &str,
+    ) {
+        if self.role.lead.as_deref() != Some(from) || from == to {
+            return;
+        }
+        let (body, _) = split_attached(text);
+        let new = assignment_new_card(
+            &body,
+            to,
+            from,
+            message,
+            lock(&self.state).thread.as_deref(),
+        );
+        let (channel, actor) = (self.role.channel_id.clone(), from.to_string());
+        let made = tokio::task::spawn_blocking(move || {
+            let mut conn = evo_store::open().ok()?;
+            evo_store::boards::board_on(&conn, &channel).ok()??;
+            evo_store::boards::create_card(&mut conn, &channel, &new, &actor).ok()
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(card) = made {
+            let line = format!(
+                "{} added {} {} for {}",
+                self.name_of(from),
+                card.key,
+                card.title,
+                self.name_of(to)
+            );
+            self.post_board_line(harness, &line, &card.key, &card.id)
+                .await;
+        }
+    }
+
+    /// A member reported back to whoever assigned it: its card moves to
+    /// Review (FR-12, D8).
+    async fn assignment_reported(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        member: &str,
+        asker: &str,
+    ) {
+        let (channel, member_id, asker_id) = (
+            self.role.channel_id.clone(),
+            member.to_string(),
+            asker.to_string(),
+        );
+        let moved = tokio::task::spawn_blocking(move || {
+            let mut conn = evo_store::open().ok()?;
+            let board = evo_store::boards::board_on(&conn, &channel).ok()??;
+            let card = evo_store::boards::assignment_card(&conn, &channel, &asker_id, &member_id)
+                .ok()??;
+            let column = evo_store::boards::review_column(&board)?.clone();
+            evo_store::boards::move_card(&mut conn, &card.id, &column.id, None, &member_id)
+                .ok()
+                .map(|card| (card, column.name))
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some((card, column)) = moved {
+            let line = format!("{} moved {} to {column}", self.name_of(member), card.key);
+            self.post_board_line(harness, &line, &card.key, &card.id)
+                .await;
+        }
     }
 
     /// What `mate` has not heard yet of the reactions to its lines, as a
@@ -1512,6 +1619,45 @@ impl Coordinator {
             },
         }
         Some(json!({ "taken": true }))
+    }
+}
+
+/// The card a lead's assignment makes (FR-12, FR-15): its first line as the
+/// title (without "[assign]" and mentions' `@`), the whole text as the
+/// description, linked to the thread or the message it came from.
+pub fn assignment_new_card(
+    text: &str,
+    to: &str,
+    from: &str,
+    message: &str,
+    thread: Option<&str>,
+) -> evo_store::boards::NewCard {
+    let plain = text.trim().trim_start_matches("[assign]").trim();
+    let first = plain.lines().next().unwrap_or_default().trim();
+    let title = if first.chars().count() > 80 {
+        format!(
+            "{}\u{2026}",
+            first.chars().take(79).collect::<String>().trim_end()
+        )
+    } else {
+        first.to_string()
+    };
+    evo_store::boards::NewCard {
+        title: if title.is_empty() {
+            "Assignment".into()
+        } else {
+            title
+        },
+        description: plain.to_string(),
+        assignee: Some(to.to_string()),
+        thread_root: Some(thread.unwrap_or(message).to_string()),
+        links: vec![evo_store::boards::CardLink {
+            kind: "message".into(),
+            target: message.to_string(),
+            label: String::new(),
+        }],
+        source: Some(json!({ "from": from, "to": to, "message": message })),
+        ..Default::default()
     }
 }
 
@@ -1886,6 +2032,27 @@ mod tests {
         );
         assert!(mate.contains("<parent author=\"Planner\""), "{mate}");
         assert!(mate.contains("Reply in the thread"), "{mate}");
+    }
+
+    #[test]
+    fn an_assignment_makes_a_card_linked_to_its_thread() {
+        let card = assignment_new_card(
+            "[assign] Cut the 4.14 release build\nand update CHANGELOG.md",
+            "kai",
+            "ava",
+            "m-1",
+            Some("r-3"),
+        );
+        assert_eq!(card.title, "Cut the 4.14 release build");
+        assert_eq!(card.assignee.as_deref(), Some("kai"));
+        assert_eq!(card.thread_root.as_deref(), Some("r-3"));
+        assert_eq!(
+            card.source,
+            Some(json!({ "from": "ava", "to": "kai", "message": "m-1" }))
+        );
+        let long = assignment_new_card(&"x".repeat(200), "kai", "ava", "m-1", None);
+        assert_eq!(long.title.chars().count(), 80);
+        assert_eq!(long.thread_root.as_deref(), Some("m-1"));
     }
 
     #[test]

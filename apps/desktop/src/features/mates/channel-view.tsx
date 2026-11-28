@@ -4,7 +4,7 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowUpIcon, MessagesSquareIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, Columns3Icon, MessagesSquareIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
@@ -34,6 +34,7 @@ import { ForwardDialog, type Forwarding } from "./forward-dialog";
 import { useChannelReactions } from "./line-tools";
 import { composePrompt, excerpt, threadMark, withThread, type ReplyTo } from "./message-markup";
 import { PinsBar } from "./pins-bar";
+import { useBoardStore } from "@/stores/board-store";
 import { channelsApi, matesApi } from "@/lib/mates";
 import { useMatesPrefs } from "@/stores/mates-prefs-store";
 
@@ -410,6 +411,18 @@ function ThreadPanel({
   }, [onClose]);
   const names = members.map((m) => m.name);
   const replies = rows.filter((r) => r.kind === "bubble").length - 1;
+  // The thread's card, or Track on board (evo-mates-threads-board FR-15).
+  const board = useBoardStore((s) => s.views[channel.id]);
+  const card = board?.cards.find((c) => c.threadRoot === root);
+  const column = card ? board?.board?.columns.find((c) => c.id === card.columnId)?.name : undefined;
+  const parent = entries.find((e) => e.kind === "message" && e.id === root);
+  const track = () => {
+    const words = parent && parent.kind === "message" ? threadMark(parent.text).text : "";
+    void useBoardStore
+      .getState()
+      .create(channel.id, { title: excerpt(words.replace(/<[^>]+>/g, " "), 80) || "From a thread", threadRoot: root, links: [{ kind: "message", target: root, label: "" }] })
+      .catch(() => undefined);
+  };
   return (
     <aside
       aria-label="Thread"
@@ -423,6 +436,25 @@ function ThreadPanel({
             #{channel.name} · {replies <= 0 ? "No replies yet" : `${replies} ${replies === 1 ? "reply" : "replies"}`}
           </div>
         </div>
+        {card ? (
+          <button
+            type="button"
+            onClick={() => useBoardStore.getState().showCard(card.key)}
+            title={card.title}
+            className="flex h-7 max-w-44 min-w-0 shrink items-center gap-1 rounded-full bg-muted px-2.5 text-[12px] whitespace-nowrap hover:bg-accent"
+          >
+            <Columns3Icon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 font-mono font-medium text-foreground">{card.key}</span>
+            {column && <span className="min-w-0 truncate text-muted-foreground">· {column}</span>}
+          </button>
+        ) : (
+          board?.board?.enabled && (
+            <button type="button" onClick={track} className="flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Columns3Icon className="size-3.5" />
+              Track on board
+            </button>
+          )
+        )}
         <button type="button" aria-label="Close thread" onClick={onClose} className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
           <XIcon className="size-4" />
         </button>
@@ -492,6 +524,19 @@ export function ChannelView({ channel }: { channel: Channel }) {
   // The open thread, by its parent's id (evo-mates-threads-board FR-1).
   const [thread, setThread] = React.useState<string | null>(null);
   React.useEffect(() => setThread(null), [channel.chatId]);
+  // A card's "Open its thread" lands here (FR-15).
+  const asked = useBoardStore((s) => s.openThread);
+  React.useEffect(() => {
+    if (asked && asked.chat === channel.chatId) {
+      setThread(asked.root);
+      useBoardStore.getState().showThread(null);
+    }
+  }, [asked, channel.chatId]);
+  // A board line from the engine (a card made or moved) reads the board again (FR-12, FR-13).
+  const boardLines = React.useMemo(() => entries.filter((e) => e.kind === "board").length, [entries]);
+  React.useEffect(() => {
+    if (boardLines) void useBoardStore.getState().load(channel.id);
+  }, [boardLines, channel.id]);
   const busy = useEngineStore((s) => s.activeId === channel.chatId && s.transcript.busy);
   const open = React.useMemo(() => (busy ? openJob(entries) : null), [busy, entries]);
   // Opening the channel reads its mentions of the person (FR-18).

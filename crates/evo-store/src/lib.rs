@@ -51,6 +51,7 @@ pub struct Migration {
 }
 
 pub mod agenda;
+pub mod boards;
 pub mod channels;
 pub mod chat_index;
 pub mod chats;
@@ -165,6 +166,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 19,
         name: "channel_reactions",
         sql: include_str!("migrations/0019_channel_reactions.sql"),
+    },
+    Migration {
+        version: 20,
+        name: "boards",
+        sql: include_str!("migrations/0020_boards.sql"),
     },
 ];
 

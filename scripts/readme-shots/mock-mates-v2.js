@@ -164,7 +164,9 @@
     { kind: "route", message: "p1", picked: ["ava"], line: "Ava, as you mentioned", at: ago(18) },
     { kind: "message", id: "a1", author: "ava", name: "Ava", text: "On it. Kai takes the release build and the changelog, Lin writes the notes from it, Mo refreshes the screenshots.", at: ago(17) },
     { kind: "handoff", message: "p1", handoff: "assigns", from: "ava", fromName: "Ava", to: "kai", toName: "Kai", text: "Cut the 4.14 release build and update CHANGELOG.md", at: ago(17) },
+    { kind: "board", text: "Ava added LAUNCH-1 Cut the 4.14 release build for Kai", card: "LAUNCH-1", cardId: "card-1", at: ago(17) },
     { kind: "message", id: "k1", author: "kai", name: "Kai", text: "Build is green on all three platforms. CHANGELOG.md has 14 entries under 4.14.", at: ago(9) },
+    { kind: "board", text: "Kai moved LAUNCH-1 to Review", card: "LAUNCH-1", cardId: "card-1", at: ago(9) },
     { kind: "handoff", message: "p1", handoff: "tells", from: "mo", fromName: "Mo", to: "lin", toName: "Lin", text: "The new dark screenshot for the notes", files: [`${HOME}\\.evo\\agent\\mates\\mo\\hero-dark.png`], at: ago(7) },
     { kind: "message", id: "l1", author: "lin", name: "Lin", text: "Great, I will use those 14 entries for the highlights.", quote: "k1", at: ago(5) },
     { kind: "message", id: "k2", author: "kai", name: "Kai", text: "@you can you confirm the two beta links before Friday? The release docs are at https://example.com/docs/release", at: ago(3) },
@@ -190,6 +192,64 @@
   h.channel_react = () => null;
   h.mates_mentions = () => [{ chat: "chan-launch", line: "k2", author: "kai", name: "Kai", excerpt: "@you can you confirm the two beta links before Friday?", at: ago(3) }];
   h.mates_mentions_read = () => null;
+  // ── Board of the Launch room (evo-mates-threads-board FR-8 – FR-15) ──
+  const COLUMNS = [
+    { id: "col-todo", name: "To do", position: 0 },
+    { id: "col-doing", name: "In progress", position: 1 },
+    { id: "col-review", name: "Review", position: 2 },
+    { id: "col-done", name: "Done", position: 3 },
+  ];
+  const dayAt = (days) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(23, 59, 0, 0);
+    return d.getTime();
+  };
+  const card = (n, column, title, more = {}) => ({
+    id: `card-${n}`, channelId: "launch", key: `LAUNCH-${n}`, number: n, columnId: column, position: n, title,
+    description: "", assignee: null, priority: "none", dueMs: null, labels: [], checklist: [], links: [], threadRoot: null,
+    source: null, createdBy: "ava", createdMs: ago(20), updatedMs: ago(5), ...more,
+  });
+  const CARDS = [
+    card(6, "col-todo", "Confirm the two beta links", { assignee: "person", priority: "high", dueMs: dayAt(0), labels: ["release"] }),
+    card(4, "col-todo", "Retake the download page screenshot with arm64", { assignee: "mo", priority: "medium", dueMs: dayAt(1), labels: ["design"] }),
+    card(7, "col-todo", "Post the launch thread on the forum", { labels: ["marketing"] }),
+    card(2, "col-doing", "Write the 4.14 release notes from the changelog", {
+      assignee: "lin", labels: ["docs"], description: "Highlights first, then **fixes**. Link every entry to its pull request.",
+      checklist: [{ text: "Highlights", done: true }, { text: "Fixes", done: true }, { text: "Known issues", done: false }, { text: "Links", done: false }],
+    }),
+    card(5, "col-doing", "Add linux-arm64 to the build matrix", { assignee: "kai", priority: "urgent", threadRoot: "k1", labels: ["release"] }),
+    card(1, "col-review", "Cut the 4.14 release build and update CHANGELOG.md", { assignee: "kai", priority: "high", dueMs: dayAt(-1), labels: ["release"], source: { from: "ava", to: "kai" } }),
+    card(3, "col-done", "Refresh the README screenshots", { assignee: "mo", labels: ["design"] }),
+  ];
+  const big = (() => {
+    try { return localStorage.getItem("mock.bigBoard") === "1"; } catch { return false; }
+  })();
+  const ALL = big
+    ? Array.from({ length: 500 }, (_, i) => card(i + 1, COLUMNS[i % 4].id, `Task ${i + 1}: ${["Check", "Write", "Fix", "Review", "Ship"][i % 5]} the ${["build", "notes", "docs", "page", "tests"][i % 5]}`, {
+        assignee: [null, "kai", "lin", "mo", "person"][i % 5], priority: ["none", "low", "medium", "high", "urgent"][i % 5], labels: i % 3 ? [] : ["release"],
+      }))
+    : CARDS;
+  const BOARD = { channelId: "launch", key: "LAUNCH", enabled: true, nextNumber: ALL.length + 1, columns: COLUMNS };
+  const placed = (c) => ({ card: c, channelName: "Launch room", chatId: "chan-launch", column: COLUMNS.find((x) => x.id === c.columnId)?.name ?? "" });
+  h.board_get = ({ channel }) =>
+    channel === "launch" ? { board: BOARD, cards: ALL, proposedKey: "LAUNCH" } : { board: null, cards: [], proposedKey: "RESEARCH" };
+  h.board_keys = () => ["LAUNCH"];
+  h.cards_assigned = ({ assignee }) => ALL.filter((c) => c.assignee === assignee && c.columnId !== "col-done").slice(0, 8).map(placed);
+  h.card_by_key = ({ key }) => {
+    const c = ALL.find((x) => x.key === key);
+    return c ? placed(c) : null;
+  };
+  h.card_events = ({ id }) =>
+    id === "card-2"
+      ? [
+          { id: 1, cardId: id, actor: "ava", kind: "created", text: "created LAUNCH-2 in To do, assigned to Lin", atMs: ago(17) },
+          { id: 2, cardId: id, actor: "lin", kind: "moved", text: "moved LAUNCH-2 to In progress", atMs: ago(12) },
+          { id: 3, cardId: id, actor: "lin", kind: "updated", text: "updated the checklist (2 of 4) on LAUNCH-2", atMs: ago(6) },
+          { id: 4, cardId: id, actor: "person", kind: "comment", text: "Keep the highlights to five.", atMs: ago(4) },
+        ]
+      : [{ id: 1, cardId: id, actor: "ava", kind: "created", text: "created the card", atMs: ago(17) }];
+  for (const name of ["board_set", "board_column", "card_create", "card_update", "card_move", "card_delete", "card_comment"]) h[name] = () => null;
   h.link_preview = ({ url }) => ({ url, title: "Release notes and docs for 4.14", site: "Example Docs", description: "Everything new in this release.", image: null });
   const baseSettings = h.settings_all;
   h.settings_all = () => ({

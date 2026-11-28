@@ -161,6 +161,11 @@ impl Provider for MateTools {
                 let mut all = definitions();
                 if is_seat(&app, &chat) {
                     all.push(react_definition());
+                    // The board's tools, while its channel's board is on
+                    // (evo-mates-threads-board FR-11).
+                    if crate::mates::board::board_of_seat(&app, &chat).is_some() {
+                        all.extend(crate::mates::board::definitions());
+                    }
                 }
                 all
             } else {
@@ -170,7 +175,12 @@ impl Provider for MateTools {
     }
 
     fn claims(&self, name: &str) -> bool {
-        name == PROFILE_TOOL || name == CONNECT_TOOL || name == SECRET_TOOL || name == AGENDA_TOOL || name == REACT_TOOL
+        name == PROFILE_TOOL
+            || name == CONNECT_TOOL
+            || name == SECRET_TOOL
+            || name == AGENDA_TOOL
+            || name == REACT_TOOL
+            || crate::mates::board::TOOLS.contains(&name)
     }
 
     fn run(&self, ctx: ToolCtx, name: String, args: Value) -> BoxFuture<ToolOutput> {
@@ -185,6 +195,12 @@ impl Provider for MateTools {
                     let line = args.get("line").and_then(Value::as_str).unwrap_or_default();
                     let reaction = args.get("reaction").and_then(Value::as_str);
                     match crate::mates::reactions::react_from_seat(&ctx.app, &ctx.chat, &mate.id, line, reaction).await {
+                        Ok(text) => ToolOutput::text(text),
+                        Err(error) => ToolOutput::error(error),
+                    }
+                }
+                board if crate::mates::board::TOOLS.contains(&board) => {
+                    match crate::mates::board::run_tool(&ctx.app, &ctx.chat, &mate.id, board, &args).await {
                         Ok(text) => ToolOutput::text(text),
                         Err(error) => ToolOutput::error(error),
                     }

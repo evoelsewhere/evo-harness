@@ -33,6 +33,8 @@ import { useMatesPrefs } from "@/stores/mates-prefs-store";
 import { excerpt } from "./message-markup";
 import { replaceVisibleText } from "./edit-prompt";
 import { StepsChip } from "./steps-chip";
+import { useBoardStore } from "@/stores/board-store";
+import { linkCards } from "./board-logic";
 import { clockTime, dayLabel, isHeartbeat, isLong, threadRows, type Bubble, type Row } from "./thread-rows";
 
 function metaParts(turn: Turn): string[] {
@@ -211,6 +213,8 @@ function BubbleView({
   const me = bubble.side === "me";
   // Files the mate names open from its working folder (rich-replies FR-37).
   const root = mate.projectFolder ?? mate.folder;
+  // `KEY-n` of a board opens its card (evo-mates-threads-board FR-14).
+  const cardKeys = useBoardStore((s) => s.keys);
   const openRef = React.useCallback((reference: string) => void openFileRef(reference, root, "mates"), [root]);
   const details = !me && last && !bubble.streaming ? metaParts(bubble.turn) : [];
   return (
@@ -264,8 +268,8 @@ function BubbleView({
                   {me ? (
                     <span className="whitespace-pre-wrap break-words">{bubble.text}</span>
                   ) : (
-                    <Markdown streaming={bubble.streaming} blocks onLocalLink={openRef}>
-                      {bubble.text}
+                    <Markdown streaming={bubble.streaming} blocks onLocalLink={openRef} onCardLink={(key) => useBoardStore.getState().showCard(key)}>
+                      {linkCards(bubble.text, cardKeys)}
                     </Markdown>
                   )}
                 </div>

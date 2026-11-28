@@ -7,6 +7,8 @@
 
 /** Links to local files ride through link hardening under this origin. */
 export const FILE_LINK = "https://local.link/";
+/** A board card's link (`KEY-n`, docs/features/evo-mates-threads-board/spec.md, FR-14). */
+export const CARD_LINK = "https://local.card/";
 
 // Extensions a bare file name in prose must end with. Single letters (`.c`)
 // are left to paths with a folder, where they cannot be a sentence's end.

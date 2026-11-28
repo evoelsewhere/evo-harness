@@ -192,3 +192,13 @@ thread markup gains `also="channel"`, which posts the reply in both.
   panel docks from 1200 px, not 1000: with the sidebar open, a 1000 px
   window leaves too little for both. A thread message whose parent is
   unknown goes to the channel with a `thread_gone` notice.
+- Part B: the shell's tools post a board line through `channel_post_line`;
+  the coordinator posts its own (assignments, reports) directly. A board
+  line posted while a thread message runs carries that thread, so it shows
+  in the thread. `CardPatch` takes `null` to clear `assignee`, `dueMs` and
+  `threadRoot` (a field left out stays). `KEY-n` links use the
+  `https://local.card/` prefix (like file links) and Markdown's
+  `onCardLink`. The card sheet is one per window (`CardSheet` in
+  `mates-app.tsx`); the board's state is `stores/board-store.ts`. The
+  downgrade script also refuses when `user_version` and
+  `schema_migrations` disagree, and backs the file up before applying.

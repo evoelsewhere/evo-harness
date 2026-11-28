@@ -292,7 +292,9 @@ export type ChannelEntry =
   /** A job ended (learning-layers FR-19); not shown. */
   | { kind: "job"; id: string; message: string; status: string; handoffs: number; at: number; thread?: string | null }
   /** A retro's card (learning-layers FR-21). */
-  | ({ kind: "retro"; id: string; at: number } & RetroCard);
+  | ({ kind: "retro"; id: string; at: number } & RetroCard)
+  /** A card's change on the channel's board (evo-mates-threads-board FR-13); never delivered to mates. */
+  | { kind: "board"; text: string; card: string; cardId: string; at: number; thread?: string | null };
 
 /** What a channel job's retro found (docs/features/learning-layers/spec.md, FR-20, FR-21). */
 export interface RetroCard {
@@ -317,6 +319,115 @@ export const channelsApi = {
   reload: () => invoke<void>("channels_reload"),
   /** **Run retro**: the retro of the channel's last job, now (learning-layers FR-19). */
   runRetro: (chat: string) => invoke<RetroCard>("channel_run_retro", { chat }),
+};
+
+// ── Boards (docs/features/evo-mates-threads-board/spec.md, FR-8 – FR-15) ────
+
+export type CardPriority = "none" | "low" | "medium" | "high" | "urgent";
+
+export interface BoardColumn {
+  id: string;
+  name: string;
+  position: number;
+}
+
+export interface Board {
+  channelId: string;
+  key: string;
+  enabled: boolean;
+  nextNumber: number;
+  columns: BoardColumn[];
+}
+
+export interface CheckItem {
+  text: string;
+  done: boolean;
+}
+
+export interface CardLink {
+  /** `message`, `file`, `thread` or `chat`. */
+  kind: string;
+  target: string;
+  label: string;
+}
+
+export interface Card {
+  id: string;
+  channelId: string;
+  /** `LAUNCH-12`. */
+  key: string;
+  number: number;
+  columnId: string;
+  position: number;
+  title: string;
+  description: string;
+  /** `person` or a mate's id. */
+  assignee: string | null;
+  priority: CardPriority;
+  dueMs: number | null;
+  labels: string[];
+  checklist: CheckItem[];
+  links: CardLink[];
+  threadRoot: string | null;
+  source: Record<string, unknown> | null;
+  createdBy: string;
+  createdMs: number;
+  updatedMs: number;
+}
+
+export interface CardEvent {
+  id: number;
+  cardId: string;
+  actor: string;
+  kind: "created" | "moved" | "updated" | "comment" | string;
+  text: string;
+  atMs: number;
+}
+
+export interface BoardView {
+  board: Board | null;
+  cards: Card[];
+  proposedKey: string;
+}
+
+/** A card with where it lives (FR-14). */
+export interface PlacedCard {
+  card: Card;
+  channelName: string;
+  chatId: string;
+  column: string;
+}
+
+export interface NewCard {
+  title: string;
+  description?: string;
+  assignee?: string | null;
+  priority?: CardPriority;
+  dueMs?: number | null;
+  labels?: string[];
+  columnId?: string | null;
+  top?: boolean;
+  threadRoot?: string | null;
+  links?: CardLink[];
+}
+
+/** Fields to change; a field set to `null` clears it. */
+export type CardPatch = Partial<Pick<Card, "title" | "description" | "assignee" | "priority" | "dueMs" | "labels" | "checklist" | "links" | "threadRoot">>;
+
+export const boardsApi = {
+  get: (channel: string) => invoke<BoardView>("board_get", { channel }),
+  set: (channel: string, on: boolean, key?: string) => invoke<BoardView>("board_set", { channel, on, key: key ?? null }),
+  column: (channel: string, action: "add" | "rename" | "move" | "remove", args: { column?: string; name?: string; index?: number }) =>
+    invoke<BoardView>("board_column", { channel, action, column: args.column ?? null, name: args.name ?? null, index: args.index ?? null }),
+  keys: () => invoke<string[]>("board_keys"),
+  create: (channel: string, card: NewCard) => invoke<Card>("card_create", { channel, card }),
+  update: (id: string, patch: CardPatch) => invoke<Card>("card_update", { id, patch }),
+  move: (id: string, column: string, index: number | null) => invoke<Card>("card_move", { id, column, index }),
+  remove: (id: string) => invoke<void>("card_delete", { id }),
+  comment: (id: string, text: string) => invoke<CardEvent>("card_comment", { id, text }),
+  events: (id: string) => invoke<CardEvent[]>("card_events", { id }),
+  byKey: (key: string) => invoke<PlacedCard | null>("card_by_key", { key }),
+  assigned: (assignee: string) => invoke<PlacedCard[]>("cards_assigned", { assignee }),
 };
 
 // ── Team files (FR-20, FR-21, FR-27) ───────────────────────────────────────

@@ -56,6 +56,8 @@ export type ChannelRow =
   | { kind: "route"; key: string; text: string; picked: string[] }
   | { kind: "handoff"; key: string; from: string; fromName: string; to: string; toName: string; handoff: string; text: string; files: string[] }
   | { kind: "notice"; key: string; text: string; stop: boolean }
+  /** A card's change on the board (evo-mates-threads-board FR-13). */
+  | { kind: "board"; key: string; text: string; card: string }
   | { kind: "retro"; key: string; card: RetroCard };
 
 /** `text` without markdown marks: bold, italics, code, headings, links. */
@@ -172,6 +174,9 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
         break;
       case "notice":
         rows.push({ kind: "notice", key, text: entry.text, stop: entry.notice === "limit" || entry.notice === "stopped" });
+        break;
+      case "board":
+        rows.push({ kind: "board", key, text: entry.text, card: entry.card });
         break;
       case "retro":
         rows.push({

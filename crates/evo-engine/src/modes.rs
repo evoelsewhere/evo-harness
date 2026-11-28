@@ -1585,6 +1585,21 @@ where
                 }
                 None => Err("this chat is not a channel".to_string()),
             },
+            // A board line from a mate's board tool (evo-mates-threads-board
+            // FR-13): shown in the channel, never delivered to mates.
+            "channel_post_line" => match crate::channel::coordinator::active() {
+                Some(channel) => {
+                    let text = msg.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+                    let card = msg.get("card").and_then(|v| v.as_str()).unwrap_or_default();
+                    let card_id = msg
+                        .get("cardId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    channel.post_board_line(harness, text, card, card_id).await;
+                    Ok(serde_json::json!({ "posted": true }))
+                }
+                None => Err("this chat is not a channel".to_string()),
+            },
             // A channel line's author, for a mate's `react` (evo-mates-messaging FR-4).
             "channel_line" => match crate::channel::coordinator::active() {
                 Some(channel) => {

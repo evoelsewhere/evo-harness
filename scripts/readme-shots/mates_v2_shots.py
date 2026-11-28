@@ -92,6 +92,33 @@ def view_thread(page: Page) -> None:
     page.wait_for_timeout(900)
 
 
+def view_board(page: Page) -> None:
+    view_channel(page)
+    page.get_by_role("tab", name="Board").click()
+    page.wait_for_timeout(900)
+
+
+def view_board_list(page: Page) -> None:
+    view_board(page)
+    page.get_by_role("button", name="List").click()
+    page.wait_for_timeout(500)
+
+
+def view_card(page: Page) -> None:
+    view_board(page)
+    page.locator('[data-card="LAUNCH-2"]').click()
+    page.wait_for_timeout(900)
+
+
+def view_board_big(page: Page) -> None:
+    page.evaluate("localStorage.setItem('mock.bigBoard', '1')")
+    page.reload()
+    page.wait_for_timeout(1500)
+    started = page.evaluate("performance.now()")
+    view_board(page)
+    print(f"  500 cards: board shown {page.evaluate('performance.now()') - started:.0f} ms after the click (with fixed waits)")
+
+
 def view_members(page: Page) -> None:
     view_channel(page)
     page.keyboard.press("Control+i")
@@ -170,6 +197,10 @@ VIEWS = {
     "channel": view_channel,
     "members": view_members,
     "thread": view_thread,
+    "board": view_board,
+    "board-list": view_board_list,
+    "card": view_card,
+    "board-big": view_board_big,
     "switcher": view_switcher,
     "shortcuts": view_shortcuts,
     "find": view_find,

@@ -23,6 +23,7 @@ import { plainPreview } from "./plain-preview";
 import { MatePresenceFace } from "./presence-face";
 import { useMateLine } from "./roster";
 import { greeting, todaySections, waitingKind, type MateDay, type Place } from "./today-sections";
+import { PlacedCardRow, useAssignedCards } from "./assigned-cards";
 
 const KIND_ICON = { promise: CheckIcon, event: CalendarClockIcon, question: MessageCircleQuestionIcon, checkin: BellRingIcon } as const;
 
@@ -99,6 +100,21 @@ function PlaceFace({ place, mates, size = 32 }: { place: Place; mates: Mate[]; s
     <span className="flex shrink-0 items-center justify-center rounded-[10px] bg-foreground/[0.06] text-muted-foreground dark:bg-foreground/10" style={{ width: size, height: size }}>
       <HashIcon className="size-4" />
     </span>
+  );
+}
+
+/** The person's open cards across boards (evo-mates-threads-board FR-14). */
+function MyCards({ now }: { now: number }) {
+  const cards = useAssignedCards("person");
+  if (cards.length === 0) return null;
+  return (
+    <Section id="today-cards" title="My cards" count={cards.length} empty="">
+      {cards.map((placed) => (
+        <li key={placed.card.id} className="border-b border-border/50 last:border-b-0">
+          <PlacedCardRow placed={placed} now={now} />
+        </li>
+      ))}
+    </Section>
   );
 }
 
@@ -287,6 +303,8 @@ export function TodayPage() {
             );
           })}
         </Section>
+
+        <MyCards now={now} />
 
         {mentions.length > 0 && (
           <Section id="today-mentions" title="Mentions" count={mentions.length} empty="">

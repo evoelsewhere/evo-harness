@@ -18,6 +18,7 @@ import { useUiStore } from "@/stores/ui-store";
 import { EmptyState } from "./empty-state";
 import { dueWords } from "./following-up";
 import type { MateFile } from "./files-page";
+import { PlacedCardRow, useAssignedCards } from "./assigned-cards";
 
 const APPROVAL: Record<string, string> = { ask: "Asks every time", "auto-edits": "Edits on its own", auto: "Acts without asking" };
 const KIND_ICON = { promise: CheckIcon, event: CalendarClockIcon, question: MessageCircleQuestionIcon, checkin: BellRingIcon } as const;
@@ -92,6 +93,7 @@ export function MateOverview({ mate }: { mate: Mate }) {
   const servers = useConnectorsStore((s) => s.servers);
   const off = useUiStore((s) => s.chatConnectorsOff[mate.chatId]) ?? [];
   const appsOn = servers.filter((server) => !off.includes(server.key)).length;
+  const openCards = useAssignedCards(mate.id);
 
   return (
     <div className="flex flex-col gap-5">
@@ -132,6 +134,18 @@ export function MateOverview({ mate }: { mate: Mate }) {
           </ul>
         )}
       </Card>
+      {/* Its open cards across channels (evo-mates-threads-board FR-14). */}
+      {openCards.length > 0 && (
+        <Card title={`Open cards · ${openCards.length}`}>
+          <ul className="divide-y divide-border/50">
+            {openCards.map((placed) => (
+              <li key={placed.card.id}>
+                <PlacedCardRow placed={placed} className="px-3 py-2" />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <Card title="Channels">
         {channels.length === 0 ? (
           <EmptyState compact text={`${mate.name} is in no channel yet.`} className="py-2" />

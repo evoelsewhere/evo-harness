@@ -207,3 +207,4 @@ agent's recommended answers:
 - 2026-11-29 — Gate A (owner away, accepted by the product owner): the ten
   recommended answers (6.2). Gate B (same): plan and tasks; status Accepted.
 - 2026-11-29 — Part A (threads, FR-1 – FR-7) built and verified; status In progress.
+- 2026-11-29 — Part B (board, FR-8 – FR-15) built and verified (migration 0020).

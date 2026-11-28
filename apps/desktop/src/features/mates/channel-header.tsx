@@ -5,7 +5,7 @@
 // Find, and a ⋯ menu for Run retro, Export, Settings and Delete.
 
 import * as React from "react";
-import { ChevronDownIcon, ClipboardCheckIcon, CrownIcon, DownloadIcon, HashIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquareIcon, Trash2Icon, UsersIcon } from "lucide-react";
+import { ChevronDownIcon, ClipboardCheckIcon, Columns3Icon, CrownIcon, DownloadIcon, HashIcon, MoreHorizontalIcon, SearchIcon, SettingsIcon, SquareIcon, Trash2Icon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -33,6 +33,8 @@ import { channelPresence } from "./presence";
 import { PresenceFace, usePresence } from "./presence-face";
 import { exportTeam } from "./team-import";
 import { MuteMenuItems } from "./mute-menu";
+import { useBoardStore } from "@/stores/board-store";
+import { BoardKeyDialog } from "./board-key-dialog";
 
 export function useMembers(channel: Channel): Mate[] {
   const mates = useMatesStore((s) => s.mates);
@@ -83,6 +85,11 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
   const findOpen = useMatesUiStore((s) => s.findOpen);
   const [settings, setSettings] = React.useState(false);
   const [confirm, setConfirm] = React.useState(false);
+  // The channel's board (evo-mates-threads-board FR-8).
+  const boardView = useBoardStore((s) => s.views[channel.id]);
+  const boardOn = Boolean(boardView?.board?.enabled);
+  const tab = useBoardStore((s) => s.tab[channel.chatId] ?? "chat");
+  const [boardKey, setBoardKey] = React.useState(false);
   // Why Run retro did not run, for a few seconds (learning-layers FR-19).
   const [retroNote, setRetroNote] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -122,6 +129,22 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
           </span>
         </span>
       </button>
+      {boardOn && (
+        <div className="no-drag flex h-8 shrink-0 items-center rounded-full bg-muted p-0.5" role="tablist" aria-label="Chat or board">
+          {(["chat", "board"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => useBoardStore.getState().setTab(channel.chatId, t)}
+              className={cn("h-7 rounded-full px-3 text-[12.5px]", tab === t ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+            >
+              {t === "chat" ? "Chat" : "Board"}
+            </button>
+          ))}
+        </div>
+      )}
       {/* The members, with their state (FR-19). */}
       <Popover open={membersOpen} onOpenChange={setMembersOpen}>
         <PopoverTrigger
@@ -247,6 +270,33 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
               <SettingsIcon />
               Channel settings
             </DropdownMenuItem>
+            {boardOn ? (
+              <DropdownMenuItem
+                onClick={() => {
+                  useBoardStore.getState().setTab(channel.chatId, "chat");
+                  void useBoardStore.getState().turn(channel.id, false).catch(() => undefined);
+                }}
+              >
+                <Columns3Icon />
+                Turn off board
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => {
+                  // A board that was on keeps its key; a new one asks for it (D6).
+                  if (boardView?.board) {
+                    void useBoardStore
+                      .getState()
+                      .turn(channel.id, true)
+                      .then(() => useBoardStore.getState().setTab(channel.chatId, "board"))
+                      .catch(() => undefined);
+                  } else setBoardKey(true);
+                }}
+              >
+                <Columns3Icon />
+                Turn on board…
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <MuteMenuItems chat={channel.chatId} levels />
             <DropdownMenuSeparator />
@@ -258,6 +308,18 @@ export function ChannelHeader({ channel }: { channel: Channel }) {
         </DropdownMenu>
       </div>
       <ChannelSettings open={settings} onOpenChange={setSettings} channel={channel} />
+      <BoardKeyDialog
+        open={boardKey}
+        onOpenChange={setBoardKey}
+        channelName={channel.name}
+        proposed={boardView?.proposedKey ?? ""}
+        onTurnOn={(key) =>
+          useBoardStore
+            .getState()
+            .turn(channel.id, true, key)
+            .then(() => useBoardStore.getState().setTab(channel.chatId, "board"))
+        }
+      />
       <ConfirmDelete
         open={confirm}
         onOpenChange={setConfirm}
