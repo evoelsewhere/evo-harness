@@ -538,6 +538,111 @@ pub fn take_untold_reactions(conn: &mut Connection, chat: &str) -> Result<Vec<Re
     Ok(untold)
 }
 
+// ── Reactions in channels (docs/features/evo-mates-messaging/spec.md, FR-3, FR-4) ──
+
+/// A reaction on a channel line, by the person (`reactor` = "person") or a mate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelReaction {
+    pub message: String,
+    pub reactor: String,
+    pub reaction: String,
+    pub at_ms: i64,
+}
+
+/// Set (or with `None`, remove) `reactor`'s reaction to the line `message`.
+/// One per reactor per line: a new one replaces the old and is told again.
+pub fn set_channel_reaction(
+    conn: &Connection,
+    channel: &str,
+    message: &str,
+    reactor: &str,
+    reaction: Option<&str>,
+) -> Result<(), DbError> {
+    if message.trim().is_empty() || reactor.trim().is_empty() {
+        return Err(DbError::Invalid(
+            "a reaction needs a line and a reactor".into(),
+        ));
+    }
+    match reaction {
+        None => {
+            conn.execute(
+                "DELETE FROM channel_reactions WHERE channel_id = ?1 AND message = ?2 AND reactor = ?3",
+                params![channel, message, reactor],
+            )?;
+        }
+        Some(reaction) => {
+            if !REACTIONS.contains(&reaction) {
+                return Err(DbError::Invalid(format!("unknown reaction \"{reaction}\"")));
+            }
+            conn.execute(
+                "INSERT INTO channel_reactions (channel_id, message, reactor, reaction, at_ms, told)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 0)
+                 ON CONFLICT (channel_id, message, reactor) DO UPDATE SET reaction = ?4, at_ms = ?5, told = 0",
+                params![channel, message, reactor, reaction, now_ms()],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn channel_reaction(row: &rusqlite::Row<'_>) -> rusqlite::Result<ChannelReaction> {
+    Ok(ChannelReaction {
+        message: row.get(0)?,
+        reactor: row.get(1)?,
+        reaction: row.get(2)?,
+        at_ms: row.get(3)?,
+    })
+}
+
+/// Every reaction in a channel, oldest first.
+pub fn list_channel_reactions(
+    conn: &Connection,
+    channel: &str,
+) -> Result<Vec<ChannelReaction>, DbError> {
+    let mut statement = conn.prepare(
+        "SELECT message, reactor, reaction, at_ms FROM channel_reactions WHERE channel_id = ?1 ORDER BY at_ms",
+    )?;
+    let rows = statement.query_map([channel], channel_reaction)?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// The reactions to `lines` (one author's lines) not told yet, now marked
+/// told; a reactor's reaction to its own line is never told.
+pub fn take_untold_channel_reactions(
+    conn: &mut Connection,
+    channel: &str,
+    author: &str,
+    lines: &[String],
+) -> Result<Vec<ChannelReaction>, DbError> {
+    if lines.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut untold = Vec::new();
+    {
+        let mut select = tx.prepare(
+            "SELECT message, reactor, reaction, at_ms FROM channel_reactions
+             WHERE channel_id = ?1 AND message = ?2 AND told = 0 AND reactor != ?3 ORDER BY at_ms",
+        )?;
+        for line in lines {
+            let rows = select.query_map(params![channel, line, author], channel_reaction)?;
+            for row in rows {
+                untold.push(row?);
+            }
+        }
+        let mut mark = tx.prepare(
+            "UPDATE channel_reactions SET told = 1 WHERE channel_id = ?1 AND message = ?2 AND reactor = ?3",
+        )?;
+        for reaction in &untold {
+            mark.execute(params![channel, reaction.message, reaction.reactor])?;
+        }
+    }
+    tx.commit()?;
+    untold.sort_by_key(|r| r.at_ms);
+    Ok(untold)
+}
+
 // ── Searching mates' words (docs/features/evo-mates/spec.md, FR-76) ─────────
 
 /// A mate's conversation or a channel whose words match a search.
@@ -644,6 +749,57 @@ mod tests {
             folder: format!("/mates/{id}/work"),
             ..NewMate::default()
         }
+    }
+
+    #[test]
+    fn channel_reactions_one_per_reactor_told_once_never_to_oneself() {
+        let (_dir, mut conn) = db();
+        create_mate(&mut conn, &writer("m1"), "ask").unwrap();
+        crate::chats::create_chat(
+            &conn,
+            &NewChat {
+                id: "room".into(),
+                title: "Room".into(),
+                kind: Some("channel".into()),
+                ..NewChat::default()
+            },
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO channels (id, name, chat_id, created_at, updated_at) VALUES ('ch', 'Room', 'room', 0, 0)",
+            [],
+        )
+        .unwrap();
+        set_channel_reaction(&conn, "ch", "r-1", "person", Some("like")).unwrap();
+        set_channel_reaction(&conn, "ch", "r-1", "m2", Some("heart")).unwrap();
+        set_channel_reaction(&conn, "ch", "r-1", "m2", Some("question")).unwrap();
+        set_channel_reaction(&conn, "ch", "r-1", "m1", Some("laugh")).unwrap();
+        assert!(set_channel_reaction(&conn, "ch", "r-1", "m2", Some("angry")).is_err());
+        let all = list_channel_reactions(&conn, "ch").unwrap();
+        assert_eq!(all.len(), 3, "one per reactor: {all:?}");
+        assert!(all
+            .iter()
+            .any(|r| r.reactor == "m2" && r.reaction == "question"));
+
+        // m1 wrote r-1: it hears the person and m2, not itself, and only once.
+        let told =
+            take_untold_channel_reactions(&mut conn, "ch", "m1", &["r-1".to_string()]).unwrap();
+        let mut by: Vec<&str> = told.iter().map(|r| r.reactor.as_str()).collect();
+        by.sort();
+        assert_eq!(by, vec!["m2", "person"]);
+        assert!(
+            take_untold_channel_reactions(&mut conn, "ch", "m1", &["r-1".to_string()])
+                .unwrap()
+                .is_empty()
+        );
+
+        set_channel_reaction(&conn, "ch", "r-1", "person", None).unwrap();
+        assert_eq!(list_channel_reactions(&conn, "ch").unwrap().len(), 2);
+
+        // Deleting the channel deletes its reactions.
+        conn.execute("DELETE FROM channels WHERE id = 'ch'", [])
+            .unwrap();
+        assert!(list_channel_reactions(&conn, "ch").unwrap().is_empty());
     }
 
     #[test]

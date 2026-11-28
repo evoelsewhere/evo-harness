@@ -55,6 +55,30 @@ pub type HarnessCell = Arc<std::sync::OnceLock<WeakAgentHarness>>;
 
 /// Names of the tools, for agent types that narrow the tool list.
 pub const TOOL_NAMES: [&str; 5] = ["send_message", "ask", "reply", "list_nodes", "cancel_node"];
+
+/// The line before the files a message carries (`send_message`'s `files`):
+/// each follows as an `@path` line the receiver opens with its file tools
+/// (docs/features/evo-mates-messaging/spec.md, FR-6).
+pub const ATTACHED_HEADER: &str = "\n\nAttached files (open them with your file tools):";
+
+/// `message` with `files` listed under [`ATTACHED_HEADER`]; at most 10, no empty ones.
+pub fn with_files(message: &str, files: &[String]) -> String {
+    let files: Vec<&str> = files
+        .iter()
+        .map(|f| f.trim())
+        .filter(|f| !f.is_empty())
+        .take(10)
+        .collect();
+    if files.is_empty() {
+        return message.to_string();
+    }
+    let mut out = format!("{}{ATTACHED_HEADER}", message.trim_end());
+    for file in files {
+        out.push_str("\n@");
+        out.push_str(file);
+    }
+    out
+}
 const DEFAULT_ASK_SECS: u64 = 600;
 const MAX_ASK_SECS: u64 = 1800;
 const MAX_TEXT: usize = 20_000;
@@ -586,7 +610,8 @@ pub fn create(harness: HarnessCell, me: Option<Address>) -> Vec<Arc<dyn AgentToo
                 "type": "object",
                 "properties": {
                     "to": { "type": "string", "description": "\"parent\", or a node's id, agent id or title (from list_nodes)." },
-                    "message": { "type": "string", "description": "What to tell it." }
+                    "message": { "type": "string", "description": "What to tell it." },
+                    "files": { "type": "array", "items": { "type": "string" }, "description": "Optional: paths of files to give it with the message (pictures, documents), up to 10. The receiver gets them listed and opens them with its file tools." }
                 },
                 "required": ["to", "message"],
                 "additionalProperties": false
@@ -683,7 +708,16 @@ impl AgentTool for SendMessage {
     ) -> Result<AgentToolResult, AgentError> {
         let me = node_of(&self.ctx.caller()?);
         let to = string_arg(&params, "to")?;
-        let message = string_arg(&params, "message")?;
+        let files: Vec<String> = params
+            .get("files")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(|f| f.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let message = with_files(&string_arg(&params, "message")?, &files);
         let to = match target(&me, &to)? {
             Target::Local(node) => *node,
             Target::Remote { to, hint } => {
@@ -997,3 +1031,23 @@ impl AgentTool for CancelNode {
 // docs/features/session-roles-and-mail/spec.md, FR-6 – FR-8.
 #[cfg(test)]
 mod cross_engine_mail;
+
+#[cfg(test)]
+mod attached_files_tests {
+    use super::*;
+
+    #[test]
+    fn files_are_listed_under_the_header() {
+        assert_eq!(with_files("hi", &[]), "hi");
+        let text = with_files(
+            "Here it is ",
+            &["C:/a/shot.png".into(), " ".into(), "b.md".into()],
+        );
+        assert_eq!(
+            text,
+            format!("Here it is{ATTACHED_HEADER}\n@C:/a/shot.png\n@b.md")
+        );
+        let many: Vec<String> = (0..12).map(|i| format!("f{i}")).collect();
+        assert_eq!(with_files("x", &many).matches("\n@").count(), 10);
+    }
+}

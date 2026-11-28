@@ -161,6 +161,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "learning",
         sql: include_str!("migrations/0018_learning.sql"),
     },
+    Migration {
+        version: 19,
+        name: "channel_reactions",
+        sql: include_str!("migrations/0019_channel_reactions.sql"),
+    },
 ];
 
 /// `application_id` stamped on the file ("evo1"), so tools and evo itself can
