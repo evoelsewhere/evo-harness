@@ -265,4 +265,17 @@ export const teamApi = {
   export: (target: { mate?: string; channel?: string }, path: string) => invoke<void>("team_export", { target, path }),
   preview: (path: string) => invoke<TeamPreview>("team_preview", { path }),
   import: (path: string, skip: string[]) => invoke<{ mates: string[]; channel: string | null }>("team_import", { path, skip }),
+  /** The gallery's ready-made teams (FR-75). */
+  builtins: () => invoke<TeamSummary[]>("mates_teams"),
+  previewBuiltin: (id: string) => invoke<TeamPreview>("team_preview_builtin", { id }),
+  importBuiltin: (id: string, skip: string[]) =>
+    invoke<{ mates: string[]; channel: string | null }>("team_import_builtin", { id, skip }),
 };
+
+/** A ready-made team in the gallery (FR-75). */
+export interface TeamSummary {
+  id: string;
+  name: string;
+  about: string;
+  mates: { name: string; role: string; avatar: MateAvatar }[];
+}

@@ -160,7 +160,7 @@ pub fn parse(text: &str) -> Result<TeamFile, String> {
 }
 
 /// What the import shows before it creates anything.
-fn preview_value(file: &TeamFile, app_mode: &str, connected: &[String]) -> Value {
+pub(crate) fn preview_value(file: &TeamFile, app_mode: &str, connected: &[String]) -> Value {
     let mates: Vec<Value> = file
         .mates
         .iter()
@@ -237,9 +237,13 @@ pub fn team_export(app: AppHandle, target: ExportTarget, path: String) -> Result
 #[tauri::command]
 pub fn team_preview(app: AppHandle, path: String) -> Result<Value, String> {
     let text = std::fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
-    let file = parse(&text)?;
+    Ok(preview_file(&app, &parse(&text)?))
+}
+
+/// What importing `file` would add, with the app's approval mode (FR-21).
+pub fn preview_file(app: &AppHandle, file: &TeamFile) -> Value {
     let mode = crate::engine::approval_mode(&app.state::<Db>()).to_string();
-    Ok(preview_value(&file, &mode, &connector_keys(&app)))
+    preview_value(file, &mode, &connector_keys(app))
 }
 
 /// Import `path`, leaving out the mates named in `skip` (FR-21). Returns the
@@ -247,7 +251,12 @@ pub fn team_preview(app: AppHandle, path: String) -> Result<Value, String> {
 #[tauri::command]
 pub async fn team_import(app: AppHandle, path: String, skip: Vec<String>) -> Result<Value, String> {
     let text = std::fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
-    let file = parse(&text)?;
+    import_file(app, parse(&text)?, skip).await
+}
+
+/// Create `file`'s mates (but those in `skip`) and its channel, with the
+/// safe defaults of FR-21. Returns the new mates' ids and the channel's id.
+pub async fn import_file(app: AppHandle, file: TeamFile, skip: Vec<String>) -> Result<Value, String> {
     // Connected apps are not switched off whole: their services are, in `apps`.
     let keys: Vec<String> = connector_keys(&app).into_iter().filter(|k| k != crate::connected_apps::gate::KEY).collect();
     let mut made: Vec<(String, evo_store::mates::Mate)> = Vec::new();

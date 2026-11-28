@@ -6,11 +6,14 @@ import * as React from "react";
 import { PlusIcon, SearchIcon } from "lucide-react";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
-import type { MateTemplate } from "@/lib/mates";
+import { teamApi, type MateTemplate, type TeamSummary } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useMatesStore } from "@/stores/mates-store";
+import { ImportTeam } from "./team-import";
 
 const ALL = "All";
+/** The tab of ready-made teams (FR-75). */
+const TEAMS = "Teams";
 
 const MODE_WORD: Record<string, string> = { "auto-edits": "Approves edits", auto: "Approves for you" };
 
@@ -37,6 +40,31 @@ function RoleCard({ role, busy, onAdd }: { role: MateTemplate; busy: boolean; on
   );
 }
 
+/** A ready-made team: its faces, name, one line and Add team (FR-75). */
+function TeamCard({ team, onAdd }: { team: TeamSummary; onAdd(): void }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl bg-card p-4 shadow-[0_0_0_1px_var(--border)]">
+      <div className="flex items-center -space-x-2">
+        {team.mates.map((mate) => (
+          <span key={mate.name} className="rounded-full bg-card p-0.5">
+            <MateFace avatar={mate.avatar} size={36} label={mate.name} plate={false} />
+          </span>
+        ))}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-semibold text-foreground">#{team.name}</div>
+        <p className="line-clamp-2 min-h-10 text-[13px] text-muted-foreground">{team.about}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{team.mates.map((m) => m.name).join(" · ")}</span>
+        <Button size="sm" onClick={onAdd}>
+          Add team
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function Gallery() {
   const templates = useMatesStore((s) => s.templates);
   const hasMates = useMatesStore((s) => s.mates.length > 0);
@@ -44,8 +72,19 @@ export function Gallery() {
   const [category, setCategory] = React.useState(ALL);
   const [query, setQuery] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  const categories = [ALL, ...Array.from(new Set(templates.map((t) => t.category)))];
+  const [teams, setTeams] = React.useState<TeamSummary[]>([]);
+  const [adding, setAdding] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    void teamApi
+      .builtins()
+      .then(setTeams)
+      .catch(() => undefined);
+  }, []);
   const needle = query.trim().toLowerCase();
+  const categories = [ALL, ...Array.from(new Set(templates.map((t) => t.category))), ...(teams.length ? [TEAMS] : [])];
+  const teamNeedle = (t: TeamSummary) =>
+    !needle || [t.name, t.about, ...t.mates.map((m) => m.name)].some((text) => text.toLowerCase().includes(needle));
+  const shownTeams = category === TEAMS || (category === ALL && needle) ? teams.filter(teamNeedle) : [];
   const shown = templates.filter(
     (t) =>
       (category === ALL || t.category === category) &&
@@ -91,7 +130,7 @@ export function Gallery() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search roles"
+              placeholder="Search roles and teams"
               className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
             />
           </label>
@@ -101,7 +140,17 @@ export function Gallery() {
             <RoleCard key={role.id} role={role} busy={busy} onAdd={() => void add(role.id)} />
           ))}
         </div>
-        {shown.length === 0 && <p className="text-center text-sm text-muted-foreground">No role matches.</p>}
+        {shownTeams.length > 0 && (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+            {shownTeams.map((team) => (
+              <TeamCard key={team.id} team={team} onAdd={() => setAdding(team.id)} />
+            ))}
+          </div>
+        )}
+        {shown.length === 0 && shownTeams.length === 0 && (
+          <p className="text-center text-sm text-muted-foreground">{category === TEAMS ? "No team matches." : "No role matches."}</p>
+        )}
+        <ImportTeam open={adding !== null} onOpenChange={(open) => !open && setAdding(null)} team={adding ?? undefined} />
         <div className="flex justify-center">
           <Button variant="outline" disabled={busy} onClick={() => void add()}>
             <PlusIcon />

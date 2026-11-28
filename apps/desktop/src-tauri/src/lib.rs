@@ -252,6 +252,9 @@ pub fn run() {
             mates::mates_pause_all,
             // From the market research (docs/features/evo-mates/plan.md 3.10).
             mates::today::mates_today,
+            mates::teams::mates_teams,
+            mates::teams::team_preview_builtin,
+            mates::teams::team_import_builtin,
             widgets::widget_open,
             widgets::widget_close,
             plugin_runtime::plugin_runtime_state,

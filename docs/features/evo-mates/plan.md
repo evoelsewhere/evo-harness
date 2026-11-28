@@ -656,7 +656,7 @@ boundary; no migration (every piece reads tables that exist).
 | crate | `crates/evo-store/src/mates.rs` | `search_messages(conn, transcripts, query, limit)`: chats of kind `mate` and `channel` whose search text holds the words, with a snippet around the first match on a line that is not an envelope (`<…`) | FR-76 |
 | desktop shell | `apps/desktop/src-tauri/src/mates/today.rs` (new) | `mates_today`: `upcoming` until the end of tomorrow, and each mate's replies and cost since the start of today (`mates_since`, from `usage::summary`'s per-mate sums, which count its seats), local time | FR-73, FR-80 |
 | desktop shell | `apps/desktop/src-tauri/src/mates/template.rs`, `templates/*.md` | `starter:` lines (one per starter) in a role's front matter, returned with the gallery's summary; at least 16 roles in 6 categories | FR-8, FR-74 |
-| desktop shell | `apps/desktop/src-tauri/src/mates/teams.rs` (new), `templates/teams/*.md` | Built-in teams in the team file format with an id and one line; `mates_teams`, `team_preview_builtin`, `team_import_builtin` over the same preview and import as a file (`team_file::preview_text`, `import_text`) | FR-75 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/teams.rs` (new), `team_file.rs` | Built-in teams: a channel's name, rule, instructions and gallery role ids (the first leads), turned into a `TeamFile`; `mates_teams`, `team_preview_builtin`, `team_import_builtin` over the same preview and import as a file (`team_file::preview_file`, `import_file`) | FR-75 |
 | desktop shell | `apps/desktop/src-tauri/src/mates/knowledge.rs` (new), `mates/mod.rs` | `mates_knowledge`, `mates_knowledge_add` (copies the picked files into `<mate>/knowledge`, refusing folders, hidden files, links, files over 25 MB and the 51st file), `mates_knowledge_remove`; `instructions` lists the files after the mate's own text, so its direct chat and its seats name them; a change rewrites the roles as a profile change does | FR-77 |
 | desktop shell | `apps/desktop/src-tauri/src/agent_tools/mates.rs`, `crates/evo-engine/src/session_roles.rs` | `mate_profile` takes `name` and `role`, kept only while the mate is still called "New mate"; the conduct block tells a mate whose first message describes what it is for to name itself from it | FR-78 |
 | desktop shell | `apps/desktop/src-tauri/src/mates/initiative.rs` | `mates_agenda_add_checkin(id, text, repeat)`: a check-in from the panel, its first time from the schedule | FR-79 |
@@ -684,10 +684,11 @@ a mate's starters up by its `template`; a mate with none shows the
 from-scratch set ("Here is what I need help with…", "Ask me what you need to
 know to help me", "What can you do with my files?").
 
-**Teams** (FR-75). A team's file is the team file of FR-27, so a team is
-previewed and imported by the same code as a file; `teams.rs` holds
-`(id, one line, text)` for each. `team_file` splits `team_preview` and
-`team_import` into `preview_text` / `import_text` over the file's text.
+**Teams** (FR-75). A team is a `TeamFile` (FR-27) built from gallery roles,
+so its mates' instructions are never a second copy of the roles' text, and
+it is previewed and imported by the same code as a file: `team_file` splits
+`team_preview` and `team_import` into `preview_file` / `import_file` over a
+parsed file.
 
 **Message search** (FR-76). The chat search text (`chat_search`, kept by
 `refresh_search`) already holds every chat's words, mates' included; Harness's

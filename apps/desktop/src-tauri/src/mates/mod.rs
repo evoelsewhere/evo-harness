@@ -18,6 +18,7 @@ pub mod grants;
 pub mod initiative;
 pub mod limit;
 pub mod team_file;
+pub mod teams;
 pub mod secrets;
 pub mod template;
 pub mod today;

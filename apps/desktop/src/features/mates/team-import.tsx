@@ -32,8 +32,11 @@ export async function exportTeam(target: { mate?: string; channel?: string }, na
   }
 }
 
-/** Pick a team file and show its preview (FR-21). */
-export function ImportTeam({ open: shown, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
+/**
+ * Pick a team file and show its preview (FR-21); with `team`, preview one of
+ * the gallery's ready-made teams instead (FR-75).
+ */
+export function ImportTeam({ open: shown, onOpenChange, team }: { open: boolean; onOpenChange(open: boolean): void; team?: string }) {
   const [path, setPath] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState<TeamPreview | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -47,6 +50,15 @@ export function ImportTeam({ open: shown, onOpenChange }: { open: boolean; onOpe
     setError(null);
     setSkip([]);
     void (async () => {
+      if (team) {
+        setPath(null);
+        try {
+          setPreview(await teamApi.previewBuiltin(team));
+        } catch (e) {
+          setError(String(e).replace(/^Error:\s*/, ""));
+        }
+        return;
+      }
       const picked = await open({ title: "Import a team", multiple: false, filters: [{ name: "Evo team", extensions: ["md"] }] });
       if (typeof picked !== "string") {
         onOpenChange(false);
@@ -59,13 +71,13 @@ export function ImportTeam({ open: shown, onOpenChange }: { open: boolean; onOpe
         setError(String(e).replace(/^Error:\s*/, ""));
       }
     })();
-  }, [shown, onOpenChange]);
+  }, [shown, onOpenChange, team]);
 
   const run = async () => {
-    if (!path || !preview) return;
+    if ((!path && !team) || !preview) return;
     setBusy(true);
     try {
-      const made = await teamApi.import(path, skip);
+      const made = team ? await teamApi.importBuiltin(team, skip) : await teamApi.import(path!, skip);
       const store = useMatesStore.getState();
       await store.load();
       if (made.channel) await store.openChannel(made.channel);
@@ -84,7 +96,7 @@ export function ImportTeam({ open: shown, onOpenChange }: { open: boolean; onOpe
     <Dialog open={shown && Boolean(preview || error)} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-[22px]">
         <DialogHeader>
-          <DialogTitle>{preview?.channel ? `Import #${preview.channel.name}` : "Import mates"}</DialogTitle>
+          <DialogTitle>{preview?.channel ? `${team ? "Add" : "Import"} #${preview.channel.name}` : "Import mates"}</DialogTitle>
           <DialogDescription>Nothing is created until you import. Imported mates start careful: your approval mode, every app off, skills off, and they ask before sending.</DialogDescription>
         </DialogHeader>
         {error ? (
@@ -148,7 +160,7 @@ export function ImportTeam({ open: shown, onOpenChange }: { open: boolean; onOpe
               onClick={() => void run()}
               className="rounded-full bg-brand px-4 text-brand-foreground hover:bg-brand/90"
             >
-              Import {kept.length} {kept.length === 1 ? "mate" : "mates"}
+              {team ? "Add" : "Import"} {kept.length} {kept.length === 1 ? "mate" : "mates"}
             </Button>
           )}
         </DialogFooter>
