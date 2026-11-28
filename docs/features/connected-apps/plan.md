@@ -345,9 +345,9 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   them, category chips, Show more), the Apps settings (key card, and under
   Advanced the `connected_apps` connector's own detail with its tool
   permissions), or an MCP server. The app server is not listed among the
-  MCP servers. The Customize section `connected-apps` is gone; the More
-  menu's Connected apps and Settings › Evo Mates open Connectors on the
-  apps (`openConnectorsAt`). Evo Mates' dialog is built from the same parts
+  MCP servers. The Customize section `connected-apps` is gone; Settings ›
+  Evo Mates opens Connectors on the apps (`openConnectorsAt`); the More
+  menu has no row of its own for them (owner's request). Evo Mates' dialog is built from the same parts
   (Your apps, a service's page, Browse, the key). Shared pieces live in
   `features/connected-apps/apps-parts.tsx`. The catalogue drops Composio's
   own `composio` toolkit and keeps `meta.tools_count`.
