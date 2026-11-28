@@ -73,6 +73,9 @@ pub struct MemoryTool {
     recorder: Option<Recorder>,
     /// How an added entry names where it came from (`from chat "…"`).
     source: Option<String>,
+    /// The person's own lines of the chat indexing reads: a `user` fact must
+    /// quote them (learning-layers FR-8).
+    person: Option<String>,
 }
 
 /// The tool as a chat's agent uses it: every change is a journal row by
@@ -92,6 +95,7 @@ pub fn create_memory_tool(cwd: PathBuf) -> Arc<dyn AgentTool> {
         origin: Origin::Chat,
         recorder: Some(recorder),
         source: None,
+        person: None,
     })
 }
 
@@ -99,11 +103,12 @@ pub fn create_memory_tool(cwd: PathBuf) -> Arc<dyn AgentTool> {
 /// `recorder` hears each change.
 pub fn index_memory_tool(cwd: PathBuf, recorder: Recorder) -> MemoryTool {
     MemoryTool {
-        schema: schema(),
+        schema: index_schema(),
         cwd,
         origin: Origin::Index,
         recorder: Some(recorder),
         source: None,
+        person: None,
     }
 }
 
@@ -112,6 +117,37 @@ impl MemoryTool {
     pub fn with_source(mut self, source: Option<String>) -> Self {
         self.source = source;
         self
+    }
+
+    /// The person's own lines of the chat being indexed (FR-8).
+    pub fn with_person(mut self, person: String) -> Self {
+        self.person = Some(person);
+        self
+    }
+
+    /// Indexing keeps a fact about the person only with the person's own
+    /// words behind it (learning-layers FR-8).
+    fn check_evidence(&self, kind: &str, fact: &str, params: &Value) -> Result<(), String> {
+        if self.origin != Origin::Index || kind != "user" || fact.trim().is_empty() {
+            return Ok(());
+        }
+        let quotes: Vec<String> = match params.get("evidence") {
+            Some(Value::String(one)) => vec![one.clone()],
+            Some(Value::Array(list)) => list
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let person = self.person.as_deref().unwrap_or("");
+        let cited: Vec<(&str, &str)> = quotes
+            .iter()
+            .map(|quote| (quote.as_str(), person))
+            .collect();
+        crate::learning::quotes::check(fact, &cited).map_err(|why| {
+            format!("not saved: a `user` fact needs `evidence`, the person's exact words from this chat ({why})")
+        })
     }
 }
 
@@ -131,6 +167,29 @@ pub(crate) fn as_entries(text: &str, source: &str, until: Option<&str>) -> Strin
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The tool as indexing sees it: `evidence` for facts about the person.
+pub(crate) fn index_schema() -> Tool {
+    let mut tool = schema();
+    if let Some(properties) = tool
+        .parameters
+        .as_value()
+        .get("properties")
+        .cloned()
+        .and_then(|value| value.as_object().cloned())
+    {
+        let mut properties = properties;
+        properties.insert(
+            "evidence".into(),
+            json!({ "type": "array", "items": { "type": "string" },
+                    "description": "For a `user` fact: the person's exact words from this chat that show it, copied character for character. Every number, path and URL of the fact must be in them." }),
+        );
+        let mut parameters = tool.parameters.as_value().clone();
+        parameters["properties"] = Value::Object(properties);
+        tool.parameters = Schema::new(parameters);
+    }
+    tool
 }
 
 pub(crate) fn schema() -> Tool {
@@ -254,6 +313,7 @@ impl MemoryTool {
                     k => k,
                 };
                 let existed = find_in(&folder, arg(params, "name")).is_some();
+                self.check_evidence(kind, arg(params, "content"), params)?;
                 let content = match self.until(params)? {
                     Some(until) => {
                         as_entries(arg(params, "content"), &self.source_label(), Some(&until))
@@ -281,6 +341,10 @@ impl MemoryTool {
             }
             "update" => {
                 let old_text = Some(arg(params, "old_text")).filter(|text| !text.is_empty());
+                let kind = find_in(&folder, arg(params, "name"))
+                    .map(|m| m.kind)
+                    .unwrap_or_default();
+                self.check_evidence(&kind, arg(params, "new_text"), params)?;
                 let until = self.until(params)?;
                 // Added text is dated when it ends on a known day, and always
                 // when indexing adds it (learning-layers FR-4, plan 3.4).
@@ -428,6 +492,7 @@ mod tests {
                     origin: Origin::Chat,
                     recorder: None,
                     source: None,
+                    person: None,
                 },
             }
         }
@@ -600,6 +665,60 @@ mod tests {
             (heard[2].2.as_ref(), &heard[2].3),
             (heard[1].3.as_ref(), &None)
         );
+    }
+
+    // learning-layers FR-8: indexing keeps a fact about the person only with
+    // the person's own words behind it.
+    #[test]
+    fn an_index_fact_without_a_real_quote_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let tool = index_memory_tool(PathBuf::from("/work/app"), Arc::new(|_, _, _, _| {}))
+            .with_person("I always use tabs, width 4, in this repo.".into());
+        let folder = root.path().to_path_buf();
+        let call = |params: Value| {
+            let folder = folder.clone();
+            tool.run_with(&params, ON, &move |scope| Ok(folder.join(scope.label())))
+        };
+        let save = |evidence: Value| {
+            json!({ "action": "save", "name": "indent", "type": "user",
+                    "content": "Uses tabs, width 4.", "evidence": evidence })
+        };
+        let error = call(save(json!(["I love spaces"]))).unwrap_err();
+        assert!(error.contains("never said"), "{error}");
+        assert!(call(
+            json!({ "action": "save", "name": "indent", "type": "user", "content": "Uses tabs." })
+        )
+        .unwrap_err()
+        .contains("`evidence`"));
+        assert!(
+            call(save(json!(["use tabs, width 8"]))).is_err(),
+            "a quote the person never said"
+        );
+        // A number the quote does not hold.
+        assert!(
+            call(json!({ "action": "save", "name": "indent", "type": "user",
+                             "content": "Uses tabs, width 2.", "evidence": ["use tabs, width 4"] }))
+            .unwrap_err()
+            .contains("`2`")
+        );
+        call(save(json!(["use tabs, width 4"]))).unwrap();
+        // Adding to a `user` topic needs it too; taking text out does not.
+        assert!(call(
+            json!({ "action": "update", "name": "indent", "new_text": "Likes dark mode." })
+        )
+        .is_err());
+        call(
+            json!({ "action": "update", "name": "indent", "new_text": "Tabs in this repo.",
+                     "evidence": ["in this repo"] }),
+        )
+        .unwrap();
+        // Decisions and outcomes (other types) need no quote.
+        call(json!({ "action": "save", "name": "freeze", "type": "project", "content": "Freeze from 2026-12-01." }))
+            .unwrap();
+        assert!(index_schema().parameters.as_value()["properties"]["evidence"].is_object());
+        assert!(schema().parameters.as_value()["properties"]
+            .get("evidence")
+            .is_none());
     }
 
     // FR-7, FR-8: the personal switch and the pause.

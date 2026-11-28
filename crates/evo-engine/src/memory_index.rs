@@ -139,7 +139,8 @@ pub fn instructions(summary_only: bool, sensitive: bool) -> String {
             "Memory is a short list of topics, one short document per subject, kept with the \
 `memory` tool. Keep in it only what the person said or confirmed and that will matter in later \
 chats:\n\
-- `user`: who they are, their role, expertise and preferences;\n\
+- `user`: who they are, their role, expertise and preferences — give `evidence`, the person's \
+exact words from this chat that show it, or it is not saved;\n\
 - `feedback`: how they want the assistant to work — corrections and approaches they confirmed, \
 with the reason;\n\
 - `project`: goals, decisions, deadlines and constraints of ongoing work (write dates in full);\n\
@@ -176,7 +177,7 @@ holds. When you are done, answer `done`."
 }
 
 fn memory_schema() -> Tool {
-    crate::tools::memory::schema()
+    crate::tools::memory::index_schema()
 }
 
 fn summary_schema() -> Tool {
@@ -375,6 +376,25 @@ pub fn chosen_model(args: &Args) -> Result<(&str, &str), String> {
     }
 }
 
+/// The person's own lines in the new part of the chat: a `user` fact must
+/// quote them (learning-layers FR-8).
+fn person_lines(state: &Value, after: Option<&str>) -> String {
+    transcripts::messages_after(
+        state,
+        after,
+        MessageLimits {
+            tool_args: 0,
+            tool_result: 0,
+        },
+    )
+    .messages
+    .into_iter()
+    .filter(|message| message.kind == MessageKind::User)
+    .map(|message| message.text)
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
 /// The chat's title, for the source of the entries indexing adds.
 fn chat_title(chat: &str) -> Option<String> {
     let conn = crate::app_db::open().ok()?;
@@ -457,6 +477,7 @@ async fn run(args: &Args, chat: &str, cwd: &Path) -> Result<Value, (&'static str
             }
         }),
     )
+    .with_person(person_lines(&state, args.index_after.as_deref()))
     .with_source(chat_title(chat).map(|title| {
         format!(
             "from chat {}",
@@ -722,7 +743,9 @@ mod tests {
         let tool = index_memory_tool(
             std::path::PathBuf::from("/work/app"),
             Arc::new(move |_, name, _, _| sink.lock().unwrap().push(name.to_string())),
-        );
+        )
+        // A `user` fact quotes the person (learning-layers FR-8).
+        .with_person("Use tabs in this repo.".into());
         let memory = |params: &Value| {
             let folder = folder.clone();
             tool.run_with(params, ON, &move |scope| Ok(folder.join(scope.label())))
@@ -737,7 +760,8 @@ mod tests {
                 calls(
                     "memory",
                     json!({ "action": "save", "name": "indent-style", "type": "user",
-                            "description": "Indentation", "content": "Uses tabs in this repo." }),
+                            "description": "Indentation", "content": "Uses tabs in this repo.",
+                            "evidence": ["Use tabs in this repo"] }),
                 ),
             ),
             // A tool that does not exist here is answered with an error, not run.
