@@ -253,6 +253,9 @@ pub fn run() {
             // From the market research (docs/features/evo-mates/plan.md 3.10).
             mates::today::mates_today,
             mates::mates_search,
+            mates::knowledge::mates_knowledge,
+            mates::knowledge::mates_knowledge_add,
+            mates::knowledge::mates_knowledge_remove,
             mates::teams::mates_teams,
             mates::teams::team_preview_builtin,
             mates::teams::team_import_builtin,

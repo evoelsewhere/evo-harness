@@ -16,6 +16,7 @@
 pub mod channels;
 pub mod grants;
 pub mod initiative;
+pub mod knowledge;
 pub mod limit;
 pub mod team_file;
 pub mod teams;
@@ -62,12 +63,21 @@ pub(crate) fn new_id(prefix: &str) -> String {
 /// instructions. How every mate behaves is the engine's
 /// (`evo_engine::session_roles::MATE_CONDUCT`, FR-46 - FR-48), added after
 /// these for any role that names a mate.
+///
+/// They end with the mate's Knowledge files, when it has any (FR-77).
 pub fn instructions(mate: &Mate) -> String {
+    let dir = knowledge::dir_of(&mate.id);
+    instructions_with(mate, knowledge::block(&dir, &knowledge::list_in(&dir)))
+}
+
+/// [`instructions`] with `knowledge` (the Knowledge block) after the mate's own text.
+pub fn instructions_with(mate: &Mate, knowledge: Option<String>) -> String {
     let role = if mate.role.trim().is_empty() { "a helpful teammate".to_string() } else { mate.role.trim().to_string() };
     let own = mate.instructions.trim();
     let own = if own.is_empty() { String::new() } else { format!("\n\n{own}") };
+    let knowledge = knowledge.map(|text| format!("\n\n{text}")).unwrap_or_default();
     format!(
-        "You are {name}, one of the person's mates in Evo Mates: an AI teammate with a role of your own. Your role: {role}.{own}",
+        "You are {name}, one of the person's mates in Evo Mates: an AI teammate with a role of your own. Your role: {role}.{own}{knowledge}",
         name = mate.name.trim(),
     )
 }

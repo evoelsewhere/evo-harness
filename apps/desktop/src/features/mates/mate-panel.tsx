@@ -30,6 +30,7 @@ import { MateConnectedApps } from "@/features/connected-apps";
 import { ConfirmDelete } from "./confirm";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
+import { Knowledge } from "./knowledge";
 import { Starters, startersFor } from "./starters";
 
 /** A new conversation's first screen: the mate, ready to talk (ux.md 5). */
@@ -605,6 +606,7 @@ function Files({ mate }: { mate: Mate }) {
           </Button>
         )}
       </div>
+      <Knowledge mate={mate} />
     </div>
   );
 }

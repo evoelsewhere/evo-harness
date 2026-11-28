@@ -126,11 +126,22 @@ export const matesApi = {
   /** Change a check-in's schedule (`{kind: "daily" | "weekdays" | "weekly", time, days?}`). */
   rescheduleAgenda: (id: string, item: string, repeat: CheckinSchedule) =>
     invoke<AgendaItem>("mates_agenda_reschedule", { id, item, repeat }),
+  /** A mate's Knowledge files (FR-77). */
+  knowledge: (id: string) => invoke<KnowledgeFile[]>("mates_knowledge", { id }),
+  addKnowledge: (id: string, paths: string[]) =>
+    invoke<{ added: string[]; refused: [string, string][] }>("mates_knowledge_add", { id, paths }),
+  removeKnowledge: (id: string, name: string) => invoke<void>("mates_knowledge_remove", { id, name }),
   /** Mates' conversations and channels whose words match (FR-76). */
   search: (query: string) => invoke<MessageHit[]>("mates_search", { query }),
   /** Coming up and each mate's day so far, for Today (FR-73). */
   today: () => invoke<{ coming: AgendaItem[]; team: { mateId: string; replies: number; costUsd: number }[] }>("mates_today"),
 };
+
+/** A file in a mate's Knowledge (FR-77). */
+export interface KnowledgeFile {
+  name: string;
+  bytes: number;
+}
 
 /** A conversation whose words match a search (FR-76). */
 export interface MessageHit {
