@@ -156,6 +156,8 @@ struct Line {
 struct State {
     /// mate id → seat chat id.
     seats: HashMap<String, String>,
+    /// How the open job is going, for its `job` entry (learning-layers FR-19).
+    job: JobTrack,
     /// Every line so far, oldest first.
     lines: Vec<Line>,
     /// Per seat: how many lines it had seen at its last delivery.
@@ -462,6 +464,7 @@ impl Coordinator {
         } else {
             (None, None)
         };
+        lock(&self.state).job = JobTrack::default();
         let route =
             answers.unwrap_or_else(|| route::route(&text, &self.role, answer, why.as_deref()));
         self.post(
@@ -470,9 +473,10 @@ impl Coordinator {
         )
         .await;
         if route.picked.is_empty() {
-            return Ok(
-                json!({ "outcome": "completed", "finalText": route::line(&route, &self.role) }),
-            );
+            let done =
+                json!({ "outcome": "completed", "finalText": route::line(&route, &self.role) });
+            self.post_job(harness, &message, &done).await;
+            return Ok(done);
         }
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Back>();
@@ -490,7 +494,24 @@ impl Coordinator {
             state.message = None;
             state.working.clear();
         }
+        // The job ended: say how, for its retro (learning-layers FR-19).
+        if let Ok(done) = &result {
+            self.post_job(harness, &message, done).await;
+        }
         result
+    }
+
+    /// The `job` entry that closes the work one message of the person started.
+    async fn post_job(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        message: &str,
+        result: &Value,
+    ) {
+        let track = lock(&self.state).job.clone();
+        let id = self.next_id("j");
+        self.post(harness, job_entry(&id, message, &track, result, now_ms()))
+            .await;
     }
 
     async fn run(
@@ -825,6 +846,7 @@ impl Coordinator {
         handoffs: u32,
         cancel: &CancellationToken,
     ) -> Value {
+        lock(&self.state).job.limit = true;
         let seats: Vec<String> = lock(&self.state).seats.values().cloned().collect();
         let note = format!(
             "The mates handed work back and forth {handoffs} times for this message, the most this channel allows: every mate stopped. Say how to go on."
@@ -844,6 +866,7 @@ impl Coordinator {
         text: &str,
         message: &str,
     ) {
+        lock(&self.state).job.handoffs += 1;
         let entry = json!({
             "kind": "handoff", "message": message, "handoff": kind,
             "from": from, "fromName": self.name_of(from),
@@ -866,6 +889,7 @@ impl Coordinator {
         };
         let name = self.name_of(&mate);
         if status != "done" && text.trim().is_empty() {
+            lock(&self.state).job.failed = true;
             self.post(harness, json!({ "kind": "notice", "notice": "member_failed", "author": mate, "text": format!("{name} could not reply ({status})."), "at": now_ms() })).await;
             return;
         }
@@ -892,6 +916,7 @@ impl Coordinator {
         let from_mate = self.mate_of_seat(from).unwrap_or_default();
         let to_mate = self.mate_of_seat(to).unwrap_or_default();
         let kind = handoff_kind(op, text);
+        lock(&self.state).job.handoffs += 1;
         self.post(
             harness,
             json!({
@@ -1024,6 +1049,44 @@ pub fn handoff_kind(op: &str, text: &str) -> &'static str {
     } else {
         "tells"
     }
+}
+
+/// How a job (the work one message of the person starts) is going.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct JobTrack {
+    /// Hand-off lines posted.
+    pub handoffs: u32,
+    /// A member could not reply.
+    pub failed: bool,
+    /// It stopped at the hand-off limit.
+    pub limit: bool,
+}
+
+/// The `job` entry a job ends with (docs/features/learning-layers/plan.md,
+/// 3.3): `completed`, `stopped` (by the person), `limit`, `failed` or
+/// `silent` (no reply in time), and its hand-off count.
+pub(crate) fn job_entry(
+    id: &str,
+    message: &str,
+    track: &JobTrack,
+    result: &Value,
+    at: i64,
+) -> Value {
+    let status = if track.limit {
+        "limit"
+    } else if result.get("outcome").and_then(Value::as_str) == Some("aborted") {
+        "stopped"
+    } else if result.get("finalText").and_then(Value::as_str) == Some("No reply in time.") {
+        "silent"
+    } else if track.failed {
+        "failed"
+    } else {
+        "completed"
+    };
+    json!({
+        "kind": "job", "id": id, "message": message, "status": status,
+        "handoffs": track.handoffs, "first": message, "at": at,
+    })
 }
 
 #[cfg(test)]
@@ -1239,5 +1302,66 @@ mod tests {
             "assigns"
         );
         assert_eq!(handoff_kind("message", "fyi the numbers are in"), "tells");
+    }
+
+    // learning-layers FR-19: every way a job ends gives its `job` entry.
+    #[test]
+    fn every_job_end_writes_a_job_entry() {
+        let done = json!({ "outcome": "completed", "finalText": "Writer replied." });
+        let plain = JobTrack {
+            handoffs: 3,
+            ..Default::default()
+        };
+        let entry = job_entry("j-1", "m-1", &plain, &done, 7);
+        assert_eq!(
+            entry,
+            json!({ "kind": "job", "id": "j-1", "message": "m-1", "status": "completed", "handoffs": 3, "first": "m-1", "at": 7 })
+        );
+        let status = |track: &JobTrack, result: Value| {
+            job_entry("j", "m", track, &result, 1)["status"].clone()
+        };
+        assert_eq!(
+            status(
+                &JobTrack {
+                    limit: true,
+                    handoffs: 12,
+                    ..Default::default()
+                },
+                done.clone()
+            ),
+            "limit"
+        );
+        assert_eq!(
+            status(
+                &JobTrack::default(),
+                json!({ "outcome": "aborted", "finalText": "Stopped." })
+            ),
+            "stopped"
+        );
+        assert_eq!(
+            status(
+                &JobTrack::default(),
+                json!({ "outcome": "completed", "finalText": "No reply in time." })
+            ),
+            "silent"
+        );
+        assert_eq!(
+            status(
+                &JobTrack {
+                    failed: true,
+                    ..Default::default()
+                },
+                done.clone()
+            ),
+            "failed"
+        );
+        // Nobody was picked: a job with no hand-off, completed.
+        assert_eq!(
+            status(
+                &JobTrack::default(),
+                json!({ "outcome": "completed", "finalText": "Nobody answers." })
+            ),
+            "completed"
+        );
     }
 }
