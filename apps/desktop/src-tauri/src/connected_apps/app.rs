@@ -169,9 +169,12 @@ async fn toolkits(app: &AppHandle) -> Result<Vec<Toolkit>, String> {
     if let Some(list) = cached.as_ref() {
         return Ok(list.clone());
     }
-    let client = state.service.client().ok_or("No Composio key is saved.")?;
+    // Without a Composio key, Browse still offers the official servers (FR-20).
+    let Some(client) = state.service.client() else {
+        return Ok(catalog::merge(Vec::new()));
+    };
     let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
-    let list = catalog::load(&client, &catalog::cache_file(&dir)).await?;
+    let list = catalog::merge(catalog::load(&client, &catalog::cache_file(&dir)).await?);
     *cached = Some(list.clone());
     Ok(list)
 }

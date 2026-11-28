@@ -36,6 +36,16 @@ pub struct Toolkit {
     /// How many tools Composio has for it.
     #[serde(default)]
     pub tools_count: u64,
+    /// The service's own MCP server (an official id), when it has one.
+    #[serde(default)]
+    pub official: Option<String>,
+    /// Composio offers it (false for a service only its official server offers).
+    #[serde(default = "yes")]
+    pub composio: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Toolkit {
@@ -76,6 +86,8 @@ impl Toolkit {
                 .pointer("/meta/tools_count")
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
+            official: None,
+            composio: true,
             slug,
         })
     }
@@ -160,6 +172,44 @@ pub async fn load(client: &Composio, file: &Path) -> Result<Vec<Toolkit>, String
     }
 }
 
+/// Browse's list (FR-20): every official server first, in the list's
+/// order — on the card of its Composio toolkit when the service has exactly
+/// one, so the service shows once with both ways — then Composio's toolkits.
+pub fn merge(toolkits: Vec<Toolkit>) -> Vec<Toolkit> {
+    let mut rest = toolkits;
+    let mut first = Vec::new();
+    for o in super::official::all() {
+        let matching: Vec<usize> = rest
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| o.composio.iter().any(|c| c.eq_ignore_ascii_case(&t.slug)))
+            .map(|(i, _)| i)
+            .collect();
+        let card = match matching.as_slice() {
+            [one] => {
+                let mut t = rest.remove(*one);
+                t.official = Some(o.id.clone());
+                t
+            }
+            _ => Toolkit {
+                slug: o.id.clone(),
+                name: o.name.clone(),
+                logo: String::new(),
+                categories: vec![o.category.clone()],
+                managed_auth: false,
+                no_auth: false,
+                description: String::new(),
+                tools_count: 0,
+                official: Some(o.id.clone()),
+                composio: false,
+            },
+        };
+        first.push(card);
+    }
+    first.extend(rest);
+    first
+}
+
 /// The toolkits matching `query` (name or slug) and `category`.
 pub fn search(toolkits: &[Toolkit], query: Option<&str>, category: Option<&str>) -> Vec<Toolkit> {
     let query = query
@@ -209,7 +259,47 @@ mod tests {
             no_auth: false,
             description: String::new(),
             tools_count: 0,
+            official: None,
+            composio: true,
         }
+    }
+
+    #[test]
+    fn notion_shows_once_official_first() {
+        let all = vec![
+            kit("gmail", "Gmail", &["email"]),
+            kit("notion", "Notion", &["notes"]),
+            kit("jira", "Jira", &[]),
+            kit("confluence", "Confluence", &[]),
+        ];
+        let merged = merge(all);
+        let slugs: Vec<&str> = merged.iter().map(|t| t.slug.as_str()).collect();
+        assert_eq!(
+            slugs.iter().filter(|s| **s == "notion").count(),
+            1,
+            "{slugs:?}"
+        );
+        let notion = merged.iter().find(|t| t.slug == "notion").unwrap();
+        assert_eq!(
+            (notion.official.as_deref(), notion.composio),
+            (Some("notion"), true),
+            "both ways on one card"
+        );
+        let official_count = merged.iter().take_while(|t| t.official.is_some()).count();
+        assert_eq!(
+            official_count,
+            crate::connected_apps::official::all().len(),
+            "official ones first: {slugs:?}"
+        );
+        // GitHub has no Composio card here: an official-only card.
+        let github = merged.iter().find(|t| t.slug == "github").unwrap();
+        assert!(!github.composio);
+        // Atlassian covers two toolkits: its own card; Jira stays Composio's.
+        assert!(merged.iter().any(|t| t.slug == "atlassian" && !t.composio));
+        assert!(merged
+            .iter()
+            .any(|t| t.slug == "jira" && t.official.is_none()));
+        assert_eq!(merged.last().unwrap().slug, "confluence");
     }
 
     #[test]
