@@ -13,6 +13,7 @@ pub mod clock;
 pub mod commands;
 pub mod jobs;
 pub mod owners;
+pub mod review;
 pub mod skills;
 
 /// The first dream of an owner looks back this far (FR-10).

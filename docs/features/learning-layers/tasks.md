@@ -51,7 +51,7 @@ learned skill change, shown under the reply and undoable.
 
 - [ ] T18 [FR-15] Learned-skills folders in the search order, `learnedSkillsDir` in a mate's role, Customize and the mate's Skills tab list them as learned with switch, Undo last change, Delete — `crates/evo-engine/src/resource_dirs.rs`, `customize.rs`, `crates/evo-mesh/src/wire.rs`, `src-tauri/src/mates/mod.rs`, `features/customize/`, `features/mates/skills-tab.tsx` — check: engine test `a_learned_skill_never_shadows_an_installed_one`; manual
 - [x] T19 [FR-16, FR-17] Failing tests then `learning/review.rs`: prompt (lesson, do-not-capture and authoring blocks), parse, at most 3 changes, update only shown learned skills keeping every line, names free and class-level, installed skills never changed — `crates/evo-engine/src/learning/review.rs` — check: `cargo test -p evo-engine review`
-- [ ] T20 [FR-16] Review due: step count per chat since the last review, started on `agent_settled` — `apps/desktop/src-tauri/src/learning/jobs.rs` — check: shell test `a_review_starts_after_ten_tool_steps`
+- [x] T20 [FR-16] Review due: step count per chat since the last review, started on `agent_settled` — `apps/desktop/src-tauri/src/learning/jobs.rs` — check: shell test `a_review_starts_after_ten_tool_steps`
 - [ ] T21 [FR-18] "Learned · <skill>" under the reply, from the journal, opening the change with Undo — `features/chat/`, `features/mates/conversation.tsx`, `learning/commands.rs` — check: manual
 
 ### Phase 5 — The retro

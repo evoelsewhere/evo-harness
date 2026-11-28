@@ -78,6 +78,11 @@ pub fn parse_result(stdout: &str) -> Result<Value, String> {
 /// Run one step for `owner` and wait for its result. A second step for an
 /// owner whose step runs is refused (it is tried again at the next look).
 pub async fn run_step(app: &AppHandle, task: &str, owner: &str, extra: Vec<String>) -> Result<Value, String> {
+    run_step_in(app, task, owner, extra, None).await
+}
+
+/// [`run_step`] in folder `cwd` (a chat's folder: its project's skills).
+pub async fn run_step_in(app: &AppHandle, task: &str, owner: &str, extra: Vec<String>, cwd: Option<std::path::PathBuf>) -> Result<Value, String> {
     let learning = app.state::<Learning>();
     if !learning.take(owner) {
         return Err(format!("a learning step for {owner} is already running"));
@@ -85,6 +90,9 @@ pub async fn run_step(app: &AppHandle, task: &str, owner: &str, extra: Vec<Strin
     let (today, _) = super::clock::local_now();
     let mut command = Command::new(crate::engine::engine_binary());
     command.args(step_args(task, owner, &today, &extra)).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    if let Some(folder) = cwd.filter(|folder| folder.is_dir()) {
+        command.current_dir(folder);
+    }
     #[cfg(windows)]
     {
         // Do not flash a console window for the child process.

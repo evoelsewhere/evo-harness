@@ -1449,6 +1449,8 @@ pub async fn on_line(app: &AppHandle, chat: &str, generation: u64, line: &Value)
     // A mate's heartbeat turn ended: its items are taken up (evo-mates FR-64).
     if line.get("type").and_then(Value::as_str) == Some("agent_settled") {
         crate::mates::initiative::settled(app, chat, line);
+        // Real work may teach a learned skill (learning-layers FR-16).
+        crate::learning::review::settled(app, chat, line);
     }
     let kind = line.get("type").and_then(Value::as_str);
     // What works and waits may have changed: the tray and the sidebar follow (FR-12, NFR-5).
