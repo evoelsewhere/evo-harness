@@ -25,7 +25,9 @@ fn today() -> String {
 }
 
 fn excused_today() -> HashSet<String> {
-    let guard = EXCUSED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = EXCUSED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if guard.0 == today() {
         guard.1.iter().cloned().collect()
     } else {
@@ -35,18 +37,31 @@ fn excused_today() -> HashSet<String> {
 
 /// The limit, when one is set.
 pub fn limit(db: &Db) -> Option<f64> {
-    db.with(|conn| evo_store::settings::get(conn, LIMIT_KEY)).ok().flatten().and_then(|v| v.as_f64()).filter(|v| *v > 0.0)
+    db.with(|conn| evo_store::settings::get(conn, LIMIT_KEY))
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_f64())
+        .filter(|v| *v > 0.0)
 }
 
 /// The mates to pause: at or over `limit` today, not paused, not excused.
-pub fn over(mates: &[Mate], today: &[MateDay], limit: Option<f64>, excused: &HashSet<String>) -> Vec<String> {
+pub fn over(
+    mates: &[Mate],
+    today: &[MateDay],
+    limit: Option<f64>,
+    excused: &HashSet<String>,
+) -> Vec<String> {
     let Some(limit) = limit else {
         return Vec::new();
     };
     mates
         .iter()
         .filter(|mate| !mate.paused && !excused.contains(&mate.id))
-        .filter(|mate| today.iter().any(|day| day.mate_id == mate.id && day.cost_usd >= limit))
+        .filter(|mate| {
+            today
+                .iter()
+                .any(|day| day.mate_id == mate.id && day.cost_usd >= limit)
+        })
         .map(|mate| mate.id.clone())
         .collect()
 }
@@ -71,11 +86,28 @@ pub fn check(app: &AppHandle) {
     };
     let ids = over(&mates, &days, Some(limit), &excused_today());
     for mate in mates.iter().filter(|m| ids.contains(&m.id)) {
-        let patch = MatePatch { paused: Some(true), ..MatePatch::default() };
-        if db.with(|conn| evo_store::mates::update_mate(conn, &mate.id, &patch)).is_err() {
+        let patch = MatePatch {
+            paused: Some(true),
+            ..MatePatch::default()
+        };
+        if db
+            .with(|conn| evo_store::mates::update_mate(conn, &mate.id, &patch))
+            .is_err()
+        {
             continue;
         }
-        db.log(NewLog::new("info", "mates", format!("{} paused: reached today's limit of {}", mate.name, money(limit))).chat(Some(&mate.chat_id)));
+        db.log(
+            NewLog::new(
+                "info",
+                "mates",
+                format!(
+                    "{} paused: reached today's limit of {}",
+                    mate.name,
+                    money(limit)
+                ),
+            )
+            .chat(Some(&mate.chat_id)),
+        );
         if mate.notifications {
             let at = crate::supervisor::now_ms();
             let entry = crate::supervisor::notices::BellEntry {
@@ -96,6 +128,19 @@ pub fn check(app: &AppHandle) {
     }
 }
 
+/// How long after the chats with work change the limit is checked: a turn's
+/// last usage row is written by its engine after the run settles.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// [`check`] once the engines have written the usage of the run that settled.
+pub fn check_soon(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(SETTLE).await;
+        check(&app);
+    });
+}
+
 /// The person resumed `mate`: when it is over the limit today, let it go on until the day ends.
 pub fn resumed(app: &AppHandle, mate: &str) {
     let db = app.state::<Db>();
@@ -108,7 +153,9 @@ pub fn resumed(app: &AppHandle, mate: &str) {
         .iter()
         .any(|day| day.mate_id == mate && day.cost_usd >= limit);
     if over {
-        let mut guard = EXCUSED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = EXCUSED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let day = today();
         if guard.0 != day {
             *guard = (day, Vec::new());
@@ -134,16 +181,35 @@ mod tests {
     }
 
     fn day(id: &str, cost: f64) -> MateDay {
-        MateDay { mate_id: id.into(), replies: 3, cost_usd: cost }
+        MateDay {
+            mate_id: id.into(),
+            replies: 3,
+            cost_usd: cost,
+        }
     }
 
     #[test]
     fn mates_at_or_over_the_limit_are_paused_unless_excused_or_paused_already() {
-        let mates = [mate("a", false), mate("b", false), mate("c", true), mate("d", false), mate("e", false)];
-        let days = [day("a", 0.6), day("b", 0.2), day("c", 9.0), day("d", 0.5), day("e", 1.0)];
+        let mates = [
+            mate("a", false),
+            mate("b", false),
+            mate("c", true),
+            mate("d", false),
+            mate("e", false),
+        ];
+        let days = [
+            day("a", 0.6),
+            day("b", 0.2),
+            day("c", 9.0),
+            day("d", 0.5),
+            day("e", 1.0),
+        ];
         let excused: HashSet<String> = ["e".to_string()].into();
         assert_eq!(over(&mates, &days, Some(0.5), &excused), ["a", "d"]);
-        assert!(over(&mates, &days, None, &HashSet::new()).is_empty(), "no limit, nothing paused");
+        assert!(
+            over(&mates, &days, None, &HashSet::new()).is_empty(),
+            "no limit, nothing paused"
+        );
         assert_eq!(money(2.0), "$2.00");
     }
 }

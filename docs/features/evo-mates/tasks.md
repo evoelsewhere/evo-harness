@@ -133,7 +133,7 @@ plan 3.10).
 - [x] T79 [FR-78] **Describe a mate** in the gallery — `src/features/mates/gallery.tsx` — check: manual: the mate names itself in its first turn
 - [x] T80 [FR-79] Tests, then code: `mates_agenda_add_checkin` makes an open check-in whose first time follows its schedule; presets; **Add check-in** in Following up — `src-tauri/src/mates/initiative.rs`, `src/features/mates/following-up.tsx` — check: `bun run test:shell mates::initiative`, `bun test following-up`; manual
 - [x] T82 [FR-80] Tests, then code: `spend::over` (mates at or over the limit, not paused, not excused today; none with the limit off); the check on work changes; excuse on Resume; the setting and the paused line — `src-tauri/src/mates/spend.rs`, `system.rs`, `mates/mod.rs`, `src/features/settings/sections/mates-settings.tsx`, `src/features/mates/composer.tsx` — check: `bun run test:shell mates::spend`; manual
-- [ ] T81 [FR-73 – FR-80] Check each in the app on scratch data, light and dark, screenshots in `docs/features/evo-mates/assets/`; verification rows; `apps/desktop/README.md` UI map — check: rows below
+- [x] T81 [FR-73 – FR-80] Check each in the app on scratch data, light and dark, screenshots in `docs/features/evo-mates/assets/`; verification rows; `apps/desktop/README.md` UI map — check: rows below
 
 ### Phase 5 — Verify
 
@@ -152,7 +152,7 @@ Done when: every row below is `passed` with its date.
 | FR-5 | Manual tray menu (T5) | `tray_target` test passed (2026-11-25); menu clicked in the app: not run |
 | FR-6 | Manual roster states (T16) | partly (2026-11-25): rows with face, name, last line and time, pinned tiles, unread/needs-you dot; states from the shell's work list. Queued and error words: not run |
 | FR-7 | Manual create from template and from scratch | from a template — passed (2026-11-25, Researcher created and opened on its conversation); from scratch: not run |
-| FR-8 | Template parse test (T15) | passed (2026-11-25): `mates::template::tests::every_gallery_role_reads`; gallery shows 8 roles |
+| FR-8 | Template parse test (T15, T70) | passed (2026-11-25): `mates::template::tests::every_gallery_role_reads`; gallery shows 8 roles; 2026-11-28: `the_gallery_has_sixteen_roles_in_six_categories`, the gallery shows 16 roles in 10 categories |
 | FR-9 | Manual: conversation past the context window; search finds the first message | not run |
 | FR-10 | Manual: model change applies next turn | partly (2026-11-25): the mate answers as itself from its role ("Hi! I'm Researcher, one of your mates…"); restart on a profile change is coded, not run |
 | FR-11 | `cargo test -p evo-engine memory` (T12); manual across DM and channel | `a_mates_prompt_names_its_own_memory` passed (2026-11-25); the role carries the mate's memory folder (checked in the DB); manual: not run |
@@ -217,14 +217,14 @@ Done when: every row below is `passed` with its date.
 | FR-70 | Manual T61 | partly (2026-11-26): the list, Initiative and the check-in editor (every day, weekdays, weekly days and time) are in Settings, editor tests passed; a manual pass of each action: not run |
 | FR-71 | Shell tests T58; manual Usage | passed (2026-11-26): pause skips; heartbeat turns and a channel's calls record under usage source `mates` (engine test); manual check of Usage: not run |
 | FR-72 | `cargo test -p evo-engine channel session_roles` (T64); manual | passed (2026-11-26): `a_reply_goes_to_the_mates_who_asked`, `a_question_to_the_person_is_one_that_mentions_no_member`, `a_seat_asks_in_its_reply_not_with_a_card`; manual in a channel with **Everyone**: the mate asked numbered questions in its reply, the answer without a mention went only to it ("Hạnh Sale, who asked you") and it wrote the draft |
-| FR-73 | `cargo test -p evo-store upcoming mates_since` (T68); `bun test` (T69); manual T81 | not run |
-| FR-74 | `bun run test:shell mates::template` (T70); manual T81 | not run |
-| FR-75 | `bun run test:shell mates::teams` (T72); manual T81 | not run |
-| FR-76 | `cargo test -p evo-store search_messages` (T74); manual T81 | not run |
-| FR-77 | `bun run test:shell mates::knowledge` (T76); manual T81 | not run |
-| FR-78 | `bun run test:shell agent_tools::mates` (T78); manual T81 | not run |
-| FR-79 | `bun run test:shell mates::initiative` (T80); manual T81 | not run |
-| FR-80 | `bun run test:shell mates::spend` (T82); manual T81 | not run |
+| FR-73 | `cargo test -p evo-store upcoming a_mates_usage_since` (T68); `bun test` (T69); manual T81 | passed (2026-11-28): `upcoming_lists_every_mates_open_items_in_time_order`, `a_mates_usage_since_a_time_counts_its_seats_and_nothing_older`, `the_window_runs_from_this_midnight_to_the_end_of_tomorrow`, `today-sections.test.ts`; in the app (scratch data) Today listed Writer under Needs you, a daily check-in under Coming up (Tomorrow 10:00) and three mates' replies and cost; light and dark ([assets/research-today-light.png](assets/research-today-light.png), [dark](assets/research-today-dark.png)) |
+| FR-74 | `bun run test:shell mates::template` (T70); manual T81 | passed (2026-11-28): `every_gallery_role_reads` (3–4 starters each), `starters_are_one_per_line_and_may_hold_commas`, `starters.test.ts`; in the app a starter sent as the person's first message and the mate answered ([assets/research-starters-light.png](assets/research-starters-light.png)) |
+| FR-75 | `bun run test:shell mates::teams` (T72); manual T81 | passed (2026-11-28): `every_team_is_made_of_gallery_roles_with_its_lead_among_them`, `a_team_previews_with_the_apps_mode_like_a_file`; in the app Add team showed the preview with Ask every time, and confirming made three mates and #Content studio led by the Editor ([preview](assets/research-team-preview-light.png), [teams](assets/research-teams-light.png), [dark](assets/research-teams-dark.png)) |
+| FR-76 | `cargo test -p evo-store search_messages` (T74); manual T81 | passed (2026-11-28): `search_messages_finds_mates_and_channels_only_with_a_snippet`; in the app "team plan" listed the Researcher's conversation with its snippet ([assets/research-search-light.png](assets/research-search-light.png)) |
+| FR-77 | `bun run test:shell mates::knowledge` (T76); manual T81 | passed (2026-11-28): knowledge tests (refusals, unique names, 50 files, the role block, stored instructions untouched); in the app a folder was refused with its reason and the mate answered from the added file, naming it ([light](assets/research-knowledge-light.png), [dark](assets/research-knowledge-dark.png)) |
+| FR-78 | `bun run test:shell agent_tools::mates` (T78); manual T81 | passed (2026-11-28): `a_mate_names_itself_only_while_it_is_new`, `a_mate_role_gets_the_mate_conduct`; in the app a described mate named itself "Ledger" with a one-line role in its first turn ([assets/research-describe-light.png](assets/research-describe-light.png)); the first try exposed a tools race, fixed in `252fae8e` |
+| FR-79 | `bun run test:shell mates::initiative` (T80); manual T81 | passed (2026-11-28): `a_check_in_from_the_panel_comes_round_on_its_schedule`, presets test; in the app Morning brief added "Every weekday at 09:00" to Following up ([assets/research-add-checkin-light.png](assets/research-add-checkin-light.png)) |
+| FR-80 | `bun run test:shell mates::spend` (T82); manual T81 | passed (2026-11-28): `mates_at_or_over_the_limit_are_paused_unless_excused_or_paused_already`, `paused-line.test.ts`; in the app with a $0.05 limit, Writer ($0.18) and Researcher ($0.08) paused with the log line and the box naming the limit, Ledger ($0.04) did not, and Resume kept Researcher going ([assets/research-limit-light.png](assets/research-limit-light.png)) |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |

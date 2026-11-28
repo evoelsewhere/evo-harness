@@ -46,7 +46,10 @@ pub fn list_in(dir: &Path) -> Vec<KnowledgeFile> {
         .flatten()
         .filter_map(|entry| {
             let meta = entry.metadata().ok()?;
-            meta.is_file().then(|| KnowledgeFile { name: entry.file_name().to_string_lossy().into_owned(), bytes: meta.len() })
+            meta.is_file().then(|| KnowledgeFile {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                bytes: meta.len(),
+            })
         })
         .collect();
     files.sort_by_key(|f| f.name.to_lowercase());
@@ -62,7 +65,10 @@ fn free_name(dir: &Path, name: &str) -> String {
         Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
         _ => (name, String::new()),
     };
-    (2..).map(|n| format!("{stem} ({n}){ext}")).find(|candidate| !dir.join(candidate).exists()).expect("a free name")
+    (2..)
+        .map(|n| format!("{stem} ({n}){ext}"))
+        .find(|candidate| !dir.join(candidate).exists())
+        .expect("a free name")
 }
 
 /// Copy `sources` into `dir`: refuses folders, links, hidden files, files
@@ -72,8 +78,20 @@ pub fn add_into(dir: &Path, sources: &[PathBuf]) -> Result<Added, String> {
     let mut count = list_in(dir).len();
     let mut out = Added::default();
     for source in sources {
-        let name = source.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let refuse = |why: &str| (if name.is_empty() { source.display().to_string() } else { name.clone() }, why.to_string());
+        let name = source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let refuse = |why: &str| {
+            (
+                if name.is_empty() {
+                    source.display().to_string()
+                } else {
+                    name.clone()
+                },
+                why.to_string(),
+            )
+        };
         let meta = match std::fs::symlink_metadata(source) {
             Ok(meta) => meta,
             Err(_) => {
@@ -99,7 +117,8 @@ pub fn add_into(dir: &Path, sources: &[PathBuf]) -> Result<Added, String> {
             continue;
         }
         let target = free_name(dir, &name);
-        std::fs::copy(source, dir.join(&target)).map_err(|e| format!("Could not copy {name}: {e}"))?;
+        std::fs::copy(source, dir.join(&target))
+            .map_err(|e| format!("Could not copy {name}: {e}"))?;
         count += 1;
         out.added.push(target);
     }
@@ -135,7 +154,9 @@ pub fn block(dir: &Path, files: &[KnowledgeFile]) -> Option<String> {
 /// Rewrite the mate's roles so its next turns name its files (as a profile change does).
 async fn reread(app: &AppHandle, id: &str) -> Result<(), String> {
     let db = app.state::<Db>();
-    let mate = db.with(|conn| evo_store::mates::get_mate(conn, id))?.ok_or("No such mate.")?;
+    let mate = db
+        .with(|conn| evo_store::mates::get_mate(conn, id))?
+        .ok_or("No such mate.")?;
     super::write_role(&db, &mate)?;
     super::restart_when_idle(app, &mate.chat_id).await;
     super::channels::mate_changed(app, &mate).await;
@@ -149,7 +170,11 @@ pub fn mates_knowledge(id: String) -> Vec<KnowledgeFile> {
 }
 
 #[tauri::command]
-pub async fn mates_knowledge_add(app: AppHandle, id: String, paths: Vec<String>) -> Result<Added, String> {
+pub async fn mates_knowledge_add(
+    app: AppHandle,
+    id: String,
+    paths: Vec<String>,
+) -> Result<Added, String> {
     let sources: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     let added = add_into(&dir_of(&id), &sources)?;
     if !added.added.is_empty() {
@@ -159,7 +184,11 @@ pub async fn mates_knowledge_add(app: AppHandle, id: String, paths: Vec<String>)
 }
 
 #[tauri::command]
-pub async fn mates_knowledge_remove(app: AppHandle, id: String, name: String) -> Result<(), String> {
+pub async fn mates_knowledge_remove(
+    app: AppHandle,
+    id: String,
+    name: String,
+) -> Result<(), String> {
     if remove_in(&dir_of(&id), &name)? {
         reread(&app, &id).await?;
     }
@@ -186,21 +215,49 @@ mod tests {
         let folder = from.path().join("folder");
         std::fs::create_dir(&folder).unwrap();
         let big = from.path().join("big.bin");
-        std::fs::File::create(&big).unwrap().set_len(MAX_BYTES + 1).unwrap();
-        let added = add_into(&knowledge, &[notes.clone(), hidden, folder, big, from.path().join("missing.txt")]).unwrap();
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(MAX_BYTES + 1)
+            .unwrap();
+        let added = add_into(
+            &knowledge,
+            &[
+                notes.clone(),
+                hidden,
+                folder,
+                big,
+                from.path().join("missing.txt"),
+            ],
+        )
+        .unwrap();
         assert_eq!(added.added, ["notes.md"]);
-        let refused: Vec<&str> = added.refused.iter().map(|(name, _)| name.as_str()).collect();
+        let refused: Vec<&str> = added
+            .refused
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
         assert_eq!(refused, [".env", "folder", "big.bin", "missing.txt"]);
         // The same name again is kept apart.
-        assert_eq!(add_into(&knowledge, &[notes]).unwrap().added, ["notes (2).md"]);
-        assert_eq!(list_in(&knowledge).iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["notes (2).md", "notes.md"]);
+        assert_eq!(
+            add_into(&knowledge, &[notes]).unwrap().added,
+            ["notes (2).md"]
+        );
+        assert_eq!(
+            list_in(&knowledge)
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            ["notes (2).md", "notes.md"]
+        );
     }
 
     #[test]
     fn a_mate_keeps_at_most_fifty_files() {
         let from = tempfile::tempdir().unwrap();
         let to = tempfile::tempdir().unwrap();
-        let sources: Vec<PathBuf> = (0..MAX_FILES + 1).map(|i| file(from.path(), &format!("f{i}.txt"), 1)).collect();
+        let sources: Vec<PathBuf> = (0..MAX_FILES + 1)
+            .map(|i| file(from.path(), &format!("f{i}.txt"), 1))
+            .collect();
         let added = add_into(to.path(), &sources).unwrap();
         assert_eq!(added.added.len(), MAX_FILES);
         assert_eq!(added.refused.len(), 1);
@@ -221,7 +278,10 @@ mod tests {
         assert_eq!(block(to.path(), &[]), None);
         file(to.path(), "prices.csv", 3);
         let text = block(to.path(), &list_in(to.path())).unwrap();
-        assert!(text.contains("prices.csv") && text.contains("Read the ones that bear on a request"), "{text}");
+        assert!(
+            text.contains("prices.csv") && text.contains("Read the ones that bear on a request"),
+            "{text}"
+        );
         let mate: evo_store::mates::Mate = serde_json::from_value(serde_json::json!({
             "id": "m", "name": "Ada", "avatar": {}, "role": "Keeps the books", "instructions": "Be exact.",
             "provider": null, "model": null, "thinking": null, "tools": null, "connectors": null,
@@ -233,6 +293,9 @@ mod tests {
         .unwrap();
         let role = super::super::instructions_with(&mate, Some(text.clone()));
         assert!(role.ends_with(&format!("Be exact.\n\n{text}")), "{role}");
-        assert!(!mate.instructions.contains("prices.csv"), "the stored instructions, which a team file writes, never hold it");
+        assert!(
+            !mate.instructions.contains("prices.csv"),
+            "the stored instructions, which a team file writes, never hold it"
+        );
     }
 }

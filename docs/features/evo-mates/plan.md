@@ -1115,3 +1115,25 @@ Phase 2, third slice (2026-11-25), the owner's "like a phone messaging app":
   role (`mates::channels::with_seat`), without restarting the root; before,
   only the members table had it, so a restarted channel started a second
   seat for that mate with none of its conversation.
+
+From the market research, FR-73 – FR-80 (2026-11-28):
+
+- **Usage per mate.** Today reads `usage::summary`'s per-mate sums from the
+  start of the day (`today::mates_since`) instead of a new store query.
+- **Teams from roles.** A built-in team is a channel description over gallery
+  role ids (`teams::TEAMS`), turned into a `TeamFile` at run time, so a team
+  never holds a second copy of a role's text; `team_file::preview_file` and
+  `import_file` serve files and teams alike.
+- **First messages wait for the tools.** A message sent the moment a mate
+  opens (Describe a mate, a starter) started its run before the shell gave
+  the engine its tools. `engine-store` `whenSetUp(chat)` waits for the engine
+  and the shell's set-up first; waiting inside `sendPrompt` was tried and
+  dropped, because the engine's `ready` restore then wiped the message from
+  the window.
+- **Imports reload the session store.** An imported team's chats could not
+  be opened until the session store was read again, as creating a mate does.
+- **Starters by role line.** A team's mates have no role link, so their
+  starters are found by their role line too.
+- **The limit after the usage lands.** Usage rows arrive after the run
+  settles, so `spend::check_soon` checks three seconds after the chats with
+  work change; checking at once missed the turn that crossed the limit.

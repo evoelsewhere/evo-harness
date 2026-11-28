@@ -38,14 +38,23 @@ pub fn mates_of(summary: evo_store::usage::UsageSummary) -> Vec<MateDay> {
     summary
         .by_mate
         .into_iter()
-        .map(|m| MateDay { mate_id: m.mate_id, replies: m.totals.requests, cost_usd: m.totals.cost_usd })
+        .map(|m| MateDay {
+            mate_id: m.mate_id,
+            replies: m.totals.requests,
+            cost_usd: m.totals.cost_usd,
+        })
         .collect()
 }
 
 /// Each mate's replies and cost since `since` (ms).
 pub fn mates_since(db: &Db, since: i64) -> Result<Vec<MateDay>, String> {
-    let query = evo_store::usage::UsageQuery { from_ms: Some(since), ..Default::default() };
-    Ok(mates_of(db.with(|conn| evo_store::usage::summary(conn, &query))?))
+    let query = evo_store::usage::UsageQuery {
+        from_ms: Some(since),
+        ..Default::default()
+    };
+    Ok(mates_of(
+        db.with(|conn| evo_store::usage::summary(conn, &query))?,
+    ))
 }
 
 /// Coming up (until the end of tomorrow) and each mate's day so far.
@@ -68,7 +77,17 @@ mod tests {
         let zone = FixedOffset::east_opt(7 * 3600).unwrap();
         let now = zone.with_ymd_and_hms(2026, 11, 28, 15, 30, 0).unwrap();
         let (start, until) = window(&now);
-        assert_eq!(start, zone.with_ymd_and_hms(2026, 11, 28, 0, 0, 0).unwrap().timestamp_millis());
-        assert_eq!(until, zone.with_ymd_and_hms(2026, 11, 30, 0, 0, 0).unwrap().timestamp_millis());
+        assert_eq!(
+            start,
+            zone.with_ymd_and_hms(2026, 11, 28, 0, 0, 0)
+                .unwrap()
+                .timestamp_millis()
+        );
+        assert_eq!(
+            until,
+            zone.with_ymd_and_hms(2026, 11, 30, 0, 0, 0)
+                .unwrap()
+                .timestamp_millis()
+        );
     }
 }

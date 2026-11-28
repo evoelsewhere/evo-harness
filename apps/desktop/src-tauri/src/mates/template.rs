@@ -193,14 +193,12 @@ mod tests {
 
     #[test]
     fn starters_are_one_per_line_and_may_hold_commas() {
-        let role = parse("---
-id: x
-name: X
-starter: Plan my week, then my month
-starter:  Draft a post 
----
-Be brief.
-").unwrap();
+        let role = parse(concat!(
+            "---\nid: x\nname: X\n",
+            "starter: Plan my week, then my month\nstarter:  Draft a post \n",
+            "---\nBe brief.\n"
+        ))
+        .unwrap();
         assert_eq!(role.starters, ["Plan my week, then my month", "Draft a post"]);
         assert_eq!(role.summary().starters, role.starters);
     }

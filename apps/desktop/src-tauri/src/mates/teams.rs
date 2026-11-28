@@ -65,7 +65,8 @@ pub const TEAMS: [Team; 4] = [
 pub fn file_of(team: &Team) -> Result<TeamFile, String> {
     let mut mates = Vec::new();
     for id in team.roles {
-        let role = template::find(id).ok_or_else(|| format!("the team {} names no role {id}", team.id))?;
+        let role =
+            template::find(id).ok_or_else(|| format!("the team {} names no role {id}", team.id))?;
         mates.push(TeamMate {
             name: role.name.clone(),
             role: role.role.clone(),
@@ -81,7 +82,11 @@ pub fn file_of(team: &Team) -> Result<TeamFile, String> {
             name: team.name.into(),
             reply_rule: Some(team.reply_rule.into()),
             lead,
-            instructions: team.instructions.split_whitespace().collect::<Vec<_>>().join(" "),
+            instructions: team
+                .instructions
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
         }),
         mates,
         unknown: Vec::new(),
@@ -89,7 +94,10 @@ pub fn file_of(team: &Team) -> Result<TeamFile, String> {
 }
 
 fn find(id: &str) -> Result<&'static Team, String> {
-    TEAMS.iter().find(|t| t.id == id).ok_or_else(|| format!("No team \"{id}\"."))
+    TEAMS
+        .iter()
+        .find(|t| t.id == id)
+        .ok_or_else(|| format!("No team \"{id}\"."))
 }
 
 /// What the gallery's Teams tab shows of a team.
@@ -112,7 +120,11 @@ pub fn mates_teams() -> Vec<TeamSummary> {
                 id: team.id.into(),
                 name: team.name.into(),
                 about: team.about.into(),
-                mates: file.mates.iter().map(|m| json!({ "name": m.name, "role": m.role, "avatar": m.avatar })).collect(),
+                mates: file
+                    .mates
+                    .iter()
+                    .map(|m| json!({ "name": m.name, "role": m.role, "avatar": m.avatar }))
+                    .collect(),
             })
         })
         .collect()
@@ -124,7 +136,11 @@ pub fn team_preview_builtin(app: AppHandle, id: String) -> Result<Value, String>
 }
 
 #[tauri::command]
-pub async fn team_import_builtin(app: AppHandle, id: String, skip: Vec<String>) -> Result<Value, String> {
+pub async fn team_import_builtin(
+    app: AppHandle,
+    id: String,
+    skip: Vec<String>,
+) -> Result<Value, String> {
     let file = file_of(find(&id)?)?;
     super::team_file::import_file(app, file, skip).await
 }
@@ -142,8 +158,18 @@ mod tests {
             let channel = file.channel.as_ref().unwrap();
             let lead = channel.lead.as_deref().unwrap();
             assert!(file.mates.iter().any(|m| m.name == lead), "{}", team.id);
-            assert!(evo_store::channels::REPLY_RULES.contains(&team.reply_rule), "{}", team.id);
-            assert!(file.mates.iter().all(|m| !m.instructions.is_empty() && m.approval_mode.is_none()), "{}", team.id);
+            assert!(
+                evo_store::channels::REPLY_RULES.contains(&team.reply_rule),
+                "{}",
+                team.id
+            );
+            assert!(
+                file.mates
+                    .iter()
+                    .all(|m| !m.instructions.is_empty() && m.approval_mode.is_none()),
+                "{}",
+                team.id
+            );
             assert!(!channel.instructions.contains("  "), "{}", team.id);
         }
         assert_eq!(mates_teams().len(), TEAMS.len());
@@ -154,7 +180,11 @@ mod tests {
         let file = file_of(&TEAMS[0]).unwrap();
         let preview = super::super::team_file::preview_value(&file, "ask", &[]);
         assert_eq!(preview["mates"].as_array().unwrap().len(), file.mates.len());
-        assert!(preview["mates"].as_array().unwrap().iter().all(|m| m["approvalMode"] == "ask"));
+        assert!(preview["mates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["approvalMode"] == "ask"));
         assert_eq!(preview["channel"]["name"], "Content studio");
     }
 }
