@@ -28,6 +28,7 @@ import { MemoryHistory, TidyNow, type MemoryChange } from "@/features/memory";
 import { MateLearning } from "./mate-learning";
 import { MateConnectedApps } from "@/features/connected-apps";
 import { ConfirmDelete } from "./confirm";
+import { panelFloats } from "./bubble-style";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
 
@@ -618,9 +619,21 @@ export function MatePanel({ mate }: { mate: Mate }) {
   const duplicate = useMatesStore((s) => s.duplicate);
   const remove = useMatesStore((s) => s.remove);
   const [confirm, setConfirm] = React.useState(false);
+  // Under 920 px the panel floats over the conversation instead of squeezing
+  // it to a sliver that scrolls sideways (ux.md 2; qa-2026-11-28, H2).
+  const [width, setWidth] = React.useState(() => window.innerWidth);
+  React.useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const floats = panelFloats(width);
   return (
     // A soft card beside the conversation, not a ruled-off column (ux.md 2).
-    <aside className="flex h-full w-[332px] shrink-0 p-2 pl-0" aria-label={`${mate.name}'s profile`}>
+    <aside
+      className={cn("flex h-full w-[332px] shrink-0 p-2 pl-0", floats && "absolute inset-y-0 right-0 z-30 max-w-full pl-2")}
+      aria-label={`${mate.name}'s profile`}
+    >
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] bg-card shadow-[0_0_0_1px_color-mix(in_srgb,var(--border)_70%,transparent),0_10px_30px_-18px_rgb(0_0_0/0.25)]">
         <div className="flex h-12 items-center justify-center px-4">
           <div className="text-[13px] font-semibold text-foreground">Mate profile</div>

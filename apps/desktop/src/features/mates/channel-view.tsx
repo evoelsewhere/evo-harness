@@ -28,6 +28,7 @@ import {
   retroFailure,
   type ChannelRow,
 } from "./channel-rows";
+import { BUBBLE_TEXT } from "./bubble-style";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
 import { RetroCard } from "./retro-card";
@@ -139,6 +140,8 @@ function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
       <span
         className={cn(
           "max-w-[85%] rounded-full px-3 py-1 text-center text-[11.5px]",
+          // A hand-off's long URL breaks like a bubble's (qa-2026-11-28, H1).
+          BUBBLE_TEXT,
           tone === "warn" ? "bg-destructive/10 text-destructive" : "bg-muted/60 text-muted-foreground",
         )}
       >
@@ -173,7 +176,8 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
             {!row.me && row.first && <span className="mb-0.5 ml-2 text-[11px] font-medium text-muted-foreground">{row.name}</span>}
             <div
               className={cn(
-                "min-w-0 rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                "rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                BUBBLE_TEXT,
                 row.me ? "bg-brand text-brand-foreground" : "bg-muted text-foreground",
                 row.last && (row.me ? "rounded-br-[6px]" : "rounded-bl-[6px]"),
                 row.failed && "opacity-70",

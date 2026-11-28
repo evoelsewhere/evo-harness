@@ -132,7 +132,7 @@ function Conversation() {
   if (view.kind === "channel") return <ChannelPane id={view.id} />;
   if (!mate) return <MatesEmpty />;
   return (
-    <div className="flex h-full min-h-0">
+    <div className="relative flex h-full min-h-0">
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* The conversation's bar, in its own row under the title row (ux.md 2). */}
         <div className="flex h-12 shrink-0 items-center pr-2">
