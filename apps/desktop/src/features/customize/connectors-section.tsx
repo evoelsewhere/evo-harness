@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { connectorLabel, mcp, type Connector, type ConnectorConfig, type ConnectorStatus, type ProjectState, type ToolPermission } from "@/lib/mcp";
-import { AppsCatalogue, KeyCard, ServiceDetail, ServiceTile, serviceLine, statusTone, UnavailableNotice, useConnectedServices } from "@/features/connected-apps";
+import { AppsCatalogue, KeyCard, OfficialBadge, OfficialHeader, serverTone, ServiceDetail, ServiceTile, serviceLine, statusTone, UnavailableNotice, useConnectedServices, ZapierHeader } from "@/features/connected-apps";
 import { APP_SERVER_KEY } from "@/lib/connected-apps";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
@@ -607,6 +607,7 @@ export function ConnectorsSection({ query }: { query: string }) {
   const appsKey = useConnectedAppsStore((s) => s.key);
   const focus = useConnectedAppsStore((s) => s.focus);
   const services = useConnectedServices();
+  const providers = useConnectedAppsStore((s) => s.providers);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [dialog, setDialog] = React.useState<{ editing: Connector | null } | null>(null);
 
@@ -615,7 +616,7 @@ export function ConnectorsSection({ query }: { query: string }) {
     void useConnectedAppsStore.getState().load();
   }, [load]);
   React.useEffect(() => {
-    if (appsKey === "saved") void useConnectedAppsStore.getState().loadCatalog();
+    void useConnectedAppsStore.getState().loadCatalog();
   }, [appsKey]);
   // Opened from elsewhere for a given view (the More menu, Settings, a mate).
   React.useEffect(() => {
@@ -626,9 +627,19 @@ export function ConnectorsSection({ query }: { query: string }) {
 
   const q = query.trim().toLowerCase();
   const appServer = servers.find((s) => s.key === APP_SERVER_KEY);
-  const list = servers.filter((s) => s.key !== APP_SERVER_KEY && (!q || s.name.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q)));
+  // The app's own servers (Composio, official, Zapier) are apps, not MCP servers here.
+  const list = servers.filter((s) => !s.app && (!q || s.name.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q)));
+  const officials = (providers?.official ?? []).filter((o) => o.connected && (!q || o.name.toLowerCase().includes(q)));
+  const zapier = providers?.zapier.connected && (!q || "zapier".includes(q)) ? providers.zapier : null;
+  const serverOf = (key: string) => servers.find((s) => s.key === key);
   const shownServices = services.filter((s) => !q || s.name.toLowerCase().includes(q) || s.toolkit.includes(q));
-  const fallback = appsKey !== "saved" ? "apps:settings" : shownServices[0] ? `svc:${shownServices[0].toolkit}` : (list[0]?.key ?? "apps:browse");
+  const fallback = officials[0]
+    ? `off:${officials[0].id}`
+    : shownServices[0]
+      ? `svc:${shownServices[0].toolkit}`
+      : zapier
+        ? "zapier"
+        : (list[0]?.key ?? (appsKey === "saved" ? "apps:browse" : "apps:settings"));
   const current = selected ?? fallback;
   const server = list.find((s) => s.key === current);
 
@@ -643,12 +654,21 @@ export function ConnectorsSection({ query }: { query: string }) {
           </p>
         </header>
         <UnavailableNotice />
-        <AppsCatalogue query={query} onOpen={(toolkit) => setSelected(`svc:${toolkit}`)} />
+        <AppsCatalogue query={query} onOpen={setSelected} />
       </div>
     ) : current === "apps:settings" ? (
       <AppsSettings server={appServer} />
     ) : current.startsWith("svc:") ? (
       <ServiceDetail key={current} toolkit={current.slice(4)} />
+    ) : current.startsWith("off:") || current === "zapier" ? (
+      <div className="flex flex-col gap-6">
+        {current === "zapier" ? <ZapierHeader /> : <OfficialHeader key={current} id={current.slice(4)} />}
+        {(() => {
+          const key = current === "zapier" ? providers?.zapier.key : providers?.official.find((o) => o.id === current.slice(4))?.key;
+          const server = key ? serverOf(key) : undefined;
+          return server?.status === "connected" ? <ConnectorDetail key={server.key} connector={server} onEdit={() => undefined} /> : null;
+        })()}
+      </div>
     ) : server ? (
       <ConnectorDetail key={server.key} connector={server} onEdit={() => setDialog({ editing: server })} />
     ) : null;
@@ -659,7 +679,7 @@ export function ConnectorsSection({ query }: { query: string }) {
         list={
           <div className="flex flex-col gap-0.5 pt-2.5">
             <div className="flex gap-1.5">
-              <Button size="sm" className="flex-1 justify-center gap-1.5" onClick={() => setSelected(appsKey === "saved" ? "apps:browse" : "apps:settings")}>
+              <Button size="sm" className="flex-1 justify-center gap-1.5" onClick={() => setSelected("apps:browse")}>
                 <PlusIcon />
                 Connect an app
               </Button>
@@ -678,14 +698,52 @@ export function ConnectorsSection({ query }: { query: string }) {
             >
               Apps
             </GroupLabel>
-            {appsKey !== "saved" ? (
+            {officials.map((o) => {
+              const server = serverOf(o.key);
+              return (
+                <ListRow
+                  key={o.id}
+                  selected={current === `off:${o.id}`}
+                  onSelect={() => setSelected(`off:${o.id}`)}
+                  icon={<ServiceTile slug={o.composio[0] ?? o.id} name={o.name} className="size-7 rounded-md" />}
+                  title={o.name}
+                  description={server?.status === "connected" ? `Direct · ${server.tools.length} tools` : server?.status === "failed" ? "Failed — open for the reason" : "Needs sign-in"}
+                  meta={
+                    <>
+                      <OfficialBadge className="h-4 px-1 text-[10px]" />
+                      <span className={cn("size-1.5 shrink-0 rounded-full", serverTone(server?.status))} />
+                    </>
+                  }
+                />
+              );
+            })}
+            {zapier && (
               <ListRow
-                selected={current === "apps:settings"}
-                onSelect={() => setSelected("apps:settings")}
-                icon={<KeyRoundIcon />}
-                title="Set up connected apps"
-                description="Gmail, Slack, Notion and 2,000 more, with your Composio key"
+                selected={current === "zapier"}
+                onSelect={() => setSelected("zapier")}
+                icon={<ServiceTile slug="zapier" name="Zapier" className="size-7 rounded-md" />}
+                title="Zapier"
+                description={serverOf(zapier.key)?.status === "connected" ? `${serverOf(zapier.key)?.tools.length ?? 0} actions` : "Needs sign-in"}
+                meta={<span className={cn("size-1.5 shrink-0 rounded-full", serverTone(serverOf(zapier.key)?.status))} />}
               />
+            )}
+            {appsKey !== "saved" ? (
+              <>
+                <ListRow
+                  selected={current === "apps:browse"}
+                  onSelect={() => setSelected("apps:browse")}
+                  icon={<LayoutGridIcon />}
+                  title="Browse apps"
+                  description="Official servers, Zapier, and Composio's 2,000+ apps"
+                />
+                <ListRow
+                  selected={current === "apps:settings"}
+                  onSelect={() => setSelected("apps:settings")}
+                  icon={<KeyRoundIcon />}
+                  title="Add a Composio key"
+                  description="For Gmail, Slack and 2,000 more, with several accounts each"
+                />
+              </>
             ) : (
               <>
                 {shownServices.map((service) => (

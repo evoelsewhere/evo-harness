@@ -392,4 +392,26 @@ or a log; results stay tool output.
   (Your apps, a service's page, Browse, the key). Shared pieces live in
   `features/connected-apps/apps-parts.tsx`. The catalogue drops Composio's
   own `composio` toolkit and keeps `meta.tools_count`.
+- 2026-11-28 — Phase 6 as built. `official.json` (checked 2026-11-28 on
+  each service's docs, URL kept per entry): GitHub (personal access token,
+  `Authorization: Bearer`; its OAuth needs a GitHub app of the host),
+  Notion, Linear, Atlassian (`/v2/mcp`), Sentry, Stripe (their OAuth through
+  the pool's sign-in, dynamic registration or a client metadata document);
+  Asana, Slack and HubSpot left out (spec A-10). `Pool::set_app_servers`
+  replaces the single slot; the shell's `sync_pool` hands it Composio's
+  session, the connected official servers and Zapier together, also when
+  Composio cannot be reached or has no key. OAuth tokens of official
+  servers and Zapier are the pool's sign-ins (`mcp-auth.json`, by the
+  server's key `app:official_<id>`, `app:zapier`), as for any URL
+  connector; a pasted token is keychain-only (`official:<id>`, `zapier`)
+  and becomes a header at runtime. Their calls take the regular connector
+  path (Allow / Ask / Block, `readOnlyHint` for read or send, `mate_gate`);
+  a mate's `apps` entries `official:<id>` and `zapier` filter their tools
+  (`run::offered_to` → `Apps::allows_server`). The Connect card's ways are
+  `run::connect_ways` (official first) in `connected_apps/run.rs` rather
+  than `agent_tools/mates.rs`, which only calls it. Browse lists the
+  official cards first (`catalog::merge`), works without a Composio key,
+  and shows Zapier on top; Customize → Connectors lists connected official
+  servers and Zapier under Apps with their status, and their page adds the
+  pool's connector detail (tools, permissions, log) once connected.
 

@@ -8,6 +8,7 @@ export { ConnectedAppsPage, UnavailableNotice } from "./connected-apps-page";
 export { ComposioNote, KeyCard } from "./key-card";
 export { MateConnectedApps } from "./mate-apps";
 export { ConnectedAppsDialog, openConnectedApps } from "./apps-dialog";
+export { OfficialBadge, OfficialHeader, serverTone, useServer, ZapierHeader } from "./official-parts";
 
 /** Open Customize → Connectors on a connected-apps view. */
 export function openConnectorsAt(view: "apps:browse" | "apps:settings") {

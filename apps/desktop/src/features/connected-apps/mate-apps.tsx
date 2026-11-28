@@ -4,6 +4,7 @@ import { appsApi, SERVICE_PREFIX, type AppTool, type ServiceGrant } from "@/lib/
 import type { Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
+import { useConnectorsStore } from "@/stores/connectors-store";
 import { useMatesStore } from "@/stores/mates-store";
 import { openConnectedApps } from "./apps-dialog";
 import { ServiceTile, useServiceName } from "./connected-apps-page";
@@ -16,8 +17,11 @@ import { ServiceTile, useServiceName } from "./connected-apps-page";
 
 type ToolsChoice = "all" | "these" | "none";
 
-const isServiceGrant = (entry: unknown): entry is ServiceGrant =>
-  !!entry && typeof entry === "object" && typeof (entry as ServiceGrant).service === "string" && (entry as ServiceGrant).service.startsWith(SERVICE_PREFIX);
+/** A connected-apps entry: a Composio service, an official server or Zapier (FR-10, FR-25). */
+const isServiceGrant = (entry: unknown): entry is ServiceGrant => {
+  const service = entry && typeof entry === "object" ? (entry as ServiceGrant).service : undefined;
+  return typeof service === "string" && (service.startsWith(SERVICE_PREFIX) || service.startsWith("official:") || service === "zapier");
+};
 
 function choiceOf(grant: ServiceGrant | undefined): ToolsChoice {
   if (!grant || grant.tools === "none") return "none";
@@ -64,6 +68,13 @@ function ToolList({ toolkit, chosen, onChange }: { toolkit: string; chosen: stri
 export function MateConnectedApps({ mate }: { mate: Mate }) {
   const key = useConnectedAppsStore((s) => s.key);
   const accounts = useConnectedAppsStore((s) => s.accounts);
+  const providers = useConnectedAppsStore((s) => s.providers);
+  const pool = useConnectorsStore((s) => s.servers);
+  // Official servers and Zapier that are connected: their grants are per server and tool.
+  const appServers = [
+    ...(providers?.official ?? []).filter((o) => o.connected).map((o) => ({ service: `official:${o.id}`, key: o.key, name: o.name, slug: o.composio[0] ?? o.id })),
+    ...(providers?.zapier.connected ? [{ service: "zapier", key: providers.zapier.key, name: "Zapier", slug: "zapier" }] : []),
+  ];
   const name = useServiceName();
   React.useEffect(() => {
     void useConnectedAppsStore.getState().load();
@@ -71,7 +82,7 @@ export function MateConnectedApps({ mate }: { mate: Mate }) {
   React.useEffect(() => {
     if (key === "saved") void useConnectedAppsStore.getState().loadCatalog();
   }, [key]);
-  if (key !== "saved")
+  if (key !== "saved" && appServers.length === 0)
     return (
       <section className="flex flex-col gap-1">
         <h3 className="text-[13px] font-medium">Connected apps</h3>
@@ -89,6 +100,8 @@ export function MateConnectedApps({ mate }: { mate: Mate }) {
   const entries = (mate.apps ?? []).filter(isServiceGrant);
   const others = (mate.apps ?? []).filter((e) => !isServiceGrant(e));
   const grantOf = (toolkit: string) => entries.find((e) => e.service === `${SERVICE_PREFIX}${toolkit}`);
+  const grantOfServer = (service: string) => entries.find((e) => e.service === service);
+  const setServerGrant = (service: string, grant: ServiceGrant) => save([...entries.filter((e) => e.service !== service), grant]);
   const save = (next: ServiceGrant[] | null) =>
     void useMatesStore.getState().update(mate.id, { apps: next === null ? null : [...others, ...next] });
   const setGrant = (toolkit: string, grant: ServiceGrant | null) => {
@@ -130,7 +143,57 @@ export function MateConnectedApps({ mate }: { mate: Mate }) {
           ? `${mate.name} may use every connected app, and any you connect later.`
           : `${mate.name} may use only the services below; one you connect later stays off until you turn it on.`}
       </p>
-      {!all && services.length === 0 && <p className="text-xs text-muted-foreground">No service connected yet.</p>}
+      {!all && services.length === 0 && appServers.length === 0 && <p className="text-xs text-muted-foreground">No service connected yet.</p>}
+      {!all &&
+        appServers.map((server) => {
+          const grant = grantOfServer(server.service);
+          const choice = choiceOf(grant);
+          const tools = pool.find((c) => c.key === server.key)?.tools ?? [];
+          const chosen = Array.isArray(grant?.tools) ? grant.tools : [];
+          return (
+            <div key={server.service} className="flex flex-col gap-2 rounded-2xl bg-muted/40 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <ServiceTile slug={server.slug} name={server.name} className="size-6 rounded-md text-xs" />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{server.name}</span>
+                <select
+                  aria-label={`${server.name} tools`}
+                  value={choice}
+                  onChange={(e) => {
+                    const next = e.target.value as ToolsChoice;
+                    setServerGrant(server.service, { service: server.service, tools: next === "all" ? "all" : next === "none" ? "none" : [] });
+                  }}
+                  className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
+                >
+                  <option value="all">All tools</option>
+                  <option value="these">These tools</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              {choice === "these" && (
+                <ul className="flex max-h-56 flex-col gap-1 overflow-y-auto pr-1">
+                  {tools.map((tool) => (
+                    <li key={tool.name}>
+                      <label className="flex items-start gap-2 text-xs">
+                        <Checkbox
+                          checked={chosen.includes(tool.name)}
+                          onCheckedChange={(on) =>
+                            setServerGrant(server.service, { service: server.service, tools: on ? [...chosen, tool.name] : chosen.filter((t) => t !== tool.name) })
+                          }
+                          className="mt-0.5"
+                        />
+                        <span className="min-w-0">
+                          <span className="font-medium">{tool.title ?? tool.name}</span>
+                          <span className="text-muted-foreground"> · {tool.readOnly ? "reads" : "may send or change"}</span>
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                  {tools.length === 0 && <li className="text-xs text-muted-foreground">Its tools show once it is connected.</li>}
+                </ul>
+              )}
+            </div>
+          );
+        })}
       {!all &&
         services.map((toolkit) => {
           const grant = grantOf(toolkit);

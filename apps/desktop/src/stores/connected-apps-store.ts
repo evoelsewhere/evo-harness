@@ -4,7 +4,7 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
-import { appsApi, APPS_CHANGED, type AppsState, type Toolkit } from "@/lib/connected-apps";
+import { appsApi, APPS_CHANGED, type AppsState, type Providers, type Toolkit } from "@/lib/connected-apps";
 import { inTauri } from "@/lib/platform";
 
 interface ConnectedAppsStore extends AppsState {
@@ -17,6 +17,8 @@ interface ConnectedAppsStore extends AppsState {
   logos: Record<string, string | null>;
   /** Ask for these toolkits' logos (batched; each is asked for once). */
   wantLogos(slugs: string[]): void;
+  /** The official servers and Zapier, and which are connected. */
+  providers: Providers | null;
   /** A view Customize → Connectors should show when it opens. */
   focus: string | null;
   setFocus(focus: string | null): void;
@@ -49,6 +51,7 @@ export const useConnectedAppsStore = create<ConnectedAppsStore>()((set, get) => 
   catalogError: null,
   logos: {},
   focus: null,
+  providers: null,
   setFocus: (focus) => set({ focus }),
 
   wantLogos(slugs) {
@@ -79,18 +82,25 @@ export const useConnectedAppsStore = create<ConnectedAppsStore>()((set, get) => 
         timer = setTimeout(() => void get().load(), 100);
       }).catch(() => (listening = false));
     }
+    void appsApi
+      .providers()
+      .then((providers) => set({ providers }))
+      .catch(() => undefined);
     try {
       const state = await appsApi.state();
       const keyChanged = state.key !== get().key;
       set({ ...state, loaded: true });
-      if (keyChanged && state.key !== "saved") set({ toolkits: [], categories: [] });
+      if (keyChanged) {
+        set({ toolkits: [], categories: [] });
+        void get().loadCatalog();
+      }
     } catch {
       set({ loaded: true });
     }
   },
 
   async loadCatalog() {
-    if (get().catalogLoading || get().key !== "saved") return;
+    if (get().catalogLoading) return;
     set({ catalogLoading: true, catalogError: null });
     try {
       const catalog = await appsApi.catalog();

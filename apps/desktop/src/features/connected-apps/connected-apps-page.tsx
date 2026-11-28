@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
 import { AppsCatalogue, CatalogueSearch, ServiceDetail, ServiceTile, serviceLine, statusTone, useConnectedServices } from "./apps-parts";
 import { KeyCard } from "./key-card";
+import { OfficialBadge, OfficialHeader, serverTone, useServer, ZapierHeader } from "./official-parts";
 
 // Connected apps on one page, for Evo Mates (docs/features/connected-apps/
 // spec.md, FR-1 – FR-6, FR-17): the services you connected, a service's
@@ -28,14 +29,40 @@ export function UnavailableNotice() {
   );
 }
 
+/** A connected official server or Zapier in the list. */
+function ServerRow({ serverKey, slug, name, official, onOpen }: { serverKey: string; slug: string; name: string; official?: boolean; onOpen(): void }) {
+  const server = useServer(serverKey);
+  return (
+    <li>
+      <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/50">
+        <ServiceTile slug={slug} name={name} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-1.5 truncate text-[13px] font-medium">
+            {name} {official && <OfficialBadge className="h-4 px-1 text-[10px]" />}
+          </span>
+          <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+            <span className={cn("size-1.5 shrink-0 rounded-full", serverTone(server?.status))} />
+            {server?.status === "connected" ? `${server.tools.length} tools` : server?.status === "failed" ? "Failed" : "Needs sign-in"}
+          </span>
+        </span>
+        <ChevronRightIcon className="size-4 text-muted-foreground" />
+      </button>
+    </li>
+  );
+}
+
 export function ConnectedAppsPage({ className }: { className?: string }) {
   const loaded = useConnectedAppsStore((s) => s.loaded);
   const key = useConnectedAppsStore((s) => s.key);
   const services = useConnectedServices();
+  const providers = useConnectedAppsStore((s) => s.providers);
+  const officials = (providers?.official ?? []).filter((o) => o.connected);
+  const zapier = providers?.zapier.connected ? providers.zapier : null;
   const [open, setOpen] = React.useState<string | null>(null);
   const [browsing, setBrowsing] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [keyOpen, setKeyOpen] = React.useState(false);
+  const keyShown = keyOpen || key !== "saved";
 
   React.useEffect(() => {
     void useConnectedAppsStore.getState().load();
@@ -45,7 +72,6 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
   }, [key]);
 
   if (!loaded) return null;
-  if (key !== "saved") return <KeyCard />;
 
   if (open)
     return (
@@ -53,7 +79,13 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
         <Button size="sm" variant="ghost" className="w-fit gap-1.5 text-muted-foreground" onClick={() => setOpen(null)}>
           <ArrowLeftIcon /> All apps
         </Button>
-        <ServiceDetail toolkit={open} />
+        {open.startsWith("svc:") ? (
+          <ServiceDetail toolkit={open.slice(4)} />
+        ) : open === "zapier" ? (
+          <ZapierHeader />
+        ) : (
+          <OfficialHeader id={open.slice(4)} />
+        )}
       </div>
     );
 
@@ -68,7 +100,15 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
               Browse apps
             </Button>
           </div>
-          {services.length === 0 ? (
+          {(officials.length > 0 || zapier) && (
+            <ul className="divide-y divide-border/60 overflow-hidden rounded-xl shadow-[0_0_0_1px_var(--border)]">
+              {officials.map((o) => (
+                <ServerRow key={o.id} serverKey={o.key} slug={o.composio[0] ?? o.id} name={o.name} official onOpen={() => setOpen(`off:${o.id}`)} />
+              ))}
+              {zapier && <ServerRow serverKey={zapier.key} slug="zapier" name="Zapier" onOpen={() => setOpen("zapier")} />}
+            </ul>
+          )}
+          {services.length === 0 && (officials.length > 0 || zapier) ? null : services.length === 0 ? (
             <p className="rounded-xl px-3 py-6 text-center text-xs text-muted-foreground shadow-[0_0_0_1px_var(--border)]">
               Nothing connected yet. Browse apps to connect Gmail, Slack, Notion and more.
             </p>
@@ -76,7 +116,7 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
             <ul className="divide-y divide-border/60 overflow-hidden rounded-xl shadow-[0_0_0_1px_var(--border)]">
               {services.map((service) => (
                 <li key={service.toolkit}>
-                  <button type="button" onClick={() => setOpen(service.toolkit)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/50">
+                  <button type="button" onClick={() => setOpen(`svc:${service.toolkit}`)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/50">
                     <ServiceTile slug={service.toolkit} name={service.name} />
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-[13px] font-medium">{service.name}</span>
@@ -105,9 +145,9 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
           </div>
           <AppsCatalogue
             query={query}
-            onOpen={(toolkit) => {
+            onOpen={(view) => {
               setBrowsing(false);
-              setOpen(toolkit);
+              setOpen(view);
             }}
           />
         </section>
@@ -117,7 +157,7 @@ export function ConnectedAppsPage({ className }: { className?: string }) {
           <ChevronRightIcon className={cn("size-3.5 transition-transform", keyOpen && "rotate-90")} />
           Composio key
         </button>
-        {keyOpen && <KeyCard compact />}
+        {keyShown && <KeyCard compact={key === "saved"} />}
       </section>
     </div>
   );

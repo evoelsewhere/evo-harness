@@ -8,6 +8,7 @@ import { appsApi, statusText, type Account, type AppTool, type PendingSignIn, ty
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
+import { OfficialBadge, PreviewBadge, WaysDialog, ZapierCard } from "./official-parts";
 
 // The pieces of Connected apps that Customize → Connectors and Evo Mates'
 // page are built from (docs/features/connected-apps/spec.md, FR-3 – FR-6,
@@ -183,14 +184,20 @@ const CHIPS = 10;
  * by name or category and a row of category chips. A card opens the
  * service when it is connected, else the Connect dialog.
  */
-export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(toolkit: string): void }) {
+/**
+ * `onOpen` gets what to show for a connected service: `svc:<toolkit>` (a
+ * Composio service), `off:<id>` (an official server) or `zapier`.
+ */
+export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(view: string): void }) {
   const toolkits = useConnectedAppsStore((s) => s.toolkits);
   const loading = useConnectedAppsStore((s) => s.catalogLoading);
   const error = useConnectedAppsStore((s) => s.catalogError);
   const accounts = useConnectedAppsStore((s) => s.accounts);
+  const officials = useConnectedAppsStore((s) => s.providers?.official);
   const [category, setCategory] = React.useState("");
   const [shown, setShown] = React.useState(PAGE);
   const [connecting, setConnecting] = React.useState<Toolkit | null>(null);
+  const [choosing, setChoosing] = React.useState<Toolkit | null>(null);
   React.useEffect(() => {
     void useConnectedAppsStore.getState().loadCatalog();
   }, []);
@@ -217,6 +224,7 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(toolki
   if (error && !toolkits.length) return <p className="py-8 text-center text-xs text-muted-foreground">The catalogue could not be read: {error}</p>;
   return (
     <div className="flex flex-col gap-3">
+      {!q && !category && <ZapierCard onOpen={() => onOpen?.("zapier")} />}
       <div className="scrollbar-none -mx-1 flex gap-1 overflow-x-auto px-1">
         {["", ...chips].map((c) => (
           <button
@@ -238,18 +246,35 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(toolki
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-2" aria-label="Services">
           {found.slice(0, shown).map((toolkit) => {
             const count = accounts.filter((a) => a.toolkit === toolkit.slug && a.status === "active").length;
+            const official = toolkit.official ? officials?.find((o) => o.id === toolkit.official) : undefined;
+            const direct = Boolean(official?.connected);
+            const open = () => {
+              if (direct && onOpen) return onOpen(`off:${official!.id}`);
+              if (count && onOpen) return onOpen(`svc:${toolkit.slug}`);
+              if (toolkit.official) return setChoosing(toolkit);
+              setConnecting(toolkit);
+            };
             return (
               <li key={toolkit.slug}>
                 <button
                   type="button"
-                  onClick={() => (count && onOpen ? onOpen(toolkit.slug) : setConnecting(toolkit))}
+                  onClick={open}
                   className="group flex h-full w-full items-center gap-3 rounded-xl bg-card px-3 py-2.5 text-left shadow-[0_0_0_1px_var(--border)] transition-colors hover:bg-accent/50"
                 >
                   <ServiceTile slug={toolkit.slug} name={toolkit.name} className="size-9 rounded-[10px]" />
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[13px] font-medium">{toolkit.name}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-[13px] font-medium">{toolkit.name}</span>
+                      {toolkit.official && <OfficialBadge className="h-4 px-1 text-[10px]" />}
+                      {official?.preview && <PreviewBadge />}
+                    </span>
                     <span className="truncate text-xs text-muted-foreground">
-                      {count ? (
+                      {direct ? (
+                        <span className="inline-flex items-center gap-1 text-foreground/80">
+                          <CheckIcon className="size-3 text-status-ok" />
+                          Connected directly
+                        </span>
+                      ) : count ? (
                         <span className="inline-flex items-center gap-1 text-foreground/80">
                           <CheckIcon className="size-3 text-status-ok" />
                           {count === 1 ? "Connected" : `${count} accounts`}
@@ -259,7 +284,7 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(toolki
                       )}
                     </span>
                   </span>
-                  {!count && <PlusIcon className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />}
+                  {!count && !direct && <PlusIcon className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />}
                 </button>
               </li>
             );
@@ -272,6 +297,7 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(toolki
         </Button>
       )}
       <ConnectDialog toolkit={connecting} onOpenChange={(open) => !open && setConnecting(null)} />
+      <WaysDialog toolkit={choosing} onOpenChange={(open) => !open && setChoosing(null)} />
     </div>
   );
 }
@@ -356,7 +382,7 @@ export function ServiceDetail({ toolkit }: { toolkit: string }) {
   };
   const title = info?.name ?? name(toolkit);
   const addAccount = () =>
-    setAdding(info ?? { slug: toolkit, name: title, logo: "", categories: [], managedAuth: true, noAuth: false, description: "", toolsCount: 0 });
+    setAdding(info ?? { slug: toolkit, name: title, logo: "", categories: [], managedAuth: true, noAuth: false, description: "", toolsCount: 0, composio: true });
 
   return (
     <div className="flex flex-col gap-5">
