@@ -6,24 +6,31 @@ import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Slider } from "@base-ui/react/slider";
 import type { LucideIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /** The page's heading: the section name, a line about it, and optional actions. */
 export function SettingsHeader({
   title,
   description,
+  tag,
   children,
 }: {
   /** Kept for the call sites; the settings list beside the page shows the icon. */
   icon?: LucideIcon;
   title: string;
   description: React.ReactNode;
+  /** A short mark beside the title, such as "Preview" for a feature still being tried out. */
+  tag?: string;
   children?: React.ReactNode;
 }) {
   return (
     <header className="flex items-start gap-4">
       <div className="min-w-0 flex-1">
-        <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+        <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+          {title}
+          {tag && <Badge variant="outline" className="font-medium tracking-normal">{tag}</Badge>}
+        </h1>
         <p className="mt-0.5 text-[13px] text-muted-foreground">{description}</p>
       </div>
       {children}

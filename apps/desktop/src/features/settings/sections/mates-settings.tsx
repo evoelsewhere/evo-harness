@@ -98,6 +98,7 @@ export function MatesSettings() {
       <SettingsHeader
         icon={UsersRoundIcon}
         title="Evo Mates"
+        tag="Preview"
         description="How your mates work together in channels."
       />
       <SettingsGroup title="Mates">
