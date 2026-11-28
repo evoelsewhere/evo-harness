@@ -101,16 +101,19 @@ async fn start_once(app: &AppHandle) -> bool {
     };
     let retry = match service.start().await {
         Ok(Some(server)) => {
-            set_pool(app, Some(server)).await;
+            let _ = server;
+            sync_pool(app, false).await;
             let _ = service.refresh_accounts().await;
             false
         }
         Ok(None) => {
-            set_pool(app, None).await;
+            sync_pool(app, false).await;
             false
         }
         Err(error) => {
             log(app, "warn", format!("Composio unavailable: {error}"));
+            // The official servers and Zapier do not wait for Composio.
+            sync_pool(app, false).await;
             service.key_state().0 == KeyState::Saved
         }
     };
@@ -137,11 +140,25 @@ async fn start(app: &AppHandle) {
     }
 }
 
-async fn set_pool(app: &AppHandle, server: Option<evo_mcp::AppServer>) {
-    if let Some(mcp) = app.try_state::<crate::mcp::McpState>() {
-        let pool = mcp.0.clone();
-        // Connecting may take a while: the commands do not wait for it.
-        tauri::async_runtime::spawn(async move { pool.set_app_server(server).await });
+/// Hand the pool every app server now — Composio's session, the official
+/// servers, Zapier (plan 3.9). `wait`: return once new or changed ones have
+/// tried to connect (a sign-in follows); else connect in the background.
+pub async fn sync_pool(app: &AppHandle, wait: bool) {
+    let (Some(state), Some(mcp)) = (state(app), app.try_state::<crate::mcp::McpState>()) else {
+        return;
+    };
+    let servers = match state.service.app_servers().await {
+        Ok(servers) => servers,
+        Err(error) => {
+            log(app, "warn", format!("connected apps: {error}"));
+            return;
+        }
+    };
+    let pool = mcp.0.clone();
+    if wait {
+        pool.set_app_servers(servers).await;
+    } else {
+        tauri::async_runtime::spawn(async move { pool.set_app_servers(servers).await });
     }
 }
 
@@ -248,7 +265,8 @@ pub async fn apps_set_key(app: AppHandle, key: String) -> Result<(), String> {
     let result = service.set_key(&key).await;
     match result {
         Ok(server) => {
-            set_pool(&app, Some(server)).await;
+            let _ = server;
+            sync_pool(&app, false).await;
             let _ = service.refresh_accounts().await;
             changed(&app);
             Ok(())
@@ -268,7 +286,7 @@ pub async fn apps_remove_key(app: AppHandle) -> Result<(), String> {
     if let Ok(dir) = app.path().app_cache_dir() {
         let _ = std::fs::remove_file(catalog::cache_file(&dir));
     }
-    set_pool(&app, None).await;
+    sync_pool(&app, false).await;
     changed(&app);
     Ok(())
 }
@@ -393,4 +411,115 @@ pub async fn apps_retry(app: AppHandle) -> Result<(), String> {
         }
         _ => Ok(()),
     }
+}
+
+// ── Official servers and Zapier (FR-22 – FR-24) ─────────────────────────────
+
+/// The official servers and Zapier, each with whether it is connected; their
+/// status, error and tools are the pool's (`mcp_state`, server `app:<name>`).
+#[tauri::command]
+pub fn apps_providers(app: AppHandle) -> Value {
+    let (ids, zapier) = state(&app)
+        .map(|s| (s.service.official_ids(), s.service.zapier_on()))
+        .unwrap_or_default();
+    let official: Vec<Value> = super::official::all()
+        .iter()
+        .map(|o| {
+            let mut v = serde_json::to_value(o).unwrap_or(Value::Null);
+            v["connected"] = json!(ids.contains(&o.id));
+            v["key"] = json!(format!("app:{}", o.server_name()));
+            v
+        })
+        .collect();
+    let mut z = serde_json::to_value(super::official::zapier()).unwrap_or(Value::Null);
+    z["connected"] = json!(zapier);
+    z["key"] = json!(format!("app:{}", super::official::ZAPIER));
+    json!({ "official": official, "zapier": z })
+}
+
+/// Sign in to the app server `name` in the browser (its OAuth), replacing an
+/// earlier sign-in (FR-23).
+async fn sign_in(app: &AppHandle, name: &str) -> Result<(), String> {
+    let pool = app
+        .try_state::<crate::mcp::McpState>()
+        .map(|s| s.0.clone())
+        .ok_or("Connectors are not ready.")?;
+    let key = pool.app_key(name);
+    let _ = pool.sign_out(&key).await;
+    let opener = app.clone();
+    pool.sign_in(&key, move |url| {
+        let _ = opener.opener().open_url(url, None::<&str>);
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn apps_connect_official(
+    app: AppHandle,
+    id: String,
+    token: Option<String>,
+) -> Result<(), String> {
+    let state = state(&app).ok_or("Connected apps is not ready.")?;
+    let official = state.service.connect_official(&id, token).await?;
+    sync_pool(&app, true).await;
+    changed(&app);
+    if official.auth == super::official::Auth::Oauth {
+        let result = sign_in(&app, &official.server_name()).await;
+        changed(&app);
+        result.map_err(|e| format!("{} did not sign in: {e}", official.name))?;
+    }
+    log(
+        &app,
+        "info",
+        format!("connected the official {} server", official.name),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn apps_disconnect_official(app: AppHandle, id: String) -> Result<(), String> {
+    let state = state(&app).ok_or("Connected apps is not ready.")?;
+    let official =
+        super::official::find(&id).ok_or_else(|| format!("No official server \"{id}\"."))?;
+    if let Some(mcp) = app.try_state::<crate::mcp::McpState>() {
+        let _ = mcp
+            .0
+            .sign_out(&mcp.0.app_key(&official.server_name()))
+            .await;
+    }
+    state.service.disconnect_official(&id).await?;
+    sync_pool(&app, true).await;
+    changed(&app);
+    Ok(())
+}
+
+/// Connect Zapier: its sign-in in the browser, or a pasted connection token (A-9).
+#[tauri::command]
+pub async fn apps_connect_zapier(app: AppHandle, token: Option<String>) -> Result<(), String> {
+    let state = state(&app).ok_or("Connected apps is not ready.")?;
+    let with_token = token.as_deref().is_some_and(|t| !t.trim().is_empty());
+    state.service.connect_zapier(token).await?;
+    sync_pool(&app, true).await;
+    changed(&app);
+    if !with_token {
+        let result = sign_in(&app, super::official::ZAPIER).await;
+        changed(&app);
+        result.map_err(|e| format!("Zapier did not sign in: {e}. You can paste a connection token from mcp.zapier.com instead."))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn apps_disconnect_zapier(app: AppHandle) -> Result<(), String> {
+    let state = state(&app).ok_or("Connected apps is not ready.")?;
+    if let Some(mcp) = app.try_state::<crate::mcp::McpState>() {
+        let _ = mcp
+            .0
+            .sign_out(&mcp.0.app_key(super::official::ZAPIER))
+            .await;
+    }
+    state.service.disconnect_zapier().await?;
+    sync_pool(&app, true).await;
+    changed(&app);
+    Ok(())
 }

@@ -27,6 +27,7 @@ pub mod gate;
 pub mod key;
 pub mod logos;
 pub mod official;
+pub mod providers;
 #[cfg(test)]
 mod record;
 pub mod run;
