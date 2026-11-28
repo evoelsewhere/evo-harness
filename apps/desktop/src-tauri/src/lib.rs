@@ -15,6 +15,7 @@ mod apps;
 mod browser;
 mod chat_flags;
 mod computer;
+mod connected_apps;
 mod db;
 mod engine;
 mod files;

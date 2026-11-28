@@ -55,6 +55,9 @@ tokio-util = "0.7"
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "time", "net"] }
 # Terminal tools: regular expressions for waitFor, password prompts (src/agent_tools/terminal.rs).
 regex = "1"
+# Connected apps: app tool calls are checked against their schema before
+# they leave Evo (src/connected_apps/gate.rs, connected-apps FR-9).
+jsonschema = { version = "0.60", default-features = false }
 # Scheduler tools: next run of a schedule on the local clock (src/agent_tools/scheduler).
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # "Open in" menu: app icons as PNG data URLs.
@@ -123,6 +126,10 @@ windows-core = "0.62"
 
 # Computer app control live tests: a WebView2 host laid out like a WebView2
 # chat app. Both already come in through Tauri (same versions).
+[dev-dependencies]
+# Connected apps tests: scratch folders (src/connected_apps).
+tempfile = "3"
+
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 tao = "0.37"
 wry = "0.57"

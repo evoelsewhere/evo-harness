@@ -24,7 +24,7 @@ connector's meta-tools; with none, no request goes to Composio.
 Done when: the person connects two labelled Gmail accounts, reconnects and
 disconnects one, in both apps.
 
-- [ ] T6 [FR-4, FR-5] Failing tests then label rules: unique, required once active, dead label reused after removing its account, five usable — `connected_apps/accounts.rs` — check: `cargo test` shell `label_rules`
+- [x] T6 [FR-4, FR-5] Failing tests then label rules: unique, required once active, dead label reused after removing its account, five usable — `connected_apps/accounts.rs` — check: `cargo test` shell `label_rules`
 - [ ] T7 [FR-3 – FR-6] Commands catalog, connect (browser), reopen, poll, disconnect with revoke, reconnect; `apps://changed` — `connected_apps/{catalog,accounts,mod}.rs`, `lib.rs` — check: shell tests against the fake server
 - [ ] T8 [FR-16] No managed sign-in: enable the person's newest enabled auth config for Tool Router, patch the session, retry once; else the steps — `connected_apps/accounts.rs`, `errors.rs` — check: shell test `a_toolkit_without_managed_auth_uses_the_persons_config`
 - [ ] T9 [FR-3 – FR-6, NFR-3] Connected apps page (catalogue with search and categories, Connected tab, Connect dialog, Add account, Reconnect, Disconnect, pending link), placed in Customize, the More menu, Mates Settings and the mate's Apps tab — `features/connected-apps/`, `features/customize/customize-page.tsx`, `features/shell/sidebar-items.ts`, `features/settings/`, `features/mates/mate-panel.tsx` — check: manual, timed catalogue open
@@ -34,10 +34,10 @@ disconnects one, in both apps.
 Done when: every call to an app tool is checked for account, grant, class,
 schema and files before it leaves Evo.
 
-- [ ] T10 [FR-8, FR-9] Failing tests then `gate.rs`: parse `MULTI_EXECUTE` (unknown shape refused), account required with several, schema check from cached schemas with the "shape, not access" text — `connected_apps/gate.rs` — check: shell tests `an_account_is_required_with_two`, `a_bad_argument_is_refused_before_sending`
+- [x] T10 [FR-8, FR-9] Failing tests then `gate.rs`: parse `MULTI_EXECUTE` (unknown shape refused), account required with several, schema check from cached schemas with the "shape, not access" text — `connected_apps/gate.rs` — check: shell tests `an_account_is_required_with_two`, `a_bad_argument_is_refused_before_sending`
 - [ ] T11 [FR-13] Class read/send and the cards: read verbs or Composio's read-only mark → read; else sending through the existing ask and `mate_gate`, card with service, account, arguments — `gate.rs`, `agent_tools/mcp.rs`, `mates/grants.rs` — check: shell test `a_send_tool_asks_under_ask_every_time`
 - [ ] T12 [FR-7] Meta-tool policy: search, schemas, wait pass; workbench, bash, proxy Block by default and never for a mate with limited apps — `gate.rs`, `pool.rs` defaults — check: shell test `the_sandbox_is_closed_to_a_limited_mate`
-- [ ] T13 [FR-14] Failing tests then `files.rs`: allowed roots, hidden components, Evo data, 10 files, listed on the card, uploaded after the last check — `connected_apps/files.rs` — check: shell tests `a_hidden_file_is_never_uploaded`, `files_upload_only_after_approval`
+- [x] T13 [FR-14] Failing tests then `files.rs`: allowed roots, hidden components, Evo data, 10 files, listed on the card, uploaded after the last check — `connected_apps/files.rs` — check: shell tests `a_hidden_file_is_never_uploaded`, `files_upload_only_after_approval`
 - [ ] T14 [FR-15] Scope refusal note — `connected_apps/errors.rs` — check: shell test with a fixture 403
 
 ### Phase 4 — Mates and Harness

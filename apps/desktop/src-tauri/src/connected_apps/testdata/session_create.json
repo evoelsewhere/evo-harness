@@ -1,0 +1,9 @@
+{
+  "session_id": "trs_REDACTED",
+  "mcp": { "type": "http", "url": "https://backend.composio.dev/tool_router/trs_REDACTED/mcp" },
+  "config": {
+    "user_id": "evo_REDACTED",
+    "manage_connections": { "enable": true },
+    "multi_account": { "enable": true, "max_accounts_per_toolkit": 10, "require_explicit_selection": true }
+  }
+}

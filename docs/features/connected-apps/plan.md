@@ -238,3 +238,22 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   the app server's name; `remove` and `set_enabled` refuse it ("managed by
   Connected apps"). The snapshot marks it with `app` and hides its header
   values as it does a plugin server's.
+- 2026-11-28 — The gate is pure checks (`gate::check`) plus one async
+  step, `gate::prepare`, over a `Backend` trait (ask, upload), so the
+  order checks → card → uploads → call is tested without the app. A
+  `MULTI_EXECUTE` item names its account in `connected_account_id`
+  (labels and ids both accepted from the agent; the call goes out with the
+  id). With one account the caller may use, it is used even when the
+  service has others the caller may not use. Schemas and Composio's
+  `readOnlyHint` / `destructiveHint` tags come from the tools Evo has seen
+  (`input_parameters`); a tool Evo has not seen is refused with "find it
+  with COMPOSIO_SEARCH_TOOLS first". A path is "local" when it is absolute,
+  starts with `/`, `\` or `~`, or has a drive letter; anything else in a
+  file argument is sent unchanged.
+- 2026-11-28 — `connected_apps::Service` (key, session, accounts) is
+  independent of Tauri: a `KeyStore` (the keychain) and a `Settings`
+  trait (`app_settings`). A key's mark (`connectedApps.keyMark`, a SHA-256
+  prefix) tells a new project's key from the old one; a new key clears
+  the user and session ids. The key is checked with `GET
+  /connected_accounts?limit=1`. Tests use `connected_apps/fake.rs`, an
+  HTTP server on 127.0.0.1 that answers from `testdata/`.
