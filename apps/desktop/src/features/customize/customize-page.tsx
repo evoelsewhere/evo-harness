@@ -744,10 +744,25 @@ function ComingSoon({ section }: { section: CustomizeSection }) {
 const ENGINE_SECTIONS: CustomizeSection[] = ["instructions", "skills", "agents", "hooks"];
 
 /** Customize: instructions, skills, subagents, connectors, plugins and hooks. */
-export function CustomizePage() {
-  const section = useUiStore((s) => s.customizeSection);
+/** The sections Evo Mates shows: those about mates (connected-apps FR-3). */
+export const MATES_SECTIONS: CustomizeSection[] = ["instructions", "skills", "connectors", "plugins"];
+
+/** The section to show: the one asked for, unless this window does not show it. */
+export function sectionShown(asked: CustomizeSection, only: CustomizeSection[] | undefined, chatOpen: boolean): CustomizeSection {
+  if (!only || only.includes(asked)) return asked;
+  return chatOpen && only.includes("skills") ? "skills" : "connectors";
+}
+
+/**
+ * `only`: the sections this window shows (Evo Mates: [`MATES_SECTIONS`]);
+ * a section it does not show opens Skills, or Connectors with no chat open.
+ */
+export function CustomizePage({ only }: { only?: CustomizeSection[] } = {}) {
+  const asked = useUiStore((s) => s.customizeSection);
   const openCustomize = useUiStore((s) => s.openCustomize);
   const activeId = useEngineStore((s) => s.activeId);
+  const shown = only ? sections.filter((s) => only.includes(s.id)) : sections;
+  const section = sectionShown(asked, only, Boolean(activeId));
   const engineReady = useEngineStore((s) => (s.activeId ? s.runtimes[s.activeId]?.status === "ready" : false));
   const { data, loading, error, load } = useCustomizeStore();
   const [query, setQuery] = React.useState("");
@@ -757,7 +772,7 @@ export function CustomizePage() {
     if (engineReady) void load(true);
   }, [engineReady, activeId, load]);
 
-  const current = sections.find((s) => s.id === section) ?? sections[0];
+  const current = shown.find((s) => s.id === section) ?? shown[0];
   // MCP servers that are up, and services with an active account (connected apps).
   const serverCount = useConnectorsStore((s) => s.servers.filter((c) => c.status === "connected" && !c.app).length);
   const appCount = useConnectedServices().filter((s) => s.status === "active").length;
@@ -773,7 +788,7 @@ export function CustomizePage() {
       <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border/60 px-4 py-2.5">
         <h1 className="text-sm font-semibold">Customize</h1>
         <nav aria-label="Customize" role="tablist" className="flex min-w-0 items-center gap-0.5">
-          {sections.map((item) => (
+          {shown.map((item) => (
             <button
               key={item.id}
               type="button"

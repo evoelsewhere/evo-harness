@@ -442,4 +442,11 @@ or a log; results stay tool output.
   `apps-dialog.tsx` and `connected-apps-page.tsx` are gone
   (`UnavailableNotice` moved to `apps-parts.tsx`), and Settings › Evo Mates
   has no Connected apps group.
+- 2026-11-28 — Evo Mates' Customize shows `MATES_SECTIONS` (instructions,
+  skills, connectors, plugins): `CustomizePage` takes the sections a
+  window shows; a section it does not show (the last one opened in
+  Harness, say) opens Skills, or Connectors with no chat open. Instructions
+  stay: a mate's engine starts with `--role-file` and no
+  `--no-context-files`, so `~/.evo/agent/AGENTS.md` and the project's file
+  reach its turns (`evo-engine/src/session.rs`, context block).
 

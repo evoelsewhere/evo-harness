@@ -11,7 +11,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowLeftIcon } from "lucide-react";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
-import { CustomizePage } from "@/features/customize/customize-page";
+import { CustomizePage, MATES_SECTIONS } from "@/features/customize/customize-page";
 import { MateModelPicker } from "@/features/mates/model-picker";
 import { ChannelBar, ChannelView } from "@/features/mates/channel-view";
 import { MateConversation } from "@/features/mates/conversation";
@@ -75,9 +75,9 @@ function ChannelPane({ id }: { id: string }) {
 
 /**
  * Customize, the same page as in Evo Harness (docs/features/connected-apps/
- * spec.md, FR-3; evo-mates History 2026-11-28): skills, subagents,
- * connectors with connected apps and providers, plugins, hooks and
- * instructions, with a row back to the conversation.
+ * spec.md, FR-3; evo-mates History 2026-11-28), with the sections about
+ * mates only — instructions, skills, connectors (apps, providers, MCP
+ * servers), plugins — and a row back to the conversation.
  */
 function MatesCustomize() {
   const mate = useShownMate();
@@ -90,7 +90,7 @@ function MatesCustomize() {
         </Button>
       </div>
       <div className="min-h-0 flex-1">
-        <CustomizePage />
+        <CustomizePage only={MATES_SECTIONS} />
       </div>
     </div>
   );
