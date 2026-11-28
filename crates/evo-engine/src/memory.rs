@@ -1006,6 +1006,9 @@ pub fn describe(cwd: &Path, chat_memory: bool) -> Result<Value, String> {
         "usePersonal": personal_enabled(cwd),
         "sensitive": sensitive_enabled(),
         "total": total_in(&agent),
+        // Whose memory each list is, for Tidy now and the journal
+        // (learning-layers FR-6).
+        "owners": { "personal": "personal", "project": owner(Scope::Project, cwd) },
         "personal": {
             "dir": personal,
             "items": list_dir(&personal).iter().map(|m| entry(m, Scope::Personal)).collect::<Vec<_>>(),

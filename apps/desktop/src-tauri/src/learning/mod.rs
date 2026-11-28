@@ -7,6 +7,23 @@
 //! FR-23 – FR-25, NFR-2, NFR-5), plan 3.1, 3.4, 3.5.
 
 use serde_json::{Map, Value};
+use tauri::AppHandle;
+
+pub mod clock;
+pub mod commands;
+pub mod jobs;
+pub mod owners;
+
+/// The first dream of an owner looks back this far (FR-10).
+pub const FIRST_DREAM_LOOKBACK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Start the learning loop: the Background model copied from the Index
+/// model once, then the nightly look every minute.
+pub fn setup(app: &AppHandle) {
+    use tauri::Manager;
+    copy_index_model(&app.state::<crate::db::Db>());
+    clock::start(app);
+}
 
 /// **Background model**, `{provider, modelId}`: the tidy-up's model step,
 /// the dream, the review, the retro and indexing (FR-24).

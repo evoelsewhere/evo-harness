@@ -103,6 +103,7 @@ pub fn run() {
         .manage(terminal::TerminalState::default())
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
+        .manage(learning::jobs::Learning::default())
         .manage(browser::BrowserState::default())
         .manage(frames::FrameSinks::default())
         .manage(webbridge::Webbridge::default())
@@ -150,8 +151,9 @@ pub fn run() {
             computer::setup(app.handle());
             // App updates: the check timer, after the window is shown.
             updates::setup(app.handle());
-            // The Background model replaces the Index model (learning-layers FR-24).
-            learning::copy_index_model(&app.state::<db::Db>());
+            // The learning layers: the Background model, then the nightly
+            // tidy-up and dream (docs/features/learning-layers).
+            learning::setup(app.handle());
             // Memory: index idle chats with the model the person chose.
             memory_index::setup(app.handle());
             // Chats with mail left undelivered when the app last closed get
@@ -313,6 +315,8 @@ pub fn run() {
             memory_index::memory_index_earlier_count,
             memory_index::memory_index_earlier,
             memory_index::memory_index_poke,
+            learning::commands::learning_tidy_now,
+            learning::commands::learning_poke,
             db::logs_append,
             db::logs_query,
             db::logs_clear,
