@@ -13,7 +13,8 @@ import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
 import { CustomizePage, MATES_SECTIONS } from "@/features/customize/customize-page";
 import { MateModelPicker } from "@/features/mates/model-picker";
-import { ChannelBar, ChannelView } from "@/features/mates/channel-view";
+import { ChannelView } from "@/features/mates/channel-view";
+import { ChannelHeader } from "@/features/mates/channel-header";
 import { MateConversation } from "@/features/mates/conversation";
 import { Gallery } from "@/features/mates/gallery";
 import { MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
@@ -79,8 +80,8 @@ function ChannelPane({ id }: { id: string }) {
   if (!channel) return <MatesEmpty />;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center pr-2">
-        <ChannelBar channel={channel} />
+      <div className="flex h-14 shrink-0 items-center border-b border-border/50">
+        <ChannelHeader channel={channel} />
       </div>
       <div className="min-h-0 flex-1">
         {shown === channel.chatId ? (

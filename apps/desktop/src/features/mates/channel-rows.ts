@@ -7,10 +7,31 @@
 import type { ChannelEntry, RetroCard } from "@/lib/mates";
 import { timeLine } from "./thread-rows";
 
+function dayOf(at: number): number {
+  const d = new Date(at);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** The verb of a hand-off as its card says it (evo-mates-ui-v2 FR-20). */
+export function handoffVerb(kind: string): string {
+  if (kind === "assigns") return "assigned";
+  if (kind === "asks") return "asked";
+  if (kind === "tells") return "told";
+  return kind;
+}
+
+/** A hand-off's text in one plain line, without its "[assign]" mark. */
+export function handoffSummary(text: string, max = 90): string {
+  const plain = plainText(text.replace(/^\s*\[assign\]\s*/i, "")).replace(/\s+/g, " ").trim();
+  return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
+}
+
 const GAP_MS = 15 * 60_000;
 
 export type ChannelRow =
-  | { kind: "time"; key: string; text: string }
+  /** A day's separator (evo-mates-ui-v2 FR-11). */
+  | { kind: "day"; key: string; at: number }
+  | { kind: "time"; key: string; text: string; at: number }
   | {
       kind: "bubble";
       key: string;
@@ -25,8 +46,9 @@ export type ChannelRow =
       /** A message of the person that went into this mate's turn (FR-56). */
       steers?: string;
     }
-  | { kind: "route"; key: string; text: string }
-  | { kind: "handoff"; key: string; from: string; fromName: string; toName: string; handoff: string; text: string }
+  /** Who answers; `picked` are the mates' ids, for their faces (evo-mates-ui-v2 FR-20). */
+  | { kind: "route"; key: string; text: string; picked: string[] }
+  | { kind: "handoff"; key: string; from: string; fromName: string; to: string; toName: string; handoff: string; text: string }
   | { kind: "notice"; key: string; text: string; stop: boolean }
   | { kind: "retro"; key: string; card: RetroCard };
 
@@ -51,8 +73,11 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
   let lastAt: number | null = null;
   entries.forEach((entry, index) => {
     const key = `${entry.kind}:${index}`;
-    if (entry.kind === "message" && (lastAt === null || entry.at - lastAt > GAP_MS)) {
-      rows.push({ kind: "time", key: `time:${index}`, text: timeLine(entry.at, now) });
+    if (entry.kind === "message" && (lastAt === null || dayOf(entry.at) !== dayOf(lastAt))) {
+      rows.push({ kind: "day", key: `day:${index}`, at: entry.at });
+    }
+    if (entry.kind === "message" && (lastAt === null || entry.at - lastAt > GAP_MS || dayOf(entry.at) !== dayOf(lastAt))) {
+      rows.push({ kind: "time", key: `time:${index}`, text: timeLine(entry.at, now), at: entry.at });
     }
     if (entry.kind === "message") lastAt = entry.at;
     switch (entry.kind) {
@@ -74,7 +99,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
       }
       case "route":
         // The line says who answers; a message nobody answers says why.
-        rows.push({ kind: "route", key, text: entry.line });
+        rows.push({ kind: "route", key, text: entry.line, picked: entry.picked ?? [] });
         break;
       case "handoff":
         rows.push({
@@ -82,6 +107,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
           key,
           from: entry.from,
           fromName: entry.fromName,
+          to: entry.to,
           toName: entry.toName,
           handoff: entry.handoff,
           text: entry.text,

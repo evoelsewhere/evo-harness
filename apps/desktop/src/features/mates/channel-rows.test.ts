@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelEntry } from "@/lib/mates";
-import { boldMentions, channelRows, handoffLine, insertMention, mentionAt, mentionParts, retroFailure } from "./channel-rows";
+import { boldMentions, channelRows, handoffLine, handoffSummary, handoffVerb, insertMention, mentionAt, mentionParts, retroFailure } from "./channel-rows";
 
 // docs/features/evo-mates/spec.md (FR-14 – FR-19, FR-58).
 const at = (minutes: number) => 1_700_000_000_000 + minutes * 60_000;
@@ -27,7 +27,7 @@ describe("channel rows", () => {
       nameOf,
       at(4),
     );
-    expect(rows.map((r) => r.kind)).toEqual(["time", "bubble", "route", "bubble", "bubble", "bubble"]);
+    expect(rows.map((r) => r.kind)).toEqual(["day", "time", "bubble", "route", "bubble", "bubble", "bubble"]);
     const bubbles = rows.filter((r) => r.kind === "bubble");
     expect(bubbles.map((r) => (r.kind === "bubble" ? [r.name, r.me, r.first, r.last] : null))).toEqual([
       ["You", true, true, true],
@@ -125,8 +125,8 @@ test("a retro is a card and a job end shows nothing", () => {
     (id) => id,
     10,
   );
-  expect(rows.map((row) => row.kind)).toEqual(["time", "bubble", "retro"]);
-  const retro = rows[2];
+  expect(rows.map((row) => row.kind)).toEqual(["day", "time", "bubble", "retro"]);
+  const retro = rows[3];
   expect(retro.kind === "retro" && retro.card.lessons[0].row).toBe(7);
 });
 
@@ -137,5 +137,29 @@ describe("a retro that did not run", () => {
     expect(retroFailure("no retro: no job")).toBe("Nothing to look back on yet.");
     expect(retroFailure("no retro: a learning step for personal is already running")).toBe("A retro is already running.");
     expect(retroFailure("boom")).toBe("The retro did not run.");
+  });
+});
+
+// docs/features/evo-mates-ui-v2/spec.md (FR-11, FR-20).
+describe("v2 channel rows", () => {
+  test("hand-offs carry both mates and read as a verb and a summary", () => {
+    const rows = channelRows(
+      [
+        { kind: "route", message: "m", picked: ["p"], line: "Planner, the lead", at: at(0) },
+        { kind: "handoff", message: "m", handoff: "assigns", from: "p", fromName: "Planner", to: "w", toName: "Writer", text: "[assign] Draft the **intro**", at: at(1) },
+      ] as ChannelEntry[],
+      nameOf,
+    );
+    const route = rows.find((r) => r.kind === "route");
+    expect(route?.kind === "route" ? route.picked : []).toEqual(["p"]);
+    const handoff = rows.find((r) => r.kind === "handoff");
+    expect(handoff?.kind === "handoff" ? [handoff.from, handoff.to] : []).toEqual(["p", "w"]);
+    expect(handoffVerb("assigns")).toBe("assigned");
+    expect(handoffSummary("[assign] Draft the **intro**")).toBe("Draft the intro");
+  });
+
+  test("a new day opens with its separator", () => {
+    const rows = channelRows([message("person", "a", 0), message("person", "b", 60 * 24 + 5)], nameOf);
+    expect(rows.filter((r) => r.kind === "day")).toHaveLength(2);
   });
 });

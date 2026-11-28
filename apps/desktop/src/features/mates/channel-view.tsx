@@ -4,7 +4,7 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowUpIcon, ClipboardCheckIcon, DownloadIcon, HashIcon, PlusIcon, SettingsIcon, SquareIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowRightIcon, ArrowUpIcon, ChevronRightIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
@@ -13,133 +13,24 @@ import { attachmentsFromPaths, attachmentsFromTransfer, isLongPaste, releaseAtta
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { log } from "@/lib/db";
 import { openChatWindow } from "@/lib/windows";
 import { channelsApi, type Channel, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useChannelStore } from "@/stores/channel-store";
 import { useEngineStore } from "@/stores/engine-store";
-import { useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
-import {
-  boldMentions,
-  channelRows,
-  handoffLine,
-  insertMention,
-  mentionAt,
-  mentionParts,
-  retroFailure,
-  type ChannelRow,
-} from "./channel-rows";
+import { boldMentions, channelRows, handoffSummary, handoffVerb, insertMention, mentionAt, mentionParts, type ChannelRow } from "./channel-rows";
+import { useMembers } from "./channel-header";
+import { FindBar } from "./find-bar";
+import { MatePresenceFace } from "./presence-face";
+import { clockTime, dayLabel } from "./thread-rows";
 import { BUBBLE_TEXT } from "./bubble-style";
-import { ChannelSettings, RULES } from "./channel-settings";
-import { ConfirmDelete } from "./confirm";
 import { channelMessage, splitMessage } from "./attachments";
 import { NamedFiles, SentByMe } from "./attachment-views";
 import { RetroCard } from "./retro-card";
-import { exportTeam } from "./team-import";
 
 const EMPTY: never[] = [];
-
-function useMembers(channel: Channel): Mate[] {
-  const mates = useMatesStore((s) => s.mates);
-  return React.useMemo(
-    () => channel.members.map((m) => mates.find((mate) => mate.id === m.mateId)).filter((m): m is Mate => Boolean(m)),
-    [channel.members, mates],
-  );
-}
-
-function IconButton({ label, onClick, children }: { label: string; onClick(): void; children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" aria-label={label} onClick={onClick} className="no-drag rounded-full text-muted-foreground" />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-export function ChannelBar({ channel }: { channel: Channel }) {
-  const members = useMembers(channel);
-  const removeChannel = useMatesStore((s) => s.removeChannel);
-  const [settings, setSettings] = React.useState(false);
-  const [confirm, setConfirm] = React.useState(false);
-  // Why Run retro did not run, for a few seconds (learning-layers FR-19).
-  const [retroNote, setRetroNote] = React.useState<string | null>(null);
-  React.useEffect(() => {
-    if (!retroNote) return;
-    const timer = window.setTimeout(() => setRetroNote(null), 8000);
-    return () => window.clearTimeout(timer);
-  }, [retroNote]);
-  const rule = RULES.find((r) => r.id === channel.replyRule);
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2 pl-3">
-      <button
-        type="button"
-        onClick={() => setSettings(true)}
-        aria-label={`${channel.name}: settings`}
-        className="no-drag flex h-8 min-w-0 items-center gap-1.5 rounded-full bg-card pr-2.5 pl-2 shadow-[0_0_0_1px_var(--border)] transition-colors hover:bg-accent"
-      >
-        <HashIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="truncate text-[13px] font-semibold text-foreground">{channel.name}</span>
-        <span className="flex -space-x-1.5 pl-1">
-          {members.slice(0, 5).map((mate) => (
-            <span key={mate.id} className="rounded-full ring-2 ring-card">
-              <MateFace avatar={mate.avatar} size={18} plate={false} label={mate.name} />
-            </span>
-          ))}
-        </span>
-      </button>
-      {rule && (
-        <span className="hidden rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline" title={rule.hint}>
-          {rule.label}
-        </span>
-      )}
-      <div className="flex-1" />
-      {retroNote && (
-        <span role="status" className="max-w-[45%] truncate text-xs text-muted-foreground" title={retroNote}>
-          {retroNote}
-        </span>
-      )}
-      <IconButton label="Export channel" onClick={() => void exportTeam({ channel: channel.id }, channel.name)}>
-        <DownloadIcon />
-      </IconButton>
-      <IconButton
-        label="Run retro"
-        onClick={() => {
-          setRetroNote(null);
-          void channelsApi.runRetro(channel.chatId).catch((error) => {
-            log("warn", "mates", `the retro did not run: ${String(error)}`);
-            setRetroNote(retroFailure(String(error)));
-          });
-        }}
-      >
-        <ClipboardCheckIcon />
-      </IconButton>
-      <IconButton label="Channel settings" onClick={() => setSettings(true)}>
-        <SettingsIcon />
-      </IconButton>
-      <IconButton label="Delete channel" onClick={() => setConfirm(true)}>
-        <Trash2Icon />
-      </IconButton>
-      <ChannelSettings open={settings} onOpenChange={setSettings} channel={channel} />
-      <ConfirmDelete
-        open={confirm}
-        onOpenChange={setConfirm}
-        title={`Delete ${channel.name}?`}
-        description="Its messages go. The mates stay, with their own conversations and memory."
-        onConfirm={() => void removeChannel(channel.id)}
-      />
-    </div>
-  );
-}
 
 function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "warn" }) {
   return (
@@ -158,14 +49,66 @@ function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
   );
 }
 
+/** A hand-off as a card: sender → receiver, the verb, a summary that opens (FR-20; QA C1). */
+function HandoffCard({ row, faceOf }: { row: Extract<ChannelRow, { kind: "handoff" }>; faceOf(id: string): Mate | undefined }) {
+  const [open, setOpen] = React.useState(false);
+  const from = faceOf(row.from);
+  const to = faceOf(row.to);
+  const summary = handoffSummary(row.text);
+  const full = handoffSummary(row.text, 4000);
+  const long = full !== summary;
+  return (
+    <div className="flex justify-center px-6 py-1">
+      <button
+        type="button"
+        aria-expanded={long ? open : undefined}
+        onClick={() => long && setOpen(!open)}
+        className={cn(
+          "flex max-w-[min(560px,90%)] min-w-0 items-start gap-2 rounded-2xl bg-muted/50 px-3 py-1.5 text-left text-[12px] text-muted-foreground shadow-[0_0_0_1px_var(--border)]",
+          long && "hover:bg-muted",
+          BUBBLE_TEXT,
+        )}
+      >
+        <span className="flex shrink-0 items-center gap-1 pt-px">
+          {from ? <MatePresenceFace mate={from} size={18} ring="var(--background)" /> : null}
+          <ArrowRightIcon className="size-3" />
+          {to ? <MatePresenceFace mate={to} size={18} ring="var(--background)" /> : null}
+        </span>
+        <span className={cn("min-w-0 flex-1", !open && "line-clamp-1")}>
+          <span className="font-medium text-foreground">{row.fromName}</span> {handoffVerb(row.handoff)}{" "}
+          <span className="font-medium text-foreground">{row.toName}</span>
+          {summary && <span data-find-text>: {open ? full : summary}</span>}
+        </span>
+        {long && <ChevronRightIcon className={cn("mt-0.5 size-3 shrink-0 transition-transform", open && "rotate-90")} />}
+      </button>
+    </div>
+  );
+}
+
 function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
   switch (row.kind) {
+    case "day":
+      return null;
     case "time":
-      return <div className="py-2 text-center text-[11px] font-medium text-muted-foreground">{row.text}</div>;
+      return <div className="mt-2 py-1 text-center text-[11px] text-muted-foreground tabular-nums">{clockTime(row.at)}</div>;
     case "route":
-      return <Line>{row.text}</Line>;
+      // Who answers, with their faces (FR-20; evo-mates FR-36).
+      return (
+        <div className="flex justify-center px-6 py-1">
+          <span className={cn("flex max-w-[85%] items-center gap-1.5 rounded-full bg-muted/60 py-0.5 pr-3 pl-1 text-[11.5px] text-muted-foreground", BUBBLE_TEXT)}>
+            <span className="flex -space-x-1">
+              {row.picked.slice(0, 3).map((id) => {
+                const mate = faceOf(id);
+                return mate ? <MatePresenceFace key={id} mate={mate} size={18} ring="var(--background)" /> : null;
+              })}
+            </span>
+            {!row.picked.length && <span className="w-1.5" />}
+            {row.text}
+          </span>
+        </div>
+      );
     case "handoff":
-      return <Line>{handoffLine(row)}</Line>;
+      return <HandoffCard row={row} faceOf={faceOf} />;
     case "notice":
       return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
     case "retro":
@@ -195,6 +138,7 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
               )}
             >
               {said && <SentByMe files={said.files} pasted={said.pasted} />}
+              <div data-find-text>
               {row.me ? (
                 <span className="whitespace-pre-wrap break-words">
                   {mentionParts(said?.text ?? row.text, names).map((part, i) =>
@@ -219,6 +163,7 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
                   {boldMentions(row.text, names)}
                 </Markdown>
               )}
+              </div>
             </div>
             {/* The files a mate's line names that exist, under it (FR-83). */}
             {!row.me && <NamedFiles text={row.text} root={root} />}
@@ -347,7 +292,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
   return (
     <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
       {mention && matches.length > 0 && (
-        <div className="absolute bottom-full left-4 mb-1 w-56 overflow-hidden rounded-2xl bg-popover p-1 shadow-lg ring-1 ring-border" role="listbox">
+        <div className="absolute bottom-full left-4 mb-1 w-72 overflow-hidden rounded-2xl bg-popover p-1 shadow-lg ring-1 ring-border" role="listbox" aria-label="Mention a mate">
           {matches.map((m, i) => {
             const mate = members.find((x) => x.id === m.id);
             return (
@@ -360,14 +305,17 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
                   event.preventDefault();
                   choose(m.name);
                 }}
-                className={cn("flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px]", i === pick && "bg-accent")}
+                className={cn("flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left text-[13px]", i === pick && "bg-accent")}
               >
                 {mate ? (
-                  <MateFace avatar={mate.avatar} size={20} plate={false} label={mate.name} />
+                  <MatePresenceFace mate={mate} size={26} ring="var(--popover)" />
                 ) : (
-                  <span className="flex size-5 items-center justify-center text-muted-foreground">@</span>
+                  <span className="flex size-[26px] items-center justify-center rounded-full bg-muted text-muted-foreground">@</span>
                 )}
-                {m.name}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-foreground">{m.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{mate ? mate.role || "Mate" : "Every mate in the channel"}</span>
+                </span>
               </button>
             );
           })}
@@ -502,10 +450,25 @@ export function ChannelView({ channel }: { channel: Channel }) {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [rows.length, working.length, waiting.length, queued.length]);
 
+  // One section per day so each day's label sticks over its own lines (FR-11).
+  const days = React.useMemo(() => {
+    const out: { key: string; at: number | null; rows: ChannelRow[] }[] = [];
+    for (const row of rows) {
+      if (row.kind === "day") out.push({ key: row.key, at: row.at, rows: [] });
+      else {
+        if (!out.length) out.push({ key: "start", at: null, rows: [] });
+        out[out.length - 1].rows.push(row);
+      }
+    }
+    return out;
+  }, [rows]);
+
   if (!shown) return null;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto pt-2 pb-3">
+      <div className="relative min-h-0 flex-1">
+      <FindBar scopeId={`channel-${channel.chatId}`} version={rows.length} />
+      <div id={`channel-${channel.chatId}`} className="h-full overflow-y-auto pt-2 pb-3">
         {rows.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
             <div className="flex -space-x-2">
@@ -522,14 +485,25 @@ export function ChannelView({ channel }: { channel: Channel }) {
             </p>
           </div>
         ) : (
-          rows.map((row) => (
-            <RowView
-              key={row.key}
-              row={row}
-              names={members.map((m) => m.name)}
-              faceOf={(id) => members.find((m) => m.id === id)}
-              folder={channel.folder ?? null}
-            />
+          days.map((day) => (
+            <section key={day.key} className="flex flex-col">
+              {day.at !== null && (
+                <div className="sticky top-1 z-[5] my-2 flex justify-center">
+                  <span className="rounded-full bg-background px-3 py-1 text-[11.5px] font-medium text-foreground shadow-[0_0_0_1px_var(--border),0_2px_8px_-4px_rgb(0_0_0/0.2)]">
+                    {dayLabel(day.at)}
+                  </span>
+                </div>
+              )}
+              {day.rows.map((row) => (
+                <RowView
+                  key={row.key}
+                  row={row}
+                  names={members.map((m) => m.name)}
+                  faceOf={(id) => members.find((m) => m.id === id)}
+                  folder={channel.folder ?? null}
+                />
+              ))}
+            </section>
           ))
         )}
         {working.map((mate) => (
@@ -592,6 +566,7 @@ export function ChannelView({ channel }: { channel: Channel }) {
           </div>
         ))}
         <div ref={bottom} />
+      </div>
       </div>
       <Composer channel={channel} members={members} />
     </div>

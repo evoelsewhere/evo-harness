@@ -43,9 +43,9 @@ new headers.
 - [x] T14 [FR-10 – FR-18] thread: sticky days, New line, pill, hover time and bar, fold, quote jump, chip, stopped, no dots while a card waits — `features/mates/thread.tsx`
 - [x] T15 [FR-10, FR-27] card frame, paused bar — `features/mates/conversation.tsx`
 - [x] T16 [FR-9] mate header — `features/mates/mate-header.tsx`
-- [ ] T17 [FR-11, FR-20] channel day rows and route faces (+tests) — `features/mates/channel-rows.ts`, `channel-rows.test.ts`
-- [ ] T18 [FR-19] channel header with members, rule chip, Stop, Find, ⋯ — `features/mates/channel-header.tsx`
-- [ ] T19 [FR-15, FR-20, FR-21] channel view: hand-off cards, `@` list with role and presence, find marks — `features/mates/channel-view.tsx`
+- [x] T17 [FR-11, FR-20] channel day rows and route faces (+tests) — `features/mates/channel-rows.ts`, `channel-rows.test.ts`
+- [x] T18 [FR-19] channel header with members, rule chip, Stop, Find, ⋯ — `features/mates/channel-header.tsx`
+- [x] T19 [FR-15, FR-20, FR-21] channel view: hand-off cards, `@` list with role and presence, find marks — `features/mates/channel-view.tsx`
 
 ## Phase 4 — Profile, home, gallery, files, empty states
 

@@ -284,7 +284,7 @@ function Divider({ label, tone }: { label: string; tone: "new" | "day" }) {
   if (tone === "day")
     return (
       <div className="sticky top-1 z-[5] my-2 flex justify-center">
-        <span className="rounded-full bg-background/90 px-3 py-1 text-[11.5px] font-medium text-foreground shadow-[0_0_0_1px_var(--border)] backdrop-blur-sm">
+        <span className="rounded-full bg-background px-3 py-1 text-[11.5px] font-medium text-foreground shadow-[0_0_0_1px_var(--border),0_2px_8px_-4px_rgb(0_0_0/0.2)]">
           {label}
         </span>
       </div>
