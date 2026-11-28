@@ -295,7 +295,8 @@ CLI or TUI front end ([ADR 0001](decisions/0001-desktop-app-is-the-only-front-en
 | `evo-plugin-sdk` / `evo-extensions` | Stable `#[repr(C)]` plugin ABI / the host that loads `cdylib` plugins |
 | `evo-protocol` | Engine ↔ client wire contract (JSONL default, CBOR frames optional) |
 | `evo-mesh` | Session mesh wire types and the hub that routes mail between sessions |
-| `evo-store` | `evo.db`: schema, migrations, chats and their memory flags, chat search (also ranked, for agents), chat summaries, the list of memory changes made by indexing, logs, mail, settings, usage and cost history; the transcript files' location, identity and life cycle, and reading one as messages |
+| `evo-evals` | Dev-only (`publish = false`): the harness's eval suite — scenarios on the engine's real code with a scripted model, golden channel replay, case sets, an opt-in live tier ([learning layers](../features/learning-layers/spec.md)) |
+| `evo-store` | `evo.db`: schema, migrations, chats and their memory flags, chat search (also ranked, for agents), chat summaries, the journal of every memory and learned-skill change (by the agent, the person, indexing, the tidy-up, the dream, a review or a retro) and the learning layers' state and suggestions, logs, mail, settings, usage and cost history; the transcript files' location, identity and life cycle, and reading one as messages |
 | `evo-mcp` | MCP client and connection pool |
 | `evo-plugins` | Plugin bundles and marketplaces |
 | `evo-hooks` | Hook commands and web requests on agent events |

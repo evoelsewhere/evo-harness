@@ -68,6 +68,30 @@ Evo's own definitions; its copyright and permission notice are reproduced below.
 
 -------------------------------------------------------------------------------
 
+Learning layers: memory upkeep, the dream, the skill review and evals
+
+The design, limits and prompt structure of Evo's memory upkeep, dream, skill
+review and eval layers (crates/evo-engine/src/learning/, crates/evo-evals/,
+docs/features/learning-layers/) are adapted from OpenMausBot, licensed under
+the Apache License, Version 2.0. The code is Evo's own.
+
+OpenMausBot's skill review prompt, on which the lesson, do-not-capture and
+authoring blocks of crates/evo-engine/src/learning/review.rs are modelled,
+was itself adapted from Nous Research's background review, licensed under
+the MIT License:
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to permit
+    persons to whom the Software is furnished to do so, subject to the
+    following conditions: the above copyright notice and this permission
+    notice shall be included in all copies or substantial portions of the
+    Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+-------------------------------------------------------------------------------
+
 Third-party dependencies
 
 Runtime dependencies and their licenses are listed by `cargo metadata` and on

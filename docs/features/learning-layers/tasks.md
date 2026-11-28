@@ -80,7 +80,7 @@ without its switch.
 
 ### Phase 7 — Docs and wrap-up
 
-- [ ] T33 [A-4] NOTICE credits; `apps/desktop/README.md` UI map; `evals/README.md` — check: review
+- [x] T33 [A-4] NOTICE credits; `apps/desktop/README.md` UI map; `evals/README.md` — check: review
 - [ ] T34 Run every check in section 2 and record the results — check: table filled
 
 ## 2. Verification
