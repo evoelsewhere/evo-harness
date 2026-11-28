@@ -388,3 +388,94 @@ async fn tidy_without_a_model_archives_only() {
     assert_eq!(result["skipped"], "contradictions need a model");
     assert_eq!(result["archived"], 1);
 }
+
+fn dream_chats() -> Vec<crate::learning::dream::DreamChat> {
+    use crate::learning::dream::{select, RawChat, RawLine};
+    let now = crate::learning::run::now_ms();
+    let chat = |id: &str, text: &str, ago: i64| RawChat {
+        id: id.into(),
+        title: id.into(),
+        lines: vec![RawLine {
+            person: true,
+            text: text.into(),
+            at_ms: now - ago,
+        }],
+        by_day: false,
+        channel: None,
+    };
+    select(
+        vec![
+            chat("c1", "Shorter please, this is too long.", 3_000),
+            chat("c2", "Too long again, make it shorter.", 2_000),
+            chat("c3", "Send me the numbers on Monday.", 1_000),
+        ],
+        0,
+    )
+}
+
+// FR-13, FR-14: the dream's line is journaled by Dream; its idea waits for the person.
+#[tokio::test]
+async fn a_dream_learns_one_line_and_journals_it() {
+    let _w = world();
+    let args = crate::args::Args::default();
+    let answer = r#"{"learned":[{"text":"The person wants shorter answers","from":[2,3],"aboutUser":true,
+        "topic":"style","confidence":0.8,"evidence":["make it shorter","Shorter please"]}],
+        "ideas":[{"text":"A Monday numbers report","from":[1,2],"kind":"schedule"}]}"#;
+    let dream = step(
+        crate::learning::run::Task::Dream,
+        "mate:m1",
+        &args,
+        vec![answer],
+    );
+    let result = crate::learning::dream::dream_with(&dream, &dream_chats()).await;
+    assert!(result["error"].is_null(), "{result}");
+    assert_eq!(result["changed"].as_array().unwrap().len(), 1);
+    let conn = crate::app_db::open().unwrap();
+    let rows = crate::app_db::journal::list(&conn, &["mate:m1"], "memory", 5).unwrap();
+    assert_eq!(
+        (
+            rows[0].by.as_str(),
+            rows[0].name.as_str(),
+            rows[0].action.as_str()
+        ),
+        ("dream", "style", "added")
+    );
+    let ideas = crate::app_db::learning::pending(&conn, &["mate:m1"]).unwrap();
+    assert_eq!(ideas.len(), 1);
+    assert_eq!(ideas[0].from_chats, ["c3", "c2"]);
+}
+
+// NFR-5: a model that fails changes nothing.
+#[tokio::test]
+async fn a_failing_dream_changes_nothing() {
+    use evo_ai::providers::faux::{faux_assistant_message, FauxProvider, FauxScript, FauxStep};
+    let _w = world();
+    let args = crate::args::Args::default();
+    let mut dream = step(crate::learning::run::Task::Dream, "mate:m1", &args, vec![]);
+    let mut failed = faux_assistant_message("", evo_ai::types::StopReason::Error);
+    failed.error_message = Some("503: overloaded".into());
+    let script = FauxScript::new();
+    script.set_responses(vec![FauxStep::Message(failed)]);
+    let provider = FauxProvider::new(script);
+    let model = provider.default_model().clone();
+    dream.model = Some((provider, model));
+    let result = crate::learning::dream::dream_with(&dream, &dream_chats()).await;
+    assert_eq!(result["error"], "503: overloaded");
+    let dir = crate::config::agent_dir()
+        .unwrap()
+        .join("mates")
+        .join("m1")
+        .join("memory");
+    assert!(memory::list_dir(&dir).is_empty());
+    // An answer that is not JSON saves nothing either.
+    let mut garbled = step(
+        crate::learning::run::Task::Dream,
+        "mate:m1",
+        &args,
+        vec!["I think the person likes tea."],
+    );
+    garbled.today = "2026-11-28".into();
+    let result = crate::learning::dream::dream_with(&garbled, &dream_chats()).await;
+    assert_eq!(result["error"], "the answer was not valid");
+    assert!(memory::list_dir(&dir).is_empty());
+}

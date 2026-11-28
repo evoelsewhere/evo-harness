@@ -5,6 +5,8 @@
 //! text it reads is data. What it saves goes through [`redact`] and, for a
 //! fact about the person, the quote checks, then into the journal.
 
+pub mod channels;
+pub mod dream;
 pub mod entries;
 pub mod quotes;
 pub mod redact;
@@ -17,6 +19,7 @@ use serde_json::Value;
 pub async fn dispatch(step: &run::Step<'_>) -> Value {
     match step.task {
         run::Task::Tidy => tidy::run(step).await,
+        run::Task::Dream => dream::run(step).await,
         _ => run::skipped(step.task, &step.owner.id, "not built yet"),
     }
 }

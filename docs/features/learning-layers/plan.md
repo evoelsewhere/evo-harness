@@ -336,3 +336,22 @@ per-mate switches.
 - 2026-11-28 — **Panel conflict.** `save_memory` takes the `hash` the panel
   got with the topic; on a mismatch it writes nothing and answers the usual
   memory state plus `conflict: {current}`.
+- 2026-11-28 — **A mate's chats.** A mate has one conversation, so the dream
+  counts each local day of it with the person's lines as one chat (FR-10);
+  with Learn from channels, each day of a channel the mate is in counts the
+  same way. Channel lines come from the channel root's `channel` entries,
+  not from the seats: another mate's line is shown to the model marked as
+  not the person's words and is never quotable (FR-22). There is no
+  separate capture pass: channels are read by the nightly dream only.
+- 2026-11-28 — **Per-mate switches** live in the app setting
+  `learning.mate.<id>` = `{upkeep?, skills?}` (the mate row has no JSON
+  column); absent means the app's switch decides (FR-25).
+- 2026-11-28 — **Owners for the clock.** Harness owners are `personal` and
+  every `projects/<slug>` folder with a memory folder; they count as working
+  while any chat runs. The shell counts chats roughly and starts the dream;
+  the engine counts exactly and answers `skipped: "too few chats"`, after
+  which that owner is not tried again that day.
+- 2026-11-28 — **Process limit.** Each model call stops after three minutes
+  (NFR-5); the shell stops a learn process after ten, since a tidy-up makes
+  one call per topic.
+
