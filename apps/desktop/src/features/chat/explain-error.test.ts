@@ -15,6 +15,12 @@ describe("explaining a failed turn", () => {
   test("without a provider name it still reads as a sentence", () => {
     expect(explainError("http error 403: forbidden").title).toBe("The provider rejected the API key.");
   });
+  // evo-mates US-3 #3 (qa-2026-11-28, F2): with no provider, the line offers Providers.
+  test("no provider connected asks for Providers", () => {
+    const e = explainError("No model provider is connected. Open Settings → Providers to add an API key, then send your message again.");
+    expect(e.kind).toBe("setup");
+    expect(e.title).toBe("Connect a model provider first, then send your message again.");
+  });
   test("rate limits, overload, network and context", () => {
     expect(explainError("http error 429: rate_limit_error").kind).toBe("rate");
     expect(explainError('http error 529: {"type":"overloaded_error"}').kind).toBe("unavailable");

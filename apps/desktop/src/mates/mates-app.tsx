@@ -19,6 +19,7 @@ import { Gallery } from "@/features/mates/gallery";
 import { MateBar, MateGreeting, MatePanel, useShownMate } from "@/features/mates/mate-panel";
 import { MatesEmpty, MatesSidebar } from "@/features/mates/mates-shell";
 import { startShellNotices } from "@/features/notifications/notify";
+import { SettingsDialog } from "@/features/settings/settings-view";
 import { QuitDialog } from "@/features/shell/quit-dialog";
 import { WindowControls } from "@/features/shell/window-controls";
 import { installErrorLogging, log } from "@/lib/db";
@@ -185,6 +186,8 @@ export function MatesApp() {
       </div>
       {/* "N chats are working. Quit anyway?" when the shell asks in this window. */}
       <QuitDialog />
+      {/* Settings, the same as Evo Harness's (FR-29: the sidebar's footer opens it). */}
+      <SettingsDialog />
     </div>
   );
 }
