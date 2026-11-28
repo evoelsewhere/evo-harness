@@ -48,6 +48,9 @@ pub enum Event {
     CouldNotStart,
     /// The engine crashed more than the restart limit allows (FR-4).
     KeepsStopping,
+    /// A channel job's retro after a limit, a stop or a failure
+    /// (docs/features/learning-layers/spec.md, FR-19).
+    Retro,
 }
 
 impl Event {
@@ -62,6 +65,7 @@ impl Event {
             Event::EngineStopped => ("The engine stopped", "error", "engine"),
             Event::CouldNotStart => ("The engine could not start", "error", "engine"),
             Event::KeepsStopping => ("The engine keeps stopping", "error", "engine"),
+            Event::Retro => ("A retro of your channel's job", "warning", "agent"),
         }
     }
 
@@ -74,6 +78,7 @@ impl Event {
             Event::EngineStopped => "engine-stopped",
             Event::CouldNotStart => "could-not-start",
             Event::KeepsStopping => "keeps-stopping",
+            Event::Retro => "retro",
         }
     }
 }

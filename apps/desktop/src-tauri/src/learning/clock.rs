@@ -64,6 +64,8 @@ pub fn start(app: &AppHandle) {
 
 /// One look: every owner whose nightly step is due gets it.
 async fn look(app: &AppHandle) {
+    // Channel jobs whose channel has been quiet long enough get their retro.
+    super::retro::run_due(app).await;
     let db = app.state::<Db>();
     let all = db.with(|conn| evo_store::settings::all(conn)).unwrap_or_default();
     let settings = super::settings_from(&all);

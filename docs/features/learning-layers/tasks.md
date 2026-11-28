@@ -61,7 +61,7 @@ mate's learned skills, and Run retro works.
 
 - [x] T22 [FR-19] The coordinator writes a `job` entry at every end, with status and hand-off count — `crates/evo-engine/src/channel/coordinator.rs` — check: engine test `every_job_end_writes_a_job_entry`
 - [x] T23 [FR-20] Failing tests then `learning/retro.rs`: job lines with authors and kinds, prompt, parse, at most 2 lessons per mate, lessons applied through the review rules, team hand-off lessons to the lead — `crates/evo-engine/src/learning/retro.rs` — check: `cargo test -p evo-engine retro`
-- [ ] T24 [FR-19, FR-21] Retro due after 2 minutes of quiet, `channel_post_retro` RPC posts the card, notification only after a limit, stop or failure, **Run retro** — `learning/jobs.rs`, `crates/evo-engine/src/modes.rs`, `channel/coordinator.rs` — check: shell test `a_retro_waits_for_two_quiet_minutes`
+- [x] T24 [FR-19, FR-21] Retro due after 2 minutes of quiet, `channel_post_retro` RPC posts the card, notification only after a limit, stop or failure, **Run retro** — `learning/jobs.rs`, `crates/evo-engine/src/modes.rs`, `channel/coordinator.rs` — check: shell test `a_retro_waits_for_two_quiet_minutes`
 - [ ] T25 [FR-21] Retro card in the channel with lessons and Undo; wakes nobody — `lib/mates.ts`, `features/mates/channel-rows.ts`, `channel-view.tsx` — check: manual
 
 ### Phase 6 — Evals

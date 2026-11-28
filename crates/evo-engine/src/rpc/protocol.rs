@@ -314,6 +314,10 @@ pub enum Command {
     UndoMemoryChange {
         change: i64,
     },
+    /// Post a retro's card in this channel (learning-layers FR-21).
+    ChannelPostRetro {
+        card: serde_json::Value,
+    },
     /// Re-read skills, templates and extensions in place.
     ReloadResources,
     /// The plugin host API's URL and a key per plugin id, for plugins' hook
@@ -479,6 +483,7 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "reset_memory",
     "list_memory_changes",
     "undo_memory_change",
+    "channel_post_retro",
     "save_instructions",
     "reload_resources",
     "set_plugin_host",

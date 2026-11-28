@@ -13,6 +13,7 @@ pub mod clock;
 pub mod commands;
 pub mod jobs;
 pub mod owners;
+pub mod retro;
 pub mod review;
 pub mod skills;
 

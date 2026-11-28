@@ -1572,6 +1572,19 @@ where
                 }
             }
             // **Reset memory** (FR-9): every topic in every scope goes.
+            // A retro's card (learning-layers FR-21): a channel line, not a
+            // message, so no mate is woken by it.
+            "channel_post_retro" => match crate::channel::coordinator::active() {
+                Some(channel) => {
+                    channel
+                        .post_retro(
+                            harness,
+                            msg.get("card").cloned().unwrap_or(serde_json::Value::Null),
+                        )
+                        .await
+                }
+                None => Err("this chat is not a channel".to_string()),
+            },
             "reset_memory" => {
                 let cwd = rpc_cwd(&rpc_providers);
                 match crate::memory::reset() {

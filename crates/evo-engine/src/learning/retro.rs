@@ -235,6 +235,18 @@ pub fn check(answer: &Value, job: &Job, lead: Option<&str>) -> Retro {
     }
 }
 
+/// A mate learns skills: the Mates switch and its own are not off (FR-23, FR-25).
+fn mate_learns(mate: &str) -> bool {
+    let Ok(conn) = crate::app_db::open() else {
+        return true;
+    };
+    let get = |key: &str| crate::app_db::settings::get(&conn, key).ok().flatten();
+    get("learning.mates.skills").and_then(|value| value.as_bool()) != Some(false)
+        && get(&format!("learning.mate.{mate}"))
+            .and_then(|value| value.get("skills").and_then(Value::as_bool))
+            != Some(false)
+}
+
 /// The channel's lead, from `evo.db`.
 fn lead_of(channel_chat: &str) -> Option<String> {
     let conn = crate::app_db::open().ok()?;
@@ -302,6 +314,17 @@ pub async fn retro_with(step: &Step<'_>, chat: &str, job: &Job, lead: Option<&st
         };
         // The mate's own switch for learning skills (FR-25) is the shell's;
         // here the lessons go through the review's rules (FR-20).
+        if !mate_learns(mate) {
+            let name = job
+                .members
+                .iter()
+                .find(|m| &m.id == mate)
+                .map_or(mate.clone(), |m| m.name.clone());
+            for lesson in lessons {
+                card_lessons.push(json!({ "mate": mate, "name": name, "text": lesson, "skill": null, "row": null }));
+            }
+            continue;
+        }
         let mate_step = Step {
             task: Task::Retro,
             owner: mate_owner,

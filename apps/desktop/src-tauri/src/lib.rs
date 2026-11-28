@@ -104,6 +104,7 @@ pub fn run() {
         .manage(agent_tools::AgentTools::default())
         .manage(memory_index::IndexWorker::default())
         .manage(learning::jobs::Learning::default())
+        .manage(learning::retro::Retros::default())
         .manage(browser::BrowserState::default())
         .manage(frames::FrameSinks::default())
         .manage(webbridge::Webbridge::default())
@@ -324,6 +325,7 @@ pub fn run() {
             learning::skills::learned_skill_undo,
             learning::skills::learned_skill_delete,
             learning::skills::learned_for_chat,
+            learning::retro::channel_run_retro,
             db::logs_append,
             db::logs_query,
             db::logs_clear,

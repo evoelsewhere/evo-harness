@@ -501,6 +501,19 @@ impl Coordinator {
         result
     }
 
+    /// Post a retro's card: what went well, what went wrong and each mate's
+    /// lessons. It is a channel line, not a message: no mate reads it in its
+    /// recent lines and none is woken (learning-layers FR-21).
+    pub(crate) async fn post_retro(
+        &self,
+        harness: &evo_harness::agent_harness::AgentHarness,
+        card: Value,
+    ) -> Result<Value, String> {
+        let entry = retro_entry(card, now_ms())?;
+        self.post(harness, entry.clone()).await;
+        Ok(entry)
+    }
+
     /// The `job` entry that closes the work one message of the person started.
     async fn post_job(
         &self,
@@ -1051,6 +1064,19 @@ pub fn handoff_kind(op: &str, text: &str) -> &'static str {
     }
 }
 
+/// A retro card as a channel entry: kind `retro`, the card's own fields.
+pub(crate) fn retro_entry(card: Value, at: i64) -> Result<Value, String> {
+    let Value::Object(mut fields) = card else {
+        return Err("a retro card is an object".into());
+    };
+    fields.insert("kind".into(), json!("retro"));
+    fields.insert("at".into(), json!(at));
+    fields
+        .entry("id")
+        .or_insert_with(|| json!(format!("retro-{at:x}")));
+    Ok(Value::Object(fields))
+}
+
 /// How a job (the work one message of the person starts) is going.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct JobTrack {
@@ -1302,6 +1328,20 @@ mod tests {
             "assigns"
         );
         assert_eq!(handoff_kind("message", "fyi the numbers are in"), "tells");
+    }
+
+    // learning-layers FR-21: a retro is a line of kind `retro`, never a message.
+    #[test]
+    fn a_retro_card_is_a_line_not_a_message() {
+        let entry = retro_entry(
+            json!({ "job": "j-1", "well": ["ok"], "kind": "message" }),
+            5,
+        )
+        .unwrap();
+        assert_eq!(entry["kind"], "retro");
+        assert_eq!(entry["job"], "j-1");
+        assert!(entry["id"].as_str().unwrap().starts_with("retro-"));
+        assert!(retro_entry(json!("text"), 5).is_err());
     }
 
     // learning-layers FR-19: every way a job ends gives its `job` entry.

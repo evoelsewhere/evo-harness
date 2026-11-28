@@ -120,6 +120,8 @@ pub enum Reason {
     Schedule,
     /// Started: a plugin view reads the chat (docs/features/plugin-ui/spec.md, FR-10).
     Plugin,
+    /// Started: a channel's retro card is posted (docs/features/learning-layers/spec.md, FR-21).
+    Learning,
 }
 
 impl Reason {
@@ -133,6 +135,7 @@ impl Reason {
             Reason::Settings => "settings",
             Reason::Schedule => "schedule",
             Reason::Plugin => "plugin",
+            Reason::Learning => "learning",
         }
     }
 }
@@ -1451,6 +1454,12 @@ pub async fn on_line(app: &AppHandle, chat: &str, generation: u64, line: &Value)
         crate::mates::initiative::settled(app, chat, line);
         // Real work may teach a learned skill (learning-layers FR-16).
         crate::learning::review::settled(app, chat, line);
+    }
+    // A channel's job ends, or its channel is not quiet (learning-layers FR-19).
+    if line.get("type").and_then(Value::as_str) == Some("channel_event") {
+        if let Some(entry) = line.get("entry") {
+            crate::learning::retro::on_channel_event(app, chat, entry);
+        }
     }
     let kind = line.get("type").and_then(Value::as_str);
     // What works and waits may have changed: the tray and the sidebar follow (FR-12, NFR-5).
