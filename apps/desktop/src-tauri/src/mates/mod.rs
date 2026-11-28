@@ -226,6 +226,22 @@ fn create(app: &AppHandle, request: &CreateMate) -> Result<Mate, String> {
     Ok(mate)
 }
 
+/// Mates' conversations and channels whose words match `query` (FR-76).
+/// Transcripts written since the last search are read first, off the
+/// window's thread.
+#[tauri::command]
+pub async fn mates_search(app: AppHandle, query: String) -> Result<Vec<mates::MessageHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<Db>();
+        db.with(|conn| {
+            evo_store::chats::refresh_search(conn, &db.transcripts)?;
+            mates::search_messages(conn, &query, 20)
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn mates_list(app: AppHandle) -> Result<Vec<Mate>, String> {
     app.state::<Db>().with(|conn| mates::list_mates(conn))

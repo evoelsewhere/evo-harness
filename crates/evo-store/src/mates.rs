@@ -538,6 +538,91 @@ pub fn take_untold_reactions(conn: &mut Connection, chat: &str) -> Result<Vec<Re
     Ok(untold)
 }
 
+// ── Searching mates' words (docs/features/evo-mates/spec.md, FR-76) ─────────
+
+/// A mate's conversation or a channel whose words match a search.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageHit {
+    pub chat_id: String,
+    /// `mate` or `channel`.
+    pub kind: String,
+    /// The matching line, cut around the match.
+    pub snippet: String,
+    pub updated_at: i64,
+}
+
+/// Characters kept on each side of a match in a snippet.
+const SNIPPET_SIDE: usize = 60;
+
+/// The line of `body` that holds `needle` (lower case), cut around it; a
+/// line that is an envelope (`<…`) only when no other line matches.
+fn snippet(body: &str, needle: &str) -> String {
+    let matching = |line: &&str| line.to_lowercase().contains(needle);
+    let line = body
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('<'))
+        .find(matching)
+        .or_else(|| body.lines().find(matching))
+        .unwrap_or("")
+        .trim();
+    let chars: Vec<char> = line.chars().collect();
+    let lower: Vec<char> = line.to_lowercase().chars().collect();
+    let needle: Vec<char> = needle.chars().collect();
+    let at = if lower.len() == chars.len() {
+        (0..=chars.len().saturating_sub(needle.len()))
+            .find(|&i| lower[i..].starts_with(&needle))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let start = at.saturating_sub(SNIPPET_SIDE);
+    let end = (at + needle.len() + SNIPPET_SIDE).min(chars.len());
+    let mut out: String = chars[start..end].iter().collect();
+    if start > 0 {
+        out.insert(0, '…');
+    }
+    if end < chars.len() {
+        out.push('…');
+    }
+    out
+}
+
+/// Mates' conversations and channels whose search text holds `query` (at
+/// least two characters), most recent first. Reads the text as it is: call
+/// [`crate::chats::refresh_search`] first. Seats (a channel's inner
+/// sessions) and Evo Harness's chats are never returned.
+pub fn search_messages(
+    conn: &Connection,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<MessageHit>, DbError> {
+    let query = query.trim();
+    if query.chars().count() < 2 {
+        return Ok(Vec::new());
+    }
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let mut statement = conn.prepare(
+        "SELECT c.id, c.kind, s.body, c.updated_at FROM chats c JOIN chat_search s ON s.chat_id = c.id
+         WHERE c.kind IN ('mate', 'channel') AND s.body LIKE ?1 ESCAPE '\\'
+         ORDER BY c.updated_at DESC LIMIT ?2",
+    )?;
+    let needle = query.to_lowercase();
+    let rows = statement.query_map(params![format!("%{escaped}%"), limit], |row| {
+        let body: String = row.get(2)?;
+        Ok(MessageHit {
+            chat_id: row.get(0)?,
+            kind: row.get(1)?,
+            snippet: snippet(&body, &needle),
+            updated_at: row.get(3)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -600,6 +685,93 @@ mod tests {
             .map(|c| c.id)
             .collect();
         assert_eq!(found, vec!["c1".to_string()]);
+    }
+
+    #[test]
+    fn search_messages_finds_mates_and_channels_only_with_a_snippet() {
+        let (_dir, mut conn) = db();
+        create_mate(&mut conn, &writer("m1"), "ask").unwrap();
+        crate::chats::create_chat(
+            &conn,
+            &NewChat {
+                id: "c1".into(),
+                title: "Harness".into(),
+                ..NewChat::default()
+            },
+        )
+        .unwrap();
+        for (id, kind) in [("ch-1", "channel"), ("seat-1", "seat")] {
+            conn.execute(
+                "INSERT INTO chats (id, title, kind, created_at, updated_at) VALUES (?1, 'x', ?2, 1, 2)",
+                params![id, kind],
+            )
+            .unwrap();
+        }
+        let long = format!(
+            "{} the Quarterly budget is due {}",
+            "a".repeat(200),
+            "b".repeat(200)
+        );
+        for (chat, body) in [
+            (
+                "chat-m1",
+                format!(
+                    "<evo-mates-heartbeat>quarterly budget</evo-mates-heartbeat>
+{long}
+"
+                ),
+            ),
+            (
+                "ch-1",
+                "Writer: the quarterly budget draft
+"
+                .to_string(),
+            ),
+            (
+                "seat-1",
+                "quarterly budget in a seat
+"
+                .to_string(),
+            ),
+            (
+                "c1",
+                "quarterly budget in Harness
+"
+                .to_string(),
+            ),
+        ] {
+            conn.execute(
+                "INSERT INTO chat_search (chat_id, stamp, body) VALUES (?1, 's', ?2)",
+                params![chat, body],
+            )
+            .unwrap();
+        }
+        let hits = search_messages(&conn, "quarterly BUDGET", 20).unwrap();
+        let mut found: Vec<(&str, &str)> = hits
+            .iter()
+            .map(|h| (h.chat_id.as_str(), h.kind.as_str()))
+            .collect();
+        found.sort();
+        assert_eq!(found, [("ch-1", "channel"), ("chat-m1", "mate")]);
+        let mate = hits.iter().find(|h| h.chat_id == "chat-m1").unwrap();
+        assert!(
+            mate.snippet.contains("Quarterly budget"),
+            "{}",
+            mate.snippet
+        );
+        assert!(
+            !mate.snippet.contains("heartbeat"),
+            "an envelope line is skipped"
+        );
+        assert!(
+            mate.snippet.chars().count() <= 2 * SNIPPET_SIDE + "quarterly budget".len() + 2,
+            "{}",
+            mate.snippet
+        );
+        assert!(
+            search_messages(&conn, "q", 20).unwrap().is_empty(),
+            "two characters at least"
+        );
     }
 
     #[test]

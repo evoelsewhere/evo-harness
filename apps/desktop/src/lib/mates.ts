@@ -126,9 +126,19 @@ export const matesApi = {
   /** Change a check-in's schedule (`{kind: "daily" | "weekdays" | "weekly", time, days?}`). */
   rescheduleAgenda: (id: string, item: string, repeat: CheckinSchedule) =>
     invoke<AgendaItem>("mates_agenda_reschedule", { id, item, repeat }),
+  /** Mates' conversations and channels whose words match (FR-76). */
+  search: (query: string) => invoke<MessageHit[]>("mates_search", { query }),
   /** Coming up and each mate's day so far, for Today (FR-73). */
   today: () => invoke<{ coming: AgendaItem[]; team: { mateId: string; replies: number; costUsd: number }[] }>("mates_today"),
 };
+
+/** A conversation whose words match a search (FR-76). */
+export interface MessageHit {
+  chatId: string;
+  kind: "mate" | "channel";
+  snippet: string;
+  updatedAt: number;
+}
 
 export type Initiative = "off" | "low" | "medium";
 

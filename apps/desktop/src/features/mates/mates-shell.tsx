@@ -17,6 +17,7 @@ import { useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
 import { ChannelSettings } from "./channel-settings";
 import { ImportTeam } from "./team-import";
+import { MessageHits } from "./message-hits";
 import { Roster } from "./roster";
 
 function IconButton({ label, onClick, children }: { label: string; onClick(): void; children: React.ReactNode }) {
@@ -184,7 +185,7 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
             onKeyDown={(event) => {
               if (event.key === "Escape") setQuery("");
             }}
-            placeholder="Search mates…"
+            placeholder="Search mates and messages…"
             className="no-drag min-w-0 flex-1 bg-transparent text-sidebar-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
@@ -195,6 +196,7 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">
         {!query && <TodayRow />}
         <Roster query={query} />
+        <MessageHits query={query} />
         <Channels />
       </div>
       <footer className="flex items-center gap-1 p-2">
