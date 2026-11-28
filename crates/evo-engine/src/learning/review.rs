@@ -245,7 +245,9 @@ pub fn journal(
 }
 
 /// The tail of a saved chat for the review: its last messages, the newest
-/// within the limits, and the reply that ends it.
+/// within the limits, and where the "Learned" line goes: the entry of the
+/// person's message that started the turn the last reply ends (the windows
+/// know turns by that entry; plan 5).
 pub fn tail(state: &Value) -> (String, Option<String>) {
     use crate::app_db::transcripts::{messages, MessageKind, MessageLimits};
     let all = messages(
@@ -258,7 +260,7 @@ pub fn tail(state: &Value) -> (String, Option<String>) {
     let reply = all
         .iter()
         .rev()
-        .find(|m| m.kind == MessageKind::Assistant)
+        .find(|m| m.kind == MessageKind::User && !super::dream::not_the_person(&m.text))
         .map(|m| m.entry_id.clone());
     let mut picked = Vec::new();
     let mut used = 0;
@@ -507,7 +509,7 @@ mod tests {
         let (text, reply) = tail(&state);
         assert!(text.starts_with("Person: Write the weekly report."));
         assert!(text.contains("Person: Put the summary first"));
-        assert_eq!(reply.as_deref(), Some("e4"));
+        assert_eq!(reply.as_deref(), Some("e3"), "the turn the last reply ends");
         let shown = prompt(
             &text,
             &[learned("weekly-reports", STEPS)],

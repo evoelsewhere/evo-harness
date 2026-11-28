@@ -24,6 +24,8 @@ export type Row =
   | { kind: "typing"; key: string; step: string | null }
   | { kind: "steps"; key: string; text: string }
   | { kind: "memory"; key: string }
+  /** Where a "Learned · <skill>" line may show (learning-layers FR-18). */
+  | { kind: "learned"; key: string; turn: Turn }
   | { kind: "error"; key: string; turn: Turn }
   | { kind: "delivered"; key: string };
 
@@ -154,6 +156,7 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
       const steps = stepsLine(turn);
       if (steps) rows.push({ kind: "steps", key: `steps:${base}`, text: steps });
       if (savedMemory(turn)) rows.push({ kind: "memory", key: `memory:${base}` });
+      if (turn.entryId) rows.push({ kind: "learned", key: `learned:${base}`, turn });
     }
     if (turn.error && turn.status === "error") rows.push({ kind: "error", key: `error:${base}`, turn });
     // The harness tries a failed attempt again on its own: say so, as typing.

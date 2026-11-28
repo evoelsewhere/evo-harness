@@ -354,4 +354,13 @@ per-mate switches.
 - 2026-11-28 — **Process limit.** Each model call stops after three minutes
   (NFR-5); the shell stops a learn process after ten, since a tidy-up makes
   one call per topic.
+- 2026-11-28 — **Where the Learned line goes.** A skill row's `reply_id`
+  is the transcript entry of the person's message that started the turn
+  the reviewed reply ends: both apps know a turn by that entry, not by its
+  reply's. Seats are not reviewed; channel work learns through the retro.
+- 2026-11-28 — **Learned skills come last** in the skill search order (after
+  the bundled skills, not right after `<agent dir>/skills`), so no
+  installed or bundled skill of the same name is ever shadowed (plan 3.7).
+  A mate's learned skills are always allowed to it, whatever its skill
+  list; a learned skill's own switch is an `.off` file in its folder.
 

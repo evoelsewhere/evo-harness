@@ -6,6 +6,7 @@
 // the engine store like any chat's; replies render with Harness's Markdown.
 
 import * as React from "react";
+import { LearnedLine } from "@/components/learned-line";
 import { CopyIcon, InfoIcon, ReplyIcon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -287,6 +288,8 @@ export function MateThread({
                   {row.text}
                 </div>
               );
+            case "learned":
+              return <LearnedLine key={row.key} chat={mate.chatId} turnEntry={row.turn.entryId} className="mt-1 px-4" />;
             case "memory":
               return (
                 <div key={row.key} className="mt-1 px-4">

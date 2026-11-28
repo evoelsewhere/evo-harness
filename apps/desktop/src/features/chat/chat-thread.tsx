@@ -14,12 +14,15 @@ import { useSessionStore } from "@/stores/session-store";
 import { ChatSkeleton } from "./chat-skeleton";
 import { AssistantMessage, UserMessage } from "./chat-turn";
 import type { Turn } from "./transcript";
+import { LearnedLine } from "@/components/learned-line";
+import { usePaneChat } from "@/stores/engine-store";
 
 /**
  * One turn of the thread. A delta replaces only the running turn's object, so
  * every earlier turn skips rendering while a reply streams.
  */
 const ThreadTurn = React.memo(function ThreadTurn({ turn }: { turn: Turn }) {
+  const chat = usePaneChat();
   return (
     <div className="flex flex-col gap-6">
       <MessageScrollerItem messageId={`${turn.id}-prompt`} scrollAnchor>
@@ -27,6 +30,8 @@ const ThreadTurn = React.memo(function ThreadTurn({ turn }: { turn: Turn }) {
       </MessageScrollerItem>
       <MessageScrollerItem messageId={`${turn.id}-reply`}>
         <AssistantMessage turn={turn} />
+        {/* A learned skill changed after this reply (learning-layers FR-18). */}
+        {chat && turn.status !== "running" && <LearnedLine chat={chat} turnEntry={turn.entryId} className="mt-2" />}
       </MessageScrollerItem>
     </div>
   );
