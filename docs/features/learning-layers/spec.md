@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | engine, `evo-store`, desktop shell, desktop UI, both apps |
 | Created | 2026-11-28 |
 | Updated | 2026-11-28 |

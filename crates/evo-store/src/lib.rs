@@ -55,10 +55,11 @@ pub mod channels;
 pub mod chat_index;
 pub mod chats;
 pub mod computer;
+pub mod journal;
+pub mod learning;
 pub mod logs;
 pub mod mail;
 pub mod mates;
-pub mod memory_log;
 pub mod plugin_ai;
 pub mod settings;
 pub mod transcripts;
@@ -154,6 +155,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 17,
         name: "mate_agenda",
         sql: include_str!("migrations/0017_mate_agenda.sql"),
+    },
+    Migration {
+        version: 18,
+        name: "learning",
+        sql: include_str!("migrations/0018_learning.sql"),
     },
 ];
 
@@ -818,9 +824,9 @@ mod tests {
                 [],
             )
             .unwrap();
-        drop(connection);
-        let connection = open_at(&path).unwrap();
-        assert_eq!(version(&connection), MIGRATIONS.len() as i64);
+        // Up to 11 only: 0018 replaced `memory_changes` with the journal.
+        migrate(&mut connection, &path, &MIGRATIONS[..11]).unwrap();
+        assert_eq!(version(&connection), 11);
         let flags: (i64, i64, i64) = connection
             .query_row(
                 "SELECT memory_off, incognito, scheduled FROM chats WHERE id = 'c'",
@@ -856,5 +862,96 @@ mod tests {
             (0, 1),
             "a summary goes with its chat; the change list stays"
         );
+    }
+
+    // docs/features/learning-layers/spec.md (FR-1, FR-2, NFR-4, NFR-6).
+    #[test]
+    fn upgrade_to_18_moves_memory_changes_into_the_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("evo.db");
+        let mut connection = Connection::open(&path).unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        migrate(&mut connection, &path, &MIGRATIONS[..17]).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO memory_changes (at_ms, scope, project, name, action, chat_id, before_text, after_text, undone_at)
+                 VALUES (1, 'personal', NULL, 'role', 'added', 'c', NULL, 'a', NULL);
+                 INSERT INTO memory_changes (at_ms, scope, project, name, action, chat_id, before_text, after_text, undone_at)
+                 VALUES (2, 'project', 'C--app', 'freeze', 'updated', 'c', 'a', 'b', 7);
+                 INSERT INTO usage_events (at_ms, chat_id, source, provider_id, model_id, cost_usd)
+                 VALUES (5, 'c', 'memory', 'p', 'm', 0.5);",
+            )
+            .unwrap();
+        drop(connection);
+        let connection = open_at(&path).unwrap();
+        assert_eq!(version(&connection), MIGRATIONS.len() as i64);
+        let rows = crate::journal::list(&connection, &["personal", "project:C--app"], "memory", 10)
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| (
+                    r.owner.as_str(),
+                    r.name.as_str(),
+                    r.action.as_str(),
+                    r.by.as_str(),
+                    r.undone_at
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("project:C--app", "freeze", "updated", "index", Some(7)),
+                ("personal", "role", "added", "index", None)
+            ]
+        );
+        assert_eq!(
+            (
+                rows[0].before.as_deref(),
+                rows[0].after.as_deref(),
+                rows[0].undoable
+            ),
+            (Some("a"), Some("b"), true)
+        );
+        let gone: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'memory_changes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(gone, 0, "the old change list is gone");
+        // Usage keeps its rows and takes the four new sources.
+        for source in ["upkeep", "dream", "review", "retro"] {
+            connection
+                .execute(
+                    "INSERT INTO usage_events (at_ms, source, provider_id, model_id) VALUES (6, ?1, 'p', 'm')",
+                    [source],
+                )
+                .unwrap();
+        }
+        assert!(connection
+            .execute(
+                "INSERT INTO usage_events (at_ms, source, provider_id, model_id) VALUES (6, 'other', 'p', 'm')",
+                [],
+            )
+            .is_err());
+        let cost: f64 = connection
+            .query_row(
+                "SELECT cost_usd FROM usage_events WHERE source = 'memory'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cost, 0.5);
+        for table in ["learning_state", "learning_suggestions"] {
+            let found: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "{table}");
+        }
     }
 }

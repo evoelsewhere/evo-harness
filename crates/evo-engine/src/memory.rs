@@ -689,18 +689,18 @@ pub fn reset_in(agent_dir: &Path) -> Result<usize, String> {
     Ok(deleted)
 }
 
-/// **Reset memory**: forget every topic in every scope and the list of
-/// indexing changes (spec FR-9). Returns how many topics went.
+/// **Reset memory**: forget every topic in every scope and the memory rows
+/// of the journal (spec FR-9). Returns how many topics went.
 pub fn reset() -> Result<usize, String> {
     let agent = crate::config::agent_dir().map_err(|e| e.to_string())?;
     let deleted = reset_in(&agent)?;
     let conn = crate::app_db::open().map_err(|e| e.to_string())?;
-    crate::app_db::memory_log::clear(&conn).map_err(|e| e.to_string())?;
+    crate::app_db::journal::clear(&conn, "memory").map_err(|e| e.to_string())?;
     Ok(deleted)
 }
 
 /// The body of a topic file: its text without the frontmatter.
-fn body_of(file: &str) -> String {
+pub(crate) fn body_of(file: &str) -> String {
     parse_frontmatter(file.trim_start_matches('\u{feff}'))
         .map(|(_, body)| body)
         .unwrap_or_else(|_| file.to_string())
@@ -708,9 +708,34 @@ fn body_of(file: &str) -> String {
         .to_string()
 }
 
+/// Whose memory a scope folder is, as the journal names it: `personal`,
+/// `project:<slug>`, or `mate:<id>` for a mate's own memory
+/// (docs/features/learning-layers/plan.md, 3.1).
+pub fn owner(scope: Scope, cwd: &Path) -> String {
+    match scope {
+        Scope::Personal => "personal".into(),
+        Scope::Project => match own_mate_id() {
+            Some(id) => format!("mate:{id}"),
+            None => format!("project:{}", slug(cwd)),
+        },
+    }
+}
+
+/// The mate whose own memory this engine's `project` scope is.
+fn own_mate_id() -> Option<String> {
+    crate::session_roles::current()
+        .filter(|role| {
+            role.memory_dir
+                .as_deref()
+                .is_some_and(|dir| !dir.trim().is_empty())
+        })
+        .and_then(|role| role.mate.as_ref())
+        .map(|mate| mate.id.clone())
+}
+
 /// One recorded change as the Memory panel shows it: the lines it took out
 /// and put in, not the whole files.
-fn change_entry(change: &crate::app_db::memory_log::Change) -> Value {
+fn change_entry(change: &crate::app_db::journal::Entry) -> Value {
     let diff = line_diff(
         &change.before.as_deref().map(body_of).unwrap_or_default(),
         &change.after.as_deref().map(body_of).unwrap_or_default(),
@@ -718,22 +743,26 @@ fn change_entry(change: &crate::app_db::memory_log::Change) -> Value {
     json!({
         "id": change.id,
         "at": change.at_ms,
-        "scope": change.scope,
+        "owner": change.owner,
+        "scope": if change.owner == "personal" { "personal" } else { "project" },
         "name": change.name,
         "action": change.action,
+        "by": change.by,
         "chatId": change.chat_id,
         "chatTitle": change.chat_title,
         "removed": diff.removed,
         "added": diff.added,
+        "undoable": change.undoable,
         "undone": change.undone_at.is_some(),
     })
 }
 
-/// The changes indexing made to personal topics and to the topics of the
-/// project in `cwd`, newest first (spec FR-29).
+/// The changes to personal topics and to the topics of the project in `cwd`
+/// (a mate's own topics, for a mate), newest first (learning-layers FR-1).
 pub fn changes(cwd: &Path, limit: u32) -> Result<Value, String> {
     let conn = crate::app_db::open().map_err(|e| e.to_string())?;
-    let list = crate::app_db::memory_log::list(&conn, Some(&slug(cwd)), limit)
+    let project = owner(Scope::Project, cwd);
+    let list = crate::app_db::journal::list(&conn, &["personal", &project], "memory", limit)
         .map_err(|e| e.to_string())?;
     Ok(json!({ "changes": list.iter().map(change_entry).collect::<Vec<_>>() }))
 }
@@ -748,27 +777,43 @@ pub fn record_change(
     before: Option<String>,
     after: Option<String>,
 ) -> Result<(), String> {
+    journal_row(&owner(scope, cwd), name, "index", chat_id, before, after).map(|_| ())
+}
+
+/// Record a change to topic `name` of `owner` by `by`, with the topic file
+/// before and after. `None` when nothing changed.
+pub fn journal_row(
+    owner: &str,
+    name: &str,
+    by: &str,
+    chat_id: Option<&str>,
+    before: Option<String>,
+    after: Option<String>,
+) -> Result<Option<i64>, String> {
     let action = match (&before, &after) {
-        (None, None) => return Ok(()),
+        (a, b) if a == b => return Ok(None),
         (None, Some(_)) => "added",
         (Some(_), None) => "deleted",
-        (Some(_), Some(_)) => "updated",
+        _ => "updated",
     };
     let mut conn = crate::app_db::open().map_err(|e| e.to_string())?;
-    crate::app_db::memory_log::record(
+    crate::app_db::journal::record(
         &mut conn,
-        &crate::app_db::memory_log::NewChange {
+        &crate::app_db::journal::NewRow {
             at_ms: now_ms() as i64,
-            scope: scope.label().into(),
-            project: (scope == Scope::Project).then(|| slug(cwd)),
+            owner: owner.to_string(),
+            subject: "memory".into(),
             name: name.to_string(),
             action: action.into(),
+            by: by.into(),
             chat_id: chat_id.map(str::to_string),
             before,
             after,
+            undoable: true,
+            ..Default::default()
         },
     )
-    .map(|_| ())
+    .map(Some)
     .map_err(|e| e.to_string())
 }
 
@@ -802,14 +847,18 @@ pub fn undo_in(
 /// Undo change `id` from the Memory panel of a chat in `cwd`.
 pub fn undo_change(cwd: &Path, id: i64) -> Result<(), String> {
     let conn = crate::app_db::open().map_err(|e| e.to_string())?;
-    let change = crate::app_db::memory_log::get(&conn, id)
+    let change = crate::app_db::journal::get(&conn, id)
         .map_err(|e| e.to_string())?
         .ok_or("no such change")?;
     if change.undone_at.is_some() {
         return Err("that change was undone before".into());
     }
-    let scope = Scope::parse(&change.scope)?;
-    if scope == Scope::Project && change.project.as_deref() != Some(slug(cwd).as_str()) {
+    let scope = if change.owner == "personal" {
+        Scope::Personal
+    } else {
+        Scope::Project
+    };
+    if change.subject != "memory" || change.owner != owner(scope, cwd) {
         return Err("that change belongs to another project".into());
     }
     undo_in(
@@ -818,7 +867,7 @@ pub fn undo_change(cwd: &Path, id: i64) -> Result<(), String> {
         change.before.as_deref(),
         change.after.as_deref(),
     )?;
-    crate::app_db::memory_log::mark_undone(&conn, id, now_ms() as i64)
+    crate::app_db::journal::mark_undone(&conn, id, now_ms() as i64)
         .map(|_| ())
         .map_err(|e| e.to_string())
 }

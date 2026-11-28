@@ -15,7 +15,11 @@ use crate::DbError;
 
 /// Which part of a chat made the call; `memory` is an index run reading the
 /// chat (docs/features/memory-topics-and-chat-recall/spec.md, FR-34).
-pub const SOURCES: [&str; 6] = ["chat", "subagent", "plugin", "side", "memory", "mates"];
+/// `upkeep`, `dream`, `review` and `retro` are the learning layers' steps
+/// (docs/features/learning-layers/spec.md, NFR-4).
+pub const SOURCES: [&str; 10] = [
+    "chat", "subagent", "plugin", "side", "memory", "mates", "upkeep", "dream", "review", "retro",
+];
 
 /// How many chats [`summary`] lists, most expensive first.
 pub const TOP_CHATS: i64 = 50;
