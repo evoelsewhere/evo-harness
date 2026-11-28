@@ -127,7 +127,7 @@ function BubbleView({
             <span className="font-medium">{bubble.reply.from === "you" ? "You" : bubble.reply.from}:</span> {bubble.reply.text}
           </div>
         )}
-        <div className={cn("flex items-end gap-1", me && "flex-row-reverse")}>
+        <div className={cn("flex max-w-full min-w-0 items-end gap-1", me && "flex-row-reverse")}>
           <ContextMenu>
             <ContextMenuTrigger
               render={
