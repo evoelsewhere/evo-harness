@@ -1,0 +1,264 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": {
+        "successful": true,
+        "data": {
+          "results": [
+            {
+              "index": 1,
+              "use_case": "fetch my recent emails",
+              "execution_guidance": "Found 5 tools for this query. Look at the schemas to know how to use them.",
+              "primary_tool_slugs": [
+                "GMAIL_FETCH_EMAILS"
+              ],
+              "related_tool_slugs": [
+                "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+                "GMAIL_LIST_LABELS",
+                "GMAIL_BATCH_MODIFY_MESSAGES",
+                "GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE"
+              ],
+              "toolkits": [
+                "gmail",
+                "googledrive"
+              ]
+            }
+          ],
+          "toolkit_connection_statuses": [
+            {
+              "toolkit": "gmail",
+              "description": "Gmail is Google's email service, featuring spam protection, search functions, and seamless integration with other G-Suite apps for productivity. Special usecases: Search people by name/email.",
+              "has_active_connection": false,
+              "status_message": "No Active connection for toolkit=gmail. You MUST call COMPOSIO_MANAGE_CONNECTIONS (toolkit=\"gmail\") to create a connection BEFORE executing any gmail tools."
+            },
+            {
+              "toolkit": "googledrive",
+              "description": "Google Drive is a cloud storage solution for uploading, sharing, and collaborating on files across devices, with robust search and offline access. Special usecases: Sharing google sheets/docs or any G-Suite files with specific emails.",
+              "has_active_connection": false,
+              "status_message": "No Active connection for toolkit=googledrive. You MUST call COMPOSIO_MANAGE_CONNECTIONS (toolkit=\"googledrive\") to create a connection BEFORE executing any googledrive tools."
+            }
+          ],
+          "tool_schemas": {
+            "GMAIL_FETCH_EMAILS": {
+              "toolkit": "GMAIL",
+              "tool_slug": "GMAIL_FETCH_EMAILS",
+              "description": "Lists Gmail messages with query and label filtering, pagination, and optional message details. Individual detail fetches returning 404, 429, or 503 are skipped, so a page can contain fewer messages than the list result.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "examples": [
+                      "REDACTED@example.com is:unread",
+                      "subject:meeting has:attachment",
+                      "after:2024/01/01 before:2024/02/01",
+                      "is:snoozed",
+                      "is:important OR is:starred",
+                      "label:work -label:spam"
+                    ],
+                    "description": "Gmail advanced search query (e.g., 'from:user subject:meeting'). Supported operators: 'from:', 'to:', 'subject:', 'label:', 'has:', 'is:', 'in:', 'category:', 'after:YYYY/MM/DD', 'before:YYYY/MM/DD', AND/OR/NOT. IMPORTANT - 'is:' vs 'label:' usage: Use 'is:' for special mail states: is:snoozed, is:unread, is:read, is:starred, is:important. Use 'label:' ONLY for user-created labels (e.g., 'label:work', 'label:projects'). Note: 'muted' may work with both 'is:muted' and 'label:muted' based on community reports. Common mistake: 'label:snoozed' is WRONG - use 'is:snoozed' instead. Use quotes for exact phrases. Omit for no query filter. after:/before: evaluate whole calendar days in UTC; before: is exclusive — adjust for local timezone to avoid off-by-one-day gaps."
+                  },
+                  "user_id": {
+                    "type": "string",
+                    "default": "me",
+                    "examples": [
+                      "me",
+                      "REDACTED@example.com"
+                    ],
+                    "description": "User's email address or 'me' for the authenticated user. Non-'me' addresses require domain-level delegation; without it, authentication or not-found errors result."
+                  },
+                  "verbose": {
+                    "type": "boolean",
+                    "default": true,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "If false, uses optimized concurrent metadata fetching for faster performance (~75% improvement). If true, uses standard detailed message fetching. When false, only essential fields (subject, sender, recipient, time, labels) are guaranteed. Body content and attachment details require verbose=true even when include_payload=true."
+                  },
+                  "ids_only": {
+                    "type": "boolean",
+                    "default": false,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "If true, only returns message IDs from the list API without fetching individual message details. Fastest option for getting just message IDs and thread IDs."
+                  },
+                  "label_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "examples": [
+                      "INBOX",
+                      "UNREAD",
+                      "Label_123456"
+                    ],
+                    "description": "Filter by label IDs; only messages with all specified labels are returned (AND logic). Optional - omit or use empty list to fetch all messages without label filtering. System label IDs: 'INBOX', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT', 'CATEGORY_PRIMARY' (alias 'CATEGORY_PERSONAL'), 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'. For custom/user-created labels, you MUST use the label ID (e.g., 'Label_123456'), NOT the display name. Use the 'listLabels' action to find label IDs for custom labels. Combining label_ids with label: in query applies AND logic across both, which can silently over-restrict results; use one strategy consistently."
+                  },
+                  "page_token": {
+                    "type": "string",
+                    "description": "Token for retrieving a specific page, obtained from a previous response's `nextPageToken`. Must be a valid opaque token string from a previous API response. Do not pass arbitrary values. Omit for the first page. Loop calls using nextPageToken until it is absent to avoid silently missing messages. resultSizeEstimate is approximate — do not use as a stopping condition."
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "default": 1,
+                    "maximum": 500,
+                    "minimum": 1,
+                    "examples": [
+                      "10",
+                      "100",
+                      "500"
+                    ],
+                    "description": "Maximum number of messages to retrieve per page. Default of 1 retrieves only a single message; set higher for practical use. Hard cap is 500 per page."
+                  },
+                  "include_payload": {
+                    "type": "boolean",
+                    "default": true,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "Set to true to include full message payload (headers, body, attachments); false for metadata only. payload may still be null even when true; use GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID for guaranteed complete content. When payload is present, bodies are base64url-encoded in payload.parts; replace '-'→'+' and '_'→'/' and fix padding before decoding, and check both text/plain and text/html parts."
+                  },
+                  "include_spam_trash": {
+                    "type": "boolean",
+                    "default": false,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "Set to true to include messages from 'SPAM' and 'TRASH'."
+                  }
+                }
+              },
+              "hasFullSchema": true
+            },
+            "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID": {
+              "toolkit": "GMAIL",
+              "tool_slug": "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+              "description": "Fetches a Gmail message by its message ID in the requested format and returns formatted message details. Available fields depend on the format.",
+              "input_schema": {
+                "type": "object",
+                "required": [
+                  "message_id"
+                ],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "default": "full",
+                    "examples": [
+                      "metadata",
+                      "minimal",
+                      "full",
+                      "raw"
+                    ],
+                    "description": "Format for message content. 'minimal': lightest (ID, thread ID, labels only). 'metadata': headers and message metadata without body content - ideal for summarization, analysis, or when you only need subject/sender/timestamp (recommended for most use cases). 'full': complete MIME structure with 50+ headers, nested parts, and base64url-encoded body data - heavy payload, only use when you need the complete raw MIME structure for parsing attachments or body content. 'raw': entire RFC 2822 formatted message as base64url string."
+                  },
+                  "user_id": {
+                    "type": "string",
+                    "default": "me",
+                    "examples": [
+                      "REDACTED@example.com",
+                      "me"
+                    ],
+                    "description": "User's email address or 'me' for the authenticated user."
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "examples": [
+                      "19b11732c1b578fd",
+                      "18c5e5b5f5d5e5b5",
+                      "1736ccf5d7b4d452"
+                    ],
+                    "minLength": 1,
+                    "description": "The Gmail API message ID (hexadecimal string, typically 15-16 characters like '19b11732c1b578fd'). Must be obtained from Gmail API responses (e.g., List Messages, Search Messages). Do NOT use email subjects, dates, sender names, or custom identifiers. Do NOT use `threadId` (use GMAIL_FETCH_MESSAGE_BY_THREAD_ID for threads), the Message-ID email header, or any fabricated value — only IDs from Gmail API list/search responses."
+                  }
+                }
+              },
+              "hasFullSchema": true
+            },
+            "GMAIL_LIST_LABELS": {
+              "toolkit": "GMAIL",
+              "tool_slug": "GMAIL_LIST_LABELS",
+              "description": "Retrieves all system and user-created labels for a Gmail account in a single unpaginated response. Primary use: obtain internal label IDs (e.g., 'Label_123') required by other Gmail tools — display names cannot be used as label identifiers and cause silent failures or errors. System labels (INBOX, UNREAD, SPAM, TRASH, etc.) are case-sensitive and must be used exactly as returned; INBOX, SPAM, and TRASH are read-only and cannot be added/removed via label modification tools. The Gmail search 'label:' operator accepts display names, but label_ids parameters in tools like GMAIL_FETCH_EMAILS require internal IDs from this tool — mixing conventions yields zero results silently. Do not hardcode label IDs across sessions; refresh via this tool on conflict errors.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "default": "me",
+                    "examples": [
+                      "me",
+                      "REDACTED@example.com"
+                    ],
+                    "description": "Identifies the Gmail account (owner's email or 'me' for authenticated user) for which labels will be listed."
+                  },
+                  "include_details": {
+                    "type": "boolean",
+                    "default": false,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "If true, fetches detailed info for each label including message/thread counts (messagesTotal, messagesUnread, threadsTotal, threadsUnread). This requires additional API calls and may be slower for accounts with many labels. If false (default), returns basic label info (id, name, type) which is faster. Counts are eventually consistent and may lag real-time mailbox state by a few seconds."
+                  }
+                }
+              },
+              "hasFullSchema": true
+            },
+            "GMAIL_BATCH_MODIFY_MESSAGES": {
+              "toolkit": "GMAIL",
+              "tool_slug": "GMAIL_BATCH_MODIFY_MESSAGES",
+              "description": "Adds or removes labels on up to 1,000 Gmail messages in one request, supporting operations such as a...",
+              "hasFullSchema": false,
+              "schemaRef": {
+                "tool": "COMPOSIO_GET_TOOL_SCHEMAS",
+                "args": {
+                  "tool_slugs": [
+                    "GMAIL_BATCH_MODIFY_MESSAGES"
+                  ]
+                }
+              }
+            },
+            "GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE": {
+              "toolkit": "GOOGLEDRIVE",
+              "tool_slug": "GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE",
+              "description": "DEPRECATED: Use GOOGLEDRIVE_CREATE_PERMISSION instead; use GOOGLEDRIVE_UPDATE_PERMISSION to modify e...",
+              "hasFullSchema": false,
+              "schemaRef": {
+                "tool": "COMPOSIO_GET_TOOL_SCHEMAS",
+                "args": {
+                  "tool_slugs": [
+                    "GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE"
+                  ]
+                }
+              }
+            }
+          },
+          "time_info": {
+            "current_time_utc": "2026-11-28T09:42:20.817Z",
+            "current_time_utc_epoch_seconds": 1795858940,
+            "message": "\n          - This is time in UTC timezone. Get timezone from user if you needed.\n          - Always use this time info to construct parameters for tool calls appropriately even when the tool call requires relative times like 'last week', 'last 24 hours', 'today', 'tomorrow' etc.\n          - Do not hallucinate the time or timezone by yourself.\n        "
+          },
+          "session": {
+            "id": "REDACTED",
+            "generate_id": true,
+            "instructions": "REQUIRED: Pass session_id \"load\" in ALL subsequent meta tool calls for this workflow."
+          },
+          "next_steps_guidance": [
+            "Follow these steps carefully to begin the task:",
+            "1) CALL COMPOSIO_MANAGE_CONNECTIONS: Use manage connections to initiate connections for toolkits that are not active"
+          ],
+          "success": true,
+          "error": null
+        },
+        "error": null,
+        "log_id": "REDACTED"
+      }
+    }
+  ],
+  "isError": false
+}

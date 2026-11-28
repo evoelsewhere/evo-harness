@@ -314,3 +314,25 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   as "Connected apps" (`connectorLabel`) in the composer's `+` menu, the
   mate's Apps list and Customize → Connectors, where it has Manage instead
   of Edit, Remove and the on/off switch.
+- 2026-11-28 — T1 recorded Composio's real answers (redacted) in
+  `connected_apps/testdata/live/` with `record.rs` (an ignored shell test
+  that reads the key from the feature's keychain entry, uses a throwaway
+  Composio user and removes the link it makes). What they changed:
+  a `MULTI_EXECUTE` item names its account in `account` (alias or account
+  id; items allow no other field) and the call requires
+  `sync_response_to_workbench`; the session offers six meta-tools —
+  search, schemas, multi-execute, manage connections, remote bash and
+  remote workbench (no `PROXY_EXECUTE`: proxy runs inside the workbench);
+  `COMPOSIO_MANAGE_CONNECTIONS` takes `toolkits: [{name, action:
+  add|rename|list|remove, account_id, alias}]` — Evo passes `list`, turns
+  `add` into its Connect card and refuses `rename` and `remove` (the
+  person's, in Connected apps); search answers list slugs as strings
+  (`primary_tool_slugs`, `related_tool_slugs`) with
+  `toolkit_connection_statuses` and `tool_schemas.<SLUG>.input_schema`, all
+  filtered for a limited mate. Accounts carry `alias`, `toolkit.slug`,
+  `status`, `created_at`.
+- 2026-11-28 — Logos after all (spec A-6 replaced at the owner's request):
+  the shell fetches `https://logos.composio.dev/api/<slug>` (Composio's logo
+  host, which answers for every toolkit slug), keeps them in
+  `<cache>/connected-apps/logos/` and hands `data:` URLs to the page
+  (`apps_logos`); the CSP is unchanged.

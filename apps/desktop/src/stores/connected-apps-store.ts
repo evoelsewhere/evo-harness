@@ -13,6 +13,10 @@ interface ConnectedAppsStore extends AppsState {
   categories: string[];
   catalogLoading: boolean;
   catalogError: string | null;
+  /** Logos as `data:` URLs by toolkit; `null`: asked for, none to show. */
+  logos: Record<string, string | null>;
+  /** Ask for these toolkits' logos (batched; each is asked for once). */
+  wantLogos(slugs: string[]): void;
   load(): Promise<void>;
   loadCatalog(): Promise<void>;
   setKey(key: string): Promise<void>;
@@ -26,6 +30,8 @@ interface ConnectedAppsStore extends AppsState {
 
 let listening = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
+const logoQueue = new Set<string>();
+let logoTimer: ReturnType<typeof setTimeout> | undefined;
 
 export const useConnectedAppsStore = create<ConnectedAppsStore>()((set, get) => ({
   key: "none",
@@ -38,6 +44,26 @@ export const useConnectedAppsStore = create<ConnectedAppsStore>()((set, get) => 
   categories: [],
   catalogLoading: false,
   catalogError: null,
+  logos: {},
+
+  wantLogos(slugs) {
+    if (!inTauri) return;
+    const known = get().logos;
+    for (const slug of slugs) if (!(slug in known)) logoQueue.add(slug);
+    if (!logoQueue.size || logoTimer) return;
+    logoTimer = setTimeout(() => {
+      logoTimer = undefined;
+      const batch = [...logoQueue].slice(0, 60);
+      batch.forEach((slug) => logoQueue.delete(slug));
+      // Mark them asked at once, so a re-render does not ask again.
+      set((s) => ({ logos: { ...Object.fromEntries(batch.map((slug) => [slug, s.logos[slug] ?? null])), ...s.logos } }));
+      void appsApi
+        .logos(batch)
+        .then((found) => set((s) => ({ logos: { ...s.logos, ...found } })))
+        .catch(() => undefined)
+        .finally(() => logoQueue.size && get().wantLogos([]));
+    }, 60);
+  },
 
   async load() {
     if (!inTauri) return;

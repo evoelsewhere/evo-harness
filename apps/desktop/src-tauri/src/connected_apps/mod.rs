@@ -25,6 +25,9 @@ pub mod fake;
 pub mod files;
 pub mod gate;
 pub mod key;
+pub mod logos;
+#[cfg(test)]
+mod record;
 pub mod run;
 
 use std::collections::BTreeMap;

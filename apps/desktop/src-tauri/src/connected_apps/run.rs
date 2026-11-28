@@ -404,9 +404,24 @@ pub async fn call(ctx: ToolCtx, tool: &ChatTool, name: &str, args: Value) -> Too
             }
         }
         Meta::Connect => {
-            let toolkit = args.get("toolkits").and_then(Value::as_array).and_then(|t| t.first()).or_else(|| args.get("toolkit")).and_then(Value::as_str).unwrap_or("").to_ascii_lowercase();
+            // `toolkits: [{name, action: add|rename|list|remove, account_id, alias}]`
+            // (testdata/live/mcp_tools_list.json): listing passes; adding becomes
+            // Evo's Connect card; renaming and removing are the person's.
+            let items: Vec<Value> = args.get("toolkits").and_then(Value::as_array).cloned().unwrap_or_default();
+            let action = |item: &Value| item.get("action").and_then(Value::as_str).unwrap_or("add").to_ascii_lowercase();
+            if !items.is_empty() && items.iter().all(|i| action(i) == "list") {
+                return finish(pool_call(&ctx, name, args).await);
+            }
+            if items.iter().any(|i| matches!(action(i).as_str(), "remove" | "rename")) {
+                return ToolOutput::error("Accounts are renamed and disconnected by the person in Connected apps, not by the agent. Ask them to do it there.");
+            }
+            let toolkit = items
+                .iter()
+                .find_map(|i| i.get("name").or_else(|| i.get("toolkit")).and_then(Value::as_str).or_else(|| i.as_str()))
+                .unwrap_or("")
+                .to_ascii_lowercase();
             if toolkit.is_empty() {
-                return ToolOutput::error("Name the app to connect in `toolkits`.");
+                return ToolOutput::error("Name the app to connect in `toolkits[].name`.");
             }
             connect_card(&ctx, mate.as_ref(), &toolkit, "", None).await
         }

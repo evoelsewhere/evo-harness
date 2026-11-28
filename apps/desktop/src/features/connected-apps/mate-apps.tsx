@@ -140,7 +140,7 @@ export function MateConnectedApps({ mate }: { mate: Mate }) {
           return (
             <div key={toolkit} className="flex flex-col gap-2 rounded-2xl bg-muted/40 px-3 py-2">
               <div className="flex items-center gap-2">
-                <ServiceTile name={name(toolkit)} className="size-6 rounded-md text-xs" />
+                <ServiceTile slug={toolkit} name={name(toolkit)} className="size-6 rounded-md text-xs" />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{name(toolkit)}</span>
                 <select
                   aria-label={`${name(toolkit)} tools`}

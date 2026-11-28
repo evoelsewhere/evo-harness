@@ -42,8 +42,9 @@ pub const SANDBOX: [&str; 3] = [
     "COMPOSIO_PROXY_EXECUTE",
 ];
 
-/// The per-tool field a `MULTI_EXECUTE` item names its account with.
-pub const ACCOUNT_FIELD: &str = "connected_account_id";
+/// The per-tool field a `MULTI_EXECUTE` item names its account with: the
+/// alias or the account id (recorded in `testdata/live/mcp_tools_list.json`).
+pub const ACCOUNT_FIELD: &str = "account";
 
 /// The pool's defaults for the connector's tools: the sandbox blocked
 /// (Customize may allow it), the rest by the usual rule.
@@ -255,7 +256,7 @@ pub fn parse_multi_execute(args: &Value, known: &[String]) -> Result<Vec<AppCall
                     return Err(shape(&format!("tools[{index}].arguments is not an object")))
                 }
             };
-            let account = [ACCOUNT_FIELD, "account", "alias"]
+            let account = [ACCOUNT_FIELD, "connected_account_id", "alias"]
                 .iter()
                 .find_map(|f| item.get(*f).and_then(Value::as_str))
                 .map(str::trim)
@@ -566,7 +567,7 @@ pub fn forwarded(
             continue;
         };
         if let Some(map) = item.as_object_mut() {
-            map.remove("account");
+            map.remove("connected_account_id");
             map.remove("alias");
             map.insert(ACCOUNT_FIELD.into(), json!(c.account.id));
         }
@@ -643,17 +644,50 @@ pub fn filter_search(result: &Value, apps: &Apps, known: &[String]) -> Value {
     let keep = |slug: &str| apps.allows(&toolkit_of(slug, known), slug);
     let mut out = result.clone();
     filter_slugs(&mut out, &keep);
+    filter_toolkits(&mut out, &|toolkit: &str| {
+        apps.service_allowed(&toolkit.to_ascii_lowercase())
+    });
     out
+}
+
+/// Drop `{toolkit, …}` items (connection statuses) of services the caller
+/// may not use, and those services from `toolkits` lists.
+fn filter_toolkits(value: &mut Value, keep: &dyn Fn(&str) -> bool) {
+    match value {
+        Value::Array(items) => {
+            items.retain(|item| match item {
+                Value::Object(map) if !map.contains_key("tool_slug") => {
+                    map.get("toolkit").and_then(Value::as_str).is_none_or(keep)
+                }
+                _ => true,
+            });
+            for item in items.iter_mut() {
+                filter_toolkits(item, keep);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(Value::Array(list)) = map.get_mut("toolkits") {
+                list.retain(|t| t.as_str().is_none_or(keep));
+            }
+            for item in map.values_mut() {
+                filter_toolkits(item, keep);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn filter_slugs(value: &mut Value, keep: &dyn Fn(&str) -> bool) {
     match value {
         Value::Array(items) => {
-            items.retain(|item| {
-                item.get("tool_slug")
+            items.retain(|item| match item {
+                // `primary_tool_slugs`, `related_tool_slugs`.
+                Value::String(s) if looks_like_slug(s) => keep(s),
+                _ => item
+                    .get("tool_slug")
                     .or_else(|| item.get("slug"))
                     .and_then(Value::as_str)
-                    .is_none_or(keep)
+                    .is_none_or(keep),
             });
             for item in items.iter_mut() {
                 filter_slugs(item, keep);
@@ -830,7 +864,7 @@ mod tests {
         if let Some(a) = account {
             item[ACCOUNT_FIELD] = json!(a);
         }
-        json!({"tools": [item], "thought": "find invoices"})
+        json!({"tools": [item], "thought": "find invoices", "sync_response_to_workbench": false})
     }
 
     #[test]
@@ -1133,6 +1167,76 @@ mod tests {
             .get("GMAIL_SEND_EMAIL")
             .is_none());
         assert_eq!(filter_search(&result, &Apps::All, &[]), result);
+    }
+
+    fn live(name: &str) -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/connected_apps/testdata/live")
+            .join(name);
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    // T1: the shapes recorded from Composio.
+    #[test]
+    fn a_forwarded_call_fits_composios_recorded_schema() {
+        let tools = live("mcp_tools_list.json");
+        let schema = tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == MULTI_EXECUTE)
+            .unwrap()["inputSchema"]
+            .clone();
+        let validator = jsonschema::draft7::new(&schema).unwrap();
+        let world = World::new(two_gmail(), Apps::All);
+        let agent = fetch(Some("work"));
+        assert!(
+            validator.is_valid(&agent),
+            "the agent's call passes the engine's check"
+        );
+        let checked = check(&agent, &world.ctx()).unwrap();
+        let out = forwarded(&agent, &checked, &HashMap::new());
+        assert!(validator.is_valid(&out), "{out}");
+        assert_eq!(out["tools"][0]["account"], "ca_w");
+        let wrong = json!({"tools": [{"tool_slug": "GMAIL_FETCH_EMAILS", "arguments": {}, "connected_account_id": "ca_w"}]});
+        assert!(
+            !validator.is_valid(&wrong),
+            "Composio's items take no other field"
+        );
+    }
+
+    #[test]
+    fn the_recorded_search_is_filtered_for_a_limited_mate() {
+        let result = live("mcp_search_tools.json");
+        let data = &result["content"][0]["text"];
+        assert!(data["data"]["tool_schemas"]
+            .get("GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE")
+            .is_some());
+        let apps = Apps::of_mate(Some(&vec![
+            json!({"service": "composio:gmail", "tools": ["GMAIL_FETCH_EMAILS"]}),
+        ]));
+        let out = filter_search(data, &apps, &["gmail".into(), "googledrive".into()]);
+        let text = out.to_string();
+        assert!(
+            !text.contains("GOOGLEDRIVE_ADD_FILE_SHARING_PREFERENCE"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("GMAIL_SEND_EMAIL\""),
+            "only the tools it may use"
+        );
+        assert!(text.contains("GMAIL_FETCH_EMAILS"));
+        for status in out["data"]["toolkit_connection_statuses"]
+            .as_array()
+            .unwrap()
+        {
+            assert_eq!(
+                status["toolkit"].as_str().unwrap().to_ascii_lowercase(),
+                "gmail"
+            );
+        }
+        // The schemas it describes are learned by the gate as input_schema.
+        assert!(data["data"]["tool_schemas"]["GMAIL_FETCH_EMAILS"]["input_schema"].is_object());
     }
 
     #[test]

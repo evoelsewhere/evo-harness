@@ -1,9 +1,52 @@
 {
-  "session_id": "trs_REDACTED",
-  "mcp": { "type": "http", "url": "https://backend.composio.dev/tool_router/trs_REDACTED/mcp" },
+  "session_id": "REDACTED",
+  "mcp": {
+    "type": "http",
+    "url": "https://backend.composio.dev/tool_router/REDACTED/mcp"
+  },
+  "tool_router_tools": [
+    "COMPOSIO_MULTI_EXECUTE_TOOL",
+    "COMPOSIO_SEARCH_TOOLS",
+    "COMPOSIO_GET_TOOL_SCHEMAS",
+    "COMPOSIO_REMOTE_WORKBENCH",
+    "COMPOSIO_REMOTE_BASH_TOOL",
+    "COMPOSIO_MANAGE_CONNECTIONS"
+  ],
   "config": {
-    "user_id": "evo_REDACTED",
-    "manage_connections": { "enable": true },
-    "multi_account": { "enable": true, "max_accounts_per_toolkit": 10, "require_explicit_selection": true }
-  }
+    "user_id": "REDACTED",
+    "instant": {
+      "return_instant_charge": false,
+      "return_prices_in_search": false
+    },
+    "manage_connections": {
+      "enabled": true,
+      "enable_wait_for_connections": false,
+      "enable_connection_removal": true
+    },
+    "workbench": {
+      "enable": true,
+      "tool_execution_enabled": true,
+      "proxy_execution_enabled": true,
+      "sandbox_size": "standard"
+    },
+    "multi_account": {
+      "enable": true,
+      "max_accounts_per_toolkit": 10,
+      "require_explicit_selection": true
+    },
+    "preload": {
+      "tools": []
+    },
+    "search": {
+      "enable": true
+    },
+    "execute": {
+      "enable_multi_execute": true
+    }
+  },
+  "config_version": 1,
+  "experimental": {
+    "assistive_prompt": "When you choose to use Composio ToolRouter, use its meta-tools to search for external app tools and execute them.\n\n- Before calling any ToolRouter execution tools, call COMPOSIO_SEARCH_TOOLS. Use its plan/tools, review pitfalls, then come up with your own step-by-step plan before executing.\n- If auth is needed, call COMPOSIO_MANAGE_CONNECTIONS and continue once the connection is active.\n- Use COMPOSIO_MULTI_EXECUTE_TOOL for simple **independent** tasks (no ordering/output dependencies), ensuring each tool call is logically independent and includes a properly formed `arguments` field matching the tool schema\n- Use COMPOSIO_REMOTE_WORKBENCH only for large data (100+ items) or bulk operations.\n- Clarification: COMPOSIO_REMOTE_WORKBENCH runs in an isolated remote environment with its own filesystem, accessible only via `remote_bash` / `remote_workbench` tools.\n- Always paginate list/search via nextPageToken/cursor until the request is satisfied; avoid partial results when “all/complete” is requested.\n- Never invent tool slugs/args/schemas or pass placeholders—resolve real values via other tool calls (or ask) and strictly follow the input schema; never hallucinate tool outputs (state what you tried and what’s missing).\n- On failures, retry, try alternate tools or simpler queries, and ask a focused question if truly blocked.\n- Ensure to use the correct timezone when formatting dates and scheduling."
+  },
+  "warnings": []
 }

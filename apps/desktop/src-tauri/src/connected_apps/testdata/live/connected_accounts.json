@@ -1,0 +1,64 @@
+{
+  "items": [
+    {
+      "toolkit": {
+        "slug": "gmail"
+      },
+      "auth_config": {
+        "id": "REDACTED",
+        "auth_scheme": "OAUTH2",
+        "is_composio_managed": true,
+        "is_disabled": false
+      },
+      "authScheme": "OAUTH2",
+      "id": "REDACTED",
+      "word_id": "REDACTED",
+      "alias": "REDACTED",
+      "user_id": "REDACTED",
+      "status": "ACTIVE",
+      "experimental": {
+        "account_type": "PRIVATE",
+        "acl_config_for_shared": {
+          "allow_all_users": false,
+          "allowed_user_ids": [],
+          "not_allowed_user_ids": []
+        }
+      },
+      "created_at": "2026-11-28T09:38:34.377Z",
+      "updated_at": "2026-11-28T09:38:56.396Z",
+      "data": {
+        "displayName": "REDACTED@example.com",
+        "status": "ACTIVE",
+        "access_token": "REDACTED",
+        "id_token": "REDACTED",
+        "token_type": "REDACTED",
+        "refresh_token": "REDACTED",
+        "expires_in": 3599,
+        "scope": "https://www.googleapis.com/auth/contacts.other.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/profile.emails.read https://www.googleapis.com/auth/user.birthday.read https://www.googleapis.com/auth/user.addresses.read https://www.googleapis.com/auth/user.emails.read https://www.googleapis.com/auth/user.phonenumbers.read https://www.googleapis.com/auth/userinfo.email https://mail.google.com/ https://www.googleapis.com/auth/userinfo.profile openid https://www.googleapis.com/auth/profile.language.read",
+        "callback_url": "https://backend.composio.dev/api/v1/auth-apps/add",
+        "refresh_token_expires_in": "REDACTED"
+      },
+      "state": {
+        "authScheme": "OAUTH2",
+        "val": {
+          "displayName": "REDACTED@example.com",
+          "status": "ACTIVE",
+          "access_token": "REDACTED",
+          "id_token": "REDACTED",
+          "token_type": "REDACTED",
+          "refresh_token": "REDACTED",
+          "expires_in": 3599,
+          "scope": "https://www.googleapis.com/auth/contacts.other.readonly https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/profile.emails.read https://www.googleapis.com/auth/user.birthday.read https://www.googleapis.com/auth/user.addresses.read https://www.googleapis.com/auth/user.emails.read https://www.googleapis.com/auth/user.phonenumbers.read https://www.googleapis.com/auth/userinfo.email https://mail.google.com/ https://www.googleapis.com/auth/userinfo.profile openid https://www.googleapis.com/auth/profile.language.read",
+          "callback_url": "https://backend.composio.dev/api/v1/auth-apps/add",
+          "refresh_token_expires_in": "REDACTED"
+        }
+      },
+      "is_disabled": false,
+      "status_reason": null
+    }
+  ],
+  "next_cursor": null,
+  "total_pages": 1,
+  "current_page": 1,
+  "total_items": 1
+}

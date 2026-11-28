@@ -1,0 +1,304 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": {
+        "successful": true,
+        "data": {
+          "success": true,
+          "tool_schemas": {
+            "GMAIL_FETCH_EMAILS": {
+              "toolkit": "GMAIL",
+              "tool_slug": "GMAIL_FETCH_EMAILS",
+              "description": "Lists Gmail messages with query and label filtering, pagination, and optional message details. Individual detail fetches returning 404, 429, or 503 are skipped, so a page can contain fewer messages than the list result.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "examples": [
+                      "REDACTED@example.com is:unread",
+                      "subject:meeting has:attachment",
+                      "after:2024/01/01 before:2024/02/01",
+                      "is:snoozed",
+                      "is:important OR is:starred",
+                      "label:work -label:spam"
+                    ],
+                    "description": "Gmail advanced search query (e.g., 'from:user subject:meeting'). Supported operators: 'from:', 'to:', 'subject:', 'label:', 'has:', 'is:', 'in:', 'category:', 'after:YYYY/MM/DD', 'before:YYYY/MM/DD', AND/OR/NOT. IMPORTANT - 'is:' vs 'label:' usage: Use 'is:' for special mail states: is:snoozed, is:unread, is:read, is:starred, is:important. Use 'label:' ONLY for user-created labels (e.g., 'label:work', 'label:projects'). Note: 'muted' may work with both 'is:muted' and 'label:muted' based on community reports. Common mistake: 'label:snoozed' is WRONG - use 'is:snoozed' instead. Use quotes for exact phrases. Omit for no query filter. after:/before: evaluate whole calendar days in UTC; before: is exclusive — adjust for local timezone to avoid off-by-one-day gaps."
+                  },
+                  "user_id": {
+                    "type": "string",
+                    "default": "me",
+                    "examples": [
+                      "me",
+                      "REDACTED@example.com"
+                    ],
+                    "description": "User's email address or 'me' for the authenticated user. Non-'me' addresses require domain-level delegation; without it, authentication or not-found errors result."
+                  },
+                  "verbose": {
+                    "type": "boolean",
+                    "default": true,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "If false, uses optimized concurrent metadata fetching for faster performance (~75% improvement). If true, uses standard detailed message fetching. When false, only essential fields (subject, sender, recipient, time, labels) are guaranteed. Body content and attachment details require verbose=true even when include_payload=true."
+                  },
+                  "ids_only": {
+                    "type": "boolean",
+                    "default": false,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "If true, only returns message IDs from the list API without fetching individual message details. Fastest option for getting just message IDs and thread IDs."
+                  },
+                  "label_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "examples": [
+                      "INBOX",
+                      "UNREAD",
+                      "Label_123456"
+                    ],
+                    "description": "Filter by label IDs; only messages with all specified labels are returned (AND logic). Optional - omit or use empty list to fetch all messages without label filtering. System label IDs: 'INBOX', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT', 'CATEGORY_PRIMARY' (alias 'CATEGORY_PERSONAL'), 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'. For custom/user-created labels, you MUST use the label ID (e.g., 'Label_123456'), NOT the display name. Use the 'listLabels' action to find label IDs for custom labels. Combining label_ids with label: in query applies AND logic across both, which can silently over-restrict results; use one strategy consistently."
+                  },
+                  "page_token": {
+                    "type": "string",
+                    "description": "Token for retrieving a specific page, obtained from a previous response's `nextPageToken`. Must be a valid opaque token string from a previous API response. Do not pass arbitrary values. Omit for the first page. Loop calls using nextPageToken until it is absent to avoid silently missing messages. resultSizeEstimate is approximate — do not use as a stopping condition."
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "default": 1,
+                    "maximum": 500,
+                    "minimum": 1,
+                    "examples": [
+                      "10",
+                      "100",
+                      "500"
+                    ],
+                    "description": "Maximum number of messages to retrieve per page. Default of 1 retrieves only a single message; set higher for practical use. Hard cap is 500 per page."
+                  },
+                  "include_payload": {
+                    "type": "boolean",
+                    "default": true,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "Set to true to include full message payload (headers, body, attachments); false for metadata only. payload may still be null even when true; use GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID for guaranteed complete content. When payload is present, bodies are base64url-encoded in payload.parts; replace '-'→'+' and '_'→'/' and fix padding before decoding, and check both text/plain and text/html parts."
+                  },
+                  "include_spam_trash": {
+                    "type": "boolean",
+                    "default": false,
+                    "examples": [
+                      true,
+                      false
+                    ],
+                    "description": "Set to true to include messages from 'SPAM' and 'TRASH'."
+                  }
+                }
+              }
+            },
+            "GMAIL_SEND_EMAIL": {
+              "toolkit": "GMAIL",
+              "tool_slug": "GMAIL_SEND_EMAIL",
+              "description": "Sends an email immediately through Gmail to specified To, Cc, or Bcc recipients, with a subject or body and optional attachments. Supports plain text or HTML and may append the configured Gmail signature; attachments are limited to 20 MiB in total before encoding.",
+              "input_schema": {
+                "type": "object",
+                "properties": {
+                  "cc": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [],
+                    "examples": [
+                      [
+                        "REDACTED@example.com",
+                        "REDACTED@example.com"
+                      ]
+                    ],
+                    "description": "Carbon Copy (CC) recipients' email addresses. At least one of 'to'/'recipient_email', 'cc', or 'bcc' must be provided."
+                  },
+                  "bcc": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [],
+                    "examples": [
+                      [
+                        "REDACTED@example.com"
+                      ]
+                    ],
+                    "description": "Blind Carbon Copy (BCC) recipients' email addresses. At least one of 'to'/'recipient_email', 'cc', or 'bcc' must be provided."
+                  },
+                  "body": {
+                    "type": "string",
+                    "examples": [
+                      "Hello team, let's discuss the project updates tomorrow.",
+                      "<h1>Welcome!</h1><p>Thank you for signing up.</p>",
+                      ""
+                    ],
+                    "description": "Email content (plain text or HTML). Either subject or body must be provided for the email to be sent. If HTML, `is_html` must be `True`."
+                  },
+                  "is_html": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Set to `True` if the email body contains HTML tags."
+                  },
+                  "subject": {
+                    "type": "string",
+                    "examples": [
+                      "Project Update Meeting",
+                      "Your Weekly Newsletter"
+                    ],
+                    "description": "Subject line of the email. Either subject or body must be provided for the email to be sent."
+                  },
+                  "user_id": {
+                    "type": "string",
+                    "default": "me",
+                    "examples": [
+                      "REDACTED@example.com",
+                      "me"
+                    ],
+                    "description": "User's email address; the literal 'me' refers to the authenticated user."
+                  },
+                  "attachment": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "title": "FileUploadable",
+                        "required": [
+                          "name",
+                          "mimetype",
+                          "s3key"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "title": "Name",
+                            "examples": [
+                              "document.pdf",
+                              "image.jpg",
+                              "report.docx"
+                            ],
+                            "description": "The filename that will be used when uploading the file to the destination service"
+                          },
+                          "s3key": {
+                            "type": "string",
+                            "title": "S3Key",
+                            "examples": [
+                              "47563/gmail/GET_ATTACHMENT/response/12345"
+                            ],
+                            "description": "The S3 key of a publicly accessible file, typically returned from a previous download action that stored the file in S3. This key references an existing file that can be uploaded to another service."
+                          },
+                          "mimetype": {
+                            "type": "string",
+                            "title": "Mimetype",
+                            "examples": [
+                              "application/pdf",
+                              "image/jpeg",
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            ],
+                            "description": "The MIME type of the file"
+                          }
+                        },
+                        "file_uploadable": true
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "title": "FileUploadable",
+                          "required": [
+                            "name",
+                            "mimetype",
+                            "s3key"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "title": "Name",
+                              "examples": [
+                                "document.pdf",
+                                "image.jpg",
+                                "report.docx"
+                              ],
+                              "description": "The filename that will be used when uploading the file to the destination service"
+                            },
+                            "s3key": {
+                              "type": "string",
+                              "title": "S3Key",
+                              "examples": [
+                                "47563/gmail/GET_ATTACHMENT/response/12345"
+                              ],
+                              "description": "The S3 key of a publicly accessible file, typically returned from a previous download action that stored the file in S3. This key references an existing file that can be uploaded to another service."
+                            },
+                            "mimetype": {
+                              "type": "string",
+                              "title": "Mimetype",
+                              "examples": [
+                                "application/pdf",
+                                "image/jpeg",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                              ],
+                              "description": "The MIME type of the file"
+                            }
+                          },
+                          "file_uploadable": true
+                        }
+                      }
+                    ],
+                    "description": "File(s) to attach. Accepts a single file or a list of files. IMPORTANT: mimetype MUST contain a '/' separator - single words like 'pdf' or 'new' are invalid. Gmail API limits: total message size must not exceed ~25 MB after base64 encoding. Omit or set to null for no attachment. Empty attachment objects (with all fields empty/whitespace) are treated as no attachment."
+                  },
+                  "from_email": {
+                    "type": "string",
+                    "examples": [
+                      "REDACTED@example.com",
+                      "REDACTED@example.com"
+                    ],
+                    "description": "Sender email address for the 'From' header. Provide the connected account's primary email address or a verified alias configured in Gmail's 'Send mail as' settings. When omitted, the action attempts to resolve the primary email address from the authenticated Gmail profile."
+                  },
+                  "recipient_email": {
+                    "type": "string",
+                    "examples": [
+                      "REDACTED@example.com",
+                      "me"
+                    ],
+                    "description": "Primary recipient's email address. You can also use 'to' as an alias for this parameter. At least one of 'to'/'recipient_email', 'cc', or 'bcc' must be provided. Use extra_recipients if you want to send to multiple recipients. Use the special value 'me' to send to your own authenticated email address. Must be a full user@domain address; 'me' is not valid here and will fail."
+                  },
+                  "extra_recipients": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [],
+                    "examples": [
+                      [
+                        "REDACTED@example.com",
+                        "REDACTED@example.com"
+                      ]
+                    ],
+                    "description": "Additional 'To' recipients' email addresses (not Cc or Bcc). Should only be used if recipient_email is also provided."
+                  },
+                  "include_signature": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Append the sender's Gmail signature (the 'Send mail as' signature configured in Gmail settings) to the message body, ahead of any quoted or forwarded content. Skipped when the body already ends with that signature, when no signature is configured, or when the connection lacks permission to read Gmail settings. Set to false to send the body exactly as provided."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "error": null,
+        "log_id": "REDACTED"
+      }
+    }
+  ],
+  "isError": false
+}

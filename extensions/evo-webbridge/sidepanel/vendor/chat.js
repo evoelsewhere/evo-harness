@@ -1128,7 +1128,7 @@ function connectedAppLabel(tool, args, phase) {
     if (!first?.tool_slug)
       return `${verb} connected apps`;
     const slug = String(first.tool_slug);
-    const account = first.connected_account_id ?? first.account ?? first.alias;
+    const account = first.account ?? first.connected_account_id ?? first.alias;
     const more = tools.length > 1 ? ` +${tools.length - 1}` : "";
     return `${verb} ${serviceName(slug.split("_")[0].toLowerCase())} · ${slug}${account ? ` (${String(account)})` : ""}${more}`;
   }

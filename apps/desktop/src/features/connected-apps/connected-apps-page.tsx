@@ -19,17 +19,22 @@ import { KeyCard } from "./key-card";
 /** Rows shown before the person narrows the search. */
 const SHOWN = 120;
 
-/** A service's tile: its initial on a quiet square (logos would need the page to load remote images). */
-export function ServiceTile({ name, className }: { name: string; className?: string }) {
+/** A service's tile: its logo (fetched and cached by the shell), else its initial. */
+export function ServiceTile({ slug, name, className }: { slug: string; name: string; className?: string }) {
+  const logo = useConnectedAppsStore((s) => s.logos[slug]);
+  React.useEffect(() => {
+    useConnectedAppsStore.getState().wantLogos([slug]);
+  }, [slug]);
   return (
     <span
       aria-hidden
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-[13px] font-medium text-muted-foreground dark:bg-accent",
+        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted text-[13px] font-medium text-muted-foreground dark:bg-accent",
+        logo && "bg-white p-1 shadow-[0_0_0_1px_rgb(0_0_0/0.06)] dark:bg-white",
         className,
       )}
     >
-      {name.trim().charAt(0).toUpperCase() || "?"}
+      {logo ? <img src={logo} alt="" className="size-full object-contain" draggable={false} /> : name.trim().charAt(0).toUpperCase() || "?"}
     </span>
   );
 }
@@ -178,7 +183,7 @@ function Catalogue({ onConnect }: { onConnect(toolkit: Toolkit): void }) {
             const count = accounts.filter((a) => a.toolkit === toolkit.slug && a.status === "active").length;
             return (
               <li key={toolkit.slug} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-accent/50">
-                <ServiceTile name={toolkit.name} />
+                <ServiceTile slug={toolkit.slug} name={toolkit.name} />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-[13px] font-medium">{toolkit.name}</span>
                   <span className="truncate text-xs text-muted-foreground">
@@ -241,7 +246,7 @@ function Connected({ onConnect }: { onConnect(toolkit: Toolkit): void }) {
       <ul className="flex flex-col gap-1" aria-label="Connected accounts">
         {pending.map((p) => (
           <li key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-            <ServiceTile name={name(p.toolkit)} />
+            <ServiceTile slug={p.toolkit} name={name(p.toolkit)} />
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[13px] font-medium">
                 {name(p.toolkit)} <span className="font-normal text-muted-foreground">· {p.label}</span>
@@ -259,7 +264,7 @@ function Connected({ onConnect }: { onConnect(toolkit: Toolkit): void }) {
           const toolkit = toolkits.find((t) => t.slug === account.toolkit);
           return (
             <li key={account.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-accent/50">
-              <ServiceTile name={name(account.toolkit)} />
+              <ServiceTile slug={account.toolkit} name={name(account.toolkit)} />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate text-[13px] font-medium">
                   {name(account.toolkit)} <span className="font-normal text-muted-foreground">· {account.label}</span>

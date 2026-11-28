@@ -372,6 +372,17 @@ pub async fn apps_tools(app: AppHandle, toolkit: String) -> Result<Vec<Value>, S
         .collect())
 }
 
+/// Services' logos as `data:` URLs, from the cache or Composio's logo host
+/// (no key needed or sent).
+#[tauri::command]
+pub async fn apps_logos(
+    app: AppHandle,
+    slugs: Vec<String>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let dir = super::logos::dir(&app.path().app_cache_dir().map_err(|e| e.to_string())?);
+    Ok(super::logos::logos(&dir, &slugs).await)
+}
+
 /// Try Composio again now (the page's Retry).
 #[tauri::command]
 pub async fn apps_retry(app: AppHandle) -> Result<(), String> {

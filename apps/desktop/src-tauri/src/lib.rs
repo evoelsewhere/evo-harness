@@ -207,6 +207,7 @@ pub fn run() {
             connected_apps::app::apps_reconnect,
             connected_apps::app::apps_retry,
             connected_apps::app::apps_tools,
+            connected_apps::app::apps_logos,
             mates::mates_list,
             mates::mates_templates,
             mates::mates_create,

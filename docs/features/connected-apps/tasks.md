@@ -13,7 +13,7 @@
 Done when: with a saved key, chats in both apps get the Connected apps
 connector's meta-tools; with none, no request goes to Composio.
 
-- [ ] T1 [FR-7] Pin Composio's shapes: record redacted fixtures of `POST /tool_router/session`, `tools/list` of the session MCP (meta-tool schemas, `MULTI_EXECUTE` arguments), `toolkits`, `link`, `connected_accounts` from a live run with the owner's key; a fake Composio server for tests — `apps/desktop/src-tauri/src/connected_apps/testdata/`, `connected_apps/fake.rs` — check: fixtures hold no key, user id or email
+- [x] T1 [FR-7] Pin Composio's shapes: record redacted fixtures of `POST /tool_router/session`, `tools/list` of the session MCP (meta-tool schemas, `MULTI_EXECUTE` arguments), `toolkits`, `link`, `connected_accounts` from a live run with the owner's key; a fake Composio server for tests — `apps/desktop/src-tauri/src/connected_apps/testdata/`, `connected_apps/fake.rs` — check: fixtures hold no key, user id or email
 - [x] T2 [FR-7, NFR-1] Failing pool tests then `AppServer` slot: one code-supplied server, permissions and cached tools saved under `appServers`, its config and headers never written — `crates/evo-mcp/src/pool.rs` — check: `cargo test -p evo-mcp app_server`
 - [x] T3 [FR-1, NFR-1, NFR-4] Key in the keychain, check with Composio before saving, remove; no request without a key — `connected_apps/{key,composio,mod}.rs` — check: shell tests `a_refused_key_is_not_saved`, `no_key_no_request` (fake server)
 - [x] T4 [FR-7, FR-17, FR-18] Session create or reuse, `set_app_server`, re-send tools; key removed or changed clears everything; earlier user reused when exactly one — `connected_apps/mod.rs` — check: shell tests `a_restart_keeps_the_session`, `a_new_key_starts_clean`

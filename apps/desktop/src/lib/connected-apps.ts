@@ -64,6 +64,7 @@ export const appsApi = {
   reconnect: (accountId: string) => invoke<{ pendingId: string; label: string }>("apps_reconnect", { accountId }),
   retry: () => invoke<void>("apps_retry"),
   tools: (toolkit: string) => invoke<AppTool[]>("apps_tools", { toolkit }),
+  logos: (slugs: string[]) => invoke<Record<string, string>>("apps_logos", { slugs }),
 };
 
 /** One tool of a service, for a mate's These tools list. */

@@ -190,9 +190,10 @@ None.
   Sending on your behalf setting, a tool that sends asks every time
   (Allow once / Deny); a tool that only reads runs without asking unless
   the person set it to Ask.
-- A-6 (2026-11-28, taken while building) Services show a letter tile, not
-  their logo: showing Composio's logos would mean letting the app load
-  remote images.
+- A-6 (2026-11-28) Services show their logo, from Composio's logo host
+  through the shell and its cache; a letter tile while it loads or when
+  there is none. (First taken as letter tiles only; the owner asked for
+  logos.)
 
 ## 7. History
 
