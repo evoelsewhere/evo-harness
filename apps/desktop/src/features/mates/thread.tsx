@@ -9,6 +9,7 @@ import * as React from "react";
 import { LearnedLine } from "@/components/learned-line";
 import { CopyIcon, InfoIcon, ReplyIcon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
+import { openFileRef } from "@/components/open-file-ref";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -114,6 +115,9 @@ function BubbleView({
 }) {
   const { bubble, first, last } = row;
   const me = bubble.side === "me";
+  // Files the mate names open from its working folder (rich-replies FR-37).
+  const root = mate.projectFolder ?? mate.folder;
+  const openRef = React.useCallback((reference: string) => void openFileRef(reference, root, "mates"), [root]);
   return (
     <div className={cn("flex w-full px-4", me ? "justify-end" : "justify-start", first ? "mt-2" : "mt-0.5")}>
       <div className={cn("group/bubble relative flex max-w-[72%] flex-col", me ? "items-end" : "items-start")}>
@@ -153,7 +157,7 @@ function BubbleView({
               {me ? (
                 <span className="whitespace-pre-wrap break-words">{bubble.text}</span>
               ) : (
-                <Markdown streaming={bubble.streaming} blocks>
+                <Markdown streaming={bubble.streaming} blocks onLocalLink={openRef}>
                   {bubble.text}
                 </Markdown>
               )}

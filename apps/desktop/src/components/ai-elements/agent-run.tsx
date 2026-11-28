@@ -2,6 +2,7 @@ import * as React from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { CopyIcon, FolderIcon, GitBranchIcon, SquareIcon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
+import { openFromChat } from "@/components/open-file-ref";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -88,7 +89,7 @@ function Report({ text }: { text: string }) {
           long && !open && "max-h-48 overflow-hidden [mask-image:linear-gradient(to_bottom,black_65%,transparent)]",
         )}
       >
-        <Markdown>{text}</Markdown>
+        <Markdown onLocalLink={openFromChat}>{text}</Markdown>
       </div>
       {long && (
         <button
