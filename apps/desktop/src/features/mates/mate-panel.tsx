@@ -20,9 +20,11 @@ import { matesApi, type ApprovalMode, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { mateMood, moodWord, useMatesStore, type MatePanelTab } from "@/stores/mates-store";
+import { connectorLabel } from "@/lib/mcp";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { MateConnectedApps } from "@/features/connected-apps";
 import { ConfirmDelete } from "./confirm";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
@@ -525,7 +527,7 @@ function Apps({ mate }: { mate: Mate }) {
           <li key={server.key} className="flex items-center gap-2 rounded-2xl bg-muted/40 px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13px] font-medium text-foreground">
-                {server.server?.title ?? server.name}
+                {server.app ? connectorLabel(server) : (server.server?.title ?? server.name)}
               </div>
               <div className="truncate text-xs text-muted-foreground">
                 {server.status === "connected" ? `${server.tools.length} tools` : server.status}
@@ -623,6 +625,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
             </TabsContent>
             <TabsContent value="apps" className="flex flex-col gap-6">
               <Apps mate={mate} />
+              <MateConnectedApps mate={mate} />
               <MateSkills mate={mate} />
               <Secrets mate={mate} />
             </TabsContent>

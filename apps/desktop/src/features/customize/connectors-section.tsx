@@ -18,7 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { mcp, type Connector, type ConnectorConfig, type ConnectorStatus, type ProjectState, type ToolPermission } from "@/lib/mcp";
+import { connectorLabel, mcp, type Connector, type ConnectorConfig, type ConnectorStatus, type ProjectState, type ToolPermission } from "@/lib/mcp";
+import { useUiStore } from "@/stores/ui-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { Badge, EmptyNote, IconAction, ListRow, Properties, Split } from "./customize-parts";
@@ -289,7 +290,7 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="truncate text-base font-semibold">{connector.name}</h2>
+            <h2 className="truncate text-base font-semibold">{connectorLabel(connector)}</h2>
             <Badge>{connector.kind === "stdio" ? "Command" : connector.kind === "sse" ? "URL · SSE" : "URL"}</Badge>
             {connector.project && <Badge tone="brand">Project</Badge>}
             {connector.signedIn && <Badge>Signed in</Badge>}
@@ -301,15 +302,20 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
           <IconAction label="Reconnect" onClick={() => void mcp.reconnect(connector.key)}>
             <RefreshCwIcon className={cn(connector.status === "connecting" && "animate-spin")} />
           </IconAction>
-          {connector.kind !== "stdio" && connector.kind !== "invalid" && (
+          {!connector.app && connector.kind !== "stdio" && connector.kind !== "invalid" && (
             <SignInButton connector={connector} />
           )}
-          {!connector.project && (
+          {!connector.project && !connector.app && (
             <IconAction label="Edit" onClick={onEdit}>
               <PencilIcon />
             </IconAction>
           )}
-          {confirmRemove ? (
+          {connector.app ? (
+            // Connected apps: its key and accounts are managed on their own page.
+            <Button size="sm" variant="outline" onClick={() => useUiStore.getState().openCustomize("connected-apps")}>
+              Manage
+            </Button>
+          ) : confirmRemove ? (
             <Button size="sm" variant="destructive" onClick={() => void mcp.remove(connector.key)} onBlur={() => setConfirmRemove(false)}>
               Remove
             </Button>
@@ -318,7 +324,9 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
               <Trash2Icon />
             </IconAction>
           )}
-          <Switch aria-label={on ? "Turn off" : "Turn on"} checked={on} onCheckedChange={(next) => void mcp.setEnabled(connector.key, next)} />
+          {!connector.app && (
+            <Switch aria-label={on ? "Turn off" : "Turn on"} checked={on} onCheckedChange={(next) => void mcp.setEnabled(connector.key, next)} />
+          )}
         </div>
       </header>
 
@@ -585,7 +593,7 @@ export function ConnectorsSection({ query }: { query: string }) {
                   selected={current?.key === connector.key}
                   onSelect={() => setSelected(connector.key)}
                   icon={<KindIcon kind={connector.kind} />}
-                  title={connector.name}
+                  title={connectorLabel(connector)}
                   description={connector.summary}
                   meta={<Status connector={connector} />}
                   dimmed={connector.status === "off"}

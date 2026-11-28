@@ -48,8 +48,8 @@ Connect card works; Harness chats switch them per chat.
 - [x] T15 [FR-10] Failing tests then mate grants for connected services: tools offered, search results filtered, calls to other services or accounts refused; new services reach All, not Only these; template and team-file defaults — `mates/mod.rs`, `gate.rs`, `crates/evo-store/src/mates.rs` — check: shell tests `a_mate_on_only_these_cannot_use_personal`, `a_new_service_reaches_mates_on_all`
 - [ ] T16 [FR-10] Mate panel Apps tab: per service All tools / These tools / None and Accounts this mate may use — `features/mates/mate-panel.tsx` — check: manual
 - [ ] T17 [FR-11] `connect_app` standing and flow for connected services; `MANAGE_CONNECTIONS` turned into the card; the mate goes on after sign-in — `agent_tools/mates.rs`, `gate.rs` — check: shell test `manage_connections_shows_the_connect_card`; manual
-- [ ] T18 [FR-12] Harness `+` menu switch and project switch for Connected apps — `features/chat/composer-*`, `agent_tools/mcp.rs` — check: shell test `connected_apps_off_in_a_chat_offers_none`
-- [ ] T19 [FR-19] Transcript label "Called <service> · <tool> (<account>)" — `components/ai-elements/tool-labels.ts` — check: UI unit test
+- [x] T18 [FR-12] Harness `+` menu switch and project switch for Connected apps — `features/chat/composer-*`, `agent_tools/mcp.rs` — check: shell test `connected_apps_off_in_a_chat_offers_none`
+- [x] T19 [FR-19] Transcript label "Called <service> · <tool> (<account>)" — `components/ai-elements/tool-labels.ts` — check: UI unit test
 
 ### Phase 5 — Verify and docs
 

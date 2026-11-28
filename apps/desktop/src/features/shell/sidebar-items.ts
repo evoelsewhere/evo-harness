@@ -3,6 +3,7 @@
 // the sidebar row, the More menu and Edit sidebar all read this list.
 
 import * as React from "react";
+import { AppWindowIcon } from "lucide-react";
 import { PluginsIcon, SchedulerIcon, UsageIcon } from "@/components/icons/tool-icons";
 import { pluginIcon } from "@/features/plugin-ui";
 import { usePluginUiStore, type PluginViewRef } from "@/stores/plugin-ui-store";
@@ -47,6 +48,15 @@ export const SIDEBAR_ITEMS: readonly SidebarItem[] = [
     defaultShown: false,
     open: () => useUiStore.getState().openCustomize(),
     isActive: (ui) => ui.customizeOpen,
+  },
+  {
+    // docs/features/connected-apps/spec.md, FR-3.
+    id: "connected-apps",
+    label: "Connected apps",
+    icon: AppWindowIcon,
+    defaultShown: false,
+    open: () => useUiStore.getState().openCustomize("connected-apps"),
+    isActive: (ui) => ui.customizeOpen && ui.customizeSection === "connected-apps",
   },
 ];
 

@@ -79,6 +79,8 @@ export type MatePatch = Partial<
 > & {
   /** The skills the mate may use; `null`: every skill (FR-44). */
   skills?: string[] | null;
+  /** The apps the mate may use; `null`: every connected app (FR-39). */
+  apps?: unknown[] | null;
   provider?: string | null;
   model?: string | null;
   thinking?: string | null;

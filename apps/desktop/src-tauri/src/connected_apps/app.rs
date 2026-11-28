@@ -349,6 +349,29 @@ pub async fn apps_reconnect(app: AppHandle, account_id: String) -> Result<Value,
     Ok(json!({ "pendingId": pending.id, "label": pending.label }))
 }
 
+/// The tools of one service, for a mate's These tools list (FR-10):
+/// `{slug, name, description, read}`.
+#[tauri::command]
+pub async fn apps_tools(app: AppHandle, toolkit: String) -> Result<Vec<Value>, String> {
+    let state = state(&app).ok_or("Connected apps is not ready.")?;
+    let client = state.service.client().ok_or("No Composio key is saved.")?;
+    let toolkit = toolkit.trim().to_ascii_lowercase();
+    let items = client.tools(&toolkit).await.map_err(|e| e.to_string())?;
+    Ok(items
+        .iter()
+        .filter_map(|t| {
+            let slug = t.get("slug").and_then(Value::as_str)?.to_ascii_uppercase();
+            let read = super::gate::class(&slug, &toolkit, Some(t)) == super::gate::Class::Read;
+            Some(json!({
+                "slug": slug,
+                "name": t.get("name").and_then(Value::as_str).unwrap_or(&slug),
+                "description": t.get("description").and_then(Value::as_str).unwrap_or(""),
+                "read": read,
+            }))
+        })
+        .collect())
+}
+
 /// Try Composio again now (the page's Retry).
 #[tauri::command]
 pub async fn apps_retry(app: AppHandle) -> Result<(), String> {

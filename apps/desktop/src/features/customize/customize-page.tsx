@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  AppWindowIcon,
   BlocksIcon,
   BracesIcon,
   ChevronDownIcon,
@@ -44,6 +45,7 @@ import { useCustomizeStore, type AgentInfo, type SkillInfo, type SkillState } fr
 import { useEngineStore } from "@/stores/engine-store";
 import { useUiStore, type CustomizeSection } from "@/stores/ui-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
+import { ConnectedAppsPage } from "@/features/connected-apps";
 import { ConnectorsSection } from "./connectors-section";
 import { HooksSection } from "./hooks-section";
 import { InstructionsSection } from "./instructions-section";
@@ -63,6 +65,7 @@ const sections: { id: CustomizeSection; title: string; icon: React.ComponentType
   { id: "skills", title: "Skills", icon: ScrollTextIcon },
   { id: "agents", title: "Subagents", icon: AgentIcon },
   { id: "connectors", title: "Connectors", icon: PlugIcon },
+  { id: "connected-apps", title: "Connected apps", icon: AppWindowIcon },
   { id: "plugins", title: "Plugins", icon: BlocksIcon },
   { id: "hooks", title: "Hooks", icon: WebhookIcon },
   { id: "languages", title: "Code intelligence", icon: BracesIcon },
@@ -777,7 +780,7 @@ export function CustomizePage() {
             </button>
           ))}
         </nav>
-        {!current.soon && section !== "instructions" && (
+        {!current.soon && section !== "instructions" && section !== "connected-apps" && (
           <div className="ml-auto flex items-center gap-2">
             <SearchBox value={query} onChange={setQuery} placeholder={`Search ${current.title.toLowerCase()}`} />
             {section !== "connectors" && section !== "hooks" && section !== "plugins" && section !== "languages" && (
@@ -819,6 +822,10 @@ export function CustomizePage() {
         <LanguagesSection query={query} />
       ) : section === "connectors" ? (
         <ConnectorsSection query={query} />
+      ) : section === "connected-apps" ? (
+        <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto">
+          <ConnectedAppsPage className="mx-auto max-w-3xl px-6 py-5" />
+        </div>
       ) : section === "hooks" ? (
         <HooksSection query={query} />
       ) : section === "plugins" ? (

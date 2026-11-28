@@ -51,7 +51,7 @@ const legacyShell = (() => {
   }
 })();
 export type SettingsSection = "general" | "appearance" | "providers" | "memory" | "computer-apps" | "browser" | "engine" | "sandbox" | "experimental" | "mates" | "logs" | "about";
-export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "plugins" | "hooks" | "languages";
+export type CustomizeSection = "instructions" | "skills" | "agents" | "connectors" | "connected-apps" | "plugins" | "hooks" | "languages";
 
 /** The side panel's tabs of one chat. */
 export interface ChatPanels {

@@ -3,9 +3,10 @@
 // Harness — and the empty state when no mate is open.
 
 import * as React from "react";
-import { ArrowLeftRightIcon, HashIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon, UploadIcon } from "lucide-react";
+import { AppWindowIcon, ArrowLeftRightIcon, HashIcon, MoonIcon, PauseIcon, PlayIcon, PlusIcon, SearchIcon, SunIcon, UploadIcon } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
+import { ConnectedAppsDialog, openConnectedApps } from "@/features/connected-apps";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { openApp } from "@/lib/apps";
 import { matesApi } from "@/lib/mates";
@@ -178,6 +179,10 @@ export function MatesSidebar({ titleBar }: { titleBar: React.ReactNode }) {
           Switch to Evo Harness
         </Button>
         <div className="flex-1" />
+        <IconButton label="Connected apps" onClick={openConnectedApps}>
+          <AppWindowIcon />
+        </IconButton>
+        <ConnectedAppsDialog />
         {mates.length > 0 && (
           <IconButton
             label={allPaused ? "Resume all mates" : "Pause all mates"}

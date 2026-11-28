@@ -299,3 +299,18 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   tab, then it waits up to 15 minutes. Schemas the gate needs are learned
   from search and schema results and fetched with
   `COMPOSIO_GET_TOOL_SCHEMAS` on a miss (memory only; no disk cache yet).
+- 2026-11-28 — UI: `stores/connected-apps-store.ts` (state via
+  `apps://changed`, catalogue on demand), `lib/connected-apps.ts` (command
+  surface), `features/connected-apps/` (`KeyCard`, `ConnectedAppsPage`,
+  `ConnectDialog`, `MateConnectedApps`, `ConnectedAppsDialog`). Placements:
+  Customize section `connected-apps`; More-menu item `connected-apps`
+  (hidden by default, opens that section); Settings › Evo Mates has the key
+  card and "Open Connected apps"; Evo Mates (no Settings window of its own)
+  opens the page as a dialog from its sidebar footer and from a mate's Apps
+  tab ("Manage"). Services show a monogram tile, not Composio's logo: the
+  app's CSP does not load remote images and widening it is not worth it
+  here. A mate's These tools list comes from one more command,
+  `apps_tools(toolkit)` (`GET /tools?toolkit_slug=`). The app server shows
+  as "Connected apps" (`connectorLabel`) in the composer's `+` menu, the
+  mate's Apps list and Customize → Connectors, where it has Manage instead
+  of Edit, Remove and the on/off switch.

@@ -168,6 +168,12 @@ impl Composio {
         self.request(Method::GET, &path, None).await
     }
 
+    /// The tools of `toolkit` (all pages, up to a few hundred).
+    pub async fn tools(&self, toolkit: &str) -> Result<Vec<Value>, ApiError> {
+        self.all_pages(&format!("/tools?toolkit_slug={}&limit=200", enc(toolkit)))
+            .await
+    }
+
     /// A sign-in link for `toolkit` under `alias`.
     pub async fn link(&self, session: &str, toolkit: &str, alias: &str) -> Result<Value, ApiError> {
         let body = json!({ "toolkit": toolkit, "alias": alias });

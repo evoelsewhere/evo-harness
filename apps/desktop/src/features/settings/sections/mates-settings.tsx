@@ -18,6 +18,8 @@ import { db, log } from "@/lib/db";
 import { channelsApi } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
 import { useEngineStore } from "@/stores/engine-store";
+import { ComposioNote, KeyCard } from "@/features/connected-apps";
+import { useUiStore } from "@/stores/ui-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
 // Settings → Evo Mates (docs/features/evo-mates/spec.md, FR-18): how many
@@ -139,6 +141,13 @@ export function MatesSettings() {
           description="Under Auto, this model reads a message that mentions nobody and picks the mate. By default the cheapest connected model fit for tools. Its cost shows in Usage under Evo Mates."
           control={<RouterModelPicker value={router} onChange={saveRouter} />}
         />
+      </SettingsGroup>
+      {/* docs/features/connected-apps/spec.md, FR-1, FR-2. */}
+      <SettingsGroup title="Connected apps" description={<ComposioNote />}>
+        <KeyCard compact />
+        <Button size="sm" variant="outline" className="w-fit" onClick={() => useUiStore.getState().openCustomize("connected-apps")}>
+          Open Connected apps
+        </Button>
       </SettingsGroup>
     </div>
   );
