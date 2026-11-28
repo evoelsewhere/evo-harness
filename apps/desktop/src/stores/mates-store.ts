@@ -212,11 +212,11 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
       await get().open(mate.id);
       // The new mate greets the person and asks its setup questions first
       // (FR-34, ux.md 5): picking it is what asks for that (A-5).
-      if (useEngineStore.getState().activeId === mate.chatId) {
-        void useEngineStore
-          .getState()
-          .sendPrompt(GREETING_PROMPT)
-          .catch(report("waking the new mate"));
+      // Once its engine is up and its (empty) history is shown: a prompt sent
+      // while the new conversation still loads is answered but never shown.
+      const engine = useEngineStore.getState();
+      if (engine.activeId === mate.chatId && (await engine.wakeEngine(mate.chatId)) && useEngineStore.getState().activeId === mate.chatId) {
+        void useEngineStore.getState().sendPrompt(GREETING_PROMPT).catch(report("waking the new mate"));
       }
       return mate;
     } catch (error) {
