@@ -239,7 +239,7 @@ Acceptance scenarios:
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
 | NFR-1 | No view scrolls sideways at 1440, 1180, 900, 760 and 640 px wide, light or dark. | The QA overflow scan (`scrollWidth > clientWidth`) on each view at each width. |
-| NFR-2 | Light and dark both follow DESIGN.md's tokens; presence colours and text on tints keep WCAG AA contrast; the Mates colour layer (DESIGN.md "Evo Mates layer") is the only place mate hues show (6.1 Q1). | Screenshots in both themes; contrast check of the marks and badges. |
+| NFR-2 | Light and dark both follow DESIGN.md's tokens; presence colours and text on tints keep WCAG AA contrast; the Mates colour layer (DESIGN.md "Evo Mates layer", with the profile hero band of 6.2) is the only place mate hues show. | Screenshots in both themes; contrast check of the marks and badges. |
 | NFR-3 | Reduced motion stops every pulse, lift and face loop. | Emulated reduced motion: nothing moves. |
 | NFR-4 | No change to the engine, the protocol or the database; window preferences live with the app's other UI preferences. | Diff review. |
 | NFR-5 | With 50 mates and 20 channels the switcher opens and filters within 100 ms and the sidebar scrolls smoothly. | Measured in the fake-IPC harness. |
@@ -261,22 +261,20 @@ Acceptance scenarios:
 
 ### 6.1 Open
 
-1. [NEEDS CLARIFICATION: may the profile hero's band use the mate's colour
-   (a soft tint), extending DESIGN.md's Evo Mates layer beyond face, plate,
-   bubble tint and mention chip?] — proposed answer: yes, at the plate's
-   strength; nothing else gets the mate's hue.
-2. [NEEDS CLARIFICATION: Ctrl+K becomes a quick switcher (mates, channels,
-   actions, messages) instead of focusing the sidebar search?] — proposed
-   answer: yes; the search box stays for filtering the roster.
-3. [NEEDS CLARIFICATION: fold the sidebar to a rail of faces under 760 px
-   and on Ctrl+B, rather than hiding it?] — proposed answer: yes.
-4. [NEEDS CLARIFICATION: leave side-panel threads in channels out of this
-   round (replies stay quotes that jump to the original)?] — proposed
-   answer: yes; threads need engine routing.
+None.
 
 ### 6.2 Resolved
 
-None yet.
+- 2026-11-28 — Q: May the profile hero's band use the mate's colour, extending
+  DESIGN.md's Evo Mates layer? → A: yes, a soft tint at the plate's strength;
+  nothing else gets the mate's hue (FR-22, NFR-2).
+- 2026-11-28 — Q: Ctrl+K becomes a quick switcher instead of focusing the
+  sidebar search? → A: yes; the search box stays for filtering the roster
+  (FR-7).
+- 2026-11-28 — Q: Fold the sidebar to a rail of faces under 760 px and on
+  Ctrl+B? → A: yes (FR-1, FR-2).
+- 2026-11-28 — Q: Leave side-panel threads in channels out of this round? →
+  A: yes; replies stay quotes that jump to the original (2.2, FR-16).
 
 ### 6.3 Assumptions
 
@@ -297,3 +295,5 @@ None yet.
 - 2026-11-28 — Draft, from the owner's request for a richer Evo Mates UI;
   research of team-chat and AI-teammate apps ([research.md](research.md));
   four questions open (6.1).
+- 2026-11-28 — Gate A: the owner accepted the spec with the four proposed
+  answers (6.2).
