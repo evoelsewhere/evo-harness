@@ -542,6 +542,10 @@ async fn connect(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Value) -> 
     if asked.is_empty() {
         return ToolOutput::error("Name the app to connect.");
     }
+    // A connected-apps service (Gmail, Slack…): its own card (connected-apps FR-11).
+    if let Some(output) = crate::connected_apps::run::connect_named(ctx, mate, &asked, &reason).await {
+        return output;
+    }
     let now = |ctx: &ToolCtx| {
         standing(
             &servers(&ctx.app),

@@ -1278,6 +1278,16 @@ impl Pool {
             .unwrap_or_default()
     }
 
+    /// The permission the person (or the app's defaults) set for `tool`
+    /// of the app server `name` — a tool of the server, or a name the app
+    /// keeps its own choices under; `None`: not set.
+    pub fn app_permission(&self, name: &str, tool: &str) -> Option<Permission> {
+        let servers = self.shared.servers.lock().unwrap();
+        servers
+            .get(&self.app_key(name))
+            .and_then(|e| e.config.tool_permissions.get(tool).copied())
+    }
+
     /// Change the saved part of the app server `name` (`appServers[name]`).
     fn save_app(&self, name: &str, change: impl FnOnce(&mut Value)) -> Result<(), String> {
         self.save(|file| {
@@ -2013,6 +2023,14 @@ mod tests {
         // A saved choice wins over the default, and survives a new session.
         pool.set_permission(&key, "COMPOSIO_REMOTE_BASH_TOOL", Permission::Ask)
             .unwrap();
+        assert_eq!(
+            pool.app_permission("connected_apps", "COMPOSIO_REMOTE_BASH_TOOL"),
+            Some(Permission::Ask)
+        );
+        assert_eq!(
+            pool.app_permission("connected_apps", "GMAIL_SEND_EMAIL"),
+            None
+        );
         let mut changed = app(&[("COMPOSIO_REMOTE_BASH_TOOL", Permission::Block)]);
         changed.config.url = Some("http://127.0.0.1:1/tool_router/trs_2/mcp".into());
         pool.set_app_server(Some(changed)).await;

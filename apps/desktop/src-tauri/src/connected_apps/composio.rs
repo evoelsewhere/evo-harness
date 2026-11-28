@@ -87,15 +87,6 @@ impl Composio {
         })
     }
 
-    pub fn base(&self) -> &str {
-        &self.base
-    }
-
-    /// The key, for the session's MCP header only.
-    pub fn key(&self) -> &str {
-        &self.key
-    }
-
     pub async fn request(
         &self,
         method: Method,
@@ -166,19 +157,6 @@ impl Composio {
             Some(body),
         )
         .await
-    }
-
-    /// One page of the session's toolkits.
-    pub async fn session_toolkits(
-        &self,
-        session: &str,
-        cursor: Option<&str>,
-    ) -> Result<Value, ApiError> {
-        let mut path = format!("/tool_router/session/{}/toolkits?limit=1000", enc(session));
-        if let Some(cursor) = cursor {
-            path.push_str(&format!("&cursor={}", enc(cursor)));
-        }
-        self.request(Method::GET, &path, None).await
     }
 
     /// One page of Composio's catalogue (names, logos, categories).

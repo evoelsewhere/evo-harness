@@ -6,9 +6,6 @@
 //! session ids (`app_settings`). Keychain calls may block: callers run
 //! them off the async runtime.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use evo_vault::KeyStore;
 use serde_json::Value;
 
@@ -58,9 +55,11 @@ impl dyn Settings + '_ {
 }
 
 /// Settings in memory, for tests.
+#[cfg(test)]
 #[derive(Default)]
-pub struct MemorySettings(pub Mutex<HashMap<String, Value>>);
+pub struct MemorySettings(pub std::sync::Mutex<std::collections::HashMap<String, Value>>);
 
+#[cfg(test)]
 impl Settings for MemorySettings {
     fn get(&self, key: &str) -> Option<Value> {
         self.0.lock().unwrap().get(key).cloned()

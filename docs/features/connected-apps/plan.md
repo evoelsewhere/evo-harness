@@ -273,3 +273,29 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   ten minutes, then emits `apps://connected` and `apps://changed` and
   re-sends chats' tools. One more command, `apps_retry`, tries Composio
   again at once.
+- 2026-11-28 — `agent_tools/mcp.rs` hands every call of the
+  `app:connected_apps` server to `connected_apps::run::call` (one branch in
+  `run_tool`) and filters the chat's tools with `run::offered` (one line
+  in `chat_tools`). Class and approval (`run::decide`): a reading tool
+  follows its permission — default Allow, saved per app tool slug under
+  `appServers.connected_apps.toolPermissions` — and may be always allowed
+  (Harness: Allow for the slug; a mate: a grant
+  `mcp__connected_apps__<SLUG>`); a sending tool asks Allow once / Deny in
+  Harness chats every time, and for a mate per Sending on your behalf
+  (`grants::plan`). The pool's own permission on `MULTI_EXECUTE` stays
+  Ask (its default) but is not what asks: the gate is.
+- 2026-11-28 — The project switch (FR-12) is `"connectedApps": false` in
+  the project's `.evo/settings.json` (nearest one up to the repository
+  root); switching a capability off needs no project trust. The chat
+  switch is the existing per-chat switch on the server key
+  `app:connected_apps`.
+- 2026-11-28 — Mates: a mate from a gallery role starts with `apps: []`
+  (no connected service); a team file's `connectors` become
+  `{service: "composio:<name>", tools: "none"}` entries, and team import
+  no longer switches the Connected apps connector off for the chat (its
+  services are governed by `apps`). `connect_app` and
+  `COMPOSIO_MANAGE_CONNECTIONS` use one card (`run::connect_card`):
+  Connect / Reconnect starts the sign-in, Open Apps opens the mate's Apps
+  tab, then it waits up to 15 minutes. Schemas the gate needs are learned
+  from search and schema results and fetched with
+  `COMPOSIO_GET_TOOL_SCHEMAS` on a miss (memory only; no disk cache yet).

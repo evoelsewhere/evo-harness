@@ -35,17 +35,17 @@ Done when: every call to an app tool is checked for account, grant, class,
 schema and files before it leaves Evo.
 
 - [x] T10 [FR-8, FR-9] Failing tests then `gate.rs`: parse `MULTI_EXECUTE` (unknown shape refused), account required with several, schema check from cached schemas with the "shape, not access" text — `connected_apps/gate.rs` — check: shell tests `an_account_is_required_with_two`, `a_bad_argument_is_refused_before_sending`
-- [ ] T11 [FR-13] Class read/send and the cards: read verbs or Composio's read-only mark → read; else sending through the existing ask and `mate_gate`, card with service, account, arguments — `gate.rs`, `agent_tools/mcp.rs`, `mates/grants.rs` — check: shell test `a_send_tool_asks_under_ask_every_time`
-- [ ] T12 [FR-7] Meta-tool policy: search, schemas, wait pass; workbench, bash, proxy Block by default and never for a mate with limited apps — `gate.rs`, `pool.rs` defaults — check: shell test `the_sandbox_is_closed_to_a_limited_mate`
+- [x] T11 [FR-13] Class read/send and the cards: read verbs or Composio's read-only mark → read; else sending through the existing ask and `mate_gate`, card with service, account, arguments — `gate.rs`, `agent_tools/mcp.rs`, `mates/grants.rs` — check: shell test `a_send_tool_asks_under_ask_every_time`
+- [x] T12 [FR-7] Meta-tool policy: search, schemas, wait pass; workbench, bash, proxy Block by default and never for a mate with limited apps — `gate.rs`, `pool.rs` defaults — check: shell test `the_sandbox_is_closed_to_a_limited_mate`
 - [x] T13 [FR-14] Failing tests then `files.rs`: allowed roots, hidden components, Evo data, 10 files, listed on the card, uploaded after the last check — `connected_apps/files.rs` — check: shell tests `a_hidden_file_is_never_uploaded`, `files_upload_only_after_approval`
-- [ ] T14 [FR-15] Scope refusal note — `connected_apps/errors.rs` — check: shell test with a fixture 403
+- [x] T14 [FR-15] Scope refusal note — `connected_apps/errors.rs` — check: shell test with a fixture 403
 
 ### Phase 4 — Mates and Harness
 
 Done when: mate grants hold for connected services and accounts; the
 Connect card works; Harness chats switch them per chat.
 
-- [ ] T15 [FR-10] Failing tests then mate grants for connected services: tools offered, search results filtered, calls to other services or accounts refused; new services reach All, not Only these; template and team-file defaults — `mates/mod.rs`, `gate.rs`, `crates/evo-store/src/mates.rs` — check: shell tests `a_mate_on_only_these_cannot_use_personal`, `a_new_service_reaches_mates_on_all`
+- [x] T15 [FR-10] Failing tests then mate grants for connected services: tools offered, search results filtered, calls to other services or accounts refused; new services reach All, not Only these; template and team-file defaults — `mates/mod.rs`, `gate.rs`, `crates/evo-store/src/mates.rs` — check: shell tests `a_mate_on_only_these_cannot_use_personal`, `a_new_service_reaches_mates_on_all`
 - [ ] T16 [FR-10] Mate panel Apps tab: per service All tools / These tools / None and Accounts this mate may use — `features/mates/mate-panel.tsx` — check: manual
 - [ ] T17 [FR-11] `connect_app` standing and flow for connected services; `MANAGE_CONNECTIONS` turned into the card; the mate goes on after sign-in — `agent_tools/mates.rs`, `gate.rs` — check: shell test `manage_connections_shows_the_connect_card`; manual
 - [ ] T18 [FR-12] Harness `+` menu switch and project switch for Connected apps — `features/chat/composer-*`, `agent_tools/mcp.rs` — check: shell test `connected_apps_off_in_a_chat_offers_none`

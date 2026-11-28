@@ -19,11 +19,13 @@ pub mod app;
 pub mod catalog;
 pub mod composio;
 pub mod connect;
+pub mod errors;
 #[cfg(test)]
 pub mod fake;
 pub mod files;
 pub mod gate;
 pub mod key;
+pub mod run;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -306,13 +308,6 @@ impl Service {
 
     pub fn set_accounts(&self, accounts: Vec<Account>) {
         self.lock().accounts = accounts;
-    }
-
-    /// Mark Composio unreachable (or reachable again).
-    pub fn set_reach(&self, reach: Reach, reason: Option<String>) {
-        let mut inner = self.lock();
-        inner.reach = Some(reach);
-        inner.reason = reason;
     }
 }
 

@@ -164,6 +164,11 @@ impl Apps {
         }
     }
 
+    /// Whether any tool of `toolkit` may be used.
+    pub fn service_allowed(&self, toolkit: &str) -> bool {
+        self.grant(toolkit).is_some_and(|g| g.tools != Tools::None)
+    }
+
     /// Whether tool `slug` of `toolkit` may be used.
     pub fn allows(&self, toolkit: &str, slug: &str) -> bool {
         match self.grant(toolkit).map(|g| g.tools) {
@@ -172,6 +177,25 @@ impl Apps {
             Some(Tools::None) | None => false,
         }
     }
+}
+
+/// The `apps` entries of the services a template or team file names, each
+/// off: the person turns on what the mate may use (FR-10).
+pub fn named_services(names: &[String]) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for name in names {
+        let toolkit: String = name
+            .trim()
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        let service = format!("{SERVICE_PREFIX}{toolkit}");
+        if !toolkit.is_empty() && !out.iter().any(|e| e["service"] == service.as_str()) {
+            out.push(json!({ "service": service, "tools": "none" }));
+        }
+    }
+    out
 }
 
 // ── Parsing a MULTI_EXECUTE call ────────────────────────────────────────────
@@ -670,7 +694,12 @@ pub trait Backend: Send + Sync {
     /// The person's answer: an option's index, or -1 when the call was dropped.
     fn ask(&self, title: String, body: String, options: Vec<String>) -> BoxFuture<i32>;
     /// Upload one file; what to send instead of its path.
-    fn upload(&self, file: LocalFile) -> BoxFuture<Result<Value, String>>;
+    fn upload(
+        &self,
+        toolkit: String,
+        slug: String,
+        file: LocalFile,
+    ) -> BoxFuture<Result<Value, String>>;
 }
 
 /// How a run ended before the call.
@@ -715,7 +744,7 @@ pub async fn prepare(
     for c in &checked {
         for f in &c.files {
             let value = backend
-                .upload(f.clone())
+                .upload(c.call.toolkit.clone(), c.call.slug.clone(), f.clone())
                 .await
                 .map_err(|e| Stop::Refused(format!("{} could not be uploaded: {e}", f.name)))?;
             uploads.insert((c.call.index, f.pointer.clone()), value);
@@ -980,7 +1009,12 @@ mod tests {
             let answer = self.answer;
             Box::pin(async move { answer })
         }
-        fn upload(&self, file: LocalFile) -> BoxFuture<Result<Value, String>> {
+        fn upload(
+            &self,
+            _toolkit: String,
+            _slug: String,
+            file: LocalFile,
+        ) -> BoxFuture<Result<Value, String>> {
             self.order.lock().unwrap().push("upload");
             self.uploads.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move { Ok(json!({"name": file.name, "s3key": "k/1"})) })
@@ -1099,6 +1133,86 @@ mod tests {
             .get("GMAIL_SEND_EMAIL")
             .is_none());
         assert_eq!(filter_search(&result, &Apps::All, &[]), result);
+    }
+
+    #[test]
+    fn a_mate_on_only_these_cannot_use_personal() {
+        let apps = Apps::of_mate(Some(&vec![
+            json!({"service": "composio:gmail", "tools": "all", "accounts": ["work"]}),
+        ]));
+        let world = World::new(two_gmail(), apps);
+        let Err(Refusal::Text(text)) = check(&fetch(Some("personal")), &world.ctx()) else {
+            panic!("refused")
+        };
+        assert!(
+            text.contains("not one you may use") && text.contains("work"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("personal,"),
+            "only the accounts it may use are offered: {text}"
+        );
+        // Its one account is used without naming it.
+        assert_eq!(
+            check(&fetch(None), &world.ctx()).unwrap()[0].account.label,
+            "work"
+        );
+        // Other services' tools are not its own.
+        let args = json!({"tools": [{"tool_slug": "GITHUB_LIST_ISSUES", "arguments": {}}]});
+        let mut accounts = two_gmail();
+        accounts.push(account("ca_g", "github", "personal", Status::Active));
+        let world = World::new(accounts, world.apps.clone());
+        assert_eq!(
+            check(&args, &world.ctx()).unwrap_err(),
+            Refusal::Connect {
+                toolkit: "github".into(),
+                reason: Need::NotAllowed
+            }
+        );
+    }
+
+    #[test]
+    fn a_new_service_reaches_mates_on_all() {
+        let notion = vec![account("ca_n", "notion", "personal", Status::Active)];
+        let mut tools = known_tools();
+        tools.insert(
+            "NOTION_SEARCH".into(),
+            json!({"slug": "NOTION_SEARCH", "input_parameters": {"type": "object"}}),
+        );
+        let args = json!({"tools": [{"tool_slug": "NOTION_SEARCH", "arguments": {}}]});
+        let mut world = World::new(notion.clone(), Apps::of_mate(None));
+        world.tools = tools.clone();
+        assert!(
+            check(&args, &world.ctx()).is_ok(),
+            "All connected apps: a service connected later is its"
+        );
+        let mut world = World::new(
+            notion,
+            Apps::of_mate(Some(&vec![json!({"service": "composio:gmail"})])),
+        );
+        world.tools = tools;
+        assert_eq!(
+            check(&args, &world.ctx()).unwrap_err(),
+            Refusal::Connect {
+                toolkit: "notion".into(),
+                reason: Need::NotAllowed
+            },
+            "Only these: not until the person adds it"
+        );
+        // From a team file: the services it names, each off.
+        let named = named_services(&["Gmail".into(), "slack".into(), "gmail".into()]);
+        assert_eq!(
+            named,
+            vec![
+                json!({"service": "composio:gmail", "tools": "none"}),
+                json!({"service": "composio:slack", "tools": "none"})
+            ]
+        );
+        assert!(!Apps::of_mate(Some(&named)).service_allowed("gmail"));
+        assert!(
+            Apps::of_mate(Some(&vec![])).limited(),
+            "a gallery role's mate starts with none"
+        );
     }
 
     #[test]

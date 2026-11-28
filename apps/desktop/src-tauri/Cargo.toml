@@ -58,6 +58,8 @@ regex = "1"
 # Connected apps: app tool calls are checked against their schema before
 # they leave Evo (src/connected_apps/gate.rs, connected-apps FR-9).
 jsonschema = { version = "0.60", default-features = false }
+# Connected apps: Composio asks for a file's MD5 before it is uploaded.
+md-5 = "0.10"
 # Scheduler tools: next run of a schedule on the local clock (src/agent_tools/scheduler).
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # "Open in" menu: app icons as PNG data URLs.
