@@ -1,0 +1,112 @@
+{
+  "name": "memory-journal-and-undo",
+  "world": "memory",
+  "about": "Every change is a journal row with its author; undo puts the text back and is a row itself; secrets never reach disk.",
+  "steps": [
+    {
+      "do": "agent",
+      "params": {
+        "action": "save",
+        "name": "style",
+        "type": "feedback",
+        "content": "Small commits."
+      },
+      "expect": [
+        {
+          "journalHas": {
+            "by": "agent",
+            "action": "added",
+            "name": "style"
+          }
+        },
+        {
+          "memoryHas": {
+            "topic": "style",
+            "text": "Small commits."
+          }
+        }
+      ]
+    },
+    {
+      "do": "agent",
+      "params": {
+        "action": "update",
+        "name": "style",
+        "new_text": "No force pushes."
+      },
+      "expect": [
+        {
+          "memoryHas": "No force pushes."
+        }
+      ]
+    },
+    {
+      "do": "person",
+      "topic": "style",
+      "type": "feedback",
+      "body": "Small commits.\nRebase first.",
+      "expect": [
+        {
+          "journalHas": {
+            "by": "person",
+            "action": "updated"
+          }
+        },
+        {
+          "memoryLacks": "No force pushes."
+        }
+      ]
+    },
+    {
+      "do": "undoLast",
+      "by": "person",
+      "expect": [
+        {
+          "memoryHas": "No force pushes."
+        },
+        {
+          "journalHas": {
+            "by": "undo",
+            "action": "undone"
+          }
+        }
+      ]
+    },
+    {
+      "do": "person",
+      "topic": "style",
+      "type": "feedback",
+      "body": "Overwritten.",
+      "opened": "stale",
+      "expect": [
+        {
+          "path": "result.saved",
+          "equals": false
+        },
+        {
+          "memoryLacks": "Overwritten."
+        }
+      ]
+    },
+    {
+      "do": "agent",
+      "params": {
+        "action": "save",
+        "name": "keys",
+        "type": "reference",
+        "content": "my key is sk-abcdef0123456789abcdef"
+      },
+      "expect": [
+        {
+          "memoryLacks": "sk-abcdef"
+        },
+        {
+          "memoryHas": {
+            "topic": "keys",
+            "text": "«redacted"
+          }
+        }
+      ]
+    }
+  ]
+}

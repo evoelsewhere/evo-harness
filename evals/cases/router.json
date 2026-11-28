@@ -1,0 +1,164 @@
+[
+  {
+    "name": "a mention decides",
+    "channel": {
+      "members": [
+        {
+          "id": "plan",
+          "name": "Planner"
+        },
+        {
+          "id": "write",
+          "name": "Writer"
+        },
+        {
+          "id": "res",
+          "name": "Researcher"
+        }
+      ],
+      "rule": "auto",
+      "lead": "plan"
+    },
+    "text": "@Researcher find three sources",
+    "expect": [
+      "res"
+    ]
+  },
+  {
+    "name": "everyone",
+    "channel": {
+      "members": [
+        {
+          "id": "plan",
+          "name": "Planner"
+        },
+        {
+          "id": "write",
+          "name": "Writer"
+        },
+        {
+          "id": "res",
+          "name": "Researcher"
+        }
+      ],
+      "rule": "auto",
+      "lead": "plan"
+    },
+    "text": "@everyone status please",
+    "expect": [
+      "plan",
+      "write",
+      "res"
+    ]
+  },
+  {
+    "name": "a sure router pick",
+    "channel": {
+      "members": [
+        {
+          "id": "plan",
+          "name": "Planner"
+        },
+        {
+          "id": "write",
+          "name": "Writer"
+        },
+        {
+          "id": "res",
+          "name": "Researcher"
+        }
+      ],
+      "rule": "auto",
+      "lead": "plan"
+    },
+    "text": "Who can draft the post?",
+    "router": {
+      "pick": "write",
+      "confidence": 0.9
+    },
+    "expect": [
+      "write"
+    ]
+  },
+  {
+    "name": "an unsure router falls to the lead",
+    "channel": {
+      "members": [
+        {
+          "id": "plan",
+          "name": "Planner"
+        },
+        {
+          "id": "write",
+          "name": "Writer"
+        },
+        {
+          "id": "res",
+          "name": "Researcher"
+        }
+      ],
+      "rule": "auto",
+      "lead": "plan"
+    },
+    "text": "Thoughts?",
+    "router": {
+      "pick": "res",
+      "confidence": 0.4
+    },
+    "expect": [
+      "plan"
+    ]
+  },
+  {
+    "name": "a pick outside the channel falls to the lead",
+    "channel": {
+      "members": [
+        {
+          "id": "plan",
+          "name": "Planner"
+        },
+        {
+          "id": "write",
+          "name": "Writer"
+        },
+        {
+          "id": "res",
+          "name": "Researcher"
+        }
+      ],
+      "rule": "auto",
+      "lead": "plan"
+    },
+    "text": "Ideas?",
+    "router": {
+      "pick": "stranger",
+      "confidence": 0.95
+    },
+    "expect": [
+      "plan"
+    ]
+  },
+  {
+    "name": "mentioned-only needs a mention",
+    "channel": {
+      "members": [
+        {
+          "id": "plan",
+          "name": "Planner"
+        },
+        {
+          "id": "write",
+          "name": "Writer"
+        },
+        {
+          "id": "res",
+          "name": "Researcher"
+        }
+      ],
+      "rule": "mentioned",
+      "lead": "plan"
+    },
+    "text": "Anyone?",
+    "expect": []
+  }
+]

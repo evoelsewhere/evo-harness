@@ -1,0 +1,4 @@
+{
+  "maxDrift": 0.2,
+  "note": "The live tier fails when its pass rate drops by more than maxDrift from the last saved run."
+}

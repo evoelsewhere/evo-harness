@@ -11,3 +11,7 @@ Thumbs.db
 .evo/
 **/.evo/
 .agents/
+
+# Eval runs and the live tier's last run (docs/features/learning-layers/plan.md, 3.9)
+evals/reports/runs/
+evals/live/baselines/

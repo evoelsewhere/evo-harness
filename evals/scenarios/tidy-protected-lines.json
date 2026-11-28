@@ -1,0 +1,67 @@
+{
+  "name": "tidy-protected-lines",
+  "world": "memory",
+  "about": "The tidy-up strikes the older of a contradicting pair, never a protected line (health, a rule the person gave).",
+  "steps": [
+    {
+      "do": "seed",
+      "topic": "about",
+      "description": "About the person",
+      "body": "- 2026-10-01 · agent · Lives in Hanoi\n- 2026-10-02 · agent · Allergic to peanuts\n- 2026-10-03 · agent · Always reply in English\n- 2026-10-04 · agent · Works at Acme\n- 2026-10-05 · agent · Drives a red car\n- 2026-10-06 · agent · Likes tea\n- 2026-11-20 · agent · Lives in Da Nang\n- 2026-11-21 · agent · Never reply in English",
+      "expect": [
+        {
+          "memoryHas": "Lives in Hanoi"
+        }
+      ]
+    },
+    {
+      "do": "tidy",
+      "answers": [
+        {
+          "contradictions": [
+            {
+              "older": 1,
+              "newer": 5,
+              "keep": ""
+            },
+            {
+              "older": 2,
+              "newer": 5,
+              "keep": ""
+            }
+          ]
+        }
+      ],
+      "expect": [
+        {
+          "memoryLacks": "Lives in Hanoi"
+        },
+        {
+          "memoryHas": "Lives in Da Nang"
+        },
+        {
+          "memoryHas": "Allergic to peanuts"
+        },
+        {
+          "memoryHas": "Always reply in English"
+        },
+        {
+          "memoryHas": "Never reply in English"
+        },
+        {
+          "memoryHas": "Works at Acme"
+        },
+        {
+          "path": "result.struck",
+          "equals": 1
+        },
+        {
+          "journalHas": {
+            "by": "tidy",
+            "action": "updated"
+          }
+        }
+      ]
+    }
+  ]
+}

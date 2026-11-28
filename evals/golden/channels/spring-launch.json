@@ -1,0 +1,124 @@
+{
+  "channel": {
+    "members": [
+      {
+        "id": "m1",
+        "name": "Mate1"
+      },
+      {
+        "id": "m2",
+        "name": "Mate2"
+      },
+      {
+        "id": "m3",
+        "name": "Mate3"
+      }
+    ],
+    "rule": "auto",
+    "lead": "m1",
+    "limit": 12
+  },
+  "lines": [
+    {
+      "kind": "message",
+      "id": "m-1",
+      "author": "person",
+      "text": "[text 1] @Mate1",
+      "status": null
+    },
+    {
+      "kind": "route",
+      "message": "m-1",
+      "picked": [
+        "m1"
+      ]
+    },
+    {
+      "kind": "handoff",
+      "handoff": "assigns",
+      "from": "m1",
+      "to": "m2",
+      "text": "[text 2]"
+    },
+    {
+      "kind": "handoff",
+      "handoff": "assigns",
+      "from": "m1",
+      "to": "m3",
+      "text": "[text 3]"
+    },
+    {
+      "kind": "message",
+      "id": "r-1",
+      "author": "m1",
+      "text": "[text 4]",
+      "status": null
+    },
+    {
+      "kind": "message",
+      "id": "r-2",
+      "author": "m2",
+      "text": "[text 5] @Mate3?",
+      "status": null
+    },
+    {
+      "kind": "handoff",
+      "handoff": "asks",
+      "from": "m2",
+      "to": "m3",
+      "text": "[text 6] @Mate3?"
+    },
+    {
+      "kind": "message",
+      "id": "r-3",
+      "author": "m3",
+      "text": "[text 7] @Mate2",
+      "status": null
+    },
+    {
+      "kind": "handoff",
+      "handoff": "tells",
+      "from": "m3",
+      "to": "m2",
+      "text": "[text 8]"
+    },
+    {
+      "kind": "message",
+      "id": "r-4",
+      "author": "m2",
+      "text": "[text 9]",
+      "status": null
+    },
+    {
+      "kind": "job",
+      "status": "completed",
+      "handoffs": 4
+    },
+    {
+      "kind": "message",
+      "id": "m-2",
+      "author": "person",
+      "text": "[text 10]?",
+      "status": null
+    },
+    {
+      "kind": "route",
+      "message": "m-2",
+      "picked": [
+        "m3"
+      ]
+    },
+    {
+      "kind": "message",
+      "id": "r-5",
+      "author": "m3",
+      "text": "[text 11]",
+      "status": null
+    },
+    {
+      "kind": "job",
+      "status": "completed",
+      "handoffs": 0
+    }
+  ]
+}

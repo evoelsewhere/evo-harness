@@ -1,0 +1,51 @@
+{
+  "name": "review-checks",
+  "world": "memory",
+  "about": "A review turns a correction into a learned skill, and refuses a change that drops half of it.",
+  "steps": [
+    {
+      "do": "review",
+      "conversation": "Person: Put the summary first, then the table.",
+      "answers": [
+        "{\"changes\": [{\"action\": \"create\", \"skill_name\": \"eval-weekly-report-writing\", \"skill_md\": \"---\\nname: eval-weekly-report-writing\\ndescription: Writing the weekly report\\n---\\n\\n1. Put the summary first, then the table.\\n2. Read the data.\\n3. Draft the table.\\n4. Check the totals.\\n5. Send it.\\n6. Archive the draft.\", \"gist\": \"summary first\"}]}"
+      ],
+      "expect": [
+        {
+          "skillHas": {
+            "skill": "eval-weekly-report-writing",
+            "text": "summary first"
+          }
+        },
+        {
+          "journalHas": {
+            "by": "review",
+            "subject": "skill"
+          }
+        }
+      ]
+    },
+    {
+      "do": "review",
+      "conversation": "Person: shorter please.",
+      "answers": [
+        "{\"changes\": [{\"action\": \"update\", \"skill_name\": \"eval-weekly-report-writing\", \"skill_md\": \"---\\nname: eval-weekly-report-writing\\ndescription: Writing the weekly report\\n---\\n\\n1. Put the summary first, then the table.\\n2. Read the data.\", \"gist\": \"shorter\"}]}"
+      ],
+      "expect": [
+        {
+          "path": "result.changed",
+          "equals": []
+        },
+        {
+          "path": "result.dropped.0",
+          "contains": "drops lines"
+        },
+        {
+          "skillHas": {
+            "skill": "eval-weekly-report-writing",
+            "text": "Archive the draft"
+          }
+        }
+      ]
+    }
+  ]
+}

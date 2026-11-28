@@ -70,11 +70,11 @@ Done when: `cargo run -p evo-evals -- offline` passes in CI with the named
 scenarios, golden replay and offline case scoring; the live tier skips
 without its switch.
 
-- [ ] T26 [FR-26, FR-27] `crates/evo-evals`: scenario format, runner, frozen evidence, scorers with one failing message per assertion kind, report — `crates/evo-evals/`, `evals/` — check: `cargo test -p evo-evals scorers`
-- [ ] T27 [FR-26] Worlds: chat on faux, channel (hub + coordinator + faux seats), memory in a temp agent dir — `crates/evo-evals/src/worlds/` — check: a smoke scenario per world passes twice with the network off
-- [ ] T28 [FR-28] Scenarios for the 2026-11 channel faults, the hand-off limit, the router fall-through, journal and undo, expiry, tidy protected lines, dream and review checks — `evals/scenarios/` — check: all pass on the current code; each fails when its fix is reverted (spot check two)
-- [ ] T29 [FR-29] Golden: redaction with leak scan, trace extraction, replay against baselines; one redacted channel from the test data — `crates/evo-evals/src/golden/`, `evals/golden/` — check: `cargo test -p evo-evals golden`
-- [ ] T30 [FR-30] Case sets dream, router, tool choice with offline scoring of saved answers — `evals/cases/`, `crates/evo-evals/src/cases/` — check: `cargo test -p evo-evals cases`
+- [x] T26 [FR-26, FR-27] `crates/evo-evals`: scenario format, runner, frozen evidence, scorers with one failing message per assertion kind, report — `crates/evo-evals/`, `evals/` — check: `cargo test -p evo-evals scorers`
+- [x] T27 [FR-26] Worlds: chat on faux, channel (hub + coordinator + faux seats), memory in a temp agent dir — `crates/evo-evals/src/worlds/` — check: a smoke scenario per world passes twice with the network off
+- [x] T28 [FR-28] Scenarios for the 2026-11 channel faults, the hand-off limit, the router fall-through, journal and undo, expiry, tidy protected lines, dream and review checks — `evals/scenarios/` — check: all pass on the current code; each fails when its fix is reverted (spot check two)
+- [x] T29 [FR-29] Golden: redaction with leak scan, trace extraction, replay against baselines; one redacted channel from the test data — `crates/evo-evals/src/golden/`, `evals/golden/` — check: `cargo test -p evo-evals golden`
+- [x] T30 [FR-30] Case sets dream, router, tool choice with offline scoring of saved answers — `evals/cases/`, `crates/evo-evals/src/cases/` — check: `cargo test -p evo-evals cases`
 - [ ] T31 [FR-31] Live tier behind `EVO_EVAL_LIVE=1`: real model, judge prompts pinned by sha256, baseline and drift — `crates/evo-evals/src/live/`, `evals/live/` — check: without the switch it prints the skip and passes; one live run on the owner's machine
 - [ ] T32 [FR-32, NFR-7] CI job and report; time the offline tier — `.github/workflows/ci.yml` — check: CI run green; under 5 minutes
 

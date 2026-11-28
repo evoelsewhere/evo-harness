@@ -1,0 +1,79 @@
+{
+  "name": "channel-mention-loop",
+  "world": "channel",
+  "channel": {
+    "name": "Launch",
+    "members": [
+      {
+        "id": "plan",
+        "name": "Planner"
+      },
+      {
+        "id": "write",
+        "name": "Writer"
+      },
+      {
+        "id": "res",
+        "name": "Researcher"
+      }
+    ],
+    "rule": "everyone",
+    "lead": "plan",
+    "limit": 6
+  },
+  "about": "Only a mention inside a question asks a mate; thanks and greetings never hand off.",
+  "fault": "2026-11: every @mention woke the named mate and thanks ping-ponged to the limit (1d06d538).",
+  "steps": [
+    {
+      "do": "reply",
+      "from": "write",
+      "text": "Thanks @Planner, on it.",
+      "expect": [
+        {
+          "handoff": 0
+        },
+        {
+          "path": "asksThePerson",
+          "equals": false
+        }
+      ]
+    },
+    {
+      "do": "reply",
+      "from": "plan",
+      "text": "Chào @Writer",
+      "expect": [
+        {
+          "handoff": 0
+        }
+      ]
+    },
+    {
+      "do": "reply",
+      "from": "write",
+      "text": "@Planner should the intro be formal?",
+      "expect": [
+        {
+          "handoff": {
+            "to": "plan",
+            "kind": "asks"
+          }
+        }
+      ]
+    },
+    {
+      "do": "reply",
+      "from": "write",
+      "text": "Should the intro be formal?",
+      "expect": [
+        {
+          "handoff": 0
+        },
+        {
+          "path": "asksThePerson",
+          "equals": true
+        }
+      ]
+    }
+  ]
+}

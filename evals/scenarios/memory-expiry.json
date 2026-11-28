@@ -1,0 +1,63 @@
+{
+  "name": "memory-expiry",
+  "world": "memory",
+  "today": "2026-11-28",
+  "about": "An entry that ended no longer reaches a turn; the tidy-up moves it to the archive, without a model.",
+  "steps": [
+    {
+      "do": "agent",
+      "params": {
+        "action": "save",
+        "name": "travel",
+        "type": "user",
+        "content": "Likes window seats."
+      },
+      "expect": [
+        {
+          "memoryHas": "window seats"
+        }
+      ]
+    },
+    {
+      "do": "agent",
+      "params": {
+        "action": "update",
+        "name": "travel",
+        "new_text": "The person is in Hanoi",
+        "until": "2026-11-01"
+      },
+      "expect": [
+        {
+          "memoryLacks": "Hanoi"
+        },
+        {
+          "path": "files.travel",
+          "contains": "until 2026-11-01"
+        }
+      ]
+    },
+    {
+      "do": "tidy",
+      "answers": [],
+      "expect": [
+        {
+          "path": "result.archived",
+          "equals": 1
+        },
+        {
+          "path": "result.skipped",
+          "equals": "contradictions need a model"
+        },
+        {
+          "memoryHas": "window seats"
+        },
+        {
+          "journalHas": {
+            "by": "tidy",
+            "action": "archived"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -58,6 +58,22 @@ jobs:
           toolchain: "1.89"
       - run: cargo +1.89 check --workspace --locked
 
+  # The harness's offline evals: scripted scenarios, golden replay and case
+  # sets, no network (docs/features/learning-layers/spec.md, FR-32). The live
+  # tier never runs here.
+  evals:
+    name: evals (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo run -p evo-evals --locked -- offline
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evals-report
+          path: evals/reports/runs/
+
   desktop:
     name: desktop (typecheck + build)
     runs-on: ubuntu-latest

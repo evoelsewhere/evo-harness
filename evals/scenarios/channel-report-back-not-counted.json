@@ -1,0 +1,79 @@
+{
+  "name": "channel-report-back-not-counted",
+  "world": "channel",
+  "channel": {
+    "name": "Launch",
+    "members": [
+      {
+        "id": "plan",
+        "name": "Planner"
+      },
+      {
+        "id": "write",
+        "name": "Writer"
+      },
+      {
+        "id": "res",
+        "name": "Researcher"
+      }
+    ],
+    "rule": "everyone",
+    "lead": "plan",
+    "limit": 6
+  },
+  "about": "An answer back to whoever assigned the work closes it and is not counted against the message.",
+  "fault": "2026-11: a lead that assigned three mates hit the limit of 6 on the last report (1d06d538).",
+  "steps": [
+    {
+      "do": "handoffs",
+      "chain": [
+        {
+          "from": "plan",
+          "to": "write",
+          "kind": "assigns"
+        },
+        {
+          "from": "plan",
+          "to": "res",
+          "kind": "assigns"
+        },
+        {
+          "from": "write",
+          "to": "plan",
+          "kind": "tells"
+        },
+        {
+          "from": "res",
+          "to": "plan",
+          "kind": "tells"
+        },
+        {
+          "from": "plan",
+          "to": "write",
+          "kind": "assigns"
+        },
+        {
+          "from": "write",
+          "to": "plan",
+          "kind": "tells"
+        }
+      ],
+      "expect": [
+        {
+          "notice": null
+        },
+        {
+          "path": "counted",
+          "equals": 3
+        },
+        {
+          "handoff": {
+            "from": "res",
+            "to": "plan",
+            "report": true
+          }
+        }
+      ]
+    }
+  ]
+}

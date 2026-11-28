@@ -283,7 +283,7 @@ fn with_sender_title(text: &str, title: &str) -> String {
 /// What a mate wrote in a mail: `text` without the `<mail …>` envelope the
 /// sender's engine wraps it in, nor the line telling the receiver how to
 /// answer an ask.
-fn mail_inner(text: &str) -> String {
+pub fn mail_inner(text: &str) -> String {
     let trimmed = text.trim();
     let Some(body) = trimmed
         .strip_prefix("<mail ")

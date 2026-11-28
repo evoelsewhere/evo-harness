@@ -1079,7 +1079,7 @@ pub(crate) fn retro_entry(card: Value, at: i64) -> Result<Value, String> {
 
 /// How a job (the work one message of the person starts) is going.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct JobTrack {
+pub struct JobTrack {
     /// Hand-off lines posted.
     pub handoffs: u32,
     /// A member could not reply.
@@ -1091,13 +1091,7 @@ pub(crate) struct JobTrack {
 /// The `job` entry a job ends with (docs/features/learning-layers/plan.md,
 /// 3.3): `completed`, `stopped` (by the person), `limit`, `failed` or
 /// `silent` (no reply in time), and its hand-off count.
-pub(crate) fn job_entry(
-    id: &str,
-    message: &str,
-    track: &JobTrack,
-    result: &Value,
-    at: i64,
-) -> Value {
+pub fn job_entry(id: &str, message: &str, track: &JobTrack, result: &Value, at: i64) -> Value {
     let status = if track.limit {
         "limit"
     } else if result.get("outcome").and_then(Value::as_str) == Some("aborted") {

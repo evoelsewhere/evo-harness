@@ -985,6 +985,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "evo-evals"
+version = "0.1.0"
+dependencies = [
+ "evo-ai",
+ "evo-engine",
+ "evo-mesh",
+ "evo-store",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "evo-extensions"
 version = "0.1.0"
 dependencies = [

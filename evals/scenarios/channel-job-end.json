@@ -1,0 +1,82 @@
+{
+  "name": "channel-job-end",
+  "world": "channel",
+  "channel": {
+    "name": "Launch",
+    "members": [
+      {
+        "id": "plan",
+        "name": "Planner"
+      },
+      {
+        "id": "write",
+        "name": "Writer"
+      },
+      {
+        "id": "res",
+        "name": "Researcher"
+      }
+    ],
+    "rule": "everyone",
+    "lead": "plan",
+    "limit": 6
+  },
+  "about": "Every way a job ends gives its job entry, the retro's start.",
+  "steps": [
+    {
+      "do": "jobEnd",
+      "track": {
+        "handoffs": 6,
+        "limit": true
+      },
+      "result": {
+        "outcome": "completed"
+      },
+      "expect": [
+        {
+          "path": "job.status",
+          "equals": "limit"
+        },
+        {
+          "notice": "limit"
+        }
+      ]
+    },
+    {
+      "do": "jobEnd",
+      "track": {
+        "handoffs": 1
+      },
+      "result": {
+        "outcome": "aborted",
+        "finalText": "Stopped."
+      },
+      "expect": [
+        {
+          "path": "job.status",
+          "equals": "stopped"
+        }
+      ]
+    },
+    {
+      "do": "jobEnd",
+      "track": {
+        "handoffs": 2,
+        "failed": true
+      },
+      "result": {
+        "outcome": "completed"
+      },
+      "expect": [
+        {
+          "path": "job.status",
+          "equals": "failed"
+        },
+        {
+          "path": "job.handoffs",
+          "equals": 2
+        }
+      ]
+    }
+  ]
+}

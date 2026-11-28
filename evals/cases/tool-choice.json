@@ -1,0 +1,41 @@
+[
+  {
+    "name": "find a file by name",
+    "request": "Where is the release checklist?",
+    "tools": [
+      "find",
+      "grep",
+      "bash"
+    ],
+    "expect": "find",
+    "answer": {
+      "tool": "find"
+    }
+  },
+  {
+    "name": "search inside files",
+    "request": "Which files mention the old API key name?",
+    "tools": [
+      "find",
+      "grep",
+      "bash"
+    ],
+    "expect": "grep",
+    "answer": {
+      "tool": "grep"
+    }
+  },
+  {
+    "name": "remember a preference",
+    "request": "Remember that I want summaries first.",
+    "tools": [
+      "memory",
+      "write",
+      "bash"
+    ],
+    "expect": "memory",
+    "answer": {
+      "tool": "memory"
+    }
+  }
+]

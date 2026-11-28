@@ -1,0 +1,55 @@
+{
+  "turnOrder": [
+    "person",
+    "m1",
+    "m2",
+    "m3",
+    "m2",
+    "person",
+    "m3"
+  ],
+  "routes": [
+    [
+      "m1"
+    ],
+    [
+      "m3"
+    ]
+  ],
+  "handoffs": [
+    [
+      "m1",
+      "m2",
+      "assigns"
+    ],
+    [
+      "m1",
+      "m3",
+      "assigns"
+    ],
+    [
+      "m2",
+      "m3",
+      "asks"
+    ],
+    [
+      "m3",
+      "m2",
+      "tells"
+    ]
+  ],
+  "mentionAsks": [
+    [
+      "m2",
+      "m3",
+      "asks"
+    ]
+  ],
+  "recordedAsks": [
+    [
+      "m2",
+      "m3",
+      "asks"
+    ]
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "name": "channel-router-fall-through",
+  "world": "channel",
+  "channel": {
+    "name": "Launch",
+    "members": [
+      {
+        "id": "plan",
+        "name": "Planner"
+      },
+      {
+        "id": "write",
+        "name": "Writer"
+      },
+      {
+        "id": "res",
+        "name": "Researcher"
+      }
+    ],
+    "rule": "auto",
+    "lead": "plan",
+    "limit": 6
+  },
+  "about": "Routing models are tried in order (the person's choice, the cheapest priced, the rest); with no router answer, the lead answers.",
+  "fault": "2026-11: the router kept a cheapest model the account cannot use (1d06d538).",
+  "steps": [
+    {
+      "do": "routerOrder",
+      "catalog": [
+        {
+          "provider": "a",
+          "id": "big",
+          "input": 3,
+          "output": 15
+        },
+        {
+          "provider": "a",
+          "id": "small",
+          "input": 0.1,
+          "output": 0.4
+        },
+        {
+          "provider": "b",
+          "id": "free"
+        }
+      ],
+      "expect": [
+        {
+          "path": "order",
+          "equals": [
+            "a/small",
+            "a/big",
+            "b/free"
+          ]
+        }
+      ]
+    },
+    {
+      "do": "routerOrder",
+      "chosen": {
+        "provider": "a",
+        "model": "big"
+      },
+      "catalog": [
+        {
+          "provider": "a",
+          "id": "big",
+          "input": 3,
+          "output": 15
+        },
+        {
+          "provider": "a",
+          "id": "small",
+          "input": 0.1,
+          "output": 0.4
+        }
+      ],
+      "expect": [
+        {
+          "path": "order",
+          "equals": [
+            "a/big",
+            "a/small"
+          ]
+        }
+      ]
+    },
+    {
+      "do": "message",
+      "text": "Can someone check the numbers?",
+      "routerError": "the router took too long",
+      "expect": [
+        {
+          "routedTo": [
+            "plan"
+          ]
+        }
+      ]
+    },
+    {
+      "do": "message",
+      "text": "Can someone check the numbers?",
+      "router": {
+        "pick": "res",
+        "confidence": 0.9
+      },
+      "expect": [
+        {
+          "routedTo": [
+            "res"
+          ]
+        }
+      ]
+    },
+    {
+      "do": "message",
+      "text": "Can someone check the numbers?",
+      "router": {
+        "pick": "res",
+        "confidence": 0.3
+      },
+      "expect": [
+        {
+          "routedTo": [
+            "plan"
+          ]
+        }
+      ]
+    },
+    {
+      "do": "message",
+      "text": "@Writer draft it",
+      "expect": [
+        {
+          "routedTo": [
+            "write"
+          ]
+        }
+      ]
+    }
+  ]
+}
