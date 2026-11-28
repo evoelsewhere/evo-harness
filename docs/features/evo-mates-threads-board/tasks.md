@@ -86,3 +86,11 @@ resolve and Also send to channel work.
 | NFR-2, NFR-6 | Shares reach mates as `<evo-mates-share … instruction="false">` (quoted, never routed); `share_to` only into the mate's own channels, asking by default and always from its direct chat | passed by test and review (2026-11-29) |
 | NFR-4 (C) | Shots of the threads tab, Threads page, thread, share, Linked, channel and board at 1440, 1000, 720 px, light and dark; `--scan`: nothing sideways | passed (2026-11-29, C) |
 | Checks C | typecheck; `bun test` 549 pass; `bun run test:shell` 872 pass; `cargo test -p evo-engine` 1035 passed with the 2 known failures; store 98, mesh 53; clippy clean on changed files; fmt, `git diff --check` | passed (2026-11-29) |
+| Review A #1 | Test `a_hand_off_woken_seat_reports_to_the_jobs_place` (`place_of_seat`, `join_job` on a hand-off) | passed (2026-11-29) |
+| Review A #2 | Test `channel_lines_are_owed_after_thread_work` (`seen` per seat and place; thread lines only those not yet given) | passed (2026-11-29) |
+| Review A #3 | Test `a_late_report_stays_in_its_own_place`; `on_mail` sends only the job's seats into the job; retro, share and tool board lines carry `thread: null` | passed by test and review (2026-11-29) |
+| Review A #4 | Test `asking_is_kept_per_place` | passed (2026-11-29) |
+| Review A #5 | Test `a_restore_merges_lines_and_rebuilds_what_each_seat_saw`; the restore holds an async lock across the read and sets done only on success | passed by test and review (2026-11-29) |
+| Review A #6 – #8 | Thread panel keyed by its root; only one box takes dropped files (the thread's while open); the channel's box shows Stop and runs `/stop` only when the job is in the channel | passed by review and typecheck (2026-11-29); not run in the real app |
+| Review A #9 | Test `untrusted_text_cannot_fake_the_persons_words` (parent, recent lines, quotes, a mate's text, reaction notes; other markup kept) | passed (2026-11-29) |
+| Review A #10 | FR-5 says 20; `openJob` counts only the latest route (`channel-rows.test.ts`) | passed (2026-11-29) |

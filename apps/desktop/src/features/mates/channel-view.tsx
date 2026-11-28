@@ -17,6 +17,7 @@ import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
 import { attachmentsFromPaths, attachmentsFromTransfer, isLongPaste, releaseAttachment, textAttachment } from "@/features/chat";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { log } from "@/lib/db";
+import { notify } from "@/features/notifications/notify";
 import { openChatWindow } from "@/lib/windows";
 import type { Channel, ChannelEntry, Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
@@ -65,6 +66,7 @@ function Composer({
   onReplyDone,
   thread = null,
   canStop = true,
+  acceptDrops = true,
 }: {
   channel: Channel;
   members: Mate[];
@@ -74,6 +76,8 @@ function Composer({
   thread?: string | null;
   /** Stop shows only where the running job is (FR-1). */
   canStop?: boolean;
+  /** Files dropped on the window come to this box: the thread's while it is open (review A #7). */
+  acceptDrops?: boolean;
 }) {
   // The box's text is a draft kept per channel, and per thread (evo-mates-messaging FR-11).
   const draftKey = thread ? `${channel.chatId}#${thread}` : channel.chatId;
@@ -121,7 +125,11 @@ function Composer({
   // Slash commands in a channel (FR-13): /stop, /handoff @mate, /clear-quote.
   const run = (command: SlashCommand, rest: string) => {
     if (command.id === "clear-quote") onReplyDone();
-    if (command.id === "stop") void useEngineStore.getState().abort();
+    // /stop stops the job only where it runs (review A #8).
+    if (command.id === "stop") {
+      if (canStop) void useEngineStore.getState().abort();
+      else notify({ source: "mates", title: "The running job is in a thread", body: "Stop it from that thread.", system: false });
+    }
     else if (command.id === "handoff") {
       const next = rest.startsWith("@") ? `${rest} ` : `@${rest}`;
       setText(next);
@@ -134,6 +142,7 @@ function Composer({
   React.useEffect(() => {
     let stop: (() => void) | undefined;
     let live = true;
+    if (!acceptDrops) return;
     let webview: ReturnType<typeof getCurrentWebview>;
     try {
       webview = getCurrentWebview();
@@ -156,7 +165,7 @@ function Composer({
       live = false;
       stop?.();
     };
-  }, []);
+  }, [acceptDrops]);
 
   const send = async () => {
     if (!text.trim() && files.length === 0) return;
@@ -770,13 +779,23 @@ export function ChannelView({ channel }: { channel: Channel }) {
           </button>
         </div>
       ) : (
-        <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} />
+        <Composer
+          channel={channel}
+          members={members}
+          reply={reply}
+          onReplyDone={() => setReply(null)}
+          // Stop and /stop only where the job runs; drops go to an open thread (review A #7, #8).
+          canStop={!open || open.thread === null}
+          acceptDrops={!thread}
+        />
       )}
       <ShareDialog item={sharing} onClose={() => setSharing(null)} />
     </div>
     </LineContext.Provider>
     {thread && (
       <ThreadPanel
+        // A thread's own box: no quote, files or mention list carried from another (review A #6).
+        key={thread}
         channel={channel}
         members={members}
         root={thread}

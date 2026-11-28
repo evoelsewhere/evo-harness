@@ -117,7 +117,7 @@ Unresolve.
 | FR-2 | The parent line shows a **thread summary**: "3 replies · Writer, Analyst · 2 min ago" with the repliers' faces (up to 3); a click opens the thread. | The count updates as replies land. |
 | FR-3 | Thread lines (and hand-offs, notices and route lines of a thread message) stay out of the channel feed and out of channel deliveries. | A channel delivery after a thread carries none of its lines. |
 | FR-4 | **Thread routing** (B11): a thread message goes to the mates it mentions; with no mention, to the thread's mates (the parent's author if a mate, mates mentioned in the thread, mates who replied in it); with none of those, by the channel's rule. A quote or the parent's text never routes. | A thread on Kai's line wakes only Kai; "@Lin" in it wakes Lin. |
-| FR-5 | **Thread context**: a thread delivery carries the channel frame, the parent line marked as the parent (`instruction="false"`), the thread's lines (at most 30, newest last) and the message; a mate's answer posts in the thread. | A mate's input in a thread has no unrelated channel line. |
+| FR-5 | **Thread context**: a thread delivery carries the channel frame, the parent line marked as the parent (`instruction="false"`), the thread's lines the seat has not been given yet (at most 20, newest last) and the message; a mate's answer posts in the thread. Text from the parent, other mates, quotes and notes can never close or fake a block. | A mate's input in a thread has no unrelated channel line. |
 | FR-6 | Hand-offs (asks, assigns, tells) made during a thread message stay in the thread; the hand-off limit counts per message, so a thread never uses the channel's count. Stop in the thread stops the job when it is the thread's. | A hand-off made in the thread shows in the thread. |
 | FR-7 | After an engine restart, the coordinator rebuilds its lines (with their threads) from the channel's entries, so threads, `react` and quotes keep working. | Restart, reply in an old thread: the parent is in the delivery. |
 | FR-8 | **Board, opt-in** (B1): **Turn on board** in the channel's panel asks for a key (proposed from the name, 2 – 6 capitals) and adds a **Board** tab beside **Chat**. Columns start as To do, In progress, Review, Done; they can be renamed, added, reordered or removed. Turning it off hides the tab and keeps the cards. Cards are numbered `KEY-n`, never reused. | Turning it on shows four empty columns. |
@@ -217,3 +217,12 @@ agent's recommended answers:
   person's Share goes anywhere (FR-16). FR-23 added at the owner's ask
   ("nên thêm option thread nữa"): a Threads tab beside Chat and Board.
   Status Implemented.
+- 2026-11-29 — Review fixes for part A (the product owner's review of
+  b2a7e69d): a seat's report and hand-off go to the open job's place when it
+  works for the job (also when woken by a hand-off), else where it last
+  worked; what a seat has been given is kept per seat and place; questions
+  to the person are kept per place; a late report is not absorbed by the
+  open job; retro, share and tool board lines are the channel's; the restore
+  runs once behind a lock, retries after a failed read and rebuilds what
+  each seat was given; untrusted text in deliveries is made inert. FR-5
+  says 20 lines (the code's limit), not 30.

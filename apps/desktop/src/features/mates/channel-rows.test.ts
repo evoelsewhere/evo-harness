@@ -230,6 +230,13 @@ describe("quotes and files", () => {
     test("the open job knows its thread", () => {
       expect(openJob(entries)).toEqual({ message: "m-2", thread: "r-1" });
       expect(openJob(entries.slice(0, 4))).toBeNull();
+      // A route a crash left without its job is not open once a later one closed (review A #10).
+      const crashed = [
+        { kind: "route", message: "x", picked: [], line: "", at: at(0) },
+        { kind: "route", message: "y", picked: [], line: "", at: at(1) },
+        { kind: "job", id: "j", message: "y", status: "done", handoffs: 0, at: at(2) },
+      ] as ChannelEntry[];
+      expect(openJob(crashed)).toBeNull();
       expect(threadSummaries(entries).get("r-1")?.count).toBe(2);
     });
   });

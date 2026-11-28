@@ -114,16 +114,17 @@ export function channelThreads(entries: readonly ChannelEntry[]): ({ root: strin
 
 /**
  * The message the channel still works on, and its thread (`null`: the
- * channel), or `null` when none runs: a route without its job (FR-1, D1).
+ * channel), or `null` when none runs (FR-1, D1). Only the latest route
+ * counts: one left without its job by a crash is never "open" once a later
+ * message was routed. The view asks only while the channel is busy.
  */
 export function openJob(entries: readonly ChannelEntry[]): { message: string; thread: string | null } | null {
-  const open = new Map<string, string | null>();
+  let last: { message: string; thread: string | null } | null = null;
   for (const entry of entries) {
-    if (entry.kind === "route") open.set(entry.message, entry.thread ?? null);
-    else if (entry.kind === "job") open.delete(entry.message);
+    if (entry.kind === "route") last = { message: entry.message, thread: entry.thread ?? null };
+    else if (entry.kind === "job" && last?.message === entry.message) last = null;
   }
-  const last = [...open].at(-1);
-  return last ? { message: last[0], thread: last[1] } : null;
+  return last;
 }
 
 /**

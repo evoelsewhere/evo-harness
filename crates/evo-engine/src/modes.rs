@@ -1595,7 +1595,9 @@ where
                         .get("cardId")
                         .and_then(|v| v.as_str())
                         .unwrap_or_default();
-                    channel.post_board_line(harness, text, card, card_id).await;
+                    channel
+                        .post_board_line(harness, text, card, card_id, false)
+                        .await;
                     Ok(serde_json::json!({ "posted": true }))
                 }
                 None => Err("this chat is not a channel".to_string()),
