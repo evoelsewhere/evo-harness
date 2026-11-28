@@ -51,7 +51,10 @@
     { chat: "chat-kai", title: "Kai", state: "working" },
     { chat: "chat-lin", title: "Lin", state: "waiting" },
     { chat: "seat-kai", title: "Kai", state: "working" },
+    { chat: "seat-mo", title: "Mo", state: "working" },
   ];
+  // The icon badge (evo-mates-messaging FR-16).
+  h.mates_set_badge = () => null;
   h.engine_questions = ({ chat }) =>
     chat === "chat-lin"
       ? [{ requestId: "q1", source: "engine", kind: "permission", title: "Edit docs/release/4.14.md", options: ["Allow", "Deny"], at: ago(6) }]

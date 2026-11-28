@@ -175,3 +175,17 @@ describe("v2 thread rows", () => {
     expect(isLong("short")).toBe(false);
   });
 });
+
+// docs/features/evo-mates-messaging/spec.md (FR-2).
+describe("message status", () => {
+  test("Sent, Seen while the mate works, Queued while it waits for room, nothing once it replied", () => {
+    const word = (rows: ReturnType<typeof threadRows>) => {
+      const row = rows.find((r) => r.kind === "delivered");
+      return row?.kind === "delivered" ? row.word : null;
+    };
+    expect(word(threadRows([turn({ status: "done" })], false))).toBe("Sent");
+    expect(word(threadRows([turn({ status: "running" })], true))).toBe("Seen");
+    expect(word(threadRows([turn({ status: "done" })], false, false, true))).toBe("Queued");
+    expect(word(threadRows([turn({ parts: [text("hi")] })], false))).toBeNull();
+  });
+});

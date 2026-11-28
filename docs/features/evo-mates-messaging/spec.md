@@ -204,3 +204,6 @@ Try again with another model; threads in a side panel.
   mentions need the shell's notices and the channel's coordinator.
 - 2026-11-29 — Gate B (owner away, accepted by the product owner): plan and
   tasks; status Accepted, then In progress with 1a.
+- 2026-11-29 — Merge 1a done: typing line, status, edit, try again, unsend,
+  delete for me, drafts, emoji and shortcodes, Markdown keys, slash commands,
+  the icon badge (tasks T1 – T9).

@@ -25,6 +25,7 @@ import { QuickSwitcher } from "@/features/mates/quick-switcher";
 import { ShortcutsSheet } from "@/features/mates/shortcuts-sheet";
 import { panelDocks, railForced, sidebarForm } from "@/features/mates/sidebar-layout";
 import { useMatesKeys } from "@/features/mates/use-mates-keys";
+import { useIconBadge } from "@/features/mates/badge";
 import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { TodayPage } from "@/features/mates/today";
 import { startShellNotices } from "@/features/notifications/notify";
@@ -202,6 +203,8 @@ function TitleRow() {
 export function MatesApp() {
   useBootstrap();
   useMatesKeys();
+  // The unread count on the taskbar or dock icon (evo-mates-messaging FR-16).
+  useIconBadge();
   const width = useWindowWidth();
   const folded = useMatesUiStore((s) => s.sidebarFolded);
   const form = sidebarForm(width, folded);

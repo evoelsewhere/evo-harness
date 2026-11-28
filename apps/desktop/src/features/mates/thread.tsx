@@ -8,7 +8,7 @@
 
 import * as React from "react";
 import { LearnedLine } from "@/components/learned-line";
-import { ArrowDownIcon, CopyIcon, InfoIcon, ReplyIcon, SquareIcon } from "lucide-react";
+import { ArrowDownIcon, CopyIcon, EyeOffIcon, InfoIcon, PencilIcon, ReplyIcon, RotateCcwIcon, SquareIcon, XIcon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { openFileRef } from "@/components/open-file-ref";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -22,11 +22,13 @@ import { cn } from "@/lib/utils";
 import { SentByMate, SentByMe } from "./attachment-views";
 import { BUBBLE_TEXT } from "./bubble-style";
 import { useEngineStore } from "@/stores/engine-store";
-import { takeOpenedUnread } from "@/stores/mates-store";
+import { takeOpenedUnread, useMatesStore } from "@/stores/mates-store";
+import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { useSessionStore } from "@/stores/session-store";
 import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
+import { replaceShortcodes } from "./emoji";
 import { StepsChip } from "./steps-chip";
-import { clockTime, dayLabel, isLong, threadRows, type Bubble, type Row } from "./thread-rows";
+import { clockTime, dayLabel, isHeartbeat, isLong, threadRows, type Bubble, type Row } from "./thread-rows";
 
 function metaParts(turn: Turn): string[] {
   const { meta } = turn;
@@ -55,6 +57,13 @@ function BarButton({ label, onClick, children }: { label: string; onClick(): voi
   );
 }
 
+/** What else a bubble offers (evo-mates-messaging FR-7 - FR-9). */
+interface MoreActions {
+  edit?(): void;
+  retry?(): void;
+  hide(): void;
+}
+
 /** The hover bar (FR-13): reactions, Reply, Copy and, on a mate's reply, its details. */
 function BubbleActions({
   bubble,
@@ -62,12 +71,14 @@ function BubbleActions({
   onReact,
   onReply,
   details,
+  more,
 }: {
   bubble: Bubble;
   reaction?: ReactionKind;
   onReact(kind: ReactionKind | null): void;
   onReply(): void;
   details: string[];
+  more: MoreActions;
 }) {
   return (
     <div
@@ -98,6 +109,16 @@ function BubbleActions({
       <BarButton label="Copy" onClick={() => void navigator.clipboard.writeText(bubble.text)}>
         <CopyIcon className="size-3.5" />
       </BarButton>
+      {more.edit && (
+        <BarButton label="Edit" onClick={more.edit}>
+          <PencilIcon className="size-3.5" />
+        </BarButton>
+      )}
+      {more.retry && (
+        <BarButton label="Try again" onClick={more.retry}>
+          <RotateCcwIcon className="size-3.5" />
+        </BarButton>
+      )}
       {details.length > 0 && (
         <Tooltip>
           <TooltipTrigger
@@ -151,6 +172,11 @@ function BubbleView({
   onReact,
   onReply,
   onQuote,
+  more,
+  editing,
+  edited,
+  onSaveEdit,
+  onCancelEdit,
 }: {
   row: Extract<Row, { kind: "bubble" }>;
   mate: Mate;
@@ -158,6 +184,12 @@ function BubbleView({
   onReact(kind: ReactionKind | null): void;
   onReply(): void;
   onQuote(quote: ReplyTo): void;
+  more: MoreActions;
+  /** The person edits this bubble now (FR-7). */
+  editing: boolean;
+  edited: boolean;
+  onSaveEdit(text: string): void;
+  onCancelEdit(): void;
 }) {
   const { bubble, first, last } = row;
   const me = bubble.side === "me";
@@ -204,6 +236,9 @@ function BubbleView({
             >
               {/* The person's pictures, files and pasted text (FR-81). */}
               <SentByMe images={bubble.images} files={bubble.files} pasted={bubble.pasted} />
+              {editing ? (
+                <EditField text={bubble.text} onSave={onSaveEdit} onCancel={onCancelEdit} />
+              ) : (
               <Folding long={!bubble.streaming && isLong(bubble.text)} me={me}>
                 <div data-find-text>
                   {me ? (
@@ -215,6 +250,7 @@ function BubbleView({
                   )}
                 </div>
               </Folding>
+              )}
               {reaction && (
                 <span
                   className={cn(
@@ -250,13 +286,80 @@ function BubbleView({
                 <CopyIcon />
                 Copy
               </DropdownMenuItem>
+              {more.edit && (
+                <DropdownMenuItem onClick={more.edit}>
+                  <PencilIcon />
+                  Edit
+                </DropdownMenuItem>
+              )}
+              {more.retry && (
+                <DropdownMenuItem onClick={more.retry}>
+                  <RotateCcwIcon />
+                  Try again
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={more.hide}>
+                <EyeOffIcon />
+                Delete for me
+              </DropdownMenuItem>
             </ContextMenuContent>
           </ContextMenu>
           {/* Time on hover, inside a run too (FR-13). */}
           <span className="mb-1 hidden shrink-0 text-[10.5px] text-muted-foreground tabular-nums group-hover/bubble:inline">{clockTime(bubble.at)}</span>
         </div>
-        <BubbleActions bubble={bubble} reaction={reaction} onReact={onReact} onReply={onReply} details={details} />
+        {edited && !editing && <span className="mt-0.5 px-2 text-[10.5px] text-muted-foreground">Edited</span>}
+        {!editing && <BubbleActions bubble={bubble} reaction={reaction} onReact={onReact} onReply={onReply} details={details} more={more} />}
         <span className="sr-only">{me ? "You" : mate.name}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Editing the person's message in place (FR-7): Enter saves, Esc cancels. */
+function EditField({ text, onSave, onCancel }: { text: string; onSave(text: string): void; onCancel(): void }) {
+  const [value, setValue] = React.useState(text);
+  const field = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  React.useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [value]);
+  const save = () => (value.trim() && value.trim() !== text.trim() ? onSave(replaceShortcodes(value.trim())) : onCancel());
+  return (
+    <div className="flex min-w-60 flex-col gap-1.5">
+      <textarea
+        ref={field}
+        value={value}
+        aria-label="Edit your message"
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            save();
+          }
+        }}
+        className="min-h-6 w-full resize-none border-0 bg-transparent text-[14px] leading-5 text-brand-foreground shadow-none ring-0 outline-none focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
+      />
+      <div className="flex justify-end gap-1">
+        <button type="button" onClick={onCancel} className="flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-xs hover:bg-white/25">
+          <XIcon className="size-3" />
+          Cancel
+        </button>
+        <button type="button" onClick={save} className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-brand hover:bg-white/90">
+          Save
+        </button>
       </div>
     </div>
   );
@@ -341,7 +444,62 @@ export function MateThread({
   const busy = useEngineStore((s) => s.transcript.busy);
   const queued = useEngineStore((s) => s.transcript.queued);
   const shellWorking = useSessionStore((s) => s.work[mate.chatId] === "working");
-  const rows = React.useMemo(() => threadRows(turns, busy, shellWorking && !busy), [turns, busy, shellWorking]);
+  // Waiting for room under the running limit (NFR-6): the status says Queued (FR-2).
+  const roomQueued = useMatesStore((s) => s.queued.includes(mate.chatId));
+  const hiddenKeys = useMatesUiStore((s) => s.hidden[mate.chatId]);
+  const editedPrompts = useMatesUiStore((s) => s.edited[mate.chatId]);
+  const rows = React.useMemo(() => {
+    const all = threadRows(turns, busy, shellWorking && !busy, roomQueued);
+    // Deleted for the person (FR-9).
+    return hiddenKeys?.length ? all.filter((row) => !(row.kind === "bubble" && hiddenKeys.includes(row.bubble.key))) : all;
+  }, [turns, busy, shellWorking, roomQueued, hiddenKeys]);
+  const [editing, setEditing] = React.useState<string | null>(null);
+  const idle = !busy && !shellWorking;
+  const lastMine = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "me");
+  const lastMate = [...rows].reverse().find((r) => r.kind === "bubble" && r.bubble.side === "mate");
+  const lastTurn = turns.at(-1);
+  // Up in an empty box edits the last message (FR-7, FR-12).
+  React.useEffect(() => {
+    const onEdit = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== mate.chatId) return;
+      if (idle && lastMine?.kind === "bubble" && lastMine.bubble.turn === lastTurn) setEditing(lastMine.bubble.key);
+    };
+    window.addEventListener("mates:edit-last", onEdit);
+    return () => window.removeEventListener("mates:edit-last", onEdit);
+  }, [idle, lastMine, lastTurn, mate.chatId]);
+  const saveEdit = (bubble: Bubble, text: string) => {
+    setEditing(null);
+    const turn = bubble.turn;
+    // The prompt keeps its quote, notes and files: only the person's words change.
+    const at = turn.prompt.lastIndexOf(bubble.text);
+    const prompt = at >= 0 ? turn.prompt.slice(0, at) + text + turn.prompt.slice(at + bubble.text.length) : text;
+    useMatesUiStore.getState().markEdited(mate.chatId, text);
+    void useEngineStore
+      .getState()
+      .editMessage(turn.id, prompt)
+      .catch((error) => notify({ source: "mates", level: "warning", title: "Couldn't edit the message", body: String(error), system: false }));
+  };
+  const retry = (bubble: Bubble) =>
+    void useEngineStore
+      .getState()
+      .editMessage(bubble.turn.id, bubble.turn.prompt)
+      .catch((error) => notify({ source: "mates", level: "warning", title: "Couldn't try again", body: String(error), system: false }));
+  const moreFor = (bubble: Bubble): MoreActions => ({
+    edit:
+      idle && bubble.side === "me" && lastMine?.kind === "bubble" && lastMine.bubble.key === bubble.key && bubble.turn === lastTurn
+        ? () => setEditing(bubble.key)
+        : undefined,
+    retry:
+      idle &&
+      bubble.side === "mate" &&
+      lastMate?.kind === "bubble" &&
+      lastMate.bubble.key === bubble.key &&
+      bubble.turn === lastTurn &&
+      !isHeartbeat(bubble.turn.prompt)
+        ? () => retry(bubble)
+        : undefined,
+    hide: () => useMatesUiStore.getState().hide(mate.chatId, bubble.key),
+  });
   const scroller = React.useRef<HTMLDivElement>(null);
   const pinned = React.useRef(true);
   const [away, setAway] = React.useState(false);
@@ -464,6 +622,11 @@ export function MateThread({
                       onReact={(kind) => onReact(row.bubble, kind)}
                       onReply={() => onReply({ from: row.bubble.side === "me" ? "you" : mate.name, text: row.bubble.text })}
                       onQuote={jumpTo}
+                      more={moreFor(row.bubble)}
+                      editing={editing === row.bubble.key}
+                      edited={row.bubble.side === "me" && Boolean(editedPrompts?.includes(row.bubble.text))}
+                      onSaveEdit={(text) => saveEdit(row.bubble, text)}
+                      onCancelEdit={() => setEditing(null)}
                     />
                   </React.Fragment>
                 );
@@ -505,8 +668,8 @@ export function MateThread({
                 );
               case "delivered":
                 return (
-                  <div key={row.key} className="mt-0.5 px-5 text-right text-[11px] text-muted-foreground">
-                    Delivered
+                  <div key={row.key} className="mt-0.5 px-5 text-right text-[11px] text-muted-foreground" aria-live="polite">
+                    {row.word}
                   </div>
                 );
               default:
@@ -521,7 +684,16 @@ export function MateThread({
               <div className="max-w-[72%] rounded-[20px] rounded-br-[6px] bg-brand/50 px-3.5 py-2 text-[14px] leading-5 whitespace-pre-wrap text-brand-foreground">
                 {parsePrompt(message.text).text}
               </div>
-              <span className="mt-0.5 px-1 text-[11px] text-muted-foreground">{message.deliverAs === "steer" ? "Seen while working" : "Next"}</span>
+              <span className="mt-0.5 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
+                {message.deliverAs === "steer" ? "Queued · read at the next step" : "Queued · after this turn"}
+                <button
+                  type="button"
+                  onClick={() => void useEngineStore.getState().cancelQueued(message.entryId)}
+                  className="rounded-full px-1.5 hover:bg-muted hover:text-foreground"
+                >
+                  Unsend
+                </button>
+              </span>
             </div>
           ))}
         </div>

@@ -26,6 +26,11 @@ import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
 import { composePrompt, type ReplyTo } from "./message-markup";
+import { notify } from "@/features/notifications/notify";
+import { useMatesUiStore } from "@/stores/mates-ui-store";
+import { EmojiButton, useComposerAssist } from "./composer-assist";
+import { replaceShortcodes } from "./emoji";
+import { parseCheckin, type SlashCommand } from "./slash-commands";
 
 const MAX_LINES = 6;
 
@@ -72,7 +77,16 @@ function useOverLimit(mate: Mate): number | null {
 }
 
 export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: ReplyTo | null; onReplyDone(): void }) {
-  const [text, setText] = React.useState("");
+  // The box's text is a draft kept per conversation (evo-mates-messaging FR-11).
+  const [text, setTextState] = React.useState(() => useMatesUiStore.getState().drafts[mate.chatId] ?? "");
+  const setText = React.useCallback(
+    (next: string) => {
+      setTextState(next);
+      useMatesUiStore.getState().setDraft(mate.chatId, next);
+    },
+    [mate.chatId],
+  );
+  React.useEffect(() => setTextState(useMatesUiStore.getState().drafts[mate.chatId] ?? ""), [mate.chatId]);
   const [files, setFiles] = React.useState<PromptAttachment[]>([]);
   // Working by the engine store or by the shell: a run the harness retries
   // after a failed attempt reports no new start, but the shell sees it work.
@@ -148,8 +162,55 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     if (reply) field.current?.focus();
   }, [reply]);
 
+  // Slash commands (FR-13).
+  const run = (command: SlashCommand, rest: string) => {
+    const store = useMatesStore.getState();
+    switch (command.id) {
+      case "remind":
+        void useEngineStore.getState().sendPrompt(`Please remind me: ${rest}`).catch(() => undefined);
+        break;
+      case "checkin": {
+        const parsed = parseCheckin(rest);
+        if (!parsed) {
+          notify({ source: "mates", level: "warning", title: "Say when", body: "For example: /checkin every weekday 9:00 check the inbox", system: false });
+          setText(`/checkin ${rest}`);
+          return;
+        }
+        void matesApi
+          .addCheckin(mate.id, parsed.text, parsed.repeat)
+          .then(() => notify({ source: "mates", title: "Check-in added", body: parsed.text, system: false }))
+          .catch((error) => log("warn", "mates", `could not add a check-in: ${String(error)}`));
+        break;
+      }
+      case "pause":
+      case "resume":
+        void store.update(mate.id, { paused: command.id === "pause" });
+        break;
+      case "stop":
+        void useEngineStore.getState().abort();
+        break;
+      case "memory":
+        store.openPanel("memory");
+        break;
+      case "clear-quote":
+        onReplyDone();
+        break;
+      default:
+        break;
+    }
+  };
+  const assist = useComposerAssist({
+    where: "mate",
+    text,
+    setText,
+    field,
+    onCommand: run,
+    // ↑ in an empty box edits the last message (FR-7, FR-12).
+    onEditLast: () => window.dispatchEvent(new CustomEvent("mates:edit-last", { detail: mate.chatId })),
+  });
+
   const send = async (next = false) => {
-    const typed = text.trim();
+    const typed = replaceShortcodes(text.trim());
     if (!typed && files.length === 0) return;
     const engine = useEngineStore.getState();
     const prompt = await buildPrompt(typed, files);
@@ -204,7 +265,8 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
+      {assist.menuView}
       {reply && (
         <div className="mb-1.5 flex items-center gap-2 rounded-2xl bg-muted/70 px-3 py-1.5 text-xs text-muted-foreground">
           <span className="min-w-0 flex-1 truncate">
@@ -255,9 +317,13 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
             value={text}
             disabled={!ready}
             placeholder={ready ? `Message ${mate.name}` : "Starting…"}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              assist.update(event.target.value, event.target.selectionStart);
+            }}
             onPaste={onPaste}
             onKeyDown={(event) => {
+              if (assist.onKeyDown(event)) return;
               if (event.key === "Escape" && reply) {
                 event.preventDefault();
                 onReplyDone();
@@ -269,6 +335,7 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
             // The pill shows focus; the field itself draws no ring or border.
             className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none ring-0 outline-none placeholder:text-muted-foreground focus:outline-none focus-visible:shadow-none focus-visible:ring-0 focus-visible:outline-none"
           />
+          <EmojiButton onPick={assist.insert} />
           {busy && hasText && (
             <button
               type="button"

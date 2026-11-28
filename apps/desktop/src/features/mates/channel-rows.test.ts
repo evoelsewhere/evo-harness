@@ -163,3 +163,15 @@ describe("v2 channel rows", () => {
     expect(rows.filter((r) => r.kind === "day")).toHaveLength(2);
   });
 });
+
+// docs/features/evo-mates-messaging/spec.md (FR-2).
+describe("seen by", () => {
+  test("the person's line lists the mates its route picked", () => {
+    const rows = channelRows(
+      [message("person", "plan it", 0), { kind: "route", message: "person-0", picked: ["p", "w"], line: "Planner and Writer", at: at(0) }] as ChannelEntry[],
+      nameOf,
+    );
+    const mine = rows.find((r) => r.kind === "bubble" && r.me);
+    expect(mine?.kind === "bubble" ? mine.seenBy : null).toEqual(["p", "w"]);
+  });
+});

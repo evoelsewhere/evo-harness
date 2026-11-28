@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
 import { useSessionStore } from "@/stores/session-store";
+import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { ConfirmDelete } from "./confirm";
 import { plainPreview } from "./plain-preview";
 import { channelPresence } from "./presence";
@@ -32,10 +33,20 @@ export function useMateLine(mate: Mate) {
     return turn && turn.status === "running" ? currentStep(turn) : null;
   });
   const preview = row?.preview && !isHeartbeat(row.preview) && !isSilent(row.preview) ? plainPreview(row.preview) : "";
+  // A draft left in its box, while another place is shown (evo-mates-messaging FR-11).
+  const draft = useMatesUiStore((s) => s.drafts[mate.chatId]);
+  const shown = useMatesStore((s) => s.view.kind === "mate" && s.view.id === mate.id);
   const line =
-    presence.presence === "working" ? (step ?? presence.word ?? "Working…") : presence.presence !== "idle" ? presence.word! : preview || mate.role;
+    presence.presence === "working"
+      ? (step ?? presence.word ?? "Working…")
+      : presence.presence !== "idle"
+        ? presence.word!
+        : draft && !shown
+          ? `Draft: ${plainPreview(draft, 80)}`
+          : preview || mate.role;
   return {
     ...presence,
+    draft: Boolean(draft && !shown),
     line,
     unread: Boolean(row?.unread),
     at: row?.turnCount ? row.updatedAt : null,
@@ -252,6 +263,8 @@ export function useChannelLine(channel: Channel) {
   const mates = useMatesStore((s) => s.mates);
   const { working, waiting, presence } = channelPresence(channel.members, work, work[channel.chatId]);
   const nameOf = (id: string) => mates.find((m) => m.id === id)?.name ?? "A mate";
+  const draft = useMatesUiStore((s) => s.drafts[channel.chatId]);
+  const shown = useMatesStore((s) => s.view.kind === "channel" && s.view.id === channel.id);
   const line =
     presence === "waiting"
       ? waiting.length
@@ -263,7 +276,9 @@ export function useChannelLine(channel: Channel) {
           : working.length > 1
             ? `${working.length} mates are working…`
             : "Working…"
-        : plainPreview(row?.preview) || `${channel.members.length} ${channel.members.length === 1 ? "mate" : "mates"}`;
+        : draft && !shown
+          ? `Draft: ${plainPreview(draft, 80)}`
+          : plainPreview(row?.preview) || `${channel.members.length} ${channel.members.length === 1 ? "mate" : "mates"}`;
   return { presence, line, unread: Boolean(row?.unread), at: row?.turnCount ? row.updatedAt : null, working };
 }
 

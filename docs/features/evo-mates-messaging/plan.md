@@ -130,4 +130,12 @@ number. Link previews: see NFR-3.
 
 ## 5. As-built notes
 
-Empty until the work lands.
+- 1a: the queued status words read "Queued · read at the next step" /
+  "Queued · after this turn" with **Unsend**; "Delivered" became the FR-2
+  word (Sent, Seen, Queued) and nothing shows once the reply lands.
+- 1a: the icon badge is `mates_set_badge` in `src-tauri/src/mates/badge.rs`;
+  Windows gets a 32×32 RGBA overlay the window draws; the tray keeps its
+  own counts.
+- 1a: drafts keep text only, not attachments.
+- 1a: `/remind` asks the mate in a message (its agenda tool keeps it), as
+  the mate would if asked in words.

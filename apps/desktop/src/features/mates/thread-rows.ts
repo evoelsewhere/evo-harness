@@ -42,7 +42,8 @@ export type Row =
   /** Where a "Learned · <skill>" line may show (learning-layers FR-18). */
   | { kind: "learned"; key: string; turn: Turn }
   | { kind: "error"; key: string; turn: Turn }
-  | { kind: "delivered"; key: string };
+  /** The person's last message's status: Sent, Queued or Seen; the reply itself says Replied (evo-mates-messaging FR-2). */
+  | { kind: "delivered"; key: string; word: "Sent" | "Queued" | "Seen" };
 
 const GAP_MS = 15 * 60_000;
 
@@ -219,7 +220,7 @@ export function isSilent(text: string): boolean {
   return text.trim().replace(/^[.`*]+|[.`*]+$/g, "").toUpperCase() === "NOTHING_TO_SAY";
 }
 
-export function threadRows(turns: readonly Turn[], busy: boolean, retrying = false): Row[] {
+export function threadRows(turns: readonly Turn[], busy: boolean, retrying = false, queued = false): Row[] {
   const rows: Row[] = [];
   const bubbles: { bubble: Bubble }[] = [];
   let lastAt: number | null = null;
@@ -285,6 +286,11 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
     const last = index === turns.length - 1;
     const running = turn.status === "running" && last && busy;
     const lastPart = turn.parts[turn.parts.length - 1];
+    // Under the person's last message until the reply lands (FR-2).
+    const mine = rows.at(-1)?.kind === "bubble" && (rows.at(-1) as { bubble: Bubble }).bubble.side === "me";
+    if (last && mine && said === 0 && !turn.error && turn.status !== "aborted") {
+      rows.push({ kind: "delivered", key: `delivered:${base}`, word: queued ? "Queued" : running ? "Seen" : "Sent" });
+    }
     if (running && !(lastPart?.kind === "text" && lastPart.text.trim())) {
       const step = turn.retry
         ? `Trying again${turn.retry.maxRetries ? ` (${turn.retry.attempt} of ${turn.retry.maxRetries})` : ""}…`
@@ -302,9 +308,6 @@ export function threadRows(turns: readonly Turn[], busy: boolean, retrying = fal
     // The harness tries a failed attempt again on its own: say so, as typing.
     if (last && !running && retrying && turn.status === "error") {
       rows.push({ kind: "typing", key: `retry:${base}`, step: "Trying again…" });
-    }
-    if (!running && said === 0 && !turn.error && index === turns.length - 1 && turn.status !== "aborted") {
-      rows.push({ kind: "delivered", key: `delivered:${base}` });
     }
   });
   // Runs: a bubble is first or last of its side's run (tails go on the last).

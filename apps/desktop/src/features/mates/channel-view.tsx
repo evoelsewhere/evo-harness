@@ -15,7 +15,7 @@ import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { log } from "@/lib/db";
 import { openChatWindow } from "@/lib/windows";
-import { channelsApi, type Channel, type Mate } from "@/lib/mates";
+import type { Channel, Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useChannelStore } from "@/stores/channel-store";
 import { useEngineStore } from "@/stores/engine-store";
@@ -25,10 +25,15 @@ import { useMembers } from "./channel-header";
 import { FindBar } from "./find-bar";
 import { MatePresenceFace } from "./presence-face";
 import { clockTime, dayLabel } from "./thread-rows";
+import { useMatesUiStore } from "@/stores/mates-ui-store";
+import { EmojiButton, useComposerAssist } from "./composer-assist";
+import { replaceShortcodes } from "./emoji";
+import type { SlashCommand } from "./slash-commands";
 import { BUBBLE_TEXT } from "./bubble-style";
 import { channelMessage, splitMessage } from "./attachments";
 import { NamedFiles, SentByMe } from "./attachment-views";
 import { RetroCard } from "./retro-card";
+import { TypingLine } from "./typing-line";
 
 const EMPTY: never[] = [];
 
@@ -168,6 +173,17 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
             {/* The files a mate's line names that exist, under it (FR-83). */}
             {!row.me && <NamedFiles text={row.text} root={root} />}
             {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
+            {row.me && !row.steers && row.seenBy && row.seenBy.length > 0 && (
+              <span className="mt-0.5 mr-2 flex items-center gap-1 text-[11px] text-muted-foreground" aria-label={`Seen by ${row.seenBy.map((id) => faceOf(id)?.name ?? id).join(", ")}`}>
+                Seen by
+                <span className="flex -space-x-1">
+                  {row.seenBy.slice(0, 4).map((id) => {
+                    const seer = faceOf(id);
+                    return seer ? <MateFace key={id} avatar={seer.avatar} size={14} plate={false} label={seer.name} className="rounded-full ring-1 ring-background" /> : null;
+                  })}
+                </span>
+              </span>
+            )}
           </div>
         </div>
       );
@@ -189,7 +205,16 @@ function seatOf(channel: Channel, mate: string): string | null {
 }
 
 function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
-  const [text, setText] = React.useState("");
+  // The box's text is a draft kept per channel (evo-mates-messaging FR-11).
+  const [text, setTextState] = React.useState(() => useMatesUiStore.getState().drafts[channel.chatId] ?? "");
+  const setText = React.useCallback(
+    (next: string) => {
+      setTextState(next);
+      useMatesUiStore.getState().setDraft(channel.chatId, next);
+    },
+    [channel.chatId],
+  );
+  React.useEffect(() => setTextState(useMatesUiStore.getState().drafts[channel.chatId] ?? ""), [channel.chatId]);
   const [files, setFiles] = React.useState<PromptAttachment[]>([]);
   const [mention, setMention] = React.useState<{ start: number; query: string } | null>(null);
   const [pick, setPick] = React.useState(0);
@@ -219,6 +244,17 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
   };
 
   const addFiles = (added: PromptAttachment[]) => setFiles((current) => [...current, ...added]);
+
+  // Slash commands in a channel (FR-13): /stop, /handoff @mate, /clear-quote.
+  const run = (command: SlashCommand, rest: string) => {
+    if (command.id === "stop") void useEngineStore.getState().abort();
+    else if (command.id === "handoff") {
+      const next = rest.startsWith("@") ? `${rest} ` : `@${rest}`;
+      setText(next);
+      requestAnimationFrame(() => field.current?.focus());
+    }
+  };
+  const assist = useComposerAssist({ where: "channel", text, setText, field, onCommand: run });
 
   // Files dropped on the window attach to the message (FR-83).
   React.useEffect(() => {
@@ -251,7 +287,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
   const send = async () => {
     if (!text.trim() && files.length === 0) return;
     // Members read the message as text: pictures are saved and every attachment goes by path (FR-83).
-    const message = await channelMessage(text, files, async (blob, name) =>
+    const message = await channelMessage(replaceShortcodes(text), files, async (blob, name) =>
       invoke<string>("fs_save_paste", {
         name,
         data: await new Promise<string>((resolve, reject) => {
@@ -291,6 +327,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
 
   return (
     <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
+      {!mention && assist.menuView}
       {mention && matches.length > 0 && (
         <div className="absolute bottom-full left-4 mb-1 w-72 overflow-hidden rounded-2xl bg-popover p-1 shadow-lg ring-1 ring-border" role="listbox" aria-label="Mention a mate">
           {matches.map((m, i) => {
@@ -378,6 +415,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           onChange={(event) => {
             setText(event.target.value);
             setMention(mentionAt(event.target.value, event.target.selectionStart));
+            assist.update(event.target.value, event.target.selectionStart);
             setPick(0);
           }}
           onKeyDown={(event) => {
@@ -398,6 +436,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
                 return;
               }
             }
+            if (assist.onKeyDown(event)) return;
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void send();
@@ -405,6 +444,7 @@ function Composer({ channel, members }: { channel: Channel; members: Mate[] }) {
           }}
           className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none outline-none placeholder:text-muted-foreground focus-visible:outline-none"
         />
+        <EmojiButton onPick={assist.insert} />
         {busy && !text.trim() && files.length === 0 ? (
           <button
             type="button"
@@ -506,33 +546,8 @@ export function ChannelView({ channel }: { channel: Channel }) {
             </section>
           ))
         )}
-        {working.map((mate) => (
-          <div key={mate.id} className="mt-2 flex items-end gap-2 px-4" aria-live="polite">
-            <MateFace avatar={mate.avatar} size={28} mood="working" live plate={false} label={mate.name} />
-            <div className="flex flex-col items-start gap-0.5">
-              <div className="flex items-center gap-1 rounded-[20px] rounded-bl-[6px] bg-muted px-3.5 py-3">
-                {[0, 150, 300].map((delay) => (
-                  <span
-                    key={delay}
-                    className="size-2 rounded-full bg-muted-foreground/70 motion-safe:animate-bounce"
-                    style={{ animationDelay: `${delay}ms`, animationDuration: "1s" }}
-                  />
-                ))}
-              </div>
-              <span className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
-                {mate.name} is working…
-                <button
-                  type="button"
-                  onClick={() => void channelsApi.stopMember(channel.id, mate.id).catch(() => undefined)}
-                  className="rounded-full px-1.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label={`Stop ${mate.name}`}
-                >
-                  Stop
-                </button>
-              </span>
-            </div>
-          </div>
-        ))}
+        {/* Who is typing (evo-mates-messaging FR-1); none while a mate waits on the person. */}
+        <TypingLine channel={channel} working={waiting.length ? [] : working} />
         {queued.map((text, index) => (
           <div key={`queued:${index}`} className="mt-2 flex flex-col items-end gap-0.5 px-4 opacity-60">
             <div className="max-w-[75%] rounded-[20px] rounded-br-[6px] bg-brand px-3.5 py-2 text-[14px] leading-[20px] whitespace-pre-wrap text-brand-foreground">
@@ -543,7 +558,7 @@ export function ChannelView({ channel }: { channel: Channel }) {
               onClick={() => useChannelStore.getState().unqueue(channel.chatId, index)}
               className="px-1 text-[11px] text-muted-foreground hover:text-foreground"
             >
-              Next · Remove
+              Queued · Unsend
             </button>
           </div>
         ))}

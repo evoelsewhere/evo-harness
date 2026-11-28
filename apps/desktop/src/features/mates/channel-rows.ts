@@ -45,6 +45,8 @@ export type ChannelRow =
       failed: boolean;
       /** A message of the person that went into this mate's turn (FR-56). */
       steers?: string;
+      /** The mates that took this message of the person in (evo-mates-messaging FR-2). */
+      seenBy?: string[];
     }
   /** Who answers; `picked` are the mates' ids, for their faces (evo-mates-ui-v2 FR-20). */
   | { kind: "route"; key: string; text: string; picked: string[] }
@@ -132,6 +134,14 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
         break;
     }
   });
+  // Who took each of the person's messages in: the mates its route picked (FR-2, A-2).
+  const picked = new Map<string, string[]>();
+  for (const entry of entries) {
+    if (entry.kind === "route") picked.set(entry.message, [...(picked.get(entry.message) ?? []), ...entry.picked]);
+  }
+  for (const row of rows) {
+    if (row.kind === "bubble" && row.me && picked.has(row.key)) row.seenBy = Array.from(new Set(picked.get(row.key)));
+  }
   // Group runs of one author: only the first shows the name, only the last the tail.
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];

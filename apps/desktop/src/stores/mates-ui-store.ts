@@ -21,6 +21,15 @@ interface MatesUiStore {
   membersOpen: boolean;
   /** A window dialog opened from anywhere (the sidebar, the switcher, an empty state). */
   dialog: "new-channel" | "import" | null;
+  /** Text left in a box, per chat (evo-mates-messaging FR-11). */
+  drafts: Record<string, string>;
+  /** The person's prompts that were edited, per chat: their bubbles say "Edited" (FR-7). */
+  edited: Record<string, string[]>;
+  /** Messages the person deleted for themself, per chat (FR-9). */
+  hidden: Record<string, string[]>;
+  setDraft(chat: string, text: string): void;
+  markEdited(chat: string, prompt: string): void;
+  hide(chat: string, key: string): void;
   toggleSidebar(): void;
   toggleSection(id: string): void;
   setFilesView(view: FilesView): void;
@@ -56,6 +65,19 @@ export const useMatesUiStore = create<MatesUiStore>()(
       findOpen: false,
       membersOpen: false,
       dialog: null,
+      drafts: {},
+      edited: {},
+      hidden: {},
+      setDraft: (chat, text) =>
+        set((s) => {
+          const drafts = { ...s.drafts };
+          if (text.trim()) drafts[chat] = text;
+          else delete drafts[chat];
+          return { drafts };
+        }),
+      markEdited: (chat, prompt) =>
+        set((s) => ({ edited: { ...s.edited, [chat]: [...(s.edited[chat] ?? []).filter((p) => p !== prompt), prompt].slice(-50) } })),
+      hide: (chat, key) => set((s) => ({ hidden: { ...s.hidden, [chat]: [...(s.hidden[chat] ?? []).filter((k) => k !== key), key] } })),
       toggleSidebar: () => set((s) => ({ sidebarFolded: !s.sidebarFolded })),
       toggleSection: (id) =>
         set((s) => ({
@@ -73,7 +95,14 @@ export const useMatesUiStore = create<MatesUiStore>()(
       version: 0,
       storage: createJSONStorage(storage),
       // Only the preferences are kept; open dialogs are not.
-      partialize: (s) => ({ sidebarFolded: s.sidebarFolded, foldedSections: s.foldedSections, filesView: s.filesView }),
+      partialize: (s) => ({
+        sidebarFolded: s.sidebarFolded,
+        foldedSections: s.foldedSections,
+        filesView: s.filesView,
+        drafts: s.drafts,
+        edited: s.edited,
+        hidden: s.hidden,
+      }),
     },
   ),
 );

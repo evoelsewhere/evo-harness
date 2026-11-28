@@ -30,7 +30,7 @@ STORAGE = """
 try {{
   localStorage.setItem('evo.theme', '{theme}');
   localStorage.setItem('evo.ui', JSON.stringify({{ state: {{ approvalNoteSeen: true }}, version: 0 }}));
-  localStorage.setItem('evo.mates-ui', JSON.stringify({{ state: {{ sidebarFolded: {folded}, foldedSections: [], filesView: 'grid' }}, version: 0 }}));
+  localStorage.setItem('evo.mates-ui', JSON.stringify({{ state: {{ sidebarFolded: {folded}, foldedSections: [], filesView: 'grid', drafts: {{ 'chat-rio': 'Can you also check the APAC numbers before Friday?' }} }}, version: 0 }}));
 }} catch {{}}
 """
 
@@ -121,6 +121,33 @@ def view_gallery(page: Page) -> None:
     page.wait_for_timeout(900)
 
 
+def view_edit(page: Page) -> None:
+    view_mate(page)
+    page.locator("main textarea").last.click()
+    page.keyboard.press("ArrowUp")
+    page.wait_for_timeout(600)
+
+
+def view_slash(page: Page) -> None:
+    view_mate(page)
+    page.locator("main textarea").last.click()
+    page.keyboard.type("/")
+    page.wait_for_timeout(500)
+
+
+def view_emoji(page: Page) -> None:
+    view_mate(page)
+    page.get_by_role("button", name="Emoji").last.click()
+    page.wait_for_timeout(600)
+
+
+def view_shortcode(page: Page) -> None:
+    view_channel(page)
+    page.locator("main textarea").last.click()
+    page.keyboard.type("ship it :ro")
+    page.wait_for_timeout(500)
+
+
 VIEWS = {
     "today": view_today,
     "mate": view_mate,
@@ -134,6 +161,10 @@ VIEWS = {
     "find": view_find,
     "files": view_files,
     "gallery": view_gallery,
+    "edit": view_edit,
+    "slash": view_slash,
+    "emoji": view_emoji,
+    "shortcode": view_shortcode,
 }
 
 

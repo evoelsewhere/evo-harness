@@ -13,6 +13,7 @@
 //!   its work settles ([`apply_pending`]).
 //! * Gallery roles are Markdown files in `templates/` ([`template`]).
 
+pub mod badge;
 pub mod channels;
 pub mod files;
 pub mod grants;
