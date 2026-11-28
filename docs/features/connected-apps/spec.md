@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | In progress |
 | Area | engine, `evo-mcp`, `evo-vault`, desktop shell, desktop UI, both apps |
 | Created | 2026-11-28 |
 | Updated | 2026-11-28 |
@@ -119,7 +119,7 @@ A person wants their mates to use Gmail and Slack.
 | --- | --- | --- |
 | FR-1 | Settings has a **Composio project key** field (in Harness under Connected apps, in Mates in Settings › Evo Mates). A saved key is checked with Composio first and kept in the system's keychain, never in a plain file, a log or a prompt. **Remove key** forgets it. | Given a key that Composio refuses, then it is not saved and the reason shows. |
 | FR-2 | Next to the key field, Evo says that service tool calls and their results go through Composio, and that the services' sign-ins are kept by Composio. | Review of the page text. |
-| FR-3 | A **Connected apps** page — in Evo Harness a section of Customize next to Connectors and a row in the sidebar's More menu; in Evo Mates a page in Settings and the Apps tab of each mate — lists the catalogue with search by name and category, and a **Connected** tab with every account as its own row: service, label, status (Active, Needs sign-in, Expired, Failed), connected date. | Given two Gmail accounts, then the Connected tab has two rows. |
+| FR-3 | Connected apps and MCP servers are one place, **Connectors**: in Evo Harness the Customize section Connectors; in Evo Mates a page opened from the sidebar and the Apps tab of each mate. It lists the connected services (each with its accounts) and the MCP servers side by side, a catalogue of services with search by name and category, and for each service every account as its own row: label, status (Active, Needs sign-in, Expired, Failed), connected date. | Given two Gmail accounts, then Gmail shows two account rows. |
 | FR-4 | **Connect** asks for a label, unique within the service and required once the service has an active account; opens Composio's sign-in in the person's default browser; and shows the account once Composio reports it active. A pending sign-in can be reopened without creating another account; after ten minutes a new link is asked for. | Given Connect then closing the browser tab, when the person chooses Open again, then the same pending account is reused. |
 | FR-5 | A service holds at most five usable accounts. A label held only by an account that is not active can be reused: that account is removed first. | Given an expired "work", when the person connects "work" again, then one "work" row remains. |
 | FR-6 | **Disconnect** revokes that account at Composio (and with it the service's grant) and removes only that row; other accounts of the service stay. **Reconnect** signs in again under the same label. | Given two accounts, when one is disconnected, then the other still works. |
@@ -171,6 +171,9 @@ None.
   (FR-3).
 - 2026-11-28 — Q: Which mates get a newly connected service? → A: those
   on All connected apps, not those on Only these (FR-10).
+- 2026-11-28 — Q: Connectors and Connected apps as two Customize sections?
+  → A: one section, Connectors, holding both, with its inside redesigned
+  (owner, while building; FR-3 changed).
 
 ### 6.3 Assumptions
 
@@ -179,6 +182,21 @@ None.
   lives ten minutes — Composio's lifetime for a link.
 - A-2 The catalogue is cached for a day — because it changes rarely and the
   page must open offline.
+- A-3 (2026-11-28, taken while building, owner not asked) Evo Mates has no
+  Settings window of its own, so its "page in Settings" is the Connected
+  apps page as a dialog from the Mates sidebar footer and from a mate's
+  Apps tab; Settings › Evo Mates (in Evo Harness) holds the key card.
+- A-4 (2026-11-28, taken while building) A project switches connected apps
+  off for its chats with `"connectedApps": false` in its
+  `.evo/settings.json`; there is no switch for it in the UI yet.
+- A-5 (2026-11-28, taken while building) In Evo Harness chats, which have no
+  Sending on your behalf setting, a tool that sends asks every time
+  (Allow once / Deny); a tool that only reads runs without asking unless
+  the person set it to Ask.
+- A-6 (2026-11-28) Services show their logo, from Composio's logo host
+  through the shell and its cache; a letter tile while it loads or when
+  there is none. (First taken as letter tiles only; the owner asked for
+  logos.)
 
 ## 7. History
 
@@ -186,3 +204,5 @@ None.
   on Composio with their own key.
 - 2026-11-28 — Owner accepted the spec with the proposed answers (Gate A).
 - 2026-11-28 — Owner accepted the plan (Gate B). Status Accepted.
+- 2026-11-28 — Implementation started. Status In progress.
+- 2026-11-28 — Owner asked to merge Connectors and Connected apps into one section and redesign it; FR-3 changed, 6.2 recorded. Owner asked for service logos; A-6 changed. Owner asked to drop the More menu row (Connectors is reached through Customize); FR-3 changed.

@@ -1,0 +1,19 @@
+{
+  "successful": false,
+  "data": {
+    "results": [
+      {
+        "tool_slug": "GMAIL_SEND_EMAIL",
+        "error": "403 Client Error: Forbidden. Request had insufficient authentication scopes.",
+        "response": {
+          "error": {
+            "code": 403,
+            "message": "Request had insufficient authentication scopes.",
+            "status": "PERMISSION_DENIED",
+            "details": [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT", "domain": "googleapis.com" }]
+          }
+        }
+      }
+    ]
+  }
+}

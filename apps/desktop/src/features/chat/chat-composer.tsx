@@ -35,7 +35,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { UNCONFIGURED_PROVIDER } from "@/engine/protocol";
 import { composeCodeComments } from "@/lib/code-comments";
 import { composeAnnotatedMessage } from "@/lib/document-annotations";
-import { mcp, type Connector } from "@/lib/mcp";
+import { connectorLabel, mcp, type Connector } from "@/lib/mcp";
 import { cn } from "@/lib/utils";
 import { useAnnotationsStore } from "@/stores/annotations-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
@@ -687,7 +687,7 @@ function PlusMenu({
                   onCheckedChange={(on) => chat && void useEngineStore.getState().setChatConnector(chat, connector.key, on)}
                 >
                   <span className={cn("size-1.5 shrink-0 rounded-full", dot[connector.status] ?? dot.off)} />
-                  <span className="truncate">{connector.name}</span>
+                  <span className="truncate">{connectorLabel(connector)}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
                     {connector.status === "connected" ? connector.tools.length : ""}
                   </span>

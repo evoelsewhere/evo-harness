@@ -51,6 +51,8 @@ export interface Connector {
   project?: string | null;
   /** A URL connector with a saved sign-in. */
   signedIn?: boolean;
+  /** The app's own server (connected apps), not the person's file. */
+  app?: string | null;
   resources: ConnectorResource[];
   kind: "stdio" | "http" | "sse" | "invalid";
   /** The command or URL. */
@@ -105,3 +107,8 @@ export const mcp = {
   getPrompt: (server: string, prompt: string, args: Record<string, string>) =>
     invoke<string>("mcp_get_prompt", { server, prompt, arguments: args }),
 };
+
+/** A connector's name as people read it: the app's own server has one of its own. */
+export function connectorLabel(connector: Pick<Connector, "name" | "app">): string {
+  return connector.app === "connected_apps" ? "Connected apps" : connector.name;
+}

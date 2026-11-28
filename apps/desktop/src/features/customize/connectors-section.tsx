@@ -3,6 +3,9 @@ import {
   ChevronRightIcon,
   FolderGit2Icon,
   GlobeIcon,
+  KeyRoundIcon,
+  LayoutGridIcon,
+  Settings2Icon,
   LogInIcon,
   PencilIcon,
   PlusIcon,
@@ -18,7 +21,10 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { mcp, type Connector, type ConnectorConfig, type ConnectorStatus, type ProjectState, type ToolPermission } from "@/lib/mcp";
+import { connectorLabel, mcp, type Connector, type ConnectorConfig, type ConnectorStatus, type ProjectState, type ToolPermission } from "@/lib/mcp";
+import { AppsCatalogue, KeyCard, ServiceDetail, ServiceTile, serviceLine, statusTone, UnavailableNotice, useConnectedServices } from "@/features/connected-apps";
+import { APP_SERVER_KEY } from "@/lib/connected-apps";
+import { useConnectedAppsStore } from "@/stores/connected-apps-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { Badge, EmptyNote, IconAction, ListRow, Properties, Split } from "./customize-parts";
@@ -289,7 +295,7 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="truncate text-base font-semibold">{connector.name}</h2>
+            <h2 className="truncate text-base font-semibold">{connectorLabel(connector)}</h2>
             <Badge>{connector.kind === "stdio" ? "Command" : connector.kind === "sse" ? "URL · SSE" : "URL"}</Badge>
             {connector.project && <Badge tone="brand">Project</Badge>}
             {connector.signedIn && <Badge>Signed in</Badge>}
@@ -301,15 +307,15 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
           <IconAction label="Reconnect" onClick={() => void mcp.reconnect(connector.key)}>
             <RefreshCwIcon className={cn(connector.status === "connecting" && "animate-spin")} />
           </IconAction>
-          {connector.kind !== "stdio" && connector.kind !== "invalid" && (
+          {!connector.app && connector.kind !== "stdio" && connector.kind !== "invalid" && (
             <SignInButton connector={connector} />
           )}
-          {!connector.project && (
+          {!connector.project && !connector.app && (
             <IconAction label="Edit" onClick={onEdit}>
               <PencilIcon />
             </IconAction>
           )}
-          {confirmRemove ? (
+          {connector.app ? null : confirmRemove ? (
             <Button size="sm" variant="destructive" onClick={() => void mcp.remove(connector.key)} onBlur={() => setConfirmRemove(false)}>
               Remove
             </Button>
@@ -318,7 +324,9 @@ function ConnectorDetail({ connector, onEdit }: { connector: Connector; onEdit()
               <Trash2Icon />
             </IconAction>
           )}
-          <Switch aria-label={on ? "Turn off" : "Turn on"} checked={on} onCheckedChange={(next) => void mcp.setEnabled(connector.key, next)} />
+          {!connector.app && (
+            <Switch aria-label={on ? "Turn off" : "Turn on"} checked={on} onCheckedChange={(next) => void mcp.setEnabled(connector.key, next)} />
+          )}
         </div>
       </header>
 
@@ -548,44 +556,175 @@ function ProjectServers({ cwd }: { cwd: string }) {
 
 // ── Section ─────────────────────────────────────────────────────────────────
 
+/** A group's heading in the list. */
+function GroupLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-2.5 pt-4 pb-1">
+      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{children}</span>
+      {action}
+    </div>
+  );
+}
+
+/** Connected apps' settings: the key, and the connector chats see (its tool permissions). */
+function AppsSettings({ server }: { server: Connector | undefined }) {
+  return (
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-col gap-1">
+        <h2 className="text-base font-semibold">Connected apps</h2>
+        <p className="text-[13px] text-muted-foreground">
+          Gmail, Slack, GitHub, Notion and 2,000 more, through Composio with your own project key. Each service can have
+          several accounts, each with its own label.
+        </p>
+      </header>
+      <KeyCard />
+      {server && (
+        <Collapsible>
+          <CollapsibleTrigger className="group flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+            <ChevronRightIcon className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
+            Advanced: the tools chats get from Composio
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-3">
+              <ConnectorDetail connector={server} onEdit={() => undefined} />
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Customize → Connectors: connected apps (Composio) and MCP servers in one list
+ * (docs/features/connected-apps/spec.md, FR-3; customize spec FR-19 – FR-21).
+ * Apps first — each connected service with its accounts, then Browse apps —
+ * and the MCP servers below; the detail shows what is selected.
+ */
 export function ConnectorsSection({ query }: { query: string }) {
   const { servers, loaded, error, load } = useConnectorsStore();
   const cwd = useEngineStore((s) => s.cwd);
+  const appsKey = useConnectedAppsStore((s) => s.key);
+  const focus = useConnectedAppsStore((s) => s.focus);
+  const services = useConnectedServices();
   const [selected, setSelected] = React.useState<string | null>(null);
   const [dialog, setDialog] = React.useState<{ editing: Connector | null } | null>(null);
 
   React.useEffect(() => {
     void load();
+    void useConnectedAppsStore.getState().load();
   }, [load]);
+  React.useEffect(() => {
+    if (appsKey === "saved") void useConnectedAppsStore.getState().loadCatalog();
+  }, [appsKey]);
+  // Opened from elsewhere for a given view (the More menu, Settings, a mate).
+  React.useEffect(() => {
+    if (!focus) return;
+    setSelected(focus);
+    useConnectedAppsStore.getState().setFocus(null);
+  }, [focus]);
 
   const q = query.trim().toLowerCase();
-  const list = servers.filter((s) => !q || s.name.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q));
-  const current = list.find((s) => s.key === selected) ?? list[0];
+  const appServer = servers.find((s) => s.key === APP_SERVER_KEY);
+  const list = servers.filter((s) => s.key !== APP_SERVER_KEY && (!q || s.name.toLowerCase().includes(q) || s.summary.toLowerCase().includes(q)));
+  const shownServices = services.filter((s) => !q || s.name.toLowerCase().includes(q) || s.toolkit.includes(q));
+  const fallback = appsKey !== "saved" ? "apps:settings" : shownServices[0] ? `svc:${shownServices[0].toolkit}` : (list[0]?.key ?? "apps:browse");
+  const current = selected ?? fallback;
+  const server = list.find((s) => s.key === current);
+
+  const detail =
+    current === "apps:browse" ? (
+      <div className="flex flex-col gap-4">
+        <header className="flex flex-col gap-1">
+          <h2 className="text-base font-semibold">Browse apps</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Connect a service and every chat, and every mate on “All connected apps”, can use it. Its tools that send, post
+            or delete always ask first.
+          </p>
+        </header>
+        <UnavailableNotice />
+        <AppsCatalogue query={query} onOpen={(toolkit) => setSelected(`svc:${toolkit}`)} />
+      </div>
+    ) : current === "apps:settings" ? (
+      <AppsSettings server={appServer} />
+    ) : current.startsWith("svc:") ? (
+      <ServiceDetail key={current} toolkit={current.slice(4)} />
+    ) : server ? (
+      <ConnectorDetail key={server.key} connector={server} onEdit={() => setDialog({ editing: server })} />
+    ) : null;
 
   return (
     <>
       <Split
         list={
           <div className="flex flex-col gap-0.5 pt-2.5">
-            <Button variant="outline" size="sm" className="mb-1.5 justify-start gap-2" onClick={() => setDialog({ editing: null })}>
-              <PlusIcon />
-              Add connector
-            </Button>
+            <div className="flex gap-1.5">
+              <Button size="sm" className="flex-1 justify-center gap-1.5" onClick={() => setSelected(appsKey === "saved" ? "apps:browse" : "apps:settings")}>
+                <PlusIcon />
+                Connect an app
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1 justify-center gap-1.5" onClick={() => setDialog({ editing: null })}>
+                <PlusIcon />
+                MCP server
+              </Button>
+            </div>
+
+            <GroupLabel
+              action={
+                <IconAction label="Connected apps settings" onClick={() => setSelected("apps:settings")}>
+                  <Settings2Icon />
+                </IconAction>
+              }
+            >
+              Apps
+            </GroupLabel>
+            {appsKey !== "saved" ? (
+              <ListRow
+                selected={current === "apps:settings"}
+                onSelect={() => setSelected("apps:settings")}
+                icon={<KeyRoundIcon />}
+                title="Set up connected apps"
+                description="Gmail, Slack, Notion and 2,000 more, with your Composio key"
+              />
+            ) : (
+              <>
+                {shownServices.map((service) => (
+                  <ListRow
+                    key={service.toolkit}
+                    selected={current === `svc:${service.toolkit}`}
+                    onSelect={() => setSelected(`svc:${service.toolkit}`)}
+                    icon={<ServiceTile slug={service.toolkit} name={service.name} className="size-7 rounded-md" />}
+                    title={service.name}
+                    description={serviceLine(service)}
+                    meta={<span className={cn("size-1.5 shrink-0 rounded-full", statusTone[service.status])} />}
+                  />
+                ))}
+                <ListRow
+                  selected={current === "apps:browse"}
+                  onSelect={() => setSelected("apps:browse")}
+                  icon={<LayoutGridIcon />}
+                  title="Browse apps"
+                  description={services.length ? "Connect another service or account" : "Gmail, Slack, GitHub, Notion…"}
+                />
+              </>
+            )}
+
+            <GroupLabel>MCP servers</GroupLabel>
             {cwd && <ProjectServers cwd={cwd} />}
             {error && <p className="px-2.5 text-xs text-destructive">{error}</p>}
             {loaded && list.length === 0 ? (
-              <EmptyNote title={q ? "No matching connectors" : "No connectors yet"}>
-                A connector is an MCP server — a command such as <code>npx -y @modelcontextprotocol/server-memory</code>, or a
-                URL. Every chat can use its tools; you choose which ones run without asking.
+              <EmptyNote title={q ? "No matching servers" : "No MCP servers yet"}>
+                An MCP server is a command such as <code>npx -y @modelcontextprotocol/server-memory</code>, or a URL. Every chat
+                can use its tools; you choose which ones run without asking.
               </EmptyNote>
             ) : (
               list.map((connector) => (
                 <ListRow
                   key={connector.key}
-                  selected={current?.key === connector.key}
+                  selected={current === connector.key}
                   onSelect={() => setSelected(connector.key)}
                   icon={<KindIcon kind={connector.kind} />}
-                  title={connector.name}
+                  title={connectorLabel(connector)}
                   description={connector.summary}
                   meta={<Status connector={connector} />}
                   dimmed={connector.status === "off"}
@@ -601,7 +740,7 @@ export function ConnectorsSection({ query }: { query: string }) {
             )}
           </div>
         }
-        detail={current ? <ConnectorDetail key={current.key} connector={current} onEdit={() => setDialog({ editing: current })} /> : null}
+        detail={detail}
       />
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
         <DialogContent className="sm:max-w-lg">

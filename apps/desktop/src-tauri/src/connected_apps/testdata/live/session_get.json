@@ -1,0 +1,49 @@
+{
+  "session_id": "REDACTED",
+  "mcp": {
+    "type": "http",
+    "url": "https://backend.composio.dev/tool_router/REDACTED/mcp"
+  },
+  "tool_router_tools": [
+    "COMPOSIO_MULTI_EXECUTE_TOOL",
+    "COMPOSIO_SEARCH_TOOLS",
+    "COMPOSIO_GET_TOOL_SCHEMAS",
+    "COMPOSIO_REMOTE_WORKBENCH",
+    "COMPOSIO_REMOTE_BASH_TOOL",
+    "COMPOSIO_MANAGE_CONNECTIONS"
+  ],
+  "config": {
+    "user_id": "REDACTED",
+    "instant": {
+      "return_instant_charge": false,
+      "return_prices_in_search": false
+    },
+    "manage_connections": {
+      "enabled": true,
+      "enable_wait_for_connections": false,
+      "enable_connection_removal": true
+    },
+    "workbench": {
+      "enable": true,
+      "tool_execution_enabled": true,
+      "proxy_execution_enabled": true,
+      "sandbox_size": "standard"
+    },
+    "multi_account": {
+      "enable": true,
+      "max_accounts_per_toolkit": 10,
+      "require_explicit_selection": true
+    },
+    "preload": {
+      "tools": []
+    },
+    "search": {
+      "enable": true
+    },
+    "execute": {
+      "enable_multi_execute": true
+    }
+  },
+  "config_version": 1,
+  "warnings": []
+}

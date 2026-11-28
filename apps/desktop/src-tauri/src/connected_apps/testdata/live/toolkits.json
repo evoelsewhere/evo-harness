@@ -1,0 +1,116 @@
+{
+  "items": [
+    {
+      "name": "Gmail",
+      "slug": "gmail",
+      "type": "native",
+      "app": "Gmail",
+      "toolkit_type": "api",
+      "auth_schemes": [
+        "OAUTH2",
+        "S2S_OAUTH2"
+      ],
+      "composio_managed_auth_schemes": [
+        "OAUTH2"
+      ],
+      "is_local_toolkit": false,
+      "meta": {
+        "triggers_count": 2,
+        "tools_count": 61,
+        "description": "Gmail is Google’s email service, featuring spam protection, search functions, and seamless integration with other G Suite apps for productivity",
+        "logo": "https://logos.composio.dev/api/gmail",
+        "app_url": "https://mail.google.com",
+        "categories": [
+          {
+            "id": "REDACTED",
+            "name": "email"
+          }
+        ],
+        "created_at": "2024-05-03T11:44:32.061Z",
+        "updated_at": "2026-11-28T02:25:36.712Z",
+        "version": "20261125_00"
+      },
+      "no_auth": false,
+      "auth_guide_url": null,
+      "deprecated": {
+        "toolkitId": "REDACTED"
+      }
+    },
+    {
+      "name": "Composio",
+      "slug": "composio",
+      "type": "native",
+      "app": "Composio",
+      "toolkit_type": "api",
+      "auth_schemes": [
+        "NO_AUTH"
+      ],
+      "composio_managed_auth_schemes": [],
+      "is_local_toolkit": false,
+      "meta": {
+        "triggers_count": 0,
+        "tools_count": 17,
+        "description": "Composio enables AI Agents and LLMs to authenticate and integrate with various tools via function calling.",
+        "logo": "https://logos.composio.dev/api/composio",
+        "app_url": "https://composio.dev",
+        "categories": [
+          {
+            "id": "REDACTED",
+            "name": "ai agents"
+          },
+          {
+            "id": "REDACTED",
+            "name": "developer tools"
+          }
+        ],
+        "created_at": "2024-05-14T08:48:17.389Z",
+        "updated_at": "2026-11-27T12:25:36.825Z",
+        "version": "20260917_00"
+      },
+      "no_auth": true,
+      "auth_guide_url": null,
+      "deprecated": {
+        "toolkitId": "REDACTED"
+      }
+    },
+    {
+      "name": "GitHub",
+      "slug": "github",
+      "type": "native",
+      "app": "GitHub",
+      "toolkit_type": "api",
+      "auth_schemes": [
+        "OAUTH2"
+      ],
+      "composio_managed_auth_schemes": [
+        "OAUTH2"
+      ],
+      "is_local_toolkit": false,
+      "meta": {
+        "triggers_count": 46,
+        "tools_count": 883,
+        "description": "GitHub is a code hosting platform for version control and collaboration, offering Git-based repository management, issue tracking, and continuous integration features",
+        "logo": "https://logos.composio.dev/api/github",
+        "app_url": "https://github.com/",
+        "categories": [
+          {
+            "id": "REDACTED",
+            "name": "developer tools"
+          }
+        ],
+        "created_at": "2024-05-03T11:44:32.061Z",
+        "updated_at": "2026-11-28T02:25:36.712Z",
+        "version": "20261124_00"
+      },
+      "no_auth": false,
+      "auth_guide_url": null,
+      "deprecated": {
+        "toolkitId": "REDACTED"
+      }
+    }
+  ],
+  "next_cursor": "Mi0xMDAw",
+  "total_pages": 3,
+  "current_page": 1,
+  "total_items": 2048
+}

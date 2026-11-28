@@ -1,0 +1,542 @@
+{
+  "items": [
+    {
+      "slug": "GMAIL_ADD_LABEL_TO_EMAIL",
+      "name": "Modify email labels",
+      "description": "Adds and/or removes specified Gmail labels for a message; ensure `message_id` and all `label_ids` are valid (use 'listLabels' for custom label IDs).",
+      "available_versions": [
+        "20261125_00"
+      ],
+      "version": "20261125_00",
+      "toolkit": {
+        "slug": "gmail",
+        "name": "gmail",
+        "logo": "https://logos.composio.dev/api/gmail"
+      },
+      "input_parameters": {
+        "type": "object",
+        "title": "AddLabelToEmailRequest",
+        "required": [
+          "message_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id",
+            "default": "me",
+            "examples": [
+              "me",
+              "REDACTED@example.com"
+            ],
+            "description": "User's email address or 'me' for the authenticated user.",
+            "human_parameter_name": "User ID",
+            "human_parameter_description": "Provide the email address or identifier of the user whose mailbox you are accessing. Use 'me' if you want to access your own mailbox."
+          },
+          "message_id": {
+            "type": "string",
+            "title": "Message Id",
+            "pattern": "^[0-9a-fA-F]+$",
+            "examples": [
+              "1a2b3c4d5e6f7890",
+              "abcd1234efab5678"
+            ],
+            "description": "Immutable ID of the message to modify. Gmail message IDs are hexadecimal strings (e.g., '1a2b3c4d5e6f7890'). IMPORTANT: Do NOT use UUIDs (32-character strings like '093ca4662b214d5eba8f4ceeaad63433'), thread IDs, or internal system IDs - these will cause 'Invalid id value' errors. Obtain valid message IDs from: (1) 'GMAIL_FETCH_EMAILS' response 'messageId' field, (2) 'GMAIL_FETCH_MESSAGE_BY_THREAD_ID' response, or (3) 'GMAIL_LIST_THREADS' and then fetching thread messages.",
+            "human_parameter_name": "Message ID",
+            "human_parameter_description": "Enter the Gmail message ID (a hexadecimal string like '1a2b3c4d5e6f7890'). Get this from GMAIL_FETCH_EMAILS 'messageId' field. Do NOT use UUIDs or 32-character strings."
+          },
+          "add_label_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Add Label Ids",
+            "default": [],
+            "examples": [
+              "STARRED",
+              "IMPORTANT",
+              "CATEGORY_UPDATES",
+              "Label_1"
+            ],
+            "description": "Label IDs to add (IDs, not display names). System labels: INBOX, SPAM, TRASH, UNREAD, STARRED, IMPORTANT, CATEGORY_PERSONAL, CATEGORY_SOCIAL, CATEGORY_PROMOTIONS, CATEGORY_UPDATES, CATEGORY_FORUMS. Use full CATEGORY_ prefix (e.g., 'CATEGORY_UPDATES' not 'UPDATES'). Custom labels: call 'listLabels' first to get the ID (format: 'Label_<number>'). Do NOT use the label display name; the API requires the ID. SENT, DRAFT, CHAT are immutable and cannot be added or removed. A label cannot appear in both add_label_ids and remove_label_ids.",
+            "human_parameter_name": "Label IDs to add",
+            "human_parameter_description": "List the IDs of labels to add. Use exact system label IDs (e.g., 'CATEGORY_UPDATES' not 'UPDATES') or custom label IDs from listLabels (e.g., 'Label_1' not the label name). Note: SENT, DRAFT, and CHAT cannot be modified."
+          },
+          "remove_label_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Remove Label Ids",
+            "default": [],
+            "examples": [
+              "UNREAD",
+              "INBOX",
+              "CATEGORY_UPDATES",
+              "Label_1"
+            ],
+            "description": "Label IDs to remove (IDs, not display names). System labels: INBOX, SPAM, TRASH, UNREAD, STARRED, IMPORTANT, CATEGORY_PERSONAL, CATEGORY_SOCIAL, CATEGORY_PROMOTIONS, CATEGORY_UPDATES, CATEGORY_FORUMS. Use full CATEGORY_ prefix (e.g., 'CATEGORY_UPDATES' not 'UPDATES'). Custom labels: call 'listLabels' first to get the ID (format: 'Label_<number>'). SENT, DRAFT, CHAT are immutable and cannot be removed. Common operations: to mark as read, remove 'UNREAD'; to archive, remove 'INBOX'. A label cannot appear in both add_label_ids and remove_label_ids.",
+            "human_parameter_name": "Label IDs to remove",
+            "human_parameter_description": "List the IDs of labels to remove. Use exact system label IDs (e.g., 'CATEGORY_UPDATES' not 'UPDATES') or custom label IDs from listLabels (e.g., 'Label_1' not the label name). To mark as read, remove 'UNREAD'. To archive, remove 'INBOX'. Note: SENT, DRAFT, and CHAT cannot be modified."
+          }
+        }
+      },
+      "output_parameters": {
+        "type": "object",
+        "$defs": {
+          "GmailMessageResponse": {
+            "type": "object",
+            "title": "GmailMessageResponse",
+            "properties": {
+              "id": {
+                "type": "string",
+                "title": "Id",
+                "description": "The immutable ID of the sent message."
+              },
+              "raw": {
+                "type": "string",
+                "title": "Raw",
+                "description": "The entire email message in RFC 2822 format, base64url-encoded."
+              },
+              "payload": {
+                "type": "object",
+                "title": "Payload",
+                "description": "The parsed email structure, including headers and body parts.",
+                "additionalProperties": true
+              },
+              "snippet": {
+                "type": "string",
+                "title": "Snippet",
+                "description": "A short extract of the message text."
+              },
+              "labelIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Label Ids",
+                "description": "List of IDs of labels applied to this message."
+              },
+              "threadId": {
+                "type": "string",
+                "title": "Thread Id",
+                "description": "The ID of the thread the message belongs to."
+              },
+              "historyId": {
+                "type": "string",
+                "title": "History Id",
+                "description": "The ID of the last history record that modified this message."
+              },
+              "display_url": {
+                "type": "string",
+                "title": "Display Url",
+                "description": "Web UI link for this resource - set by each action's execute()."
+              },
+              "internalDate": {
+                "type": "string",
+                "title": "Internal Date",
+                "description": "The internal timestamp of the message in milliseconds since epoch."
+              },
+              "sizeEstimate": {
+                "type": "integer",
+                "title": "Size Estimate",
+                "description": "Estimated size of the message in bytes."
+              }
+            },
+            "description": "Standard Gmail message response returned by Gmail API for sent messages.\nUsed by actions like send_email and send_draft."
+          }
+        },
+        "title": "GmailMessageResponseWrapper",
+        "required": [
+          "data",
+          "successful"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/GmailMessageResponse",
+            "title": "Data",
+            "description": "Data from the action execution"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Error if any occurred during the execution of the action"
+          },
+          "successful": {
+            "type": "boolean",
+            "title": "Successful",
+            "description": "Whether or not the action execution was successful or not"
+          }
+        }
+      },
+      "scopes": [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/gmail.modify"
+      ],
+      "scope_requirements": {
+        "all_of": [
+          {
+            "any_of": [
+              "https://mail.google.com/",
+              "https://www.googleapis.com/auth/gmail.modify"
+            ]
+          }
+        ]
+      },
+      "tags": [
+        "idempotentHint",
+        "openWorldHint",
+        "updateHint"
+      ],
+      "no_auth": false,
+      "human_description": "This action allows you to add or remove labels from a specific email message in Gmail. By providing the user's ID and the message ID, you can modify the labels associated with that email, helping to organize or categorize messages as needed.",
+      "is_deprecated": false,
+      "deprecated": {
+        "displayName": "Modify email labels",
+        "version": "20261125_00",
+        "available_versions": [
+          "20261125_00"
+        ],
+        "is_deprecated": false,
+        "toolkit": {
+          "logo": "https://logos.composio.dev/api/gmail"
+        }
+      }
+    },
+    {
+      "slug": "GMAIL_BATCH_DELETE_MESSAGES",
+      "name": "Batch delete Gmail messages",
+      "description": "Permanently deletes multiple Gmail messages by ID, bypassing Trash. A successful request does not confirm individual messages existed or were deleted.",
+      "available_versions": [
+        "20261125_00"
+      ],
+      "version": "20261125_00",
+      "toolkit": {
+        "slug": "gmail",
+        "name": "gmail",
+        "logo": "https://logos.composio.dev/api/gmail"
+      },
+      "input_parameters": {
+        "type": "object",
+        "title": "BatchDeleteMessagesRequest",
+        "required": [
+          "messageIds"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "title": "User Id",
+            "default": "me",
+            "examples": [
+              "me",
+              "REDACTED@example.com"
+            ],
+            "description": "User's email address or 'me' for the authenticated user.",
+            "human_parameter_name": "User ID",
+            "human_parameter_description": "The email address of the user whose messages you want to delete. Use 'me' to apply changes to your own account."
+          },
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Message Ids",
+            "examples": [
+              [
+                "18c5f5d1a2b3c4d5",
+                "18c5f5d1a2b3c4d6"
+              ]
+            ],
+            "minItems": 1,
+            "description": "List of Gmail message IDs to delete. Each ID must be a hexadecimal string (e.g., '18c5f5d1a2b3c4d5'). Obtain IDs from actions like GMAIL_FETCH_EMAILS or GMAIL_LIST_THREADS - do not use human-readable descriptions.",
+            "human_parameter_name": "Message IDs",
+            "human_parameter_description": "The unique message IDs for the emails you wish to delete. Each ID is a hexadecimal string (like '18c5f5d1a2b3c4d5'). Get these IDs by first fetching or listing messages."
+          }
+        },
+        "description": "Request model for bulk deletion of Gmail messages by ID."
+      },
+      "output_parameters": {
+        "type": "object",
+        "$defs": {
+          "BatchDeleteMessagesResponse": {
+            "type": "object",
+            "title": "BatchDeleteMessagesResponse",
+            "required": [
+              "success",
+              "message"
+            ],
+            "properties": {
+              "message": {
+                "type": "string",
+                "title": "Message",
+                "description": "Details about the deletion operation"
+              },
+              "success": {
+                "type": "boolean",
+                "title": "Success",
+                "description": "Whether the bulk deletion was successful"
+              },
+              "display_url": {
+                "type": "string",
+                "title": "Display Url",
+                "description": "Web UI link for this resource - clickable URL pointing to the Gmail web interface"
+              }
+            },
+            "description": "Response schema for batch delete Gmail messages."
+          }
+        },
+        "title": "BatchDeleteMessagesResponseWrapper",
+        "required": [
+          "data",
+          "successful"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/BatchDeleteMessagesResponse",
+            "title": "Data",
+            "description": "Data from the action execution"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Error if any occurred during the execution of the action"
+          },
+          "successful": {
+            "type": "boolean",
+            "title": "Successful",
+            "description": "Whether or not the action execution was successful or not"
+          }
+        }
+      },
+      "scopes": [
+        "https://mail.google.com/"
+      ],
+      "scope_requirements": {
+        "all_of": [
+          {
+            "any_of": [
+              "https://mail.google.com/"
+            ]
+          }
+        ]
+      },
+      "tags": [
+        "gmail",
+        "destructiveHint",
+        "batch",
+        "messages"
+      ],
+      "no_auth": false,
+      "human_description": "This action allows you to delete multiple Gmail messages at once by specifying their IDs. It's useful for managing email clutter and enforcing retention policies.",
+      "is_deprecated": false,
+      "deprecated": {
+        "displayName": "Batch delete Gmail messages",
+        "version": "20261125_00",
+        "available_versions": [
+          "20261125_00"
+        ],
+        "is_deprecated": false,
+        "toolkit": {
+          "logo": "https://logos.composio.dev/api/gmail"
+        }
+      }
+    },
+    {
+      "slug": "GMAIL_BATCH_MODIFY_MESSAGES",
+      "name": "Batch modify Gmail messages",
+      "description": "Adds or removes labels on up to 1,000 Gmail messages in one request, supporting operations such as archiving and marking messages read or unread. A successful response confirms request acceptance, not individual message status.",
+      "available_versions": [
+        "20261125_00"
+      ],
+      "version": "20261125_00",
+      "toolkit": {
+        "slug": "gmail",
+        "name": "gmail",
+        "logo": "https://logos.composio.dev/api/gmail"
+      },
+      "input_parameters": {
+        "type": "object",
+        "title": "BatchModifyMessagesRequest",
+        "required": [
+          "messageIds"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "title": "User Id",
+            "default": "me",
+            "examples": [
+              "me",
+              "REDACTED@example.com"
+            ],
+            "description": "User's email address or 'me' for the authenticated user.",
+            "human_parameter_name": "User ID",
+            "human_parameter_description": "Indicate which user's mailbox you are trying to modify. Use 'me' for your own mailbox or provide a specific email address."
+          },
+          "messageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Message Ids",
+            "examples": [
+              [
+                "18c5f5d1a2b3c4d5",
+                "18c5f5d1a2b3c4d6"
+              ],
+              [
+                "msg_id_1",
+                "msg_id_2",
+                "msg_id_3"
+              ]
+            ],
+            "maxItems": 1000,
+            "minItems": 1,
+            "description": "List of message IDs to modify. Maximum 1,000 message IDs per request. Get message IDs from GMAIL_FETCH_EMAILS or GMAIL_LIST_THREADS actions. Accepts 'messageIds', 'ids', or 'message_ids' as the parameter name.",
+            "human_parameter_name": "Message IDs",
+            "human_parameter_description": "Provide the unique IDs of the messages you want to modify. You can collect these IDs from previous email fetch or list actions."
+          },
+          "addLabelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Add Label Ids",
+            "examples": [
+              [
+                "INBOX",
+                "STARRED"
+              ],
+              [
+                "Label_1",
+                "Label_25"
+              ],
+              [
+                "IMPORTANT",
+                "Label_10"
+              ]
+            ],
+            "description": "List of label IDs to add to the messages. IMPORTANT: Use label IDs, NOT label display names. System labels use their name as ID: INBOX, STARRED, IMPORTANT, SENT, DRAFT, SPAM, TRASH, UNREAD, CATEGORY_PERSONAL, CATEGORY_SOCIAL, CATEGORY_PROMOTIONS, CATEGORY_UPDATES, CATEGORY_FORUMS. Custom labels MUST use their ID (format: 'Label_XXX', e.g., 'Label_1', 'Label_25'), NOT the display name (e.g., do NOT use 'Work' or 'Projects'). Call GMAIL_LIST_LABELS first to get the 'id' field for custom labels. At least one of add_label_ids or remove_label_ids must be provided. CONSTRAINT: Label IDs must NOT overlap with remove_label_ids - cannot add and remove the same label.",
+            "human_parameter_name": "Label IDs to add",
+            "human_parameter_description": "Specify the label IDs you want to add. For system labels use INBOX, STARRED, etc. For custom labels, first call GMAIL_LIST_LABELS to get the label ID (format: Label_XXX)."
+          },
+          "removeLabelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Remove Label Ids",
+            "examples": [
+              [
+                "UNREAD"
+              ],
+              [
+                "INBOX",
+                "UNREAD"
+              ],
+              [
+                "Label_1",
+                "SPAM"
+              ]
+            ],
+            "description": "List of label IDs to remove from the messages. IMPORTANT: Use label IDs, NOT label display names. System labels use their name as ID: INBOX, STARRED, IMPORTANT, SENT, SPAM, TRASH, UNREAD. Custom labels MUST use their ID (format: 'Label_XXX', e.g., 'Label_1', 'Label_25'), NOT the display name (e.g., do NOT use 'Work' or 'Projects'). Call GMAIL_LIST_LABELS first to get the 'id' field for custom labels. Common use cases: Remove 'UNREAD' to mark as read, remove 'INBOX' to archive. Note: 'DRAFT' cannot be removed - use GMAIL_DELETE_DRAFT instead. At least one of add_label_ids or remove_label_ids must be provided. CONSTRAINT: Label IDs must NOT overlap with add_label_ids - cannot add and remove the same label.",
+            "human_parameter_name": "Label IDs to remove",
+            "human_parameter_description": "Specify the label IDs you want to remove. For system labels use INBOX, UNREAD, etc. For custom labels, first call GMAIL_LIST_LABELS to get the label ID (format: Label_XXX). Note: DRAFT cannot be removed - use GMAIL_DELETE_DRAFT instead."
+          }
+        }
+      },
+      "output_parameters": {
+        "type": "object",
+        "$defs": {
+          "BatchModifyMessagesResponse": {
+            "type": "object",
+            "title": "BatchModifyMessagesResponse",
+            "required": [
+              "success",
+              "message"
+            ],
+            "properties": {
+              "message": {
+                "type": "string",
+                "title": "Message",
+                "description": "Status message"
+              },
+              "success": {
+                "type": "boolean",
+                "title": "Success",
+                "description": "Whether the batch modification was successful"
+              },
+              "display_url": {
+                "type": "string",
+                "title": "Display Url",
+                "description": "Web UI link for this resource - set by each action's execute()."
+              }
+            },
+            "description": "Response schema for batch modify messages."
+          }
+        },
+        "title": "BatchModifyMessagesResponseWrapper",
+        "required": [
+          "data",
+          "successful"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/BatchModifyMessagesResponse",
+            "title": "Data",
+            "description": "Data from the action execution"
+          },
+          "error": {
+            "type": "string",
+            "title": "Error",
+            "description": "Error if any occurred during the execution of the action"
+          },
+          "successful": {
+            "type": "boolean",
+            "title": "Successful",
+            "description": "Whether or not the action execution was successful or not"
+          }
+        }
+      },
+      "scopes": [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/gmail.modify"
+      ],
+      "scope_requirements": {
+        "all_of": [
+          {
+            "any_of": [
+              "https://mail.google.com/",
+              "https://www.googleapis.com/auth/gmail.modify"
+            ]
+          }
+        ]
+      },
+      "tags": [
+        "gmail",
+        "important",
+        "batch",
+        "labels",
+        "inbox",
+        "updateHint"
+      ],
+      "no_auth": false,
+      "human_description": "This action allows users to modify labels on multiple Gmail messages simultaneously.\n    It supports adding or removing labels for up to 1,000 messages in a single request.",
+      "is_deprecated": false,
+      "deprecated": {
+        "displayName": "Batch modify Gmail messages",
+        "version": "20261125_00",
+        "available_versions": [
+          "20261125_00"
+        ],
+        "is_deprecated": false,
+        "toolkit": {
+          "logo": "https://logos.composio.dev/api/gmail"
+        }
+      }
+    }
+  ],
+  "next_cursor": "Mi0z",
+  "total_pages": 21,
+  "current_page": 1,
+  "total_items": 63
+}

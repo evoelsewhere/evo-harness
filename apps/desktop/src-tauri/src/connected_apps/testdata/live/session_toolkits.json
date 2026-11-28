@@ -1,0 +1,51 @@
+{
+  "items": [
+    {
+      "name": "Gmail",
+      "slug": "gmail",
+      "enabled": true,
+      "composio_managed_auth_schemes": [
+        "OAUTH2"
+      ],
+      "meta": {
+        "logo": "https://logos.composio.dev/api/gmail",
+        "description": "Gmail is Google’s email service, featuring spam protection, search functions, and seamless integration with other G Suite apps for productivity",
+        "isNoAuth": false
+      },
+      "is_no_auth": false,
+      "connected_account": null
+    },
+    {
+      "name": "Composio",
+      "slug": "composio",
+      "enabled": true,
+      "composio_managed_auth_schemes": [],
+      "meta": {
+        "logo": "https://logos.composio.dev/api/composio",
+        "description": "Composio enables AI Agents and LLMs to authenticate and integrate with various tools via function calling.",
+        "isNoAuth": true
+      },
+      "is_no_auth": true,
+      "connected_account": null
+    },
+    {
+      "name": "GitHub",
+      "slug": "github",
+      "enabled": true,
+      "composio_managed_auth_schemes": [
+        "OAUTH2"
+      ],
+      "meta": {
+        "logo": "https://logos.composio.dev/api/github",
+        "description": "GitHub is a code hosting platform for version control and collaboration, offering Git-based repository management, issue tracking, and continuous integration features",
+        "isNoAuth": false
+      },
+      "is_no_auth": false,
+      "connected_account": null
+    }
+  ],
+  "next_cursor": "Mi0z",
+  "total_pages": 683,
+  "current_page": 1,
+  "total_items": 2048
+}

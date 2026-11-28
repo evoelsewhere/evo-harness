@@ -231,4 +231,124 @@ Changes apply at once: the pool and the chats' tools are refreshed.
 
 ## 5. As-built notes
 
-Empty until the status is `In progress`.
+- 2026-11-28 — `Pool::set_app_server` connects a new or changed app
+  server before it returns (as `upsert` does), so the shell spawns it when
+  it must not wait. Defaults (`AppServer::defaults`) < saved
+  `appServers.<name>.toolPermissions`. A person's connector cannot take
+  the app server's name; `remove` and `set_enabled` refuse it ("managed by
+  Connected apps"). The snapshot marks it with `app` and hides its header
+  values as it does a plugin server's.
+- 2026-11-28 — The gate is pure checks (`gate::check`) plus one async
+  step, `gate::prepare`, over a `Backend` trait (ask, upload), so the
+  order checks → card → uploads → call is tested without the app. A
+  `MULTI_EXECUTE` item names its account in `connected_account_id`
+  (labels and ids both accepted from the agent; the call goes out with the
+  id). With one account the caller may use, it is used even when the
+  service has others the caller may not use. Schemas and Composio's
+  `readOnlyHint` / `destructiveHint` tags come from the tools Evo has seen
+  (`input_parameters`); a tool Evo has not seen is refused with "find it
+  with COMPOSIO_SEARCH_TOOLS first". A path is "local" when it is absolute,
+  starts with `/`, `\` or `~`, or has a drive letter; anything else in a
+  file argument is sent unchanged.
+- 2026-11-28 — `connected_apps::Service` (key, session, accounts) is
+  independent of Tauri: a `KeyStore` (the keychain) and a `Settings`
+  trait (`app_settings`). A key's mark (`connectedApps.keyMark`, a SHA-256
+  prefix) tells a new project's key from the old one; a new key clears
+  the user and session ids. The key is checked with `GET
+  /connected_accounts?limit=1`. Tests use `connected_apps/fake.rs`, an
+  HTTP server on 127.0.0.1 that answers from `testdata/`.
+- 2026-11-28 — `Pool::start` keeps the app server (it is the app's, not
+  the file's), so the order of `mcp::setup` and `connected_apps::app::setup`
+  does not matter. The key's keychain account is `connected-apps` in the
+  release build (`com.evoelsewhere.evo`) and `connected-apps@<identifier>`
+  in any other build (debug, e2e), so testing never reads or replaces the
+  person's key.
+- 2026-11-28 — Connect (`connect.rs`): for a service without managed
+  sign-in (from the catalogue's `composio_managed_auth_schemes`), the
+  person's newest enabled auth config is set on the session
+  (`PATCH /tool_router/session/{id}` `{auth_configs: {toolkit: id}}`)
+  *before* the link; a managed service whose link is refused for its auth
+  config takes the same path once. Reconnect removes the old account
+  first, then links under its label (FR-5). The app polls every 2 s for
+  ten minutes, then emits `apps://connected` and `apps://changed` and
+  re-sends chats' tools. One more command, `apps_retry`, tries Composio
+  again at once.
+- 2026-11-28 — `agent_tools/mcp.rs` hands every call of the
+  `app:connected_apps` server to `connected_apps::run::call` (one branch in
+  `run_tool`) and filters the chat's tools with `run::offered` (one line
+  in `chat_tools`). Class and approval (`run::decide`): a reading tool
+  follows its permission — default Allow, saved per app tool slug under
+  `appServers.connected_apps.toolPermissions` — and may be always allowed
+  (Harness: Allow for the slug; a mate: a grant
+  `mcp__connected_apps__<SLUG>`); a sending tool asks Allow once / Deny in
+  Harness chats every time, and for a mate per Sending on your behalf
+  (`grants::plan`). The pool's own permission on `MULTI_EXECUTE` stays
+  Ask (its default) but is not what asks: the gate is.
+- 2026-11-28 — The project switch (FR-12) is `"connectedApps": false` in
+  the project's `.evo/settings.json` (nearest one up to the repository
+  root); switching a capability off needs no project trust. The chat
+  switch is the existing per-chat switch on the server key
+  `app:connected_apps`.
+- 2026-11-28 — Mates: a mate from a gallery role starts with `apps: []`
+  (no connected service); a team file's `connectors` become
+  `{service: "composio:<name>", tools: "none"}` entries, and team import
+  no longer switches the Connected apps connector off for the chat (its
+  services are governed by `apps`). `connect_app` and
+  `COMPOSIO_MANAGE_CONNECTIONS` use one card (`run::connect_card`):
+  Connect / Reconnect starts the sign-in, Open Apps opens the mate's Apps
+  tab, then it waits up to 15 minutes. Schemas the gate needs are learned
+  from search and schema results and fetched with
+  `COMPOSIO_GET_TOOL_SCHEMAS` on a miss (memory only; no disk cache yet).
+- 2026-11-28 — UI: `stores/connected-apps-store.ts` (state via
+  `apps://changed`, catalogue on demand), `lib/connected-apps.ts` (command
+  surface), `features/connected-apps/` (`KeyCard`, `ConnectedAppsPage`,
+  `ConnectDialog`, `MateConnectedApps`, `ConnectedAppsDialog`). Placements:
+  Customize section `connected-apps`; More-menu item `connected-apps`
+  (hidden by default, opens that section); Settings › Evo Mates has the key
+  card and "Open Connected apps"; Evo Mates (no Settings window of its own)
+  opens the page as a dialog from its sidebar footer and from a mate's Apps
+  tab ("Manage"). Services show a monogram tile, not Composio's logo: the
+  app's CSP does not load remote images and widening it is not worth it
+  here. A mate's These tools list comes from one more command,
+  `apps_tools(toolkit)` (`GET /tools?toolkit_slug=`). The app server shows
+  as "Connected apps" (`connectorLabel`) in the composer's `+` menu, the
+  mate's Apps list and Customize → Connectors, where it has Manage instead
+  of Edit, Remove and the on/off switch.
+- 2026-11-28 — T1 recorded Composio's real answers (redacted) in
+  `connected_apps/testdata/live/` with `record.rs` (an ignored shell test
+  that reads the key from the feature's keychain entry, uses a throwaway
+  Composio user and removes the link it makes). What they changed:
+  a `MULTI_EXECUTE` item names its account in `account` (alias or account
+  id; items allow no other field) and the call requires
+  `sync_response_to_workbench`; the session offers six meta-tools —
+  search, schemas, multi-execute, manage connections, remote bash and
+  remote workbench (no `PROXY_EXECUTE`: proxy runs inside the workbench);
+  `COMPOSIO_MANAGE_CONNECTIONS` takes `toolkits: [{name, action:
+  add|rename|list|remove, account_id, alias}]` — Evo passes `list`, turns
+  `add` into its Connect card and refuses `rename` and `remove` (the
+  person's, in Connected apps); search answers list slugs as strings
+  (`primary_tool_slugs`, `related_tool_slugs`) with
+  `toolkit_connection_statuses` and `tool_schemas.<SLUG>.input_schema`, all
+  filtered for a limited mate. Accounts carry `alias`, `toolkit.slug`,
+  `status`, `created_at`.
+- 2026-11-28 — Logos after all (spec A-6 replaced at the owner's request):
+  the shell fetches `https://logos.composio.dev/api/<slug>` (Composio's logo
+  host, which answers for every toolkit slug), keeps them in
+  `<cache>/connected-apps/logos/` and hands `data:` URLs to the page
+  (`apps_logos`); the CSP is unchanged.
+- 2026-11-28 — Connectors and Connected apps are one Customize section
+  (owner's request; spec FR-3 changed). `connectors-section.tsx` lists
+  **Apps** (each connected service, then Browse apps; with no key, "Set up
+  connected apps") above **MCP servers**; the detail is a service's page
+  (`ServiceDetail`: accounts, Add account, tools), the catalogue
+  (`AppsCatalogue`: cards with logos, most used first as Composio lists
+  them, category chips, Show more), the Apps settings (key card, and under
+  Advanced the `connected_apps` connector's own detail with its tool
+  permissions), or an MCP server. The app server is not listed among the
+  MCP servers. The Customize section `connected-apps` is gone; Settings ›
+  Evo Mates opens Connectors on the apps (`openConnectorsAt`); the More
+  menu has no row of its own for them (owner's request). Evo Mates' dialog is built from the same parts
+  (Your apps, a service's page, Browse, the key). Shared pieces live in
+  `features/connected-apps/apps-parts.tsx`. The catalogue drops Composio's
+  own `composio` toolkit and keeps `meta.tools_count`.
+

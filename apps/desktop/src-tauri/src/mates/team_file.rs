@@ -248,7 +248,8 @@ pub fn team_preview(app: AppHandle, path: String) -> Result<Value, String> {
 pub async fn team_import(app: AppHandle, path: String, skip: Vec<String>) -> Result<Value, String> {
     let text = std::fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
     let file = parse(&text)?;
-    let keys = connector_keys(&app);
+    // Connected apps are not switched off whole: their services are, in `apps`.
+    let keys: Vec<String> = connector_keys(&app).into_iter().filter(|k| k != crate::connected_apps::gate::KEY).collect();
     let mut made: Vec<(String, evo_store::mates::Mate)> = Vec::new();
     for team_mate in file.mates.iter().filter(|m| !skip.iter().any(|s| s.eq_ignore_ascii_case(&m.name))) {
         let request = super::CreateMate {
@@ -266,6 +267,8 @@ pub async fn team_import(app: AppHandle, path: String, skip: Vec<String>) -> Res
             skills: Some(Some(Vec::new())),
             sending: Some("ask".into()),
             tools: team_mate.tools.clone().map(Some),
+            // Connected-apps services it names, each off (connected-apps FR-10).
+            apps: Some(Some(crate::connected_apps::gate::named_services(team_mate.connectors.as_deref().unwrap_or_default()))),
             ..Default::default()
         };
         let mate = super::mates_update(app.clone(), mate.id.clone(), patch).await?.unwrap_or(mate);

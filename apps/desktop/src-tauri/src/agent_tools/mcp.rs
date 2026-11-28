@@ -210,7 +210,10 @@ async fn chat_tools(app: &AppHandle, chat: &str, folder: &Path, open_project: bo
     if open_project {
         let _ = state.0.open_project(folder).await;
     }
-    parse_tools(&state.0.chat_tools(Some(folder)), &off_of(chat))
+    let mut tools = parse_tools(&state.0.chat_tools(Some(folder)), &off_of(chat));
+    // Connected apps' sandbox is never a limited mate's (connected-apps plan 3.7).
+    tools.retain(|tool| crate::connected_apps::run::offered(app, chat, folder, tool));
+    tools
 }
 
 // ── Names ───────────────────────────────────────────────────────────────────
@@ -551,6 +554,10 @@ async fn run_tool(ctx: ToolCtx, name: &str, args: Value) -> ToolOutput {
     if !tool.read_only && super::read_only_chat(&ctx.app, &ctx.chat) {
         return ToolOutput::error(super::READ_ONLY_REFUSAL.replace("{tool}", name));
     }
+    // Connected apps have their own gate (docs/features/connected-apps, FR-7 – FR-15).
+    if tool.server == crate::connected_apps::gate::KEY {
+        return crate::connected_apps::run::call(ctx, &tool, name, args).await;
+    }
     // A mate's call: its own grants and its sending setting (evo-mates FR-41, FR-42).
     let mate = ctx.app.try_state::<crate::db::Db>().and_then(|db| {
         db.with(|conn| evo_store::mates::mate_of_chat(conn, &ctx.chat))
@@ -841,6 +848,21 @@ mod tests {
         assert_eq!(all[1].server, "b#proj");
         // A project server is switched off by its pool key.
         let off: HashSet<String> = ["b#proj".to_string()].into();
+        let rest = parse_tools(&list, &off);
+        assert_eq!(rest.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["mcp__a__x"]);
+    }
+
+    // docs/features/connected-apps/spec.md (FR-12): one switch for them all.
+    #[test]
+    fn connected_apps_off_in_a_chat_offers_none() {
+        let key = crate::connected_apps::gate::KEY;
+        let list = vec![
+            json!({ "name": "mcp__connected_apps__COMPOSIO_SEARCH_TOOLS", "description": "", "permission": "allow", "server": key, "tool": "COMPOSIO_SEARCH_TOOLS" }),
+            json!({ "name": "mcp__connected_apps__COMPOSIO_MULTI_EXECUTE_TOOL", "description": "", "permission": "ask", "server": key, "tool": "COMPOSIO_MULTI_EXECUTE_TOOL" }),
+            json!({ "name": "mcp__a__x", "description": "", "permission": "ask", "server": "a", "tool": "x" }),
+        ];
+        assert_eq!(parse_tools(&list, &HashSet::new()).len(), 3);
+        let off: HashSet<String> = [key.to_string()].into();
         let rest = parse_tools(&list, &off);
         assert_eq!(rest.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["mcp__a__x"]);
     }

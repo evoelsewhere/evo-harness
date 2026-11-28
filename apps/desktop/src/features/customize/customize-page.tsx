@@ -45,6 +45,7 @@ import { useCustomizeStore, type AgentInfo, type SkillInfo, type SkillState } fr
 import { useEngineStore } from "@/stores/engine-store";
 import { useUiStore, type CustomizeSection } from "@/stores/ui-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
+import { useConnectedServices } from "@/features/connected-apps";
 import { ConnectorsSection } from "./connectors-section";
 import { HooksSection } from "./hooks-section";
 import { InstructionsSection } from "./instructions-section";
@@ -754,7 +755,10 @@ export function CustomizePage() {
   }, [engineReady, activeId, load]);
 
   const current = sections.find((s) => s.id === section) ?? sections[0];
-  const connectedCount = useConnectorsStore((s) => s.servers.filter((c) => c.status === "connected").length);
+  // MCP servers that are up, and services with an active account (connected apps).
+  const serverCount = useConnectorsStore((s) => s.servers.filter((c) => c.status === "connected" && !c.app).length);
+  const appCount = useConnectedServices().filter((s) => s.status === "active").length;
+  const connectedCount = serverCount + appCount;
   const counts: Partial<Record<CustomizeSection, number>> = {
     skills: data?.skills.filter((s) => s.state !== "off").length,
     agents: data?.agents.length,
@@ -830,6 +834,7 @@ export function CustomizePage() {
         <LanguagesSection query={query} />
       ) : section === "connectors" ? (
         <ConnectorsSection query={query} />
+
       ) : section === "hooks" ? (
         <HooksSection query={query} />
       ) : section === "plugins" ? (

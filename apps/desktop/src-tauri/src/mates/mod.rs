@@ -198,6 +198,8 @@ pub fn new_mate(id: &str, chat: &str, folder: &Path, request: &CreateMate, role:
         approval_mode: request.approval_mode.clone().or_else(|| role.and_then(|r| r.approval.clone())),
         folder: folder.display().to_string(),
         template: role.map(|r| r.id.clone()),
+        // From a gallery role: only the connected apps it names (none yet), each off (connected-apps FR-10).
+        apps: role.map(|_| Vec::new()),
         ..NewMate::default()
     }
 }

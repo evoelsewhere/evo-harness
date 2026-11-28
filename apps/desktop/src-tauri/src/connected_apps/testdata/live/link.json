@@ -1,0 +1,8 @@
+{
+  "link_token": "REDACTED",
+  "redirect_url": "https://connect.composio.dev/link/REDACTED",
+  "connected_account_id": "REDACTED",
+  "experimental": {
+    "account_type": "PRIVATE"
+  }
+}

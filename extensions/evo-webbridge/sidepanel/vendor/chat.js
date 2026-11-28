@@ -1118,6 +1118,32 @@ function parseDiff(diff) {
   });
   return { lines, added, removed };
 }
+var serviceName = (toolkit) => toolkit.charAt(0).toUpperCase() + toolkit.slice(1);
+function connectedAppLabel(tool, args, phase) {
+  const verb = phase === "error" ? "Failed" : verbs.mcp[phase];
+  const a = args && typeof args === "object" ? args : {};
+  if (tool === "COMPOSIO_MULTI_EXECUTE_TOOL") {
+    const tools = Array.isArray(a.tools) ? a.tools : [];
+    const first = tools[0];
+    if (!first?.tool_slug)
+      return `${verb} connected apps`;
+    const slug = String(first.tool_slug);
+    const account = first.account ?? first.connected_account_id ?? first.alias;
+    const more = tools.length > 1 ? ` +${tools.length - 1}` : "";
+    return `${verb} ${serviceName(slug.split("_")[0].toLowerCase())} · ${slug}${account ? ` (${String(account)})` : ""}${more}`;
+  }
+  if (tool === "COMPOSIO_SEARCH_TOOLS") {
+    const queries = Array.isArray(a.queries) ? a.queries : [];
+    const query = queries[0]?.use_case ?? a.query ?? a.use_case;
+    const done = phase === "error" ? "Search failed" : phase === "done" ? "Searched connected apps" : "Searching connected apps";
+    return `${done}${query ? ` · ${String(query)}` : ""}`;
+  }
+  if (tool === "COMPOSIO_MANAGE_CONNECTIONS") {
+    const toolkits = Array.isArray(a.toolkits) ? a.toolkits.map(String) : [];
+    return `${phase === "done" ? "Asked to connect" : "Asking to connect"}${toolkits.length ? ` · ${toolkits.map(serviceName).join(", ")}` : ""}`;
+  }
+  return `${verb} connected apps · ${tool.replace(/^COMPOSIO_/, "").toLowerCase().replace(/_/g, " ")}`;
+}
 function toolHeader(part, streaming) {
   const kind = toolKind(part.name);
   const about = subject(part);
@@ -1150,7 +1176,10 @@ function toolHeader(part, streaming) {
     return ` · ${done}/${todos.length} done`;
   })()}` : part.name === "mcp_search_tools" ? `${phase === "error" ? "Tool search failed" : phase === "done" ? "Searched connector tools" : "Searching connector tools"}${part.args?.query ? ` · ${String(part.args.query)}` : ""}` : kind === "mcp" ? (() => {
     const name = part.name === "mcp_call_tool" ? String(part.args?.name ?? "") : part.name;
+    const args = part.name === "mcp_call_tool" ? part.args?.arguments : part.args;
     const [, server = "", ...rest] = name.split("__");
+    if (server === "connected_apps")
+      return connectedAppLabel(rest.join("__"), args, phase);
     return `${phase === "error" ? "Failed" : verbs.mcp[phase]} ${server} · ${rest.join("__")}`;
   })() : part.name.startsWith("terminal_") ? terminalLabel(part, phase) : kind === "agent" ? agentLabel(part, failed ? "error" : phase, child?.description) : kind === "skill" ? `${verbs[kind][phase]}${about ? ` · ${about}` : ""}` : kind === "browser" ? browserLabel(part, phase) : kind === "computer" ? computerLabel(part, phase) : kind === "web" ? webLabel(part, phase) : kind === "visual" ? visualLabel(part, phase) : `${verbs[kind][phase]} ${about ?? (kind === "other" ? part.name : "")}`.trim();
   const shownLabel = stopped ? `${label} · stopped` : label;

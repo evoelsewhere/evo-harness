@@ -377,6 +377,39 @@ export interface ToolHeader {
   diff?: ReturnType<typeof parseDiff>;
 }
 
+/** A service's name from its toolkit slug (`gmail` → `Gmail`). */
+const serviceName = (toolkit: string) => toolkit.charAt(0).toUpperCase() + toolkit.slice(1);
+
+/**
+ * A Connected apps call in one line (docs/features/connected-apps/spec.md,
+ * FR-19): "Called Gmail · GMAIL_SEND_EMAIL (work)" for the app tools it runs,
+ * the meta-tool's own words otherwise.
+ */
+export function connectedAppLabel(tool: string, args: unknown, phase: ToolPart["phase"]): string {
+  const verb = phase === "error" ? "Failed" : verbs.mcp[phase];
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, any>;
+  if (tool === "COMPOSIO_MULTI_EXECUTE_TOOL") {
+    const tools: Record<string, any>[] = Array.isArray(a.tools) ? a.tools : [];
+    const first = tools[0];
+    if (!first?.tool_slug) return `${verb} connected apps`;
+    const slug = String(first.tool_slug);
+    const account = first.account ?? first.connected_account_id ?? first.alias;
+    const more = tools.length > 1 ? ` +${tools.length - 1}` : "";
+    return `${verb} ${serviceName(slug.split("_")[0].toLowerCase())} · ${slug}${account ? ` (${String(account)})` : ""}${more}`;
+  }
+  if (tool === "COMPOSIO_SEARCH_TOOLS") {
+    const queries: Record<string, any>[] = Array.isArray(a.queries) ? a.queries : [];
+    const query = queries[0]?.use_case ?? a.query ?? a.use_case;
+    const done = phase === "error" ? "Search failed" : phase === "done" ? "Searched connected apps" : "Searching connected apps";
+    return `${done}${query ? ` · ${String(query)}` : ""}`;
+  }
+  if (tool === "COMPOSIO_MANAGE_CONNECTIONS") {
+    const toolkits = Array.isArray(a.toolkits) ? a.toolkits.map(String) : [];
+    return `${phase === "done" ? "Asked to connect" : "Asking to connect"}${toolkits.length ? ` · ${toolkits.map(serviceName).join(", ")}` : ""}`;
+  }
+  return `${verb} connected apps · ${tool.replace(/^COMPOSIO_/, "").toLowerCase().replace(/_/g, " ")}`;
+}
+
 /** The line of a tool call; `streaming`: its turn is still running. */
 export function toolHeader(part: ToolPart, streaming: boolean): ToolHeader {
   const kind = toolKind(part.name);
@@ -441,7 +474,9 @@ export function toolHeader(part: ToolPart, streaming: boolean): ToolHeader {
       ? (() => {
           // `mcp_call_tool` runs the tool named in its arguments.
           const name = part.name === "mcp_call_tool" ? String((part.args as any)?.name ?? "") : part.name;
+          const args = part.name === "mcp_call_tool" ? (part.args as any)?.arguments : part.args;
           const [, server = "", ...rest] = name.split("__");
+          if (server === "connected_apps") return connectedAppLabel(rest.join("__"), args, phase);
           return `${phase === "error" ? "Failed" : verbs.mcp[phase]} ${server} · ${rest.join("__")}`;
         })()
       : part.name.startsWith("terminal_")
