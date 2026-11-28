@@ -115,7 +115,7 @@ function Conversation() {
       <div className="relative flex min-w-0 flex-1 flex-col">
         {/* The conversation's bar, in its own row under the title row (ux.md 2). */}
         <div className="flex h-12 shrink-0 items-center pr-2">
-          <MateBar mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateName={mate.name} /> : null} />
+          <MateBar mate={mate} modelPill={shown === mate.chatId ? <MateModelPicker mateId={mate.id} mateName={mate.name} /> : null} />
         </div>
         {/* The mate's thread, once the engine store shows its chat. */}
         <div className="min-h-0 flex-1">

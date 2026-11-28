@@ -11,8 +11,10 @@ import { ProviderIcon } from "@/components/provider-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { effortName, modelKey } from "@/components/ai-elements/model-selector";
 import { UNCONFIGURED_PROVIDER, type ModelDescriptor, type ProviderRow } from "@/engine/protocol";
+import type { MatePatch } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore, usePaneEngine, useRestoring } from "@/stores/engine-store";
+import { useMatesStore } from "@/stores/mates-store";
 import { useProviderStore } from "@/stores/provider-store";
 import { useUiStore } from "@/stores/ui-store";
 
@@ -72,7 +74,17 @@ export function suggested(
   return keys.map((key) => byKey.get(key)!);
 }
 
-export function MateModelPicker({ mateName }: { mateName: string }) {
+/**
+ * What a pick changes in the mate's profile: the model or the effort is the
+ * mate's, not only its conversation's, so its seats in channels, a restart
+ * and a later profile change keep it (spec FR-7, FR-10, FR-28).
+ */
+export function mateModelPatch(pick: { model?: ModelDescriptor; thinking?: string }): MatePatch {
+  if (pick.model) return { provider: pick.model.provider, model: pick.model.id };
+  return pick.thinking ? { thinking: pick.thinking } : {};
+}
+
+export function MateModelPicker({ mateId, mateName }: { mateId: string; mateName: string }) {
   const status = usePaneEngine((s) => s.status);
   const busy = usePaneEngine((s) => s.transcript.busy);
   const models = usePaneEngine((s) => s.models);
@@ -120,7 +132,10 @@ export function MateModelPicker({ mateName }: { mateName: string }) {
   const choose = (model: ModelDescriptor) => {
     const key = modelKey(model);
     useUiStore.getState().setPinnedModels(pinned.includes(key) ? pinned : [key, ...pinned]);
-    if (key !== currentKey) void setModel(model);
+    if (key !== currentKey) {
+      void setModel(model);
+      void useMatesStore.getState().update(mateId, mateModelPatch({ model }));
+    }
   };
 
   const row = (model: ModelDescriptor) => {
@@ -273,7 +288,10 @@ export function MateModelPicker({ mateName }: { mateName: string }) {
                     type="button"
                     role="radio"
                     aria-checked={state.thinkingLevel === level}
-                    onClick={() => void setThinkingLevel(level)}
+                    onClick={() => {
+                      void setThinkingLevel(level);
+                      void useMatesStore.getState().update(mateId, mateModelPatch({ thinking: level }));
+                    }}
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground",
                       state.thinkingLevel === level && "bg-background text-foreground shadow-[0_0_0_1px_var(--border)]",
