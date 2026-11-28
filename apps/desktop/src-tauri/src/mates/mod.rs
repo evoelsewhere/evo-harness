@@ -171,6 +171,10 @@ pub fn apply_pending(app: &AppHandle) {
     });
 }
 
+/// A mate made from scratch is called this until it, or the person, names it
+/// (FR-78: it may name itself only while it has this name).
+pub const SCRATCH_NAME: &str = "New mate";
+
 /// What the Mates window asks to create: a gallery role, from scratch, or a copy.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -195,7 +199,7 @@ pub fn new_mate(id: &str, chat: &str, folder: &Path, request: &CreateMate, role:
     NewMate {
         id: id.into(),
         chat_id: chat.into(),
-        name: pick(&request.name, role.map(|r| r.name.clone()), "New mate"),
+        name: pick(&request.name, role.map(|r| r.name.clone()), SCRATCH_NAME),
         avatar: request
             .avatar
             .clone()

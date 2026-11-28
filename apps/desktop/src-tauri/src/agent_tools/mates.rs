@@ -64,7 +64,9 @@ fn definitions() -> Vec<Value> {
                     "callYou": { "type": "string", "description": "What the person wants to be called." },
                     "focus": { "type": "string", "description": "What to focus on." },
                     "style": { "type": "string", "description": "How they like the work done." },
-                    "apps": { "type": "array", "items": { "type": "string" }, "description": "The apps they use for this work." }
+                    "apps": { "type": "array", "items": { "type": "string" }, "description": "The apps they use for this work." },
+                    "name": { "type": "string", "description": "Your short name, only while you are still called \"New mate\"." },
+                    "role": { "type": "string", "description": "What you do, in one line, only while you are still called \"New mate\"." }
                 },
                 "additionalProperties": false
             }
@@ -221,14 +223,47 @@ pub fn with_setup(instructions: &str, given: &[(&str, String)]) -> String {
     format!("{own}{gap}{SETUP_MARK}\n{}", lines.join("\n"))
 }
 
+/// The `name` and `role` a mate gives itself (FR-78): one line each, kept
+/// only while it still has the from-scratch name, so nothing a named mate
+/// reads later can rename it.
+pub(crate) fn identity(current: &str, args: &Value) -> Result<(Option<String>, Option<String>), String> {
+    let line = |key: &str| {
+        args.get(key)
+            .and_then(Value::as_str)
+            .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|text| !text.is_empty())
+    };
+    let (name, role) = (line("name"), line("role"));
+    if name.is_none() && role.is_none() {
+        return Ok((None, None));
+    }
+    if current != crate::mates::SCRATCH_NAME {
+        return Err(format!(
+            "You are already called {current}: only the person changes your name and role, in your panel."
+        ));
+    }
+    if name.as_ref().is_some_and(|n| n.chars().count() > 40) {
+        return Err("Keep your name short: 40 characters at most.".into());
+    }
+    if role.as_ref().is_some_and(|r| r.chars().count() > 120) {
+        return Err("Keep your role to one short line: 120 characters at most.".into());
+    }
+    Ok((name, role))
+}
+
 async fn save_profile(ctx: &ToolCtx, mate: &evo_store::mates::Mate, args: &Value) -> ToolOutput {
     let given = answers(args);
-    if given.is_empty() {
+    let (name, role) = match identity(&mate.name, args) {
+        Ok(found) => found,
+        Err(why) => return ToolOutput::error(why),
+    };
+    if given.is_empty() && name.is_none() && role.is_none() {
         return ToolOutput::error("Nothing to save: give at least one answer.");
     }
-    let instructions = with_setup(&mate.instructions, &given);
     let patch = evo_store::mates::MatePatch {
-        instructions: Some(instructions),
+        instructions: (!given.is_empty()).then(|| with_setup(&mate.instructions, &given)),
+        name,
+        role,
         ..Default::default()
     };
     match crate::mates::mates_update(ctx.app.clone(), mate.id.clone(), patch).await {
@@ -686,6 +721,19 @@ mod tests {
 
     fn server(key: &str, title: &str, status: &str) -> Value {
         json!({ "key": key, "name": key, "status": status, "server": { "title": title } })
+    }
+
+    #[test]
+    fn a_mate_names_itself_only_while_it_is_new() {
+        let args = json!({ "name": "  Penny ", "role": "Keeps receipts
+and spending in order" });
+        assert_eq!(
+            identity(crate::mates::SCRATCH_NAME, &args).unwrap(),
+            (Some("Penny".to_string()), Some("Keeps receipts and spending in order".to_string()))
+        );
+        assert_eq!(identity("Penny", &json!({ "focus": "x" })).unwrap(), (None, None), "no name asked: nothing refused");
+        assert!(identity("Penny", &json!({ "name": "Eve" })).unwrap_err().contains("already"));
+        assert!(identity(crate::mates::SCRATCH_NAME, &json!({ "name": "x".repeat(41) })).is_err(), "a short name");
     }
 
     #[test]

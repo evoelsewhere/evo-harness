@@ -8,6 +8,8 @@ import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
 import { teamApi, type MateTemplate, type TeamSummary } from "@/lib/mates";
 import { cn } from "@/lib/utils";
+import { log } from "@/lib/db";
+import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
 import { ImportTeam } from "./team-import";
 
@@ -65,6 +67,56 @@ function TeamCard({ team, onAdd }: { team: TeamSummary; onAdd(): void }) {
   );
 }
 
+/**
+ * Describe a mate (FR-78): a mate from scratch whose first message is the
+ * person's description; in its first turn it names itself from it.
+ */
+function Describe({ busy, onBusy }: { busy: boolean; onBusy(busy: boolean): void }) {
+  const create = useMatesStore((s) => s.create);
+  const [text, setText] = React.useState("");
+  const go = async () => {
+    const description = text.trim();
+    if (!description) return;
+    onBusy(true);
+    const mate = await create({});
+    if (mate) {
+      try {
+        await useEngineStore.getState().sendPrompt(description, []);
+      } catch (error) {
+        log("warn", "mates", `could not send the description: ${String(error)}`);
+      }
+    }
+    onBusy(false);
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl bg-muted/50 p-3">
+      <label htmlFor="describe-mate" className="px-1 text-[13px] font-medium text-foreground">
+        Describe a mate
+      </label>
+      <div className="flex items-end gap-2">
+        <textarea
+          id="describe-mate"
+          rows={2}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void go();
+            }
+          }}
+          placeholder="Someone to keep my receipts and monthly spending in order…"
+          className="min-h-10 flex-1 resize-none rounded-xl bg-background px-3 py-2 text-sm text-foreground shadow-[0_0_0_1px_var(--border)] outline-none placeholder:text-muted-foreground"
+        />
+        <Button disabled={busy || !text.trim()} onClick={() => void go()}>
+          Create
+        </Button>
+      </div>
+      <p className="px-1 text-xs text-muted-foreground">Your mate picks its name and role from this and asks only what is missing.</p>
+    </div>
+  );
+}
+
 export function Gallery() {
   const templates = useMatesStore((s) => s.templates);
   const hasMates = useMatesStore((s) => s.mates.length > 0);
@@ -104,9 +156,10 @@ export function Gallery() {
           <img src="/mates.png" alt="" className="size-16 rounded-2xl" draggable={false} />
           <h1 className="text-xl font-semibold text-foreground">{hasMates ? "Add a mate" : "Meet your first mate"}</h1>
           <p className="max-w-md text-sm text-muted-foreground">
-            Pick a role to start. Your mate will introduce itself and ask a few questions to settle in.
+            Describe what you need, or pick a role or a team. Your mate will introduce itself and ask a few questions to settle in.
           </p>
         </header>
+        <Describe busy={busy} onBusy={setBusy} />
         <div className="flex flex-wrap items-center gap-2">
           <div role="tablist" className="flex flex-wrap gap-1">
             {categories.map((name) => (
