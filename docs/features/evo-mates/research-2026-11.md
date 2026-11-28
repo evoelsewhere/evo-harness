@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Spec | [spec.md](spec.md) (FR-8, FR-73 – FR-80) |
+| Spec | [spec.md](spec.md) (FR-8, FR-73 – FR-85) |
 | Plan | [plan.md](plan.md) (3.10) |
 | Updated | 2026-11-28 |
 
@@ -120,9 +120,40 @@ other in channels; ready-made teams (FR-75) make that the first thing a
 person sees. Initiative budgets and Do not disturb already answer the worry
 about noise.
 
-## 4. Chosen for this round
+## 4. A reference AI-bot-team product
+
+The owner named one open-source AI-bot-team product to study in depth (its
+site, documentation, pricing and release notes; about 150 features). It is
+the closest product to Evo Mates: named bots with faces and colours, one
+place to talk to each, groups of bots that hand work to each other, run on
+the person's own models, with a desktop app. What it adds over the survey
+above, as patterns:
+
+| Pattern seen | Evo Mates today | Gap | Value | Cost |
+| --- | --- | --- | --- | --- |
+| Messages carry pictures and files both ways: attach, paste, drop; previews, a lightbox, file cards with open and download | Pictures to a mate; files as `@path` text; a mate's files only as links | Pictures and files in bubbles, both ways, in channels too | H | M — built: FR-81 – FR-83 |
+| A gallery of everything the bots made, with search and a filter by bot | Each mate's folder, opened from its panel | One place for every mate's files | H | L — built: FR-84 |
+| Templates that bring instructions, a skill and a **paused** routine; roles such as inbox manager, account manager, paid media, chief of staff | 16 roles with starters, no routines | Roles that suggest a check-in, off until the person turns it on; the four roles | M | L — built: FR-85 |
+| Describe the job in chat; the bot asks for the apps it needs | Describe a mate (FR-78), Connect cards (FR-40) | — | — | — |
+| Group chats with routing rules, @everyone, bots messaging each other with a chain limit | Channels, reply rules, hand-offs, limits (FR-15 – FR-18) | — | — | — |
+| A bot that manages other bots (instructions, models, routines) and bots that create bots | — | A manager mate | M | H — left: a mate changing another mate's settings is a new trust boundary |
+| A ticket board where assigning a ticket starts a bot | Agenda per mate | A board | M | H — left |
+| Routines on a schedule, a change watch, a webhook, a git event, an email to the bot's own address, a chat message | Check-ins on a schedule (FR-69, FR-79) | Event triggers | H | H — left: listeners and outside services (spec 2.2) |
+| Memory notes the person edits; shared memory per space; outside memory providers | Mate memory with history and undo (FR-26, learning layers) | Shared team memory; outside providers | M | M/H — left: which memory wins needs the owner; providers are a new third party |
+| Teach a task by recording it; save a task as a skill | Learned skills from work (learning layers) | Recording | M | H — left (spec 2.2) |
+| A computer per bot (browser, terminal, desktop) with live preview and take control | Browser, app control and terminal tools the person allows | A mate's own computer | M | H — left (spec 2.2, cloud machines cost money) |
+| Approval modes; Allow once / Always / Deny; drafts edited in the approval card; spending limit | Approval modes, Always allow for reads, Sending on your behalf, daily limit (FR-41, FR-42, FR-80) | Editing a draft inside the card | M | M — left for a later round |
+| Voice messages, read replies aloud, calls and meeting bots | — | Voice | M | H — left (spec 2.2, speech providers) |
+| Slack, Teams, WhatsApp, Telegram, iMessage; mobile apps, watch, share sheet | — | Outside chat apps and phones | M | H — left (spec 2.2) |
+| Usage by bot and model | Usage page, Today's cost per mate (FR-22, FR-73) | — | — | — |
+| Hosted plans with cloud computer hours | Runs on the person's computer | — | — | not wanted: costs money |
+
+## 5. Chosen for this round
 
 FR-73 Today · FR-74 starters · FR-75 teams · FR-76 message search · FR-77
 Knowledge · FR-78 Describe a mate · FR-79 check-ins from the panel · FR-80
-daily spending limit, and FR-8's larger gallery. Left out, with why, in
+daily spending limit, and FR-8's larger gallery; then, from the reference
+product and the owner's request for pictures and files: FR-81 – FR-83
+pictures and files in messages, FR-84 Files, FR-85 roles with a paused
+check-in. Left out, with why, in
 spec 2.2 and 6.3.
