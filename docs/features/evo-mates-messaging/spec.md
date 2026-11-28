@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | In progress |
 | Area | desktop UI, desktop shell, engine (channel), `evo-mesh`, `evo-store` |
 | Created | 2026-11-29 |
 | Updated | 2026-11-29 |
@@ -158,27 +158,32 @@ channels, from the product owner's backlog (Train 1 with Q1 – Q4).
 
 ### 6.1 Open
 
-1. [NEEDS CLARIFICATION: real threads in channels?] — proposed answer: no;
-   replies are quotes in the feed (FR-5); threads need routing per thread in
-   the engine.
-2. [NEEDS CLARIFICATION: how mates react?] — proposed answer: a `react` tool
-   for mates (direct and seats) that never wakes anyone, does not count
-   toward the hand-off limit, one per mate per line, told to the author as
-   information at its next turn (FR-4); reactions in a new table (migration
-   0019) with a downgrade script.
-3. [NEEDS CLARIFICATION: keep earlier versions of a reply browsable ("1 of
-   2")?] — proposed answer: no; Try again and Edit replace the reply; the
-   saved history keeps the old branch.
-4. [NEEDS CLARIFICATION: link previews on or off by default?] — proposed
-   answer: off; turning them on contacts the linked sites.
-5. [NEEDS CLARIFICATION: ship in one merge, or two?] — proposed answer: two
-   merges: **1a** UI and shell (FR-1, FR-2, FR-7 – FR-9, FR-11 – FR-13,
-   FR-16, FR-18) first, then **1b** engine and database (FR-3 – FR-6, FR-10,
-   FR-14, FR-15, FR-17).
+None. **Questions for the owner** (decided for now, worth a look on return):
+
+- Should "Try again" offer another model for that one reply? Today it uses
+  the mate's model; a model change goes through the bar's picker.
+- Browsing earlier versions of a reply ("1 of 2") is listed under Later.
 
 ### 6.2 Resolved
 
-None yet.
+All five answered (2026-11-29, owner away, accepted by the product owner),
+with the agent's recommended answers:
+
+- Q1 Real threads in channels? → No: replies are quotes that jump to the
+  original (FR-5).
+- Q2 How do mates react? → A `react` tool; a reaction never wakes a mate,
+  never counts toward the hand-off limit, one per mate per line, told to the
+  author as information; reactions in migration 0019 with a downgrade
+  script tested on a scratch database, never `~/.evo` (FR-4, NFR-1).
+- Q3 Browse earlier versions of a reply? → No: Try again and Edit replace
+  the reply; browsing goes to Later (FR-7, FR-8).
+- Q4 Link previews by default? → Off; the setting says that turning them on
+  contacts the linked sites (FR-17).
+- Q5 One merge or two? → Two: 1a (UI and shell) and 1b (engine and
+  database), each verified and merged on its own.
+
+**Later** (not in this train): browsing earlier versions of a reply;
+Try again with another model; threads in a side panel.
 
 ### 6.3 Assumptions
 
@@ -194,3 +199,8 @@ None yet.
 - 2026-11-29 — Draft, from the product owner's backlog (Train 1 with Q1 –
   Q4), a check of each item against the code and research of messaging
   apps ([research.md](research.md)); five questions open (6.1).
+- 2026-11-29 — Gate A (owner away, accepted by the product owner): the five
+  recommended answers (6.2). FR-15 and FR-18 move to merge 1b: muting and
+  mentions need the shell's notices and the channel's coordinator.
+- 2026-11-29 — Gate B (owner away, accepted by the product owner): plan and
+  tasks; status Accepted, then In progress with 1a.
