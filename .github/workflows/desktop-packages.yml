@@ -368,7 +368,7 @@ jobs:
         run: |
           set -euo pipefail
           config="$TAURI_DIR/tauri.conf.json"
-          "$DESKTOP_DIR/scripts/mates-launcher/make-macos-launcher.sh"             "$BUNDLE_DIR/macos"             "$(jq -r .identifier "$config")"             "$TAURI_DIR/icons/mates.icns"             "$(jq -r .version "$config")"
+          bash "$DESKTOP_DIR/scripts/mates-launcher/make-macos-launcher.sh"             "$BUNDLE_DIR/macos"             "$(jq -r .identifier "$config")"             "$TAURI_DIR/icons/mates.icns"             "$(jq -r .version "$config")"
 
       - name: Create DMG without mounting a volume
         if: runner.os == 'macOS'
