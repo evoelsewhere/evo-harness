@@ -1,96 +1,29 @@
 import * as React from "react";
+import { renderAvatarSvg, validateAvatar, type AvatarDefinition } from "open-bot-avatar";
+import { mountAvatar, type MountedAvatar } from "open-bot-avatar/dom";
+import { faceById } from "@/components/mate-face/faces";
+import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
-// evo's agents: a soft, rounded body with two eyes cut out of it, so the eyes
-// show whatever is behind (light or dark theme alike). The body takes the text
-// colour and is shaded as a lit solid: a light from the top left, a highlight,
-// edges that turn away into shadow. The built-in agents have a look each; any
-// other agent gets a shape, tilt and gaze derived from its name, the same every
-// time. While an agent runs it breathes, glances around and blinks now and then.
+// evo's agents wear the Evo Mates faces (docs/features/subagents-and-nested-sessions/spec.md,
+// FR-25; docs/features/evo-mates/ux.md 6), so both apps look alike. The
+// built-in agents have a face each; any other agent gets one from its name,
+// the same every time. A face is drawn by the avatar engine in the agent's
+// hue, still at rest; a running agent's face moves (reduced motion keeps it
+// still). Where an icon takes the text colour, the face's silhouette is drawn
+// in that colour with the eyes cut out.
 
-type Look = {
-  body: React.ReactNode;
-  eyes: React.ReactNode;
-  /** Degrees, around the body's centre. */
-  tilt?: number;
-  /** Scans side to side while running instead of glancing now and then. */
-  scans?: boolean;
+type Builtin = "general" | "explore" | "plan" | "background";
+
+const builtinFaces: Record<Builtin, string> = {
+  general: "pebble",
+  explore: "scout",
+  plan: "quill",
+  background: "buoy",
 };
 
-const ball = <circle cx="12" cy="13" r="10.5" />;
-
-const builtins: Record<"general" | "explore" | "plan" | "background", Look> = {
-  // A ball glancing up and to the right.
-  general: {
-    body: ball,
-    eyes: (
-      <>
-        <rect x="12.9" y="5.6" width="2.6" height="5.4" rx="1.3" transform="rotate(-24 14.2 8.3)" />
-        <rect x="16.9" y="5.4" width="2.3" height="4.6" rx="1.15" transform="rotate(-24 18.05 7.7)" />
-      </>
-    ),
-  },
-  // Eyes to the side: looking for something.
-  explore: {
-    body: ball,
-    scans: true,
-    eyes: (
-      <>
-        <rect x="15.2" y="9" width="2.6" height="5.2" rx="1.3" transform="rotate(-8 16.5 11.6)" />
-        <rect x="19" y="9.2" width="2.2" height="4.4" rx="1.1" transform="rotate(-8 20.1 11.4)" />
-      </>
-    ),
-  },
-  // Square and steady, looking straight at you.
-  plan: {
-    body: <rect x="2" y="3" width="20" height="20" rx="7" />,
-    eyes: (
-      <>
-        <rect x="8.2" y="8.4" width="2.6" height="5.4" rx="1.3" />
-        <rect x="13.2" y="8.4" width="2.6" height="5.4" rx="1.3" />
-      </>
-    ),
-  },
-  // Calm, half-closed eyes: works while you are away.
-  background: {
-    body: ball,
-    eyes: (
-      <>
-        <rect x="12.4" y="9" width="4.2" height="2.2" rx="1.1" transform="rotate(-12 14.5 10.1)" />
-        <rect x="17.4" y="8.2" width="3.6" height="2" rx="1" transform="rotate(-12 19.2 9.2)" />
-      </>
-    ),
-  },
-};
-
-// Bodies for every other agent, each with where its eyes sit.
-const shapes: { body: React.ReactNode; eyeX: number; eyeY: number }[] = [
-  { body: ball, eyeX: 12, eyeY: 12.5 },
-  // A soft square cushion.
-  {
-    body: <path d="M12 3C19.6 3 22 5.4 22 13S19.6 23 12 23 2 20.6 2 13 4.4 3 12 3Z" />,
-    eyeX: 12,
-    eyeY: 12.5,
-  },
-  // A drop with one sharper corner.
-  {
-    body: <path d="M5.5 3H13.5A9 9 0 0 1 22.5 12V14A9 9 0 0 1 13.5 23H10.5A9 9 0 0 1 1.5 14V7A4 4 0 0 1 5.5 3Z" />,
-    eyeX: 13,
-    eyeY: 12.5,
-  },
-  // A dome on a flat base.
-  {
-    body: <path d="M2.5 21.8V14A9.5 9.5 0 0 1 21.5 14V21.8Q21.5 23 20.3 23H3.7Q2.5 23 2.5 21.8Z" />,
-    eyeX: 12,
-    eyeY: 14.5,
-  },
-  // A tall slab.
-  { body: <rect x="3" y="3" width="18" height="19.5" rx="5.5" />, eyeX: 12, eyeY: 12 },
-];
-
-const tilts = [-10, -6, 0, 0, 6, 10];
-const gazesX = [-2, 0, 0, 2, 3];
-const gazesY = [-1.5, 0, 0];
+/** Faces for every other agent: none of the built-ins' own. */
+const otherFaces = ["gear", "prism", "compass", "spark"];
 
 /** FNV-1a: a stable 32-bit number for a name. */
 function hash(name: string): number {
@@ -102,38 +35,49 @@ function hash(name: string): number {
   return h >>> 0;
 }
 
-/** A custom agent's look, picked from its name. */
-function lookFor(name: string): Look {
-  const h = hash(name);
-  const shape = shapes[h % shapes.length];
-  const x = shape.eyeX + gazesX[(h >>> 4) % gazesX.length];
-  const y = shape.eyeY + gazesY[(h >>> 8) % gazesY.length];
-  const dots = (h >>> 12) % 4 === 0;
-  const eyes = dots ? (
-    <>
-      <circle cx={x - 2.4} cy={y} r="1.9" />
-      <circle cx={x + 2.4} cy={y + 0.4} r="1.5" />
-    </>
-  ) : (
-    <>
-      <rect x={x - 3.8} y={y - 2.7} width="2.6" height="5.4" rx="1.3" />
-      <rect x={x + 1.3} y={y - 2.4} width="2.3" height="4.8" rx="1.15" />
-    </>
-  );
-  return { body: shape.body, eyes, tilt: tilts[(h >>> 16) % tilts.length] };
+function builtinOf(agentType?: string, background?: boolean): Builtin | null {
+  if (background) return "background";
+  if (!agentType || agentType === "general" || agentType === "general-purpose") return "general";
+  if (agentType === "explore" || agentType === "plan") return agentType;
+  return null;
+}
+
+/** The agent's face id: fixed for the built-ins, from the name for any other. */
+export function agentFaceId(agentType?: string, background?: boolean): string {
+  const builtin = builtinOf(agentType, background);
+  if (builtin) return builtinFaces[builtin];
+  return otherFaces[(hash(agentType!) >>> 8) % otherFaces.length]!;
+}
+
+// The engine leaves a margin round a face in its box; an icon draws it 24%
+// larger so the body fills the box like the icons beside it.
+// At 14–20 px the engine's eyes (about 4 × 11 of 100 units) are under a
+// pixel wide: agents' faces are drawn with larger eyes so they still read.
+const ICON_EYES = 1.6;
+const iconFaces = new Map<string, AvatarDefinition>();
+
+/** The face as an agent icon draws it: the mate face, eyes larger. */
+export function agentFace(agentType?: string, background?: boolean): AvatarDefinition {
+  const face = faceById(agentFaceId(agentType, background));
+  let icon = iconFaces.get(face.id);
+  if (!icon) {
+    const larger = validateAvatar({ ...face, eyes: { ...face.eyes, scale: face.eyes.scale * ICON_EYES } });
+    icon = larger.ok ? larger.value : face;
+    iconFaces.set(face.id, icon);
+  }
+  return icon;
 }
 
 // Each agent has a colour of its own, so it is known at a glance wherever it
 // shows: a hue on a fixed lightness and chroma that reads on both themes.
-const builtinHues = { general: 250, explore: 165, plan: 70, background: 295 };
+const builtinHues: Record<Builtin, number> = { general: 250, explore: 165, plan: 70, background: 295 };
 const hues = [20, 45, 95, 135, 185, 210, 235, 270, 320, 345];
 
 /** The agent's hue (OKLCH degrees): fixed for the built-ins, from the name for any other. */
 export function agentHue(agentType?: string, background?: boolean): number {
-  if (background) return builtinHues.background;
-  if (!agentType || agentType === "general" || agentType === "general-purpose") return builtinHues.general;
-  if (agentType === "explore" || agentType === "plan") return builtinHues[agentType];
-  return hues[(hash(agentType) >>> 20) % hues.length];
+  const builtin = builtinOf(agentType, background);
+  if (builtin) return builtinHues[builtin];
+  return hues[(hash(agentType!) >>> 20) % hues.length]!;
 }
 
 /** Sets `--agent-hue` for the agent; pair it with `agentTint` classes. */
@@ -147,11 +91,107 @@ export const agentTint = {
   bg: "bg-[oklch(0.6_0.16_var(--agent-hue)/0.13)] dark:bg-[oklch(0.75_0.14_var(--agent-hue)/0.16)]",
 };
 
-function lookOf(agentType?: string, background?: boolean): Look {
-  if (background) return builtins.background;
-  if (!agentType || agentType === "general") return builtins.general;
-  if (agentType === "explore" || agentType === "plan") return builtins[agentType];
-  return lookFor(agentType);
+/** OKLCH to #rrggbb, clipped to sRGB: the engine takes hex colours only. */
+export function oklchToHex(l: number, c: number, hue: number): string {
+  const h = (hue * Math.PI) / 180;
+  const a = c * Math.cos(h);
+  const b = c * Math.sin(h);
+  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const linear = [
+    4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
+  ];
+  return `#${linear
+    .map((v) => {
+      const x = Math.min(1, Math.max(0, v));
+      const srgb = x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055;
+      return Math.round(srgb * 255)
+        .toString(16)
+        .padStart(2, "0");
+    })
+    .join("")}`;
+}
+
+/** The face's body colour: the agent's hue at `agentTint.text`'s lightness and chroma. */
+export function agentColor(agentType?: string, background?: boolean, dark = false): string {
+  const hue = agentHue(agentType, background);
+  return dark ? oklchToHex(0.75, 0.14, hue) : oklchToHex(0.6, 0.16, hue);
+}
+
+// A static face is a sizeable SVG; rows of the same agent share one.
+const staticSvgs = new Map<string, string>();
+
+/** The agent's face at rest, as SVG markup in its colour for the theme. */
+export function agentFaceSvg(agentType?: string, background?: boolean, dark = false): string {
+  return staticSvg(agentFace(agentType, background), agentColor(agentType, background, dark));
+}
+
+function staticSvg(face: AvatarDefinition, color: string): string {
+  const key = `${face.id}|${color}`;
+  let svg = staticSvgs.get(key);
+  if (!svg) {
+    // Fluid (no size): the icon's box sizes it, inline so that no `[&_svg]:size-*`
+    // of a parent shrinks it. The face's own name is not the agent's.
+    svg = renderAvatarSvg(face, { color })
+      .replace(/<title>[\s\S]*?<\/title>/g, "")
+      .replace(/^<svg /, '<svg style="width:100%;height:100%;display:block" ');
+    staticSvgs.set(key, svg);
+  }
+  return svg;
+}
+
+/** The face's silhouette in the text colour, eyes cut out. */
+function Silhouette({ face, className, style }: { face: AvatarDefinition; className?: string; style?: React.CSSProperties }) {
+  const id = `agent-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const { x, y, spacing } = face.eyes;
+  // Larger than the engine's at any scale: at 14 px an eye is still a mark.
+  const w = 9;
+  const h = 20;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 100 100"
+      width="24"
+      height="24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={cn("shrink-0", className)}
+      style={style}
+    >
+      <mask id={id}>
+        <path d={face.body.path} fill="white" />
+        <rect x={x - spacing / 2 - w / 2} y={y - h / 2} width={w} height={h} rx={w / 2} fill="black" />
+        <rect x={x + spacing / 2 - w / 2} y={y - h / 2} width={w} height={h} rx={w / 2} fill="black" />
+      </mask>
+      <rect width="100" height="100" mask={`url(#${id})`} />
+    </svg>
+  );
+}
+
+/** A running face: the engine mounted in the page, in its `working` state. */
+function LiveFace({ face, color }: { face: AvatarDefinition; color: string }) {
+  const host = React.useRef<HTMLDivElement>(null);
+  const mounted = React.useRef<MountedAvatar | null>(null);
+
+  React.useEffect(() => {
+    if (!host.current) return;
+    mounted.current = mountAvatar(host.current, { definition: face, color, state: "working", label: "" });
+    return () => {
+      mounted.current?.destroy();
+      mounted.current = null;
+    };
+    // Mounted once per face; the colour follows below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [face]);
+
+  React.useEffect(() => {
+    mounted.current?.update({ color });
+  }, [color]);
+
+  return <div ref={host} className="absolute -inset-[12%]" />;
 }
 
 export function AgentIcon({
@@ -161,85 +201,34 @@ export function AgentIcon({
   tinted,
   className,
   style,
-  ...props
-}: React.SVGProps<SVGSVGElement> & {
+}: {
+  className?: string;
+  style?: React.CSSProperties;
   /** Drawn in the agent's own colour instead of the text colour. */
   tinted?: boolean;
-  /** `general`, `explore`, `plan` have their own looks; any other name gets one of its own. */
+  /** `general`, `explore`, `plan` have their own faces; any other name gets one of its own. */
   agentType?: string;
-  /** A background agent's calm look. */
+  /** A background agent's face. */
   background?: boolean;
-  /** Running: it breathes, glances around and blinks. */
+  /** Running: the face moves. */
   live?: boolean;
 }) {
-  const id = `agent-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const look = lookOf(agentType, background);
-  const tilt = look.tilt ? `rotate(${look.tilt} 12 13)` : undefined;
+  const { resolved } = useTheme();
+  const face = agentFace(agentType, background);
+  if (!tinted) return <Silhouette face={face} className={className} style={style} />;
+  const color = agentColor(agentType, background, resolved === "dark");
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      width="24"
-      height="24"
-      fill="currentColor"
+    <span
       aria-hidden="true"
-      className={cn("shrink-0", className, tinted && agentTint.text)}
-      style={tinted ? { ...agentHueStyle(agentType, background), ...style } : style}
-      {...props}
+      data-agent-face={face.id}
+      className={cn("relative inline-block size-4 shrink-0", className)}
+      style={{ ...agentHueStyle(agentType, background), ...style }}
     >
-      <defs>
-        {/* The body shows, the eyes are holes in it. */}
-        <mask id={`${id}-body`}>
-          <g transform={tilt}>
-            <g fill="white">{look.body}</g>
-            <g
-              className={cn(
-                "[transform-box:fill-box]",
-                live &&
-                  (look.scans
-                    ? "motion-safe:animate-[agent-scan_2.8s_ease-in-out_infinite]"
-                    : "motion-safe:animate-[agent-glance_6.5s_ease-in-out_infinite]"),
-              )}
-            >
-              <g
-                fill="black"
-                className={cn(
-                  "origin-center [transform-box:fill-box]",
-                  live && "motion-safe:animate-[agent-blink_3.6s_ease-in-out_infinite]",
-                )}
-              >
-                {look.eyes}
-              </g>
-            </g>
-          </g>
-        </mask>
-        {/* The light: lit from the top left, edges falling into shadow. */}
-        <radialGradient id={`${id}-shade`} gradientUnits="userSpaceOnUse" cx="10" cy="9" r="15" fx="7.5" fy="6.5">
-          <stop offset="0" stopColor="#fff" stopOpacity="0.24" />
-          <stop offset="0.45" stopColor="#fff" stopOpacity="0.04" />
-          <stop offset="0.7" stopColor="#000" stopOpacity="0" />
-          <stop offset="1" stopColor="#000" stopOpacity="0.24" />
-        </radialGradient>
-        <radialGradient id={`${id}-shine`} gradientUnits="userSpaceOnUse" cx="7.5" cy="7.5" r="5">
-          <stop offset="0" stopColor="#fff" stopOpacity="0.3" />
-          <stop offset="1" stopColor="#fff" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <g
-        className={cn(
-          "origin-bottom [transform-box:fill-box]",
-          live &&
-            (background
-              ? "motion-safe:animate-[agent-breathe_4s_ease-in-out_infinite]"
-              : "motion-safe:animate-[agent-breathe_2.2s_ease-in-out_infinite]"),
-        )}
-      >
-        <g mask={`url(#${id}-body)`}>
-          <rect width="24" height="24" fill="currentColor" />
-          <rect width="24" height="24" fill={`url(#${id}-shade)`} />
-          <rect width="24" height="24" fill={`url(#${id}-shine)`} />
-        </g>
-      </g>
-    </svg>
+      {live ? (
+        <LiveFace face={face} color={color} />
+      ) : (
+        <span className="absolute -inset-[12%]" dangerouslySetInnerHTML={{ __html: staticSvg(face, color) }} />
+      )}
+    </span>
   );
 }

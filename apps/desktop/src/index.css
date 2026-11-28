@@ -484,57 +484,6 @@
   box-shadow: none;
 }
 
-/* A running agent (components/icons/agent-icon.tsx): its body breathes, its eyes
-   glance aside now and then (an explorer's scan side to side) and blink. */
-@keyframes agent-breathe {
-  0%,
-  100% {
-    transform: translateY(0) scale(1, 1);
-  }
-  50% {
-    transform: translateY(-0.6px) scale(0.98, 1.025);
-  }
-}
-@keyframes agent-glance {
-  0%,
-  44%,
-  100% {
-    transform: translate(0, 0);
-  }
-  50%,
-  64% {
-    transform: translate(-1.6px, 0.3px);
-  }
-  70%,
-  92% {
-    transform: translate(0.8px, -0.3px);
-  }
-}
-@keyframes agent-scan {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  30%,
-  42% {
-    transform: translateX(-3px);
-  }
-  70%,
-  82% {
-    transform: translateX(0.6px);
-  }
-}
-@keyframes agent-blink {
-  0%,
-  88%,
-  100% {
-    transform: scaleY(1);
-  }
-  92% {
-    transform: scaleY(0.12);
-  }
-}
-
 /* The agent's virtual cursor over a page's picture (features/cards/agent-cursor.tsx):
    a ring spreads where it clicks. */
 @keyframes agent-cursor-ripple {

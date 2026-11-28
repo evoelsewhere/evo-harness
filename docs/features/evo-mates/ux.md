@@ -183,7 +183,9 @@ messages 180 ms, easing `cubic-bezier(0.22, 1, 0.36, 1)`, 300 ms ceiling
   stays light.
 - Sizes: 24 (mentions, hand-off lines), 36 (rows), 60 (tiles), 72 (panel),
   96 (gallery hero).
-- Evo Harness keeps its own agent icon for agents and subagents.
+- Evo Harness's agents and subagents use the same faces, in each agent's
+  own hue, with larger eyes at icon sizes
+  ([subagents](../subagents-and-nested-sessions/spec.md) FR-25).
 
 ## 7. Borrowed patterns and what is not borrowed
 
