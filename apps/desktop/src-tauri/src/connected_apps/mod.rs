@@ -26,6 +26,7 @@ pub mod files;
 pub mod gate;
 pub mod key;
 pub mod logos;
+pub mod official;
 #[cfg(test)]
 mod record;
 pub mod run;

@@ -1,0 +1,75 @@
+{
+  "checked": "2026-11-28",
+  "note": "Each address and sign-in kind was checked against the service's own documentation (docs). Left out: Asana (V2 needs a client registered in advance, no token), Slack (needs the host's own Slack app, no dynamic registration), HubSpot (needs an MCP auth app with client credentials).",
+  "servers": [
+    {
+      "id": "github",
+      "name": "GitHub",
+      "category": "developer tools",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "auth": "token",
+      "tokenHeader": "Authorization",
+      "tokenPrefix": "Bearer ",
+      "tokenHint": "A GitHub personal access token (GitHub → Settings → Developer settings → Personal access tokens), with the scopes you want the agent to have.",
+      "docs": "https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/set-up-the-github-mcp-server",
+      "preview": false,
+      "composio": ["github"]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "category": "notes",
+      "url": "https://mcp.notion.com/mcp",
+      "auth": "oauth",
+      "docs": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+      "preview": false,
+      "composio": ["notion"]
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "category": "project management",
+      "url": "https://mcp.linear.app/mcp",
+      "auth": "oauth",
+      "docs": "https://linear.app/docs/mcp",
+      "preview": false,
+      "composio": ["linear"]
+    },
+    {
+      "id": "atlassian",
+      "name": "Atlassian (Jira, Confluence)",
+      "category": "project management",
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "auth": "oauth",
+      "docs": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+      "preview": false,
+      "composio": ["jira", "confluence"]
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "category": "developer tools",
+      "url": "https://mcp.sentry.dev/mcp",
+      "auth": "oauth",
+      "docs": "https://mcp.sentry.dev/",
+      "preview": false,
+      "composio": ["sentry"]
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "category": "payments",
+      "url": "https://mcp.stripe.com",
+      "auth": "oauth",
+      "docs": "https://docs.stripe.com/mcp",
+      "preview": false,
+      "composio": ["stripe"]
+    }
+  ],
+  "zapier": {
+    "url": "https://mcp.zapier.com/api/v1/connect",
+    "docs": "https://docs.zapier.com/mcp/get-started/connect",
+    "actions": "https://mcp.zapier.com",
+    "tasksPerCall": 2
+  }
+}

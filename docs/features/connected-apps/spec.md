@@ -151,7 +151,7 @@ A person wants their mates to use Gmail and Slack.
 | FR-18 | The same Composio user is kept for the installation across restarts and updates, so connected accounts come back; a reinstall with the same key finds the earlier user when there is exactly one with a live account. | Given a restart, then the accounts are still connected. |
 | FR-19 | Connected-app tool calls are listed in the transcript as "Called <service> · <tool> (<account>)" and their cost (none from Evo's side) does not count as model usage. | Manual check in the running app. |
 | FR-20 | **Browse apps** lists three ways to connect: **Official** (the service's own MCP server), Composio apps and **Zapier**. A service that has both an official server and a Composio app shows once, with both ways; the official way comes first, marked as direct and free. | Given Notion, then one card offers Official first and Composio second. |
-| FR-21 | The list of official servers ships with Evo: for each, the service's name, logo, category, its MCP address and how it signs in (the service's OAuth, or a key or token the service issues), and **Preview** when the service calls its server a preview. It covers at least GitHub, Notion, Linear, Atlassian, Asana, Slack, Sentry, Stripe and HubSpot. | Given a fresh install, then each listed service shows with its sign-in kind. |
+| FR-21 | The list of official servers ships with Evo: for each, the service's name, logo, category, its MCP address and how it signs in (the service's OAuth, or a key or token the service issues), and **Preview** when the service calls its server a preview. It covers at least GitHub, Notion, Linear, Atlassian, Sentry and Stripe (A-10). | Given a fresh install, then each listed service shows with its sign-in kind. |
 | FR-22 | Connecting an official server adds it as an MCP server and opens the service's own sign-in in the person's browser (Customize FR-24); for a key or token sign-in, Evo asks for it and keeps it in the system keychain. Its page says the data goes only to that service and that Evo adds no cost. **Disconnect** signs out and removes it. | Given GitHub, when the person connects, then GitHub's sign-in opens and, once done, GitHub's tools reach chats. |
 | FR-23 | An official server is one account: connecting it again replaces the sign-in. | Given Linear connected, when Connect is chosen again, then one Linear server remains. |
 | FR-24 | **Zapier** connects to Zapier's MCP server with Zapier's sign-in in the browser, or with a connection token the person pastes, kept in the keychain and sent only as a header. Its tools are the actions the person enabled in Zapier, with a link to choose them there. The card says each successful call uses tasks of the person's Zapier plan, at Zapier's rate. | Given a Zapier sign-in with two actions enabled, then exactly those two tools reach chats. |
@@ -233,6 +233,12 @@ None.
 - A-9 (2026-11-28) Zapier signs in with OAuth first; the connection token
   is the fallback for when OAuth fails — because Zapier recommends OAuth
   and warns that a token is long-lived.
+- A-10 (2026-11-28, from T23) Asana, Slack and HubSpot are left out of the
+  official list for now: checked on their documentation, each signs in
+  only with a client registered with the service in advance (no dynamic
+  registration, no personal token), which Evo does not have. GitHub signs
+  in with a personal access token, as GitHub documents for hosts without
+  their own GitHub app. Those three stay reachable through Composio.
 
 ## 7. History
 
