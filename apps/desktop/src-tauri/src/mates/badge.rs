@@ -3,7 +3,9 @@
 //! a number; Windows takes an overlay picture, which the window draws (a
 //! circle with the number) and hands over as RGBA pixels.
 
-use tauri::{image::Image, AppHandle, Manager};
+#[cfg(windows)]
+use tauri::image::Image;
+use tauri::{AppHandle, Manager};
 
 /// The side of the overlay picture the window draws, in pixels.
 pub const OVERLAY_SIDE: u32 = 32;
@@ -20,13 +22,19 @@ pub fn mates_set_badge(app: AppHandle, window: String, count: u32, rgba: Option<
     let Some(target) = app.get_webview_window(&window) else {
         return Ok(());
     };
-    if cfg!(windows) {
+    // `set_overlay_icon` exists only in Windows builds, so the branches are
+    // chosen when compiling, not at run time.
+    #[cfg(windows)]
+    {
         let icon = match rgba {
             Some(pixels) if count > 0 && overlay_fits(&pixels) => Some(Image::new_owned(pixels, OVERLAY_SIDE, OVERLAY_SIDE)),
             _ => None,
         };
         target.set_overlay_icon(icon).map_err(|error| error.to_string())
-    } else {
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = rgba;
         target
             .set_badge_count(if count == 0 { None } else { Some(i64::from(count)) })
             .map_err(|error| error.to_string())
