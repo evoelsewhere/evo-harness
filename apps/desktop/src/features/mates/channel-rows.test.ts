@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelEntry } from "@/lib/mates";
-import { boldMentions, channelRows, handoffLine, handoffSummary, handoffVerb, insertMention, mentionAt, mentionParts, retroFailure } from "./channel-rows";
+import { boldMentions, channelRows, handoffLine, handoffSummary, handoffVerb, insertMention, mentionAt, mentionParts, retroFailure, openJob, threadSummaries } from "./channel-rows";
 
 // docs/features/evo-mates/spec.md (FR-14 – FR-19, FR-58).
 const at = (minutes: number) => 1_700_000_000_000 + minutes * 60_000;
@@ -198,5 +198,39 @@ describe("quotes and files", () => {
     expect(odd?.kind === "bubble" ? odd.quote : "x").toBeUndefined();
     const handoff = rows.find((r) => r.kind === "handoff");
     expect(handoff?.kind === "handoff" ? handoff.files : []).toEqual(["C:/a.png"]);
+  });
+
+  // docs/features/evo-mates-threads-board/spec.md (FR-1 – FR-3).
+  describe("threads", () => {
+    const entries = [
+      message("person", "plan it", 0),
+      { kind: "route", message: "person-0", picked: ["p"], line: "Planner", at: at(0) },
+      { kind: "message", id: "r-1", author: "p", name: "Planner", text: "Plan ready", replyTo: "person-0", at: at(1) },
+      { kind: "job", id: "j-1", message: "person-0", status: "done", handoffs: 0, at: at(1) },
+      { kind: "message", id: "m-2", author: "person", text: "add arm64", thread: "r-1", at: at(2) },
+      { kind: "route", message: "m-2", picked: ["p"], line: "Planner, in this thread", thread: "r-1", at: at(2) },
+      { kind: "message", id: "r-2", author: "p", name: "Planner", text: "Added", thread: "r-1", replyTo: "m-2", at: at(3) },
+    ] as ChannelEntry[];
+
+    test("thread lines stay out of the feed and the parent shows the summary", () => {
+      const rows = channelRows(entries, nameOf);
+      const bubbles = rows.filter((r) => r.kind === "bubble");
+      expect(bubbles.map((r) => (r.kind === "bubble" ? r.text : ""))).toEqual(["plan it", "Plan ready"]);
+      const parent = bubbles[1];
+      expect(parent.kind === "bubble" ? parent.thread : null).toEqual({ count: 2, repliers: ["p", "person"], last: at(3) });
+    });
+
+    test("the thread shows its parent and its own lines", () => {
+      const rows = channelRows(entries, nameOf, Date.now(), "r-1");
+      const texts = rows.filter((r) => r.kind === "bubble").map((r) => (r.kind === "bubble" ? r.text : ""));
+      expect(texts).toEqual(["Plan ready", "add arm64", "Added"]);
+      expect(rows.some((r) => r.kind === "route" && r.text === "Planner, in this thread")).toBe(true);
+    });
+
+    test("the open job knows its thread", () => {
+      expect(openJob(entries)).toEqual({ message: "m-2", thread: "r-1" });
+      expect(openJob(entries.slice(0, 4))).toBeNull();
+      expect(threadSummaries(entries).get("r-1")?.count).toBe(2);
+    });
   });
 });

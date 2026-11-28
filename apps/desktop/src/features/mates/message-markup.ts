@@ -26,6 +26,21 @@ export interface ReplyTo {
 
 const NOTE = /^<evo-mates-note>([\s\S]*?)<\/evo-mates-note>\n?/;
 const REPLY = /^<evo-mates-reply from="([^"]*)">([\s\S]*?)<\/evo-mates-reply>\n?/;
+/** A message from a thread's box (evo-mates-threads-board FR-1, FR-22). */
+const THREAD = /^<evo-mates-thread root="([^"]*)"(\s+also="channel")?\s*\/>\n?/i;
+
+/** The thread a message names, and the message without the mark. */
+export function threadMark(text: string): { root: string | null; also: boolean; text: string } {
+  const match = THREAD.exec(text);
+  if (!match || !match[1]) return { root: null, also: false, text };
+  return { root: match[1], also: Boolean(match[2]), text: text.slice(match[0].length) };
+}
+
+/** `text` sent into the thread under `root` (the coordinator reads the mark). */
+export function withThread(root: string, text: string, also = false): string {
+  return `<evo-mates-thread root="${root.replace(/"/g, "")}"${also ? ' also="channel"' : ""}/>\n${text}`;
+}
+
 const FORWARD = /^<evo-mates-forward from="([^"]*)">\n?([\s\S]*?)\n?<\/evo-mates-forward>\n?/i;
 
 /** A forwarded message as the person sends it on (evo-mates-messaging FR-10): marked as quoted, not their instruction. */

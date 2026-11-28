@@ -4,7 +4,7 @@
 
 import * as React from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ForwardIcon, PinIcon, PinOffIcon, ReplyIcon } from "lucide-react";
+import { ForwardIcon, MessagesSquareIcon, PinIcon, PinOffIcon, ReplyIcon } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { channelsApi, matesApi, type ChannelReaction, type LinkPreview, type ReactionKind } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
@@ -91,6 +91,7 @@ export function LineBar({
   onReply,
   onPin,
   onForward,
+  onThread,
 }: {
   side: "start" | "end";
   mine?: ReactionKind;
@@ -99,6 +100,8 @@ export function LineBar({
   onReply?(): void;
   onPin(): void;
   onForward(): void;
+  /** Reply in thread (evo-mates-threads-board FR-1). */
+  onThread?(): void;
 }) {
   const button = "flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground";
   return (
@@ -125,6 +128,11 @@ export function LineBar({
       {onReply && (
         <button type="button" aria-label="Reply" title="Reply" onClick={onReply} className={button}>
           <ReplyIcon className="size-4" />
+        </button>
+      )}
+      {onThread && (
+        <button type="button" aria-label="Reply in thread" title="Reply in thread" onClick={onThread} className={button}>
+          <MessagesSquareIcon className="size-3.5" />
         </button>
       )}
       <button type="button" aria-label={pinned ? "Unpin" : "Pin"} title={pinned ? "Unpin" : "Pin"} onClick={onPin} className={button}>

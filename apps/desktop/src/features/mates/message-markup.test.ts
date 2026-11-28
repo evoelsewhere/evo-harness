@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { forwardPrompt } from "./message-markup";
+import { forwardPrompt, threadMark, withThread } from "./message-markup";
 import { composePrompt, excerpt, parsePrompt } from "./message-markup";
 
 // docs/features/evo-mates/spec.md (FR-60, FR-61).
@@ -34,5 +34,13 @@ describe("forwarding", () => {
     expect(prompt).toBe('<evo-mates-forward from="Writer">\nThe intro is ready.\n</evo-mates-forward>\ncheck this');
     expect(parsePrompt(prompt)).toEqual({ text: "check this", reply: null, forwarded: { from: "Writer", text: "The intro is ready." } });
     expect(forwardPrompt("A", "x", "")).toContain("(Forwarded for your information.)");
+  });
+
+  // docs/features/evo-mates-threads-board/spec.md (FR-1).
+  test("a thread's mark round-trips", () => {
+    const sent = withThread("r-1", "add arm64");
+    expect(threadMark(sent)).toEqual({ root: "r-1", also: false, text: "add arm64" });
+    expect(threadMark(withThread("r-1", "x", true)).also).toBe(true);
+    expect(threadMark("plain").root).toBeNull();
   });
 });

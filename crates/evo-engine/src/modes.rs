@@ -1588,6 +1588,7 @@ where
             // A channel line's author, for a mate's `react` (evo-mates-messaging FR-4).
             "channel_line" => match crate::channel::coordinator::active() {
                 Some(channel) => {
+                    channel.restore(harness).await;
                     let line = msg.get("line").and_then(|v| v.as_str()).unwrap_or_default();
                     match channel.line_author(line) {
                         Some(author) => Ok(serde_json::json!({ "author": author })),

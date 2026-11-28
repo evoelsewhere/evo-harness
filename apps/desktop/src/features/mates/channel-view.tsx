@@ -4,291 +4,40 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowRightIcon, ArrowUpIcon, ChevronRightIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, MessagesSquareIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
 import { attachmentsFromPaths, attachmentsFromTransfer, isLongPaste, releaseAttachment, textAttachment } from "@/features/chat";
-import { Markdown } from "@/components/markdown";
-import { openFileRef } from "@/components/open-file-ref";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { log } from "@/lib/db";
 import { openChatWindow } from "@/lib/windows";
-import type { Channel, Mate } from "@/lib/mates";
+import type { Channel, ChannelEntry, Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useChannelStore } from "@/stores/channel-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
-import { boldMentions, channelRows, handoffSummary, handoffVerb, insertMention, mentionAt, mentionParts, type ChannelRow } from "./channel-rows";
+import { channelRows, insertMention, mentionAt, openJob, type ChannelRow } from "./channel-rows";
 import { useMembers } from "./channel-header";
 import { FindBar } from "./find-bar";
 import { MatePresenceFace } from "./presence-face";
-import { clockTime, dayLabel } from "./thread-rows";
+import { dayLabel } from "./thread-rows";
 import { useMatesUiStore } from "@/stores/mates-ui-store";
 import { EmojiButton, useComposerAssist } from "./composer-assist";
 import { replaceShortcodes } from "./emoji";
 import type { SlashCommand } from "./slash-commands";
-import { BUBBLE_TEXT } from "./bubble-style";
-import { channelMessage, splitMessage } from "./attachments";
-import { NamedFiles, SentByMe } from "./attachment-views";
-import { RetroCard } from "./retro-card";
+import { channelMessage } from "./attachments";
+import { LineContext, RowView, type LineActions } from "./channel-lines";
 import { TypingLine } from "./typing-line";
 import { ForwardDialog, type Forwarding } from "./forward-dialog";
-import { LineBar, LinkCard, ReactionChips, useChannelReactions } from "./line-tools";
-import { composePrompt, excerpt, parsePrompt, type ReplyTo } from "./message-markup";
-import { jumpToMessage, PinsBar } from "./pins-bar";
-import { channelsApi, matesApi, type ChannelReaction, type ReactionKind } from "@/lib/mates";
+import { useChannelReactions } from "./line-tools";
+import { composePrompt, excerpt, threadMark, withThread, type ReplyTo } from "./message-markup";
+import { PinsBar } from "./pins-bar";
+import { channelsApi, matesApi } from "@/lib/mates";
 import { useMatesPrefs } from "@/stores/mates-prefs-store";
 
 const EMPTY: never[] = [];
-
-function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "warn" }) {
-  return (
-    <div className="flex justify-center px-6 py-1.5">
-      <span
-        className={cn(
-          "max-w-[85%] rounded-full px-3 py-1 text-center text-[11.5px]",
-          // A hand-off's long URL breaks like a bubble's (qa-2026-11-28, H1).
-          BUBBLE_TEXT,
-          tone === "warn" ? "bg-destructive/10 text-destructive" : "bg-muted/60 text-muted-foreground",
-        )}
-      >
-        {children}
-      </span>
-    </div>
-  );
-}
-
-/** A hand-off as a card: sender → receiver, the verb, a summary that opens (FR-20; QA C1). */
-function HandoffCard({ row, faceOf, folder }: { row: Extract<ChannelRow, { kind: "handoff" }>; faceOf(id: string): Mate | undefined; folder: string | null }) {
-  const [open, setOpen] = React.useState(false);
-  const from = faceOf(row.from);
-  const to = faceOf(row.to);
-  const summary = handoffSummary(row.text);
-  const full = handoffSummary(row.text, 4000);
-  const long = full !== summary;
-  return (
-    <div className="flex flex-col items-center px-6 py-1">
-      <button
-        type="button"
-        aria-expanded={long ? open : undefined}
-        onClick={() => long && setOpen(!open)}
-        className={cn(
-          "flex max-w-[min(560px,90%)] min-w-0 items-start gap-2 rounded-2xl bg-muted/50 px-3 py-1.5 text-left text-[12px] text-muted-foreground shadow-[0_0_0_1px_var(--border)]",
-          long && "hover:bg-muted",
-          BUBBLE_TEXT,
-        )}
-      >
-        <span className="flex shrink-0 items-center gap-1 pt-px">
-          {from ? <MatePresenceFace mate={from} size={18} ring="var(--background)" /> : null}
-          <ArrowRightIcon className="size-3" />
-          {to ? <MatePresenceFace mate={to} size={18} ring="var(--background)" /> : null}
-        </span>
-        <span className={cn("min-w-0 flex-1", !open && "line-clamp-1")}>
-          <span className="font-medium text-foreground">{row.fromName}</span> {handoffVerb(row.handoff)}{" "}
-          <span className="font-medium text-foreground">{row.toName}</span>
-          {summary && <span data-find-text>: {open ? full : summary}</span>}
-        </span>
-        {long && <ChevronRightIcon className={cn("mt-0.5 size-3 shrink-0 transition-transform", open && "rotate-90")} />}
-      </button>
-      {/* Files given with it (evo-mates-messaging FR-6). */}
-      {row.files.length > 0 && (
-        <div className="mt-1 flex max-w-[min(560px,90%)] justify-center">
-          <NamedFiles text="" paths={row.files} root={folder} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** What every line of a channel can do (evo-mates-messaging FR-3, FR-5, FR-10, FR-14). */
-interface LineActions {
-  reactions: Map<string, ChannelReaction[]>;
-  react(message: string, kind: ReactionKind | null): void;
-  reply(to: ReplyTo): void;
-  pinned: Set<string>;
-  pin(key: string, text: string): void;
-  forward(from: string, text: string): void;
-  nameOf(id: string): string;
-}
-const LineContext = React.createContext<LineActions | null>(null);
-
-/** A line that mentions the person (`@you`, FR-18). */
-const MENTIONS_YOU = /(^|[^\p{L}\p{N}@])@you(?![\p{L}\p{N}_])/iu;
-
-function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
-  switch (row.kind) {
-    case "day":
-      return null;
-    case "time":
-      return <div className="mt-2 py-1 text-center text-[11px] text-muted-foreground tabular-nums">{clockTime(row.at)}</div>;
-    case "route":
-      // Who answers, with their faces (FR-20; evo-mates FR-36).
-      return (
-        <div className="flex justify-center px-6 py-1">
-          <span className={cn("flex max-w-[85%] items-center gap-1.5 rounded-full bg-muted/60 py-0.5 pr-3 pl-1 text-[11.5px] text-muted-foreground", BUBBLE_TEXT)}>
-            <span className="flex -space-x-1">
-              {row.picked.slice(0, 3).map((id) => {
-                const mate = faceOf(id);
-                return mate ? <MatePresenceFace key={id} mate={mate} size={18} ring="var(--background)" /> : null;
-              })}
-            </span>
-            {!row.picked.length && <span className="w-1.5" />}
-            {row.text}
-          </span>
-        </div>
-      );
-    case "handoff":
-      return <HandoffCard row={row} faceOf={faceOf} folder={folder ?? faceOf(row.from)?.folder ?? null} />;
-    case "notice":
-      return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
-    case "retro":
-      return <RetroCard card={row.card} />;
-    case "bubble":
-      return <BubbleLine row={row} faceOf={faceOf} names={names} folder={folder} />;
-  }
-}
-
-function BubbleLine({ row, faceOf, names, folder }: { row: Extract<ChannelRow, { kind: "bubble" }>; faceOf(id: string): Mate | undefined; names: string[]; folder: string | null }) {
-  const actions = React.useContext(LineContext);
-  {
-      const mate = row.me ? undefined : faceOf(row.author);
-      // The person's pictures, files and pasted text show as chips (FR-83);
-      // a quote they replied with, or a forward, shows above (FR-5, FR-10).
-      const split = row.me ? splitMessage(row.text) : null;
-      const parsed = split ? parsePrompt(split.text) : null;
-      const said = split && parsed ? { ...split, text: parsed.text } : null;
-      const quote = row.me ? (parsed?.reply ? { name: parsed.reply.from === "you" ? "You" : parsed.reply.from, text: parsed.reply.text, id: null as string | null } : null) : row.quote ? { ...row.quote } : null;
-      const root = folder ?? mate?.projectFolder ?? mate?.folder ?? null;
-      const reactions = actions?.reactions.get(row.key) ?? [];
-      const mine = reactions.find((r) => r.reactor === "person")?.reaction;
-      const plain = said?.text ?? row.text;
-      const mentionsYou = !row.me && MENTIONS_YOU.test(row.text);
-      const jump = () => {
-        if (quote?.id && jumpToMessage(quote.id)) return;
-        // A quote of the person names no id: find the line by its words.
-        const head = (quote?.text ?? "").replace(/\u2026$/, "").slice(0, 60);
-        const found = [...document.querySelectorAll<HTMLElement>("[data-entry]")].find((el) => (el.textContent ?? "").includes(head));
-        if (found?.dataset.entry) jumpToMessage(found.dataset.entry);
-      };
-      return (
-        <div
-          data-entry={row.key}
-          className={cn(
-            "group/line relative flex items-end gap-2 px-4 pt-1",
-            row.me ? "justify-end" : "justify-start",
-            row.first ? "mt-2" : "mt-0.5",
-            mentionsYou && "bg-amber-500/[0.06] shadow-[inset_2px_0_0_0_rgb(245_158_11/0.7)]",
-          )}
-        >
-          {!row.me && (
-            <span className="w-7 shrink-0">
-              {row.last && mate && <MateFace avatar={mate.avatar} size={28} plate={false} label={mate.name} />}
-            </span>
-          )}
-          <div className={cn("relative flex max-w-[75%] min-w-0 flex-col", row.me ? "items-end" : "items-start")}>
-            {!row.me && row.first && <span className="mb-0.5 ml-2 text-[11px] font-medium text-muted-foreground">{row.name}</span>}
-            {parsed?.forwarded && (
-              <span className="mb-0.5 mr-2 text-[11px] text-muted-foreground">Forwarded from {parsed.forwarded.from}</span>
-            )}
-            {quote && (
-              <button
-                type="button"
-                onClick={jump}
-                title="Go to the message"
-                className={cn(
-                  "mb-0.5 flex max-w-full items-stretch gap-2 rounded-2xl bg-muted/50 py-1 pr-3 pl-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted",
-                  row.me ? "mr-2" : "ml-2",
-                )}
-              >
-                <span aria-hidden className="w-0.5 shrink-0 rounded-full bg-brand/60" />
-                <span className="min-w-0 truncate">
-                  <span className="font-medium text-foreground/80">{quote.name}</span> {quote.text}
-                </span>
-              </button>
-            )}
-            <div
-              data-bubble
-              className={cn(
-                "rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
-                BUBBLE_TEXT,
-                row.me ? "bg-brand text-brand-foreground" : "bg-muted text-foreground",
-                row.last && (row.me ? "rounded-br-[6px]" : "rounded-bl-[6px]"),
-                row.failed && "opacity-70",
-                "[&_p]:my-0 [&_p+p]:mt-2 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0 [&_ul]:pl-4 [&_ol]:pl-4",
-              )}
-            >
-              {said && <SentByMe files={said.files} pasted={said.pasted} />}
-              {parsed?.forwarded && (
-                <div className="mb-1 border-l-2 border-white/40 pl-2 text-[13px] whitespace-pre-wrap opacity-90">{parsed.forwarded.text}</div>
-              )}
-              <div data-find-text>
-              {row.me ? (
-                <span className="whitespace-pre-wrap break-words">
-                  {mentionParts(plain, names).map((part, i) =>
-                    part.mention ? (
-                      <span key={i} className="rounded-md bg-white/20 px-0.5 font-semibold">
-                        {part.text}
-                      </span>
-                    ) : (
-                      <React.Fragment key={i}>{part.text}</React.Fragment>
-                    ),
-                  )}
-                </span>
-              ) : (
-                <Markdown
-                  blocks
-                  onLocalLink={(reference) => {
-                    // A seat works in the channel's folder, else in its mate's (rich-replies FR-37).
-                    const author = faceOf(row.author);
-                    void openFileRef(reference, folder ?? author?.projectFolder ?? author?.folder ?? null, "mates");
-                  }}
-                >
-                  {boldMentions(row.text, [...names, "you"])}
-                </Markdown>
-              )}
-              </div>
-            </div>
-            {/* The files a mate's line names that exist, under it (FR-83). */}
-            {!row.me && <NamedFiles text={row.text} root={root} />}
-            {!row.me && <LinkCard text={row.text} />}
-            {actions && (
-              <ReactionChips
-                reactions={reactions}
-                nameOf={actions.nameOf}
-                align={row.me ? "end" : "start"}
-                onToggle={(kind) => actions.react(row.key, mine === kind ? null : kind)}
-              />
-            )}
-            {actions && (
-              <LineBar
-                side={row.me ? "end" : "start"}
-                mine={mine}
-                pinned={actions.pinned.has(row.key)}
-                onReact={(kind) => actions.react(row.key, kind)}
-                onReply={() => actions.reply({ from: row.me ? "you" : row.name, text: plain })}
-                onPin={() => actions.pin(row.key, plain)}
-                onForward={() => actions.forward(row.me ? "You" : row.name, plain)}
-              />
-            )}
-            {row.steers && <span className="mt-0.5 mr-2 text-[11px] text-muted-foreground">Seen by {row.steers} while working</span>}
-            {row.me && !row.steers && row.seenBy && row.seenBy.length > 0 && (
-              <span className="mt-0.5 mr-2 flex items-center gap-1 text-[11px] text-muted-foreground" aria-label={`Seen by ${row.seenBy.map((id) => faceOf(id)?.name ?? id).join(", ")}`}>
-                Seen by
-                <span className="flex -space-x-1">
-                  {row.seenBy.slice(0, 4).map((id) => {
-                    const seer = faceOf(id);
-                    return seer ? <MateFace key={id} avatar={seer.avatar} size={14} plate={false} label={seer.name} className="rounded-full ring-1 ring-background" /> : null;
-                  })}
-                </span>
-              </span>
-            )}
-          </div>
-        </div>
-      );
-  }
-}
 
 /** The mates of the channel whose seats are in `state` now. */
 function useSeats(channel: Channel, members: Mate[], state: "working" | "waiting"): Mate[] {
@@ -303,17 +52,34 @@ function seatOf(channel: Channel, mate: string): string | null {
   return channel.members.find((m) => m.mateId === mate)?.seatChatId ?? null;
 }
 
-function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; members: Mate[]; reply: ReplyTo | null; onReplyDone(): void }) {
-  // The box's text is a draft kept per channel (evo-mates-messaging FR-11).
-  const [text, setTextState] = React.useState(() => useMatesUiStore.getState().drafts[channel.chatId] ?? "");
+function Composer({
+  channel,
+  members,
+  reply,
+  onReplyDone,
+  thread = null,
+  canStop = true,
+}: {
+  channel: Channel;
+  members: Mate[];
+  reply: ReplyTo | null;
+  onReplyDone(): void;
+  /** The thread this box replies in (evo-mates-threads-board FR-1). */
+  thread?: string | null;
+  /** Stop shows only where the running job is (FR-1). */
+  canStop?: boolean;
+}) {
+  // The box's text is a draft kept per channel, and per thread (evo-mates-messaging FR-11).
+  const draftKey = thread ? `${channel.chatId}#${thread}` : channel.chatId;
+  const [text, setTextState] = React.useState(() => useMatesUiStore.getState().drafts[draftKey] ?? "");
   const setText = React.useCallback(
     (next: string) => {
       setTextState(next);
-      useMatesUiStore.getState().setDraft(channel.chatId, next);
+      useMatesUiStore.getState().setDraft(draftKey, next);
     },
-    [channel.chatId],
+    [draftKey],
   );
-  React.useEffect(() => setTextState(useMatesUiStore.getState().drafts[channel.chatId] ?? ""), [channel.chatId]);
+  React.useEffect(() => setTextState(useMatesUiStore.getState().drafts[draftKey] ?? ""), [draftKey]);
   const [files, setFiles] = React.useState<PromptAttachment[]>([]);
   const [mention, setMention] = React.useState<{ start: number; query: string } | null>(null);
   const [pick, setPick] = React.useState(0);
@@ -408,14 +174,16 @@ function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; 
     files.forEach(releaseAttachment);
     setFiles([]);
     setText("");
+    // A thread's box marks its message for the coordinator (FR-1).
+    const sent = thread ? withThread(thread, message) : message;
     // While the mates answer, a message for only a mate at work steers it;
-    // any other waits its turn (FR-56).
+    // any other waits its turn (FR-56; one job at a time, D1).
     if (busy) {
-      if (!(await useEngineStore.getState().steerChannel(message))) useChannelStore.getState().enqueue(channel.chatId, message);
+      if (!(await useEngineStore.getState().steerChannel(sent))) useChannelStore.getState().enqueue(channel.chatId, sent);
       return;
     }
     try {
-      await useEngineStore.getState().sendPrompt(message);
+      await useEngineStore.getState().sendPrompt(sent);
     } catch (error) {
       log("warn", "mates", `could not send to the channel: ${String(error)}`);
     }
@@ -423,10 +191,11 @@ function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; 
 
   // The next waiting message goes out once the channel is free.
   React.useEffect(() => {
-    if (busy) return;
+    // Only the channel's own box sends the queue on.
+    if (busy || thread) return;
     const next = useChannelStore.getState().dequeue(channel.chatId);
     if (next) void useEngineStore.getState().sendPrompt(next).catch(() => undefined);
-  }, [busy, channel.chatId]);
+  }, [busy, channel.chatId, thread]);
 
   return (
     <div className="relative mx-auto w-full max-w-3xl px-4 pb-4">
@@ -524,7 +293,15 @@ function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; 
           ref={field}
           rows={1}
           value={text}
-          placeholder={busy ? "Mates are answering… a message now goes next" : `Message #${channel.name} · @ to mention`}
+          placeholder={
+            thread
+              ? busy
+                ? "Mates are answering… your reply goes next"
+                : "Reply in thread…"
+              : busy
+                ? "Mates are answering… a message now goes next"
+                : `Message #${channel.name} · @ to mention`
+          }
           onChange={(event) => {
             setText(event.target.value);
             setMention(mentionAt(event.target.value, event.target.selectionStart));
@@ -563,7 +340,7 @@ function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; 
           className="max-h-[136px] min-h-9 min-w-0 flex-1 resize-none appearance-none border-0 bg-transparent py-2 text-[14px] leading-5 shadow-none outline-none placeholder:text-muted-foreground focus-visible:outline-none"
         />
         <EmojiButton onPick={assist.insert} />
-        {busy && !text.trim() && files.length === 0 ? (
+        {busy && canStop && !text.trim() && files.length === 0 ? (
           <button
             type="button"
             aria-label="Stop"
@@ -593,6 +370,111 @@ function Composer({ channel, members, reply, onReplyDone }: { channel: Channel; 
   );
 }
 
+/** A channel's thread beside its feed (evo-mates-threads-board FR-1 – FR-6). */
+function ThreadPanel({
+  channel,
+  members,
+  root,
+  entries,
+  actions,
+  working,
+  open,
+  onClose,
+}: {
+  channel: Channel;
+  members: Mate[];
+  root: string;
+  entries: ChannelEntry[];
+  actions: LineActions;
+  working: Mate[];
+  open: { thread: string | null } | null;
+  onClose(): void;
+}) {
+  const nameOf = actions.nameOf;
+  const rows = React.useMemo(() => channelRows(entries, nameOf, Date.now(), root), [entries, nameOf, root]);
+  const [reply, setReply] = React.useState<ReplyTo | null>(null);
+  const queued = useChannelStore((s) => s.queued[channel.chatId] ?? EMPTY);
+  const bottom = React.useRef<HTMLDivElement>(null);
+  const here = open?.thread === root;
+  // Lines in a thread reply in the same thread: no thread action (D3).
+  const inThread = React.useMemo<LineActions>(() => ({ ...actions, openThread: undefined, reply: setReply }), [actions]);
+  React.useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [rows.length, here, working.length]);
+  React.useEffect(() => {
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+  const names = members.map((m) => m.name);
+  const replies = rows.filter((r) => r.kind === "bubble").length - 1;
+  return (
+    <aside
+      aria-label="Thread"
+      className="absolute inset-y-0 right-0 z-20 flex w-full max-w-[420px] min-w-0 flex-col border-l border-border bg-background shadow-xl min-[1200px]:static min-[1200px]:w-[380px] min-[1200px]:max-w-none min-[1200px]:shrink-0 min-[1200px]:shadow-none"
+    >
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+        <MessagesSquareIcon className="size-4 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13.5px] font-semibold text-foreground">Thread</div>
+          <div className="truncate text-[11.5px] text-muted-foreground">
+            #{channel.name} · {replies <= 0 ? "No replies yet" : `${replies} ${replies === 1 ? "reply" : "replies"}`}
+          </div>
+        </div>
+        <button type="button" aria-label="Close thread" onClick={onClose} className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <XIcon className="size-4" />
+        </button>
+      </header>
+      <LineContext.Provider value={inThread}>
+        <div className="min-h-0 flex-1 overflow-y-auto pt-2 pb-3">
+          {rows.length === 0 ? (
+            <p className="p-6 text-center text-sm text-muted-foreground">This thread's first line is no longer here.</p>
+          ) : (
+            rows.map((row, index) =>
+              row.kind === "day" ? null : (
+                <React.Fragment key={row.key}>
+                  <RowView row={row} names={names} faceOf={(id) => members.find((m) => m.id === id)} folder={channel.folder ?? null} />
+                  {index === rows.findIndex((r) => r.kind === "bubble") && replies > 0 && (
+                    <div className="my-2 flex items-center gap-2 px-4 text-[11px] text-muted-foreground">
+                      <span className="h-px flex-1 bg-border" />
+                      {replies} {replies === 1 ? "reply" : "replies"}
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+                </React.Fragment>
+              ),
+            )
+          )}
+          {here && <TypingLine channel={channel} working={working} />}
+          {queued.map((text, index) => {
+            const mark = threadMark(text);
+            if (mark.root !== root) return null;
+            return <QueuedBubble key={`queued:${index}`} text={mark.text} onUnsend={() => useChannelStore.getState().unqueue(channel.chatId, index)} />;
+          })}
+          <div ref={bottom} />
+        </div>
+      </LineContext.Provider>
+      <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} thread={root} canStop={here} />
+    </aside>
+  );
+}
+
+/** A message waiting for the channel (FR-56): Queued · Unsend. */
+function QueuedBubble({ text, onUnsend }: { text: string; onUnsend(): void }) {
+  return (
+    <div className="mt-2 flex flex-col items-end gap-0.5 px-4 opacity-60">
+      <div className="max-w-[75%] rounded-[20px] rounded-br-[6px] bg-brand px-3.5 py-2 text-[14px] leading-[20px] whitespace-pre-wrap text-brand-foreground">
+        {text}
+      </div>
+      <button type="button" onClick={onUnsend} className="px-1 text-[11px] text-muted-foreground hover:text-foreground">
+        Queued · Unsend
+      </button>
+    </div>
+  );
+}
+
 export function ChannelView({ channel }: { channel: Channel }) {
   const members = useMembers(channel);
   const entries = useChannelStore((s) => s.entries[channel.chatId] ?? EMPTY);
@@ -607,6 +489,11 @@ export function ChannelView({ channel }: { channel: Channel }) {
   const [reply, setReply] = React.useState<ReplyTo | null>(null);
   const [forwarding, setForwarding] = React.useState<Forwarding | null>(null);
   const pins = useMatesPrefs((s) => s.pins[channel.chatId]);
+  // The open thread, by its parent's id (evo-mates-threads-board FR-1).
+  const [thread, setThread] = React.useState<string | null>(null);
+  React.useEffect(() => setThread(null), [channel.chatId]);
+  const busy = useEngineStore((s) => s.activeId === channel.chatId && s.transcript.busy);
+  const open = React.useMemo(() => (busy ? openJob(entries) : null), [busy, entries]);
   // Opening the channel reads its mentions of the person (FR-18).
   React.useEffect(() => {
     void matesApi.mentionsRead(channel.chatId).catch(() => undefined);
@@ -620,6 +507,7 @@ export function ChannelView({ channel }: { channel: Channel }) {
       pin: (key, text) => useMatesPrefs.getState().togglePin(channel.chatId, { key, excerpt: excerpt(text, 120) }),
       forward: (from, text) => setForwarding({ from, text, chat: channel.chatId }),
       nameOf: (id) => members.find((m) => m.id === id)?.name ?? id,
+      openThread: setThread,
     }),
     [reactions, pins, channel.id, channel.chatId, members],
   );
@@ -643,8 +531,9 @@ export function ChannelView({ channel }: { channel: Channel }) {
 
   if (!shown) return null;
   return (
+    <div className="relative flex h-full min-h-0">
     <LineContext.Provider value={actions}>
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <PinsBar chat={channel.chatId} />
       <ForwardDialog item={forwarding} onClose={() => setForwarding(null)} />
       <div className="relative min-h-0 flex-1">
@@ -687,22 +576,14 @@ export function ChannelView({ channel }: { channel: Channel }) {
             </section>
           ))
         )}
-        {/* Who is typing (evo-mates-messaging FR-1); none while a mate waits on the person. */}
-        <TypingLine channel={channel} working={waiting.length ? [] : working} />
-        {queued.map((text, index) => (
-          <div key={`queued:${index}`} className="mt-2 flex flex-col items-end gap-0.5 px-4 opacity-60">
-            <div className="max-w-[75%] rounded-[20px] rounded-br-[6px] bg-brand px-3.5 py-2 text-[14px] leading-[20px] whitespace-pre-wrap text-brand-foreground">
-              {text}
-            </div>
-            <button
-              type="button"
-              onClick={() => useChannelStore.getState().unqueue(channel.chatId, index)}
-              className="px-1 text-[11px] text-muted-foreground hover:text-foreground"
-            >
-              Queued · Unsend
-            </button>
-          </div>
-        ))}
+        {/* Who is typing (evo-mates-messaging FR-1); none while a mate waits on the person.
+            A thread's job types in its panel (evo-mates-threads-board FR-1). */}
+        <TypingLine channel={channel} working={waiting.length || open?.thread ? [] : working} />
+        {queued.map((text, index) =>
+          threadMark(text).root ? null : (
+            <QueuedBubble key={`queued:${index}`} text={text} onUnsend={() => useChannelStore.getState().unqueue(channel.chatId, index)} />
+          ),
+        )}
         {waiting.map((mate) => (
           <div key={mate.id} className="flex justify-center px-6 py-1.5">
             <span className="flex items-center gap-2 rounded-full bg-amber-500/10 py-1 pr-1 pl-2 text-[12px] text-amber-700 dark:text-amber-300">
@@ -727,5 +608,18 @@ export function ChannelView({ channel }: { channel: Channel }) {
       <Composer channel={channel} members={members} reply={reply} onReplyDone={() => setReply(null)} />
     </div>
     </LineContext.Provider>
+    {thread && (
+      <ThreadPanel
+        channel={channel}
+        members={members}
+        root={thread}
+        entries={entries}
+        actions={actions}
+        working={waiting.length ? [] : working}
+        open={open}
+        onClose={() => setThread(null)}
+      />
+    )}
+    </div>
   );
 }

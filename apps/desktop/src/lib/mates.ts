@@ -270,8 +270,10 @@ export type ChannelEntry =
       steers?: string;
       /** The line a mate's line answers (evo-mates-messaging FR-5). */
       quote?: string | null;
+      /** The thread it is in: its parent line's id (evo-mates-threads-board FR-3). */
+      thread?: string | null;
     }
-  | { kind: "route"; message: string; picked: string[]; line: string; at: number }
+  | { kind: "route"; message: string; picked: string[]; line: string; at: number; thread?: string | null }
   | {
       kind: "handoff";
       message: string;
@@ -284,10 +286,11 @@ export type ChannelEntry =
       /** Files given with it (FR-6). */
       files?: string[];
       at: number;
+      thread?: string | null;
     }
-  | { kind: "notice"; notice: string; text: string; at: number; author?: string }
+  | { kind: "notice"; notice: string; text: string; at: number; author?: string; thread?: string | null }
   /** A job ended (learning-layers FR-19); not shown. */
-  | { kind: "job"; id: string; message: string; status: string; handoffs: number; at: number }
+  | { kind: "job"; id: string; message: string; status: string; handoffs: number; at: number; thread?: string | null }
   /** A retro's card (learning-layers FR-21). */
   | ({ kind: "retro"; id: string; at: number } & RetroCard);
 

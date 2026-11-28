@@ -168,6 +168,14 @@
     { kind: "handoff", message: "p1", handoff: "tells", from: "mo", fromName: "Mo", to: "lin", toName: "Lin", text: "The new dark screenshot for the notes", files: [`${HOME}\\.evo\\agent\\mates\\mo\\hero-dark.png`], at: ago(7) },
     { kind: "message", id: "l1", author: "lin", name: "Lin", text: "Great, I will use those 14 entries for the highlights.", quote: "k1", at: ago(5) },
     { kind: "message", id: "k2", author: "kai", name: "Kai", text: "@you can you confirm the two beta links before Friday? The release docs are at https://example.com/docs/release", at: ago(3) },
+    // A thread under Kai's build line (evo-mates-threads-board FR-1 – FR-6).
+    { kind: "job", id: "j1", message: "p1", status: "done", handoffs: 2, at: ago(3) },
+    { kind: "message", id: "t1", author: "person", text: "Can you add the arm64 build for Linux too?", thread: "k1", at: ago(8) },
+    { kind: "route", message: "t1", picked: ["kai"], line: "Kai, in this thread", thread: "k1", at: ago(8) },
+    { kind: "message", id: "t2", author: "kai", name: "Kai", text: "Added `linux-arm64` to the matrix. It builds in 6 min; the artifact is in the release draft.", thread: "k1", replyTo: "t1", at: ago(6) },
+    { kind: "handoff", message: "t1", handoff: "asks", from: "kai", fromName: "Kai", to: "mo", toName: "Mo", text: "@Mo can you add arm64 to the download page screenshot?", thread: "k1", at: ago(6) },
+    { kind: "message", id: "t3", author: "mo", name: "Mo", text: "Yes, I will retake it once the page lists arm64.", thread: "k1", at: ago(4) },
+    { kind: "job", id: "j2", message: "t1", status: "done", handoffs: 1, thread: "k1", at: ago(4) },
   ];
   h.channel_reactions = ({ channel }) =>
     channel === "launch"

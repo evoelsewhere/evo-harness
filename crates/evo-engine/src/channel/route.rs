@@ -30,6 +30,8 @@ pub enum Reason {
     NoLead,
     /// The message answers these members' questions (FR-72).
     Answer,
+    /// The thread's mates (evo-mates-threads-board FR-4).
+    Thread,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -311,6 +313,7 @@ pub fn line(route: &Route, channel: &ChannelRole) -> String {
         Reason::NeedsMention => "Mention a mate with @ to get an answer in this channel".into(),
         Reason::NoLead => "This channel has no lead: mention a mate with @".into(),
         Reason::Answer => format!("{names}, who asked you"),
+        Reason::Thread => format!("{names}, in this thread"),
     }
 }
 

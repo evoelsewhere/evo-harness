@@ -155,10 +155,19 @@ struct Line {
     by: String,
     author: String,
     text: String,
+    /// The thread it is in: its parent line's id (evo-mates-threads-board
+    /// FR-3); `None` in the channel.
+    thread: Option<String>,
 }
 
 #[derive(Default)]
 struct State {
+    /// The open message's thread, when it is in one (FR-5, FR-6).
+    thread: Option<String>,
+    /// Per seat: the thread of its last delivery, for a late report (FR-6).
+    seat_thread: HashMap<String, Option<String>>,
+    /// The lines were rebuilt from the channel's entries (FR-7).
+    restored: bool,
     /// mate id → seat chat id.
     seats: HashMap<String, String>,
     /// How the open job is going, for its `job` entry (learning-layers FR-19).
@@ -276,6 +285,70 @@ pub fn reply_mark(text: &str) -> (Option<String>, String) {
     (Some(id), after.to_string())
 }
 
+/// What a message's thread mark says (evo-mates-threads-board FR-1, FR-22):
+/// the line it replies under, and whether it goes to the channel too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadMark {
+    pub root: String,
+    pub also: bool,
+}
+
+/// The thread mark at a message's start (`<evo-mates-thread root="…"/>`,
+/// written by the window's thread box), and the message without it.
+pub fn thread_mark(text: &str) -> (Option<ThreadMark>, String) {
+    let trimmed = text.trim_start();
+    if !trimmed
+        .to_ascii_lowercase()
+        .starts_with("<evo-mates-thread")
+    {
+        return (None, text.to_string());
+    }
+    let Some(end) = trimmed.find('>') else {
+        return (None, text.to_string());
+    };
+    let head = &trimmed[..end];
+    let attr = |name: &str| {
+        head.split(&format!("{name}=\""))
+            .nth(1)
+            .and_then(|v| v.split('"').next())
+            .map(str::to_string)
+    };
+    let Some(root) = attr("root").filter(|r| !r.trim().is_empty()) else {
+        return (None, text.to_string());
+    };
+    let mut rest = &trimmed[end + 1..];
+    if let Some(after) = rest.trim_start().strip_prefix("</evo-mates-thread>") {
+        rest = after;
+    }
+    let also = attr("also").as_deref() == Some("channel");
+    (
+        Some(ThreadMark {
+            root: root.trim().to_string(),
+            also,
+        }),
+        rest.trim_start_matches(['\r', '\n']).to_string(),
+    )
+}
+
+/// The thread a delivery is for: its parent line (FR-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadFrame {
+    pub root: String,
+    pub parent_author: String,
+    pub parent_text: String,
+}
+
+/// The thread block of a delivery: the thread's id and its parent line,
+/// marked as information (FR-4: the parent never routes; NFR-2).
+fn thread_block(frame: &ThreadFrame) -> String {
+    format!(
+        "<thread root=\"{}\">\n<parent author=\"{}\" instruction=\"false\">\n{}\n</parent>\n</thread>\n",
+        frame.root,
+        frame.parent_author.replace('"', "'"),
+        frame.parent_text.trim()
+    )
+}
+
 /// The person's message without the quote and forward blocks the window puts
 /// at its start (`<evo-mates-reply>`, `<evo-mates-forward>`): what routes.
 pub fn routable(text: &str) -> String {
@@ -374,6 +447,19 @@ pub fn delivery(
     recent: &[(String, String)],
     text: &str,
 ) -> String {
+    delivery_in(role, me, message_id, recent, text, None)
+}
+
+/// [`delivery`] for a message in a thread: the thread's parent and lines
+/// instead of the channel's (evo-mates-threads-board FR-5).
+pub fn delivery_in(
+    role: &ChannelRole,
+    me: &ChannelMember,
+    message_id: &str,
+    recent: &[(String, String)],
+    text: &str,
+    thread: Option<&ThreadFrame>,
+) -> String {
     let others: Vec<String> = role
         .members
         .iter()
@@ -397,6 +483,9 @@ pub fn delivery(
             role.instructions.trim()
         ));
     }
+    if let Some(frame) = thread {
+        out.push_str(&thread_block(frame));
+    }
     if !recent.is_empty() {
         out.push_str("<recent>\n");
         for (author, line) in recent {
@@ -419,9 +508,14 @@ pub fn delivery(
         words.trim()
     ));
     out.push_str(&format!(
-        "You are in the channel \"{}\" with the person{}. Your reply is posted in the channel as yours.",
+        "You are in the channel \"{}\" with the person{}. {}",
         role.name,
-        if others.is_empty() { String::new() } else { format!(" and {}", others.join(", ")) }
+        if others.is_empty() { String::new() } else { format!(" and {}", others.join(", ")) },
+        if thread.is_some() {
+            "This message is in a thread: the recent lines are the thread's, under its parent line. Your reply is posted in the thread as yours."
+        } else {
+            "Your reply is posted in the channel as yours."
+        }
     ));
     if !others.is_empty() {
         out.push_str(
@@ -448,6 +542,21 @@ pub fn mate_delivery(
     recent: &[(String, String)],
     text: &str,
 ) -> String {
+    mate_delivery_in(role, me, from, kind, message_id, recent, text, None)
+}
+
+/// [`mate_delivery`] in a thread (evo-mates-threads-board FR-5, FR-6).
+#[allow(clippy::too_many_arguments)]
+pub fn mate_delivery_in(
+    role: &ChannelRole,
+    me: &ChannelMember,
+    from: &str,
+    kind: &str,
+    message_id: &str,
+    recent: &[(String, String)],
+    text: &str,
+    thread: Option<&ThreadFrame>,
+) -> String {
     let mut out = format!(
         "<channel name=\"{}\" message=\"{message_id}\">\n",
         role.name.replace('"', "'")
@@ -457,6 +566,9 @@ pub fn mate_delivery(
             "<instructions>\n{}\n</instructions>\n",
             role.instructions.trim()
         ));
+    }
+    if let Some(frame) = thread {
+        out.push_str(&thread_block(frame));
     }
     if !recent.is_empty() {
         out.push_str("<recent>\n");
@@ -470,15 +582,26 @@ pub fn mate_delivery(
         from.replace('"', "'"),
         text.trim()
     ));
+    let place = if thread.is_some() {
+        "a thread of the channel"
+    } else {
+        "the channel"
+    };
     let what = if kind == "tells" {
         format!(
-            "{from} answered what you asked, {}, in the channel \"{}\". Go on with the person's request",
+            "{from} answered what you asked, {}, in {place} \"{}\". Go on with the person's request",
             me.name, role.name
         )
     } else {
         format!(
-            "{from} mentioned you, {}, in the channel \"{}\". Reply in the channel",
-            me.name, role.name
+            "{from} mentioned you, {}, in {place} \"{}\". Reply in the {}",
+            me.name,
+            role.name,
+            if thread.is_some() {
+                "thread"
+            } else {
+                "channel"
+            }
         )
     };
     out.push_str(&format!(
@@ -544,7 +667,15 @@ impl Coordinator {
     }
 
     /// Write `entry` into the channel: kept in the session, shown live.
-    async fn post(&self, harness: &evo_harness::agent_harness::AgentHarness, entry: Value) {
+    async fn post(&self, harness: &evo_harness::agent_harness::AgentHarness, mut entry: Value) {
+        // Whatever the open message posts belongs to its thread (FR-3, FR-6).
+        if entry.get("thread").is_none() {
+            if let (Some(thread), Some(map)) =
+                (lock(&self.state).thread.clone(), entry.as_object_mut())
+            {
+                map.insert("thread".into(), Value::String(thread));
+            }
+        }
         let _ = harness
             .append_custom_entry("channel", Some(entry.clone()))
             .await;
@@ -568,28 +699,47 @@ impl Coordinator {
         text: String,
         cancel: CancellationToken,
     ) -> Result<Value, String> {
+        self.restore(harness).await;
+        // A message from a thread's box names its thread (FR-1).
+        let (mark, text) = thread_mark(&text);
+        let thread = mark.as_ref().and_then(|mark| self.thread_of(&mark.root));
+        if mark.is_some() && thread.is_none() {
+            self.post(harness, json!({ "kind": "notice", "notice": "thread_gone", "text": "That thread is gone: the message went to the channel.", "at": now_ms() })).await;
+        }
         let message = self.next_id("m");
+        lock(&self.state).thread = thread.clone();
         self.post(harness, json!({ "kind": "message", "id": message, "author": "person", "text": text, "at": now_ms() })).await;
         lock(&self.state).lines.push(Line {
             id: message.clone(),
             by: "person".into(),
             author: "The person".into(),
             text: text.clone(),
+            thread: thread.clone(),
         });
 
         // An answer to mates' questions goes to them (FR-72); else the
         // router (`auto`) is asked only when no mention decides (FR-53).
-        let asking = std::mem::take(&mut lock(&self.state).asking);
+        // In a thread, its mates answer when nobody is mentioned
+        // (evo-mates-threads-board FR-4).
+        let asking = if thread.is_none() {
+            std::mem::take(&mut lock(&self.state).asking)
+        } else {
+            Vec::new()
+        };
         // A quote or a forward inside the message is not the person's words:
         // its mentions never route (evo-mates-messaging FR-5, FR-10, NFR-5).
         let words = routable(&text);
-        let answers = route::answer_to(&words, &self.role, &asking);
+        let in_thread = thread
+            .as_deref()
+            .and_then(|root| thread_route(&words, &self.role, &self.thread_mates(root)));
+        let answers = in_thread.or_else(|| route::answer_to(&words, &self.role, &asking));
         let (answer, why) = if answers.is_none() && route::needs_router(&words, &self.role) {
             let recent: Vec<(String, String)> = {
                 let state = lock(&self.state);
                 let upto = state.lines.len().saturating_sub(1);
                 state.lines[upto.saturating_sub(RECENT_LINES)..upto]
                     .iter()
+                    .filter(|l| l.thread == thread)
                     .map(|l| (l.author.clone(), l.text.clone()))
                     .collect()
             };
@@ -612,6 +762,7 @@ impl Coordinator {
             let done =
                 json!({ "outcome": "completed", "finalText": route::line(&route, &self.role) });
             self.post_job(harness, &message, &done).await;
+            lock(&self.state).thread = None;
             return Ok(done);
         }
 
@@ -634,6 +785,7 @@ impl Coordinator {
         if let Ok(done) = &result {
             self.post_job(harness, &message, done).await;
         }
+        lock(&self.state).thread = None;
         result
     }
 
@@ -677,9 +829,10 @@ impl Coordinator {
             let Some(member) = self.member(mate).cloned() else {
                 continue;
             };
-            let recent = self.recent_for(mate);
+            let (recent, frame) = self.context_for(mate);
             let (notes, told) = self.reaction_notes(mate).await;
-            let body = delivery(&self.role, &member, message, &recent, text) + &notes;
+            let body =
+                delivery_in(&self.role, &member, message, &recent, text, frame.as_ref()) + &notes;
             if let Some(seat) = self.deliver(harness, &member, body, &cancel).await {
                 waiting.insert(seat);
                 self.reactions_told(told).await;
@@ -761,9 +914,9 @@ impl Coordinator {
                         if verdict == HandOff::MessageLimit {
                             return Ok(self.at_limit(harness, handoffs, &cancel).await);
                         }
-                        let recent = self.recent_for(&to);
+                        let (recent, frame) = self.context_for(&to);
                         let (notes, told) = self.reaction_notes(&to).await;
-                        let body = mate_delivery(
+                        let body = mate_delivery_in(
                             &self.role,
                             &member,
                             &self.name_of(&author),
@@ -771,6 +924,7 @@ impl Coordinator {
                             message,
                             &recent,
                             &text,
+                            frame.as_ref(),
                         ) + &notes;
                         if let Some(seat) = self.deliver(harness, &member, body, &cancel).await {
                             waiting.insert(seat);
@@ -880,6 +1034,14 @@ impl Coordinator {
         harness: &evo_harness::agent_harness::AgentHarness,
         text: String,
     ) -> Result<Value, String> {
+        self.restore(harness).await;
+        // A steer stays in its place: the open message's thread, or the
+        // channel (evo-mates-threads-board FR-6).
+        let (mark, text) = thread_mark(&text);
+        let thread = mark.as_ref().and_then(|mark| self.thread_of(&mark.root));
+        if thread != lock(&self.state).thread {
+            return Err(NOT_A_STEER.into());
+        }
         let (working, message) = {
             let state = lock(&self.state);
             let working: Vec<String> = state
@@ -910,10 +1072,18 @@ impl Coordinator {
             by: "person".into(),
             author: "The person".into(),
             text: text.clone(),
+            thread: thread.clone(),
         });
-        let recent = self.recent_for(&mate);
+        let (recent, frame) = self.context_for(&mate);
         let (notes, told) = self.reaction_notes(&mate).await;
-        let body = delivery(&self.role, &member, &message, &recent, &text) + &notes;
+        let body = delivery_in(
+            &self.role,
+            &member,
+            &message,
+            &recent,
+            &text,
+            frame.as_ref(),
+        ) + &notes;
         let (me, harness) = (self.clone(), harness.clone());
         tokio::spawn(async move {
             if me
@@ -938,11 +1108,102 @@ impl Coordinator {
             .copied()
             .unwrap_or(0);
         let upto = state.lines.len().saturating_sub(1);
-        let start = from.min(upto).max(upto.saturating_sub(RECENT_LINES));
-        state.lines[start..upto]
+        let start = from.min(upto);
+        // Thread lines stay in their thread (evo-mates-threads-board FR-3).
+        let lines: Vec<&Line> = state.lines[start..upto]
+            .iter()
+            .filter(|l| l.thread.is_none())
+            .collect();
+        lines[lines.len().saturating_sub(RECENT_LINES)..]
             .iter()
             .map(|l| (format!("[{}] {}", l.id, l.author), l.text.clone()))
             .collect()
+    }
+
+    /// What a delivery to `mate` carries for the open message: the
+    /// channel's lines it has not seen, or, in a thread, the thread's lines
+    /// under its parent (FR-5).
+    fn context_for(&self, mate: &str) -> (Vec<(String, String)>, Option<ThreadFrame>) {
+        let thread = lock(&self.state).thread.clone();
+        match thread {
+            None => (self.recent_for(mate), None),
+            Some(root) => {
+                let state = lock(&self.state);
+                let frame = state
+                    .lines
+                    .iter()
+                    .find(|l| l.id == root)
+                    .map(|parent| ThreadFrame {
+                        root: root.clone(),
+                        parent_author: parent.author.clone(),
+                        parent_text: parent.text.clone(),
+                    });
+                // The newest line is the message itself.
+                let upto = state.lines.len().saturating_sub(1);
+                let lines: Vec<&Line> = state.lines[..upto]
+                    .iter()
+                    .filter(|l| l.thread.as_deref() == Some(root.as_str()))
+                    .collect();
+                let recent = lines[lines.len().saturating_sub(RECENT_LINES)..]
+                    .iter()
+                    .map(|l| (format!("[{}] {}", l.id, l.author), l.text.clone()))
+                    .collect();
+                (recent, frame)
+            }
+        }
+    }
+
+    /// The thread a reply under `line` goes to: the line's own thread when
+    /// it is in one (threads are one level deep, D3), else the line itself;
+    /// `None` when the channel has no such line.
+    fn thread_of(&self, line: &str) -> Option<String> {
+        let state = lock(&self.state);
+        let found = state.lines.iter().find(|l| l.id == line)?;
+        Some(found.thread.clone().unwrap_or_else(|| found.id.clone()))
+    }
+
+    /// The thread's mates (FR-4): the parent's author, mates who wrote in
+    /// it and mates mentioned in it, in member order.
+    fn thread_mates(&self, root: &str) -> Vec<String> {
+        let state = lock(&self.state);
+        thread_mates(&state.lines, root, &self.role.members)
+    }
+
+    /// Rebuild the lines from the channel's entries once, after the engine
+    /// started again (evo-mates-threads-board FR-7). Seats count as having
+    /// seen them: their own chats already hold what they were given.
+    pub(crate) async fn restore(&self, harness: &evo_harness::agent_harness::AgentHarness) {
+        if std::mem::replace(&mut lock(&self.state).restored, true) {
+            return;
+        }
+        use evo_harness::session::types::{Entry, EntryOrder, EntryQuery};
+        let Ok(entries) = harness
+            .find_entries(&EntryQuery {
+                custom_type: Some("channel".into()),
+                order: Some(EntryOrder::OldestFirst),
+                ..Default::default()
+            })
+            .await
+        else {
+            return;
+        };
+        let data: Vec<Value> = entries
+            .into_iter()
+            .filter_map(|entry| match entry {
+                Entry::Custom(custom) if custom.custom_type == "channel" => custom.data,
+                _ => None,
+            })
+            .collect();
+        let mut state = lock(&self.state);
+        let restored = lines_from_entries(&data, |id| self.name_of(id));
+        let mut lines = restored;
+        lines.append(&mut state.lines);
+        state.lines = lines;
+        let end = state.lines.len();
+        let seats: Vec<String> = state.seats.values().cloned().collect();
+        for seat in seats {
+            state.seen.insert(seat, end);
+        }
     }
 
     /// The line `id`'s author (`person` or a mate's id), while the channel
@@ -1041,6 +1302,8 @@ impl Coordinator {
                     state.seats.insert(member.mate_id.clone(), seat.to_string());
                     let seen = state.lines.len();
                     state.seen.insert(seat.to_string(), seen);
+                    let thread = state.thread.clone();
+                    state.seat_thread.insert(seat.to_string(), thread);
                     return Some(seat.to_string());
                 }
                 "no seat".to_string()
@@ -1124,15 +1387,24 @@ impl Coordinator {
         let (quote, text) = reply_mark(text);
         let quote = quote.filter(|id| lock(&self.state).lines.iter().any(|l| l.id == *id));
         let id = self.next_id("r");
+        // A late report goes where the seat was last given work (FR-6).
+        let thread = {
+            let state = lock(&self.state);
+            state
+                .thread
+                .clone()
+                .or_else(|| state.seat_thread.get(seat).cloned().flatten())
+        };
         lock(&self.state).lines.push(Line {
             id: id.clone(),
             by: mate.clone(),
             author: name.clone(),
             text: text.to_string(),
+            thread: thread.clone(),
         });
         self.post(
             harness,
-            json!({ "kind": "message", "id": id, "author": mate, "name": name, "text": text, "status": status, "replyTo": reply_to, "quote": quote, "at": now_ms() }),
+            json!({ "kind": "message", "id": id, "author": mate, "name": name, "text": text, "status": status, "replyTo": reply_to, "quote": quote, "thread": thread, "at": now_ms() }),
         )
         .await;
     }
@@ -1198,6 +1470,7 @@ impl Coordinator {
         envelope: &Envelope,
     ) -> Option<Value> {
         let body = envelope.as_mail().ok()?;
+        self.restore(harness).await;
         let kind = body.kind?;
         if !matches!(kind, MailKind::ChannelReport | MailKind::ChannelHandoff) {
             return None;
@@ -1240,6 +1513,68 @@ impl Coordinator {
         }
         Some(json!({ "taken": true }))
     }
+}
+
+/// Who a thread message goes to (evo-mates-threads-board FR-4): a mention
+/// decides as in the channel; with none, the thread's mates. `None` when
+/// neither picks anyone: the channel's rule decides.
+pub fn thread_route(words: &str, role: &ChannelRole, mates: &[String]) -> Option<Route> {
+    let (named, everyone) = route::mentions(words, &role.members);
+    if everyone || !named.is_empty() {
+        return Some(route::route(words, role, None, None));
+    }
+    (!mates.is_empty()).then(|| Route {
+        picked: mates.to_vec(),
+        reason: route::Reason::Thread,
+    })
+}
+
+/// The mates of the thread under `root`, in member order (FR-4).
+fn thread_mates(lines: &[Line], root: &str, members: &[ChannelMember]) -> Vec<String> {
+    let mut found: HashSet<String> = HashSet::new();
+    for line in lines {
+        let in_thread = line.thread.as_deref() == Some(root);
+        if line.id == root || in_thread {
+            if line.by != "person" {
+                found.insert(line.by.clone());
+            }
+            // The person's mentions in the thread make those mates its own.
+            if line.by == "person" && in_thread {
+                found.extend(route::mentions(&routable(&line.text), members).0);
+            }
+        }
+    }
+    members
+        .iter()
+        .filter(|m| found.contains(&m.mate_id))
+        .map(|m| m.mate_id.clone())
+        .collect()
+}
+
+/// The coordinator's lines from the channel's `message` entries (FR-7).
+fn lines_from_entries(entries: &[Value], name_of: impl Fn(&str) -> String) -> Vec<Line> {
+    let field =
+        |entry: &Value, key: &str| entry.get(key).and_then(Value::as_str).map(str::to_string);
+    entries
+        .iter()
+        .filter(|e| e.get("kind").and_then(Value::as_str) == Some("message"))
+        .filter_map(|e| {
+            let id = field(e, "id")?;
+            let by = field(e, "author")?;
+            let author = if by == "person" {
+                "The person".to_string()
+            } else {
+                field(e, "name").unwrap_or_else(|| name_of(&by))
+            };
+            Some(Line {
+                id,
+                author,
+                text: field(e, "text").unwrap_or_default(),
+                thread: field(e, "thread"),
+                by,
+            })
+        })
+        .collect()
 }
 
 /// The notice when `from` (a member) assigns work to `to`, the lead, which
@@ -1455,6 +1790,120 @@ mod tests {
             vec!["C:/mates/mo/shot.png".to_string(), "notes.md".to_string()]
         );
         assert_eq!(split_attached("plain"), ("plain".to_string(), vec![]));
+    }
+
+    fn line(id: &str, by: &str, text: &str, thread: Option<&str>) -> Line {
+        Line {
+            id: id.into(),
+            by: by.into(),
+            author: if by == "person" {
+                "The person".into()
+            } else {
+                by.to_uppercase()
+            },
+            text: text.into(),
+            thread: thread.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_thread_mark_names_the_parent_and_leaves_the_message() {
+        let (mark, rest) = thread_mark("<evo-mates-thread root=\"r-1\"/>\nadd arm64 too");
+        assert_eq!(
+            mark,
+            Some(ThreadMark {
+                root: "r-1".into(),
+                also: false
+            })
+        );
+        assert_eq!(rest, "add arm64 too");
+        let (mark, _) = thread_mark("<evo-mates-thread root=\"r-1\" also=\"channel\"/>hi");
+        assert!(mark.unwrap().also);
+        assert_eq!(thread_mark("plain").0, None);
+        assert_eq!(thread_mark("<evo-mates-thread root=\"\"/>x").0, None);
+    }
+
+    #[test]
+    fn a_thread_wakes_its_mates_unless_a_mention_decides() {
+        let role = role();
+        let lines = vec![
+            line("m-1", "person", "plan it", None),
+            line("r-1", "p", "Plan ready", None),
+            line("m-2", "person", "@Writer polish it", Some("r-1")),
+            line("r-9", "w", "unrelated", None),
+        ];
+        // The parent's author and the mate the person mentioned in it.
+        assert_eq!(thread_mates(&lines, "r-1", &role.members), vec!["p", "w"]);
+        // A thread on the person's own line with nobody in it yet: the channel decides.
+        assert!(thread_mates(&lines, "m-1", &role.members).is_empty());
+        let picked = thread_route("thanks", &role, &["p".into()]).unwrap();
+        assert_eq!(
+            (picked.picked, picked.reason),
+            (vec!["p".to_string()], route::Reason::Thread)
+        );
+        let named = thread_route("@Writer check", &role, &["p".into()]).unwrap();
+        assert_eq!(named.picked, vec!["w".to_string()]);
+        assert_eq!(thread_route("thanks", &role, &[]), None);
+        // A quoted parent never routes: only the person's words count.
+        assert_eq!(
+            thread_route(
+                &routable("<evo-mates-reply from=\"Lin\">@Writer?</evo-mates-reply>\nok"),
+                &role,
+                &[]
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_thread_delivery_carries_its_parent_and_lines_only() {
+        let role = role();
+        let frame = ThreadFrame {
+            root: "r-1".into(),
+            parent_author: "Planner".into(),
+            parent_text: "Plan ready".into(),
+        };
+        let recent = vec![("[m-2] The person".to_string(), "polish it".to_string())];
+        let text = delivery_in(
+            &role,
+            &role.members[1],
+            "m-3",
+            &recent,
+            "and the intro",
+            Some(&frame),
+        );
+        assert!(text.contains("<thread root=\"r-1\">\n<parent author=\"Planner\" instruction=\"false\">\nPlan ready\n</parent>\n</thread>\n<recent>\n[m-2] The person: polish it\n</recent>"), "{text}");
+        assert!(text.contains("posted in the thread"), "{text}");
+        let mate = mate_delivery_in(
+            &role,
+            &role.members[0],
+            "Writer",
+            "asks",
+            "m-3",
+            &[],
+            "Which intro?",
+            Some(&frame),
+        );
+        assert!(mate.contains("<parent author=\"Planner\""), "{mate}");
+        assert!(mate.contains("Reply in the thread"), "{mate}");
+    }
+
+    #[test]
+    fn lines_come_back_from_the_entries() {
+        let entries = vec![
+            json!({ "kind": "message", "id": "m-1", "author": "person", "text": "hi", "at": 1 }),
+            json!({ "kind": "route", "message": "m-1", "picked": ["p"], "line": "", "at": 1 }),
+            json!({ "kind": "message", "id": "r-1", "author": "p", "name": "Planner", "text": "hello", "at": 2 }),
+            json!({ "kind": "message", "id": "m-2", "author": "person", "text": "more", "thread": "r-1", "at": 3 }),
+        ];
+        let lines = lines_from_entries(&entries, |id| id.to_string());
+        assert_eq!(lines.len(), 3);
+        assert_eq!(
+            (lines[1].author.as_str(), lines[1].by.as_str()),
+            ("Planner", "p")
+        );
+        assert_eq!(lines[2].thread.as_deref(), Some("r-1"));
+        assert_eq!(lines[0].author, "The person");
     }
 
     #[test]

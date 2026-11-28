@@ -19,6 +19,7 @@ Example::
 from __future__ import annotations
 
 import argparse
+import re
 import pathlib
 
 from playwright.sync_api import Page, sync_playwright
@@ -83,6 +84,12 @@ def view_waiting(page: Page) -> None:
 def view_channel(page: Page) -> None:
     page.get_by_role("button", name="#Launch room", exact=False).first.click()
     page.wait_for_timeout(1500)
+
+
+def view_thread(page: Page) -> None:
+    view_channel(page)
+    page.get_by_role("button", name=re.compile(r"\d+ repl")).first.click()
+    page.wait_for_timeout(900)
 
 
 def view_members(page: Page) -> None:
@@ -162,6 +169,7 @@ VIEWS = {
     "waiting": view_waiting,
     "channel": view_channel,
     "members": view_members,
+    "thread": view_thread,
     "switcher": view_switcher,
     "shortcuts": view_shortcuts,
     "find": view_find,

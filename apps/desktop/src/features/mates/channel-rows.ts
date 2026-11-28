@@ -49,6 +49,8 @@ export type ChannelRow =
       seenBy?: string[];
       /** The line a mate's line answers, with its author and words (FR-5). */
       quote?: { id: string; name: string; text: string };
+      /** Its thread, when it has replies (evo-mates-threads-board FR-2). */
+      thread?: ThreadSummary;
     }
   /** Who answers; `picked` are the mates' ids, for their faces (evo-mates-ui-v2 FR-20). */
   | { kind: "route"; key: string; text: string; picked: string[] }
@@ -72,11 +74,54 @@ export function handoffLine(row: { fromName: string; toName: string; handoff: st
   return `${row.fromName} ${row.handoff} ${row.toName}${short ? `: ${short}` : ""}`;
 }
 
-export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => string, now = Date.now()): ChannelRow[] {
+/** A thread's line under its parent: how many replies, who, when (FR-2). */
+export interface ThreadSummary {
+  count: number;
+  /** Authors (`person` or mate ids), the latest first. */
+  repliers: string[];
+  last: number;
+}
+
+/** Every thread of the channel by its parent's id (FR-2). */
+export function threadSummaries(entries: readonly ChannelEntry[]): Map<string, ThreadSummary> {
+  const out = new Map<string, ThreadSummary>();
+  for (const entry of entries) {
+    if (entry.kind !== "message" || !entry.thread) continue;
+    const prev = out.get(entry.thread);
+    const repliers = [entry.author, ...(prev?.repliers ?? []).filter((a) => a !== entry.author)];
+    out.set(entry.thread, { count: (prev?.count ?? 0) + 1, repliers, last: Math.max(prev?.last ?? 0, entry.at) });
+  }
+  return out;
+}
+
+/**
+ * The message the channel still works on, and its thread (`null`: the
+ * channel), or `null` when none runs: a route without its job (FR-1, D1).
+ */
+export function openJob(entries: readonly ChannelEntry[]): { message: string; thread: string | null } | null {
+  const open = new Map<string, string | null>();
+  for (const entry of entries) {
+    if (entry.kind === "route") open.set(entry.message, entry.thread ?? null);
+    else if (entry.kind === "job") open.delete(entry.message);
+  }
+  const last = [...open].at(-1);
+  return last ? { message: last[0], thread: last[1] } : null;
+}
+
+/**
+ * The rows of the channel's feed, or with `thread`, of that thread: its
+ * parent line and its own lines (evo-mates-threads-board FR-1, FR-3).
+ */
+export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => string, now = Date.now(), thread?: string): ChannelRow[] {
   const rows: ChannelRow[] = [];
+  const summaries = thread ? null : threadSummaries(entries);
+  const all = entries;
+  entries = thread
+    ? entries.filter((e) => ("thread" in e && e.thread === thread) || (e.kind === "message" && e.id === thread))
+    : entries.filter((e) => !("thread" in e && e.thread));
   // Each line by its id, for the quotes that point at it (FR-5).
   const lines = new Map<string, { name: string; text: string }>();
-  for (const entry of entries) {
+  for (const entry of all) {
     if (entry.kind === "message") lines.set(entry.id, { name: entry.author === "person" ? "You" : entry.name || nameOf(entry.author), text: entry.text });
   }
   let lastAt: number | null = null;
@@ -104,6 +149,7 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
           failed: Boolean(entry.status && entry.status !== "done"),
           steers: entry.steers ? nameOf(entry.steers) : undefined,
           quote: entry.quote && lines.has(entry.quote) ? { id: entry.quote, ...lines.get(entry.quote)! } : undefined,
+          thread: summaries?.get(entry.id),
         });
         break;
       }
