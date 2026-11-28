@@ -281,6 +281,10 @@ pub enum Command {
         content: String,
         #[serde(default)]
         previous: Option<String>,
+        /// The topic's hash when the panel opened it; a topic changed since
+        /// is not overwritten (learning-layers FR-3).
+        #[serde(default)]
+        hash: Option<String>,
     },
     DeleteMemory {
         scope: String,

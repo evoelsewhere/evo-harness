@@ -375,6 +375,16 @@ pub fn chosen_model(args: &Args) -> Result<(&str, &str), String> {
     }
 }
 
+/// The chat's title, for the source of the entries indexing adds.
+fn chat_title(chat: &str) -> Option<String> {
+    let conn = crate::app_db::open().ok()?;
+    crate::app_db::chats::get_chat(&conn, chat)
+        .ok()
+        .flatten()
+        .map(|found| found.title)
+        .filter(|title| !title.trim().is_empty())
+}
+
 fn topic_lists(cwd: &Path) -> String {
     let list = |scope: Scope| {
         memory::dir(scope, cwd)
@@ -446,7 +456,13 @@ async fn run(args: &Args, chat: &str, cwd: &Path) -> Result<Value, (&'static str
                 eprintln!("[evo] index: a memory change was not recorded: {error}");
             }
         }),
-    );
+    )
+    .with_source(chat_title(chat).map(|title| {
+        format!(
+            "from chat {}",
+            serde_json::to_string(&title).unwrap_or_default()
+        )
+    }));
     let call_memory = |params: &Value| tool.call(params);
     let topics = || topic_lists(cwd);
     let record = |message: &AssistantMessage| usage_log::record(message, Source::Memory);

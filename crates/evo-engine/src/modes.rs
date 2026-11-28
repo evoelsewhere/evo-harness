@@ -1589,6 +1589,7 @@ where
             }
             "save_memory" | "delete_memory" | "set_memory_enabled" | "set_memory_settings" => {
                 let cwd = rpc_cwd(&rpc_providers);
+                let mut conflict: Option<serde_json::Value> = None;
                 let text = |key: &str| {
                     msg.get(key)
                         .and_then(serde_json::Value::as_str)
@@ -1596,9 +1597,12 @@ where
                         .to_string()
                 };
                 let done = match kind.as_str() {
+                    // A save is refused when the topic changed since the
+                    // panel opened it (learning-layers FR-3).
                     "save_memory" => {
                         crate::memory::Scope::parse(&text("scope")).and_then(|scope| {
                             let previous = text("previous");
+                            let hash = text("hash");
                             crate::memory::save(
                                 &cwd,
                                 scope,
@@ -1607,8 +1611,14 @@ where
                                 &text("kind"),
                                 &text("content"),
                                 (!previous.is_empty()).then_some(previous.as_str()),
+                                (!hash.is_empty()).then_some(hash.as_str()),
                             )
-                            .map(|_| ())
+                            .map(|saved| match saved {
+                                crate::memory::Saved::Done(_) => {}
+                                crate::memory::Saved::Conflict(current) => {
+                                    conflict = Some(current);
+                                }
+                            })
                         })
                     }
                     "delete_memory" => crate::memory::Scope::parse(&text("scope"))
@@ -1631,7 +1641,14 @@ where
                 match done {
                     Ok(()) => {
                         let _ = rpc_reload_resources(harness, &rpc_providers).await;
-                        crate::memory::describe(&cwd, rpc_chat_memory(&rpc_providers))
+                        crate::memory::describe(&cwd, rpc_chat_memory(&rpc_providers)).map(
+                            |mut described| {
+                                if let Some(current) = conflict {
+                                    described["conflict"] = serde_json::json!({ "current": current });
+                                }
+                                described
+                            },
+                        )
                     }
                     Err(error) => Err(error),
                 }

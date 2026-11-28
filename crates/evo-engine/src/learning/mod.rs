@@ -7,3 +7,6 @@
 
 pub mod entries;
 pub mod redact;
+
+#[cfg(test)]
+mod memory_tests;

@@ -564,6 +564,11 @@ fn record_saves(chat: &OfficeChat, paths: &[String]) {
 /// The chat this engine serves (one engine per chat), for agent shells.
 static CHAT_ID: OnceLock<String> = OnceLock::new();
 
+/// The chat this engine serves, once known.
+pub fn chat_id() -> Option<&'static str> {
+    CHAT_ID.get().map(String::as_str)
+}
+
 /// Record the chat id this engine serves; agent shells get it as `EVO_CHAT_ID`.
 pub fn set_chat_id(id: &str) {
     if !id.is_empty() {

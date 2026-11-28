@@ -28,6 +28,9 @@ use evo_harness::frontmatter::parse_frontmatter;
 use serde_json::{json, Value};
 
 pub const TYPES: &[&str] = &["user", "feedback", "project", "reference"];
+/// Entries the tidy-up moved out of topics; not a topic itself
+/// (learning-layers plan 3.4).
+pub const ARCHIVE: &str = "archive.md";
 /// Index lines put in the system prompt per scope.
 const MAX_INDEX_LINES: usize = 200;
 const MAX_CONTENT: usize = 20_000;
@@ -69,6 +72,9 @@ pub struct Memory {
     pub by: Option<String>,
     /// It holds a sensitive subject (saved because the person allowed it).
     pub sensitive: bool,
+    /// A hash of the whole file, so a save from the panel can tell the topic
+    /// changed since it was opened (learning-layers FR-3).
+    pub hash: String,
 }
 
 /// Who writes a topic, and whether what they write is a sensitive subject.
@@ -272,12 +278,28 @@ fn read(path: &Path) -> Option<Memory> {
                     .map_or(0, |d| d.as_millis() as u64)
             }),
         path: path.to_path_buf(),
+        hash: hash_text(&source),
         by: text("by"),
         sensitive: front
             .get("sensitive")
             .and_then(Value::as_bool)
             .unwrap_or(false),
     })
+}
+
+/// A short hash of a topic file's whole text (learning-layers FR-3).
+pub fn hash_text(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(
+        text.replace(
+            "
+
+", "
+",
+        )
+        .as_bytes(),
+    );
+    digest.iter().take(12).map(|b| format!("{b:02x}")).collect()
 }
 
 /// The memories in `dir`, newest first.
@@ -290,7 +312,8 @@ pub fn list_dir(dir: &Path) -> Vec<Memory> {
         .map(|e| e.path())
         .filter(|p| {
             p.extension().is_some_and(|e| e == "md")
-                && p.file_name().is_some_and(|n| n != "MEMORY.md")
+                && p.file_name()
+                    .is_some_and(|n| n != "MEMORY.md" && n != ARCHIVE)
         })
         .filter_map(|p| read(&p))
         .collect();
@@ -298,7 +321,7 @@ pub fn list_dir(dir: &Path) -> Vec<Memory> {
     out
 }
 
-fn write_index(dir: &Path) -> Result<(), String> {
+pub(crate) fn write_index(dir: &Path) -> Result<(), String> {
     let memories = list_dir(dir);
     let index = dir.join("MEMORY.md");
     if memories.is_empty() {
@@ -328,9 +351,12 @@ fn topic_file(
     by: Option<&str>,
     sensitive: bool,
 ) -> String {
+    // Secrets never reach disk (learning-layers FR-9).
+    let description = crate::learning::redact::redact(description);
+    let content = crate::learning::redact::redact(content);
     let mut front = format!(
         "---\nname: {name}\ndescription: {}\ntype: {kind}\nupdated: {}\n",
-        serde_json::to_string(description).unwrap_or_default(),
+        serde_json::to_string(&description).unwrap_or_default(),
         now_ms()
     );
     if let Some(by) = by.filter(|by| ["chat", "index", "person"].contains(by)) {
@@ -344,7 +370,7 @@ fn topic_file(
 
 /// Write `text` to `path` through a temporary file and a rename, so a reader
 /// (another chat's engine, the index run) never sees half a topic.
-fn write_through_rename(path: &Path, text: &str) -> Result<(), String> {
+pub(crate) fn write_through_rename(path: &Path, text: &str) -> Result<(), String> {
     let partial = path.with_extension(format!("md.{}.partial", std::process::id()));
     std::fs::write(&partial, text).map_err(|e| e.to_string())?;
     std::fs::rename(&partial, path).map_err(|e| {
@@ -653,6 +679,7 @@ pub(crate) fn entry(m: &Memory, scope: Scope) -> Value {
         "scope": scope.label(),
         "by": m.by,
         "sensitive": m.sensitive,
+        "hash": m.hash,
     })
 }
 
@@ -796,25 +823,70 @@ pub fn journal_row(
         (Some(_), None) => "deleted",
         _ => "updated",
     };
+    record_row(new_row(
+        "memory", owner, name, action, by, chat_id, before, after,
+    ))
+}
+
+/// Texts longer than this are not kept in the journal: such a row cannot be
+/// undone (learning-layers FR-2).
+pub const JOURNAL_TEXT_MAX: usize = 200_000;
+
+/// A journal row with the texts dropped when one held a secret or was too
+/// long to keep; such a row says it cannot be undone (FR-2).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn new_row(
+    subject: &str,
+    owner: &str,
+    name: &str,
+    action: &str,
+    by: &str,
+    chat_id: Option<&str>,
+    before: Option<String>,
+    after: Option<String>,
+) -> crate::app_db::journal::NewRow {
+    let keepable = |text: &Option<String>| {
+        text.as_deref().is_none_or(|text| {
+            text.len() <= JOURNAL_TEXT_MAX && !crate::learning::redact::has_secret(text)
+        })
+    };
+    let undoable = keepable(&before) && keepable(&after);
+    let changed = line_diff(
+        &before.as_deref().map(body_of).unwrap_or_default(),
+        &after.as_deref().map(body_of).unwrap_or_default(),
+    );
+    let lines: Vec<String> = changed
+        .removed
+        .iter()
+        .map(|line| format!("- {line}"))
+        .chain(changed.added.iter().map(|line| format!("+ {line}")))
+        .collect();
+    let diff: String = crate::learning::redact::redact(&lines.join("\n"))
+        .chars()
+        .take(4_000)
+        .collect();
+    crate::app_db::journal::NewRow {
+        at_ms: now_ms() as i64,
+        owner: owner.to_string(),
+        subject: subject.into(),
+        name: name.to_string(),
+        action: action.into(),
+        by: by.into(),
+        chat_id: chat_id.map(str::to_string),
+        reply_id: None,
+        diff: Some(diff),
+        before: if undoable { before } else { None },
+        after: if undoable { after } else { None },
+        undoable,
+    }
+}
+
+/// Store a journal row; its id.
+pub(crate) fn record_row(row: crate::app_db::journal::NewRow) -> Result<Option<i64>, String> {
     let mut conn = crate::app_db::open().map_err(|e| e.to_string())?;
-    crate::app_db::journal::record(
-        &mut conn,
-        &crate::app_db::journal::NewRow {
-            at_ms: now_ms() as i64,
-            owner: owner.to_string(),
-            subject: "memory".into(),
-            name: name.to_string(),
-            action: action.into(),
-            by: by.into(),
-            chat_id: chat_id.map(str::to_string),
-            before,
-            after,
-            undoable: true,
-            ..Default::default()
-        },
-    )
-    .map(Some)
-    .map_err(|e| e.to_string())
+    crate::app_db::journal::record(&mut conn, &row)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 /// What undoing a change does to its topic file in `dir`: put `before` back
@@ -853,6 +925,12 @@ pub fn undo_change(cwd: &Path, id: i64) -> Result<(), String> {
     if change.undone_at.is_some() {
         return Err("that change was undone before".into());
     }
+    if !change.undoable {
+        return Err(
+            "that change cannot be undone: its earlier text held a secret or was too long to keep"
+                .into(),
+        );
+    }
     let scope = if change.owner == "personal" {
         Scope::Personal
     } else {
@@ -867,9 +945,19 @@ pub fn undo_change(cwd: &Path, id: i64) -> Result<(), String> {
         change.before.as_deref(),
         change.after.as_deref(),
     )?;
-    crate::app_db::journal::mark_undone(&conn, id, now_ms() as i64)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    crate::app_db::journal::mark_undone(&conn, id, now_ms() as i64).map_err(|e| e.to_string())?;
+    // The undo is itself a row (FR-2).
+    record_row(new_row(
+        "memory",
+        &change.owner,
+        &change.name,
+        "undone",
+        "undo",
+        change.chat_id.as_deref(),
+        change.after.clone(),
+        change.before.clone(),
+    ))
+    .map(|_| ())
 }
 
 /// Everything for the Memory panel. `chat_memory` is false for a chat
@@ -896,7 +984,20 @@ pub fn describe(cwd: &Path, chat_memory: bool) -> Result<Value, String> {
     }))
 }
 
-/// Save from the Memory panel: the person wrote it.
+/// How a save from the panel ended.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Saved {
+    Done(Value),
+    /// The topic changed since the panel opened it: nothing was written, and
+    /// this is the topic as it is now (`null` when it was deleted; FR-3).
+    Conflict(Value),
+}
+
+/// Save from the Memory panel: the person wrote it. `opened` is the hash of
+/// the topic when the panel opened it; a topic that changed since is not
+/// overwritten (learning-layers FR-3). `None` overwrites (**Overwrite with
+/// mine**, or a new topic).
+#[allow(clippy::too_many_arguments)]
 pub fn save(
     cwd: &Path,
     scope: Scope,
@@ -905,9 +1006,26 @@ pub fn save(
     kind: &str,
     content: &str,
     previous: Option<&str>,
-) -> Result<Value, String> {
+    opened: Option<&str>,
+) -> Result<Saved, String> {
+    let folder = dir(scope, cwd)?;
+    let opened_name = previous.unwrap_or(name);
+    let file_of = |name: &str| {
+        clean_name(name)
+            .ok()
+            .and_then(|name| std::fs::read_to_string(folder.join(format!("{name}.md"))).ok())
+    };
+    let opened_before = file_of(opened_name);
+    if let Some(hash) = opened.filter(|hash| !hash.is_empty()) {
+        let now = opened_before.as_deref().map(hash_text);
+        if now.as_deref() != Some(hash) {
+            let current = find_in(&folder, opened_name).map(|m| entry(&m, scope));
+            return Ok(Saved::Conflict(current.unwrap_or(Value::Null)));
+        }
+    }
+    let name_before = file_of(name);
     let m = save_in(
-        &dir(scope, cwd)?,
+        &folder,
         name,
         description,
         kind,
@@ -918,11 +1036,33 @@ pub fn save(
             sensitive: false,
         },
     )?;
-    Ok(entry(&m, scope))
+    let owner = owner(scope, cwd);
+    let chat = crate::office::chat_id();
+    let after = std::fs::read_to_string(&m.path).ok();
+    journal_row(&owner, &m.name, "person", chat, name_before, after)?;
+    if let Some(old) = previous.and_then(|p| clean_name(p).ok()) {
+        if old != m.name {
+            journal_row(&owner, &old, "person", chat, opened_before, None)?;
+        }
+    }
+    Ok(Saved::Done(entry(&m, scope)))
 }
 
+/// Delete from the panel: the person did it.
 pub fn delete(cwd: &Path, scope: Scope, name: &str) -> Result<(), String> {
-    delete_in(&dir(scope, cwd)?, name)
+    let folder = dir(scope, cwd)?;
+    let name = clean_name(name)?;
+    let before = std::fs::read_to_string(folder.join(format!("{name}.md"))).ok();
+    delete_in(&folder, &name)?;
+    journal_row(
+        &owner(scope, cwd),
+        &name,
+        "person",
+        crate::office::chat_id(),
+        before,
+        None,
+    )
+    .map(|_| ())
 }
 
 #[cfg(test)]
@@ -1132,6 +1272,7 @@ mod tests {
             path: PathBuf::new(),
             by: None,
             sensitive: false,
+            hash: String::new(),
         }
     }
 

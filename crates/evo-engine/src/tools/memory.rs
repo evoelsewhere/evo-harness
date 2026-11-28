@@ -4,7 +4,9 @@
 //!
 //! Spec: `docs/features/agent-tools-layers/spec.md` (FR-2);
 //! `docs/features/memory-topics-and-chat-recall/spec.md` (FR-3, FR-5, FR-7,
-//! FR-17) for `update`, the sensitive mark and the personal switch.
+//! FR-17) for `update`, the sensitive mark and the personal switch;
+//! `docs/features/learning-layers/spec.md` (FR-1, FR-4, FR-5, FR-9) for the
+//! journal, `until`, and reads that leave out ended and struck entries.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,6 +40,14 @@ impl Origin {
             Origin::Index => "index",
         }
     }
+
+    /// The journal's name for this author.
+    fn author(&self) -> &'static str {
+        match self {
+            Origin::Chat => "agent",
+            Origin::Index => "index",
+        }
+    }
 }
 
 /// Told about every change a tool made to a topic: the scope, the topic's
@@ -61,14 +71,27 @@ pub struct MemoryTool {
     cwd: PathBuf,
     origin: Origin,
     recorder: Option<Recorder>,
+    /// How an added entry names where it came from (`from chat "…"`).
+    source: Option<String>,
 }
 
+/// The tool as a chat's agent uses it: every change is a journal row by
+/// `agent`, with the chat it came from (learning-layers FR-1).
 pub fn create_memory_tool(cwd: PathBuf) -> Arc<dyn AgentTool> {
+    let journal_cwd = cwd.clone();
+    let recorder: Recorder = Arc::new(move |scope, name, before, after| {
+        let owner = crate::memory::owner(scope, &journal_cwd);
+        let chat = crate::office::chat_id();
+        if let Err(error) = crate::memory::journal_row(&owner, name, "agent", chat, before, after) {
+            eprintln!("[evo] memory: a change was not journaled: {error}");
+        }
+    });
     Arc::new(MemoryTool {
         schema: schema(),
         cwd,
         origin: Origin::Chat,
-        recorder: None,
+        recorder: Some(recorder),
+        source: None,
     })
 }
 
@@ -80,7 +103,34 @@ pub fn index_memory_tool(cwd: PathBuf, recorder: Recorder) -> MemoryTool {
         cwd,
         origin: Origin::Index,
         recorder: Some(recorder),
+        source: None,
     }
+}
+
+impl MemoryTool {
+    /// Name the source of the entries this tool adds (`from chat "Plans"`).
+    pub fn with_source(mut self, source: Option<String>) -> Self {
+        self.source = source;
+        self
+    }
+}
+
+/// `text` as dated entries, one per line, each ending on `until` when given
+/// (learning-layers FR-4). Lines that are already entries stay as they are.
+pub(crate) fn as_entries(text: &str, source: &str, until: Option<&str>) -> String {
+    use crate::learning::entries::{parse_line, Entry, Line};
+    let today = crate::learning::entries::today();
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| match parse_line(line) {
+            Line::Entry(entry) => entry.render(),
+            Line::Other(plain) => {
+                let plain = plain.trim().trim_start_matches(['-', '*']).trim();
+                Entry::new(&today, Some(source), plain, until).render()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(crate) fn schema() -> Tool {
@@ -103,7 +153,8 @@ pub(crate) fn schema() -> Tool {
                 "content": { "type": "string", "description": "save: the whole topic. For feedback and project topics, add why and how to apply it." },
                 "old_text": { "type": "string", "description": "update: the text to replace, copied exactly from the topic; it must occur once." },
                 "new_text": { "type": "string", "description": "update: the replacement (empty removes `old_text`); without `old_text` it is added at the end." },
-                "sensitive": { "type": "boolean", "description": "save / update: the change holds a sensitive subject (health, race or ethnicity, religion, political views, sexual orientation or gender identity)." }
+                "sensitive": { "type": "boolean", "description": "save / update: the change holds a sensitive subject (health, race or ethnicity, religion, political views, sexual orientation or gender identity)." },
+                "until": { "type": "string", "description": "save / update: the last day (YYYY-MM-DD) the new text holds, for a fact that ends on a known day (a trip, a deadline); after it the entry is no longer used. Never for a yearly date such as a birthday." }
             },
             "required": ["action"],
             "additionalProperties": false
@@ -117,6 +168,23 @@ fn arg<'a>(params: &'a Value, key: &str) -> &'a str {
 }
 
 impl MemoryTool {
+    /// The `until` argument: a day, or nothing.
+    fn until(&self, params: &Value) -> Result<Option<String>, String> {
+        match arg(params, "until").trim() {
+            "" => Ok(None),
+            day if crate::learning::entries::is_date(day) => Ok(Some(day.to_string())),
+            other => Err(format!(
+                "`until` must be a day as YYYY-MM-DD, not `{other}`"
+            )),
+        }
+    }
+
+    fn source_label(&self) -> String {
+        self.source
+            .clone()
+            .unwrap_or_else(|| self.origin.author().to_string())
+    }
+
     /// One call outside an agent loop: the text for the model, or the error.
     pub fn call(&self, params: &Value) -> Result<String, String> {
         self.run(params).map(|(text, _)| text)
@@ -186,12 +254,18 @@ impl MemoryTool {
                     k => k,
                 };
                 let existed = find_in(&folder, arg(params, "name")).is_some();
+                let content = match self.until(params)? {
+                    Some(until) => {
+                        as_entries(arg(params, "content"), &self.source_label(), Some(&until))
+                    }
+                    None => arg(params, "content").to_string(),
+                };
                 let m = save_in(
                     &folder,
                     arg(params, "name"),
                     arg(params, "description"),
                     kind,
-                    arg(params, "content"),
+                    &content,
                     None,
                     meta,
                 )?;
@@ -207,13 +281,22 @@ impl MemoryTool {
             }
             "update" => {
                 let old_text = Some(arg(params, "old_text")).filter(|text| !text.is_empty());
-                let (m, diff) = update_in(
-                    &folder,
-                    arg(params, "name"),
-                    old_text,
-                    arg(params, "new_text"),
-                    meta,
-                )?;
+                let until = self.until(params)?;
+                // Added text is dated when it ends on a known day, and always
+                // when indexing adds it (learning-layers FR-4, plan 3.4).
+                let new_text = if old_text.is_none()
+                    && !arg(params, "new_text").trim().is_empty()
+                    && (until.is_some() || self.origin == Origin::Index)
+                {
+                    as_entries(
+                        arg(params, "new_text"),
+                        &self.source_label(),
+                        until.as_deref(),
+                    )
+                } else {
+                    arg(params, "new_text").to_string()
+                };
+                let (m, diff) = update_in(&folder, arg(params, "name"), old_text, &new_text, meta)?;
                 Ok((
                     format!("Updated {} memory `{}`.", scope.label(), m.name),
                     json!({
@@ -232,6 +315,13 @@ impl MemoryTool {
                         arg(params, "name")
                     )
                 })?;
+                // Ended and struck entries never reach a turn (FR-4, FR-5).
+                let shown = crate::learning::entries::visible(
+                    &m.content,
+                    &crate::learning::entries::today(),
+                );
+                let mut details = entry(&m, scope);
+                details["content"] = json!(shown);
                 Ok((
                     format!(
                         "{} ({}, {}): {}\n\n{}",
@@ -239,9 +329,9 @@ impl MemoryTool {
                         m.kind,
                         scope.label(),
                         m.description,
-                        m.content
+                        shown
                     ),
-                    json!({ "memory": entry(&m, scope), "action": "read" }),
+                    json!({ "memory": details, "action": "read" }),
                 ))
             }
             "list" => {
@@ -337,6 +427,7 @@ mod tests {
                     cwd: PathBuf::from("/work/app"),
                     origin: Origin::Chat,
                     recorder: None,
+                    source: None,
                 },
             }
         }

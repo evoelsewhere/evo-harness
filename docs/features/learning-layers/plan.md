@@ -323,4 +323,16 @@ per-mate switches.
 
 ## 5. As-built notes
 
-Empty until the status is `In progress`.
+- 2026-11-28 — **Dated entries.** Text the agent adds to a topic stays as
+  written unless it ends on a known day (`until`); text indexing adds and
+  everything the dream, the tidy-up and channel learning write is a dated
+  entry (`from chat "<title>"`, `dream`, …). Plain lines are never touched
+  by the tidy-up, so a line the person or the agent wrote without a date is
+  as safe as a hand-written one (FR-7).
+- 2026-11-28 — **Journal texts.** A row keeps the whole file before and
+  after, as `memory_changes` did; when either held a secret or is longer
+  than 200,000 characters, both are dropped and the row is not undoable
+  (FR-2). The `diff` column holds the changed lines, redacted.
+- 2026-11-28 — **Panel conflict.** `save_memory` takes the `hash` the panel
+  got with the topic; on a mismatch it writes nothing and answers the usual
+  memory state plus `conflict: {current}`.
