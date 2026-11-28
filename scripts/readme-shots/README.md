@@ -15,6 +15,8 @@ Tauri IPC instead of opening the app.
 | `mock-tauri.js` | Fake Tauri IPC and engine: two workspaces, a few chats, and one chat replayed from canned messages (grep, read, edit with a diff, `cargo test`); for Evo Mates, five mates with Evo's own faces, a Launch room channel (a request, who answers it, hand-offs, replies and a retro card) and a mate's chat with a "Learned" line. |
 | `mock-fs.js` | A small fake repository for the Files tool: `crates/evo-web/src/fetch.rs` with its committed version for the git gutter. |
 | `capture_app.py` | Opens the UI, unfolds the turn, opens `fetch.rs` and saves `app-light.png` / `app-dark.png`; then opens `mates.html` on the Launch room and saves `mates-light.png` / `mates-dark.png`. |
+| `mock-mates-v2.js` | Loaded after `mock-tauri.js` by `mates_v2_shots.py`: every state Evo Mates UI v2 shows — a mate working, one waiting on an approval, unread rows, a paused mate, a three-day conversation with steps, a reply quote and a long message, files, Today's data and gallery roles. |
+| `mates_v2_shots.py` | Screenshots of Evo Mates UI v2 views (`--views today,mate,profile,channel,members,switcher,shortcuts,find,files,gallery,waiting`) at the widths and themes given, with `--scan` listing any box that scrolls sideways ([evo-mates-ui-v2](../../docs/features/evo-mates-ui-v2/tasks.md) T26). |
 | `render_banner.py` | Renders `docs/assets/readme/banner.html` to `banner-light.png` / `banner-dark.png`. |
 
 ## Requirements

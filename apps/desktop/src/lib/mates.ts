@@ -138,6 +138,8 @@ export const matesApi = {
   search: (query: string) => invoke<MessageHit[]>("mates_search", { query }),
   /** Coming up and each mate's day so far, for Today (FR-73). */
   today: () => invoke<{ coming: AgendaItem[]; team: { mateId: string; replies: number; costUsd: number }[] }>("mates_today"),
+  /** A chat's open questions and approvals (`engine_questions`): what Today's Needs you waits on (evo-mates-ui-v2 FR-26). */
+  questions: (chat: string) => invoke<{ kind: string; title: string; at: number }[]>("engine_questions", { chat }),
 };
 
 /** A file in a mate's Knowledge (FR-77). */

@@ -4,7 +4,7 @@
 | --- | --- |
 | Spec | [spec.md](spec.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-28 |
+| Updated | 2026-11-29 |
 
 Paths are under `apps/desktop/src/` unless they start with `docs/` or
 `scripts/`. Pure logic first, with its `bun test` test in the same task.
@@ -54,36 +54,39 @@ counters, team strip and kinds, the gallery its strip, Files its day groups
 and views, and every empty list its sentence and action.
 
 - [x] T20 [FR-29] `EmptyState` — `features/mates/empty-state.tsx`
-- [ ] T21 [FR-22 – FR-24, FR-31] profile hero, quick actions, Overview, save on blur — `features/mates/mate-panel.tsx`, `mate-overview.tsx`
-- [ ] T22 [FR-25, FR-26] Today counters, team strip, Needs you kinds (+tests) — `features/mates/today.tsx`, `today-sections.ts`, `today-sections.test.ts`, `lib/mates.ts`
-- [ ] T23 [FR-28] gallery steps strip and cards — `features/mates/gallery.tsx`
-- [ ] T24 [FR-30] Files by day, grid and list (+test) — `features/mates/files-page.tsx`, `files-page.ts`, `files-page.test.ts`
+- [x] T21 [FR-22 – FR-24, FR-31] profile hero, quick actions, Overview, save on blur — `features/mates/mate-panel.tsx`, `mate-overview.tsx`
+- [x] T22 [FR-25, FR-26] Today counters, team strip, Needs you kinds (+tests) — `features/mates/today.tsx`, `today-sections.ts`, `today-sections.test.ts`, `lib/mates.ts`
+- [x] T23 [FR-28] gallery steps strip and cards — `features/mates/gallery.tsx`
+- [x] T24 [FR-30] Files by day, grid and list (+test) — `features/mates/files-page.tsx`, `files-page.ts`, `files-page.test.ts`
+- [x] T28 [FR-30] thumbnails in the Files grid: pictures, text pages, CSV tables (+test) — `features/mates/file-preview.ts`, `file-preview.test.ts`, `files-page.tsx`, `scripts/readme-shots/mock-mates-v2.js`
 
 ## Phase 5 — Docs and verification
 
 Done when: the docs describe what was built and every check below has a
 result.
 
-- [ ] T25 [NFR-2] DESIGN.md Evo Mates layer, `apps/desktop/README.md` UI map, evo-mates spec History and ux.md pointer — docs
-- [ ] T26 [NFR-1, verification] sample states and the v2 capture with overflow scan — `scripts/readme-shots/mock-tauri.js`, `scripts/readme-shots/mates_v2_shots.py`
-- [ ] T27 checks: typecheck, `bun test`, build; screenshots light and dark at 1440, 1000, 720 px — record below
+- [x] T25 [NFR-2] DESIGN.md Evo Mates layer, `apps/desktop/README.md` UI map, evo-mates spec History and ux.md pointer — docs
+- [x] T26 [NFR-1, verification] sample states and the v2 capture with overflow scan — `scripts/readme-shots/mock-tauri.js`, `scripts/readme-shots/mates_v2_shots.py`
+- [x] T27 checks: typecheck, `bun test`, build; screenshots light and dark at 1440, 1000, 720 px — record below
 
 ## Verification
 
 | Requirement | Check | Result |
 | --- | --- | --- |
-| FR-1 – FR-3 | Shots at 720 px (rail) and 1440 px; Ctrl+B in the harness | not run |
-| FR-4 – FR-6 | Shots of the roster with every state; `presence.test.ts`, `plain-preview.test.ts` | not run |
-| FR-7, FR-8, NFR-5 | Switcher shot; `switcher-items.test.ts`; keys in the harness | not run |
-| FR-9, FR-10 | Mate header shots, paused mate | not run |
-| FR-11 – FR-18 | Long conversation shots; `thread.test.ts`, `find.test.ts` | not run |
-| FR-19 – FR-21 | Channel shots, members popover, `@` list; `channel-rows.test.ts` | not run |
-| FR-22 – FR-24 | Profile shots (Overview) | not run |
-| FR-25, FR-26 | Today shots; `today-sections.test.ts` | not run |
-| FR-27 | Approval card shot | not run |
-| FR-28 – FR-30 | Gallery, empty states, Files shots; `files-page.test.ts` | not run |
-| FR-31 | Shots at 1440, 1000, 720 px | not run |
-| NFR-1 | Overflow scan at 1440, 1180, 900, 760, 640 px, light and dark | not run |
-| NFR-2, NFR-3 | Light and dark shots; reduced motion emulated | not run |
-| NFR-4 | Diff review: no engine, protocol or DB change | not run |
-| NFR-6, NFR-7 | Accessibility tree and string review | not run |
+| FR-1 – FR-3 | Shots at 720 px (rail: Today, Files, faces with marks, channels, footer icons) and 1440 / 1000 px (full sidebar, foldable sections with counts); `sidebar-layout.test.ts` | passed (2026-11-29) |
+| FR-4 – FR-6 | Roster shots with working, needs you, paused, unread and a code-block preview read as text; `presence.test.ts`, `plain-preview.test.ts` | passed (2026-11-29) |
+| FR-7, FR-8, NFR-5 | Switcher shot ("a": mates, channels, actions); shortcuts sheet shot; Ctrl+I, Ctrl+F, Ctrl+K and Ctrl+N driven by the harness; `switcher-items.test.ts` (100 rankings of 70 items under 5 ms each) | passed (2026-11-29) |
+| FR-9, FR-10 | Mate header shots (state word, Find, model pill, profile, ⋯); a waiting mate shows no typing dots; the paused bar is the composer's (as-built) | passed (2026-11-29) |
+| FR-11 – FR-18 | Three-day conversation shots: sticky day labels, New line, Jump to latest, fold with Show more, find "links" 1 of 8 with marks, steps chip; `thread.test.ts` (day rows, Stopped, step items, long text), `find.test.ts` | passed (2026-11-29) |
+| FR-19 – FR-21 | Channel shots: header with instructions line, faces with seat state, rule chip, Stop, ⋯; members list with Lead, state and Message; hand-off cards with both faces; `channel-rows.test.ts` | passed (2026-11-29) |
+| FR-22 – FR-24 | Profile shots at 1440 (docked) and 1000 px (floating with scrim): hero on the mate's colour, quick actions, Overview (model, approvals, today, following up, channels, latest files) | passed (2026-11-29) |
+| FR-25, FR-26 | Today shots: greeting, four counters, team strip, Needs you "Approval" from `engine_questions`, oldest first; `today-sections.test.ts` | passed (2026-11-29) |
+| FR-27 | Waiting mate shot: the approval under "Lin needs you · Your approval" | passed (2026-11-29) |
+| FR-28 – FR-30 | Gallery shot with the steps strip; empty states in the sidebar and Overview; Files grid with thumbnails and day groups; `files-page.test.ts`, `file-preview.test.ts` | passed (2026-11-29) |
+| FR-31 | Profile docked at 1440, floating at 1000; rail at 720 | passed (2026-11-29) |
+| NFR-1 | Overflow scan of every view at 1440, 1000 and 720 px, and Today and a conversation at 1180, 900, 760 and 640 px, light and dark: no box scrolls sideways | passed (2026-11-29) |
+| NFR-2, NFR-3 | Light and dark shots of every view; presence pulse and lifts under `motion-safe` only (code review); reduced motion not emulated | passed (2026-11-29), reduced motion by review |
+| NFR-4 | Diff review: no engine, protocol or database change | passed (2026-11-29) |
+| NFR-6, NFR-7 | Rows, tiles and icon buttons named (`aria-label`), presence marks labelled; new strings reviewed for developer words | passed (2026-11-29) |
+| Checks | `bun run typecheck`; `bun test` 513 pass, 0 fail (455 before this feature); `vite build`; `cargo test -p evo-engine -p evo-store -p evo-mesh` (no Rust changed): 1021 passed, 2 failed — the two known failures (`external_transport…`, `bundled_evo_creator…`) | passed (2026-11-29) |
+| Real app | Not run: the window was checked in the fake-IPC harness only (scripts/readme-shots), as the brief allowed | not run |

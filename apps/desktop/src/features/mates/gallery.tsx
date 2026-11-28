@@ -19,9 +19,9 @@ const MODE_WORD: Record<string, string> = { "auto-edits": "Approves edits", auto
 
 function RoleCard({ role, busy, onAdd }: { role: MateTemplate; busy: boolean; onAdd(): void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-card p-4 shadow-[0_0_0_1px_var(--border)]">
+    <div className="group flex flex-col gap-3 rounded-2xl bg-card p-4 shadow-[0_0_0_1px_var(--border)] transition-shadow hover:shadow-[0_0_0_1px_var(--border),0_8px_24px_-12px_rgb(0_0_0/0.25)]">
       <div className="flex items-center gap-3">
-        <MateFace avatar={role.avatar} size={48} label={role.name} plate={false} />
+        <MateFace avatar={role.avatar} size={52} label={role.name} />
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-foreground">{role.name}</div>
           <div className="truncate text-xs text-muted-foreground">{role.role}</div>
@@ -32,7 +32,9 @@ function RoleCard({ role, busy, onAdd }: { role: MateTemplate; busy: boolean; on
         {role.approval && MODE_WORD[role.approval] && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{MODE_WORD[role.approval]}</span>
         )}
-        <Button size="sm" className="ml-auto" disabled={busy} onClick={onAdd}>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{role.category}</span>
+        <Button size="sm" className="ml-auto rounded-full bg-brand px-3.5 text-brand-foreground hover:bg-brand/90" disabled={busy} onClick={onAdd}>
+          <PlusIcon />
           Add
         </Button>
       </div>
@@ -43,7 +45,7 @@ function RoleCard({ role, busy, onAdd }: { role: MateTemplate; busy: boolean; on
 /** A ready-made team: its faces, name, one line and Add team (FR-75). */
 function TeamCard({ team, onAdd }: { team: TeamSummary; onAdd(): void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-card p-4 shadow-[0_0_0_1px_var(--border)]">
+    <div className="flex flex-col gap-3 rounded-2xl bg-card p-4 shadow-[0_0_0_1px_var(--border)] transition-shadow hover:shadow-[0_0_0_1px_var(--border),0_8px_24px_-12px_rgb(0_0_0/0.25)]">
       <div className="flex items-center -space-x-2">
         {team.mates.map((mate) => (
           <span key={mate.name} className="rounded-full bg-card p-0.5">
@@ -151,6 +153,22 @@ export function Gallery() {
             Describe what you need, or pick a role or a team. Your mate will introduce itself and ask a few questions to settle in.
           </p>
         </header>
+        {/* How it works, in three steps (evo-mates-ui-v2 FR-28). */}
+        <ol className="grid grid-cols-1 gap-2 min-[720px]:grid-cols-3" aria-label="How it works">
+          {[
+            { n: 1, title: "Pick a role", text: "Or describe the job in your own words." },
+            { n: 2, title: "It introduces itself", text: "Your mate says hi and asks what it needs." },
+            { n: 3, title: "Shape it as you go", text: "Change its name, face, apps and rules any time." },
+          ].map((step) => (
+            <li key={step.n} className="flex items-start gap-3 rounded-2xl bg-muted/40 px-3.5 py-3">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[12px] font-semibold text-background">{step.n}</span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-foreground">{step.title}</span>
+                <span className="block text-xs text-muted-foreground">{step.text}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
         <Describe busy={busy} onBusy={setBusy} />
         <div className="flex flex-wrap items-center gap-2">
           <div role="tablist" className="flex flex-wrap gap-1">

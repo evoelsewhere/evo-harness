@@ -371,6 +371,15 @@ only it:
 - **The message box** is a pill: a 20px radius field, the brand-blue round
   send button, focus shown on the pill (never a ring inside it).
 
+- **Presence marks** (docs/features/evo-mates-ui-v2/spec.md, FR-5): a
+  status dot at a face's corner, outlined in the surface behind it —
+  working in `--brand` (a soft pulse, never with reduced motion), needs you
+  amber, couldn't reply red, queued or paused a hollow grey ring. They are
+  dots, as DESIGN.md's status colours always are.
+- **The profile hero** (evo-mates-ui-v2 FR-22, 6.2): a band behind the
+  mate's face, fading from its plate colour to the card. No other surface
+  takes the mate's hue.
+
 Everything else in Evo Mates stays achromatic, as in Evo Harness.
 
 ## 8. Responsive Behavior

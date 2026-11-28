@@ -212,4 +212,28 @@ them.
 
 ## 5. As-built notes
 
-Empty until the status is `In progress`.
+- **Find** marks matches with the browser's text highlights (`CSS.highlights`,
+  `::highlight(mates-find)` in `index.css`) over elements marked
+  `data-find-text`, instead of a `highlight` prop that splits bubble text: the
+  Markdown of a reply is never rewritten and the same bar works in a channel.
+- **Unread badges, not counts** (FR-2, FR-4): Evo keeps an unread mark per
+  conversation, not a count; rows and tiles show a badge, folded sections
+  the number of unread conversations. The spec says so.
+- **The New line** reads whether the conversation was unread at the moment
+  the person opened it (`takeOpenedUnread` in `mates-store.ts`, recorded by
+  `open()`), because the window marks a shown conversation read at once.
+- **Day groups**: the thread and the channel render one section per day so
+  each day's label sticks only over its own messages.
+- **Paused bar** (FR-10): the composer's existing paused line with Resume
+  (evo-mates FR-45, FR-80) already is the bar; the header adds Resume.
+- **Files by day** lives in `files-page.tsx` (`groupByDay`), tested in the
+  existing `files-page.test.ts`, not a new `files-page.ts`.
+- **Thumbnails** (FR-30, owner 2026-11-29): `file-preview.ts` (+test) turns a
+  text file's first lines into a small page and a CSV's first rows into a
+  small table; the tile reads the file with the existing `fs_read_file` once
+  it scrolls into view (IntersectionObserver), so a long list stays light.
+- The old `MateBar` and `ChannelBar` are gone; `mate-header.tsx` and
+  `channel-header.tsx` replace them. The profile's "Profile" tab keeps the
+  `about` id.
+- Shots and the sideways-scroll scan run with `mock-mates-v2.js` on top of
+  `mock-tauri.js`; `mates_v2_shots.py` takes the views by name.

@@ -37,7 +37,7 @@ export type MatesView =
   | { kind: "empty" };
 
 /** The mate panel's tabs. */
-export type MatePanelTab = "about" | "settings" | "apps" | "memory" | "files";
+export type MatePanelTab = "overview" | "about" | "settings" | "apps" | "memory" | "files";
 
 interface MatesStore {
   loaded: boolean;
@@ -92,7 +92,7 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
   templates: [],
   view: { kind: "empty" },
   panelOpen: false,
-  panelTab: "about",
+  panelTab: "overview",
 
   async load() {
     if (inTauri && !listening) {

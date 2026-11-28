@@ -7,7 +7,8 @@
 import * as React from "react";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { FolderOpenIcon, PanelRightIcon, PencilIcon, XIcon } from "lucide-react";
+import { BellIcon, BellOffIcon, FolderOpenIcon, MessageCircleIcon, PauseIcon, PinIcon, PinOffIcon, PlayIcon, XIcon } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 import { faceColors, MateFace } from "@/components/mate-face/mate-face";
 import { faces } from "@/components/mate-face/faces";
 import { Button } from "@/components/ui/button";
@@ -15,11 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { matesApi, type ApprovalMode, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
 import { useEngineStore } from "@/stores/engine-store";
-import { mateMood, moodWord, useMatesStore, type MatePanelTab } from "@/stores/mates-store";
+import { useMatesStore, type MatePanelTab } from "@/stores/mates-store";
 import { connectorLabel } from "@/lib/mcp";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
@@ -27,7 +27,9 @@ import { useUiStore } from "@/stores/ui-store";
 import { MemoryHistory, TidyNow, type MemoryChange } from "@/features/memory";
 import { MateLearning } from "./mate-learning";
 import { MateConnectedApps } from "@/features/connected-apps";
-import { ConfirmDelete } from "./confirm";
+import { MateOverview } from "./mate-overview";
+import { MatePresenceFace, usePresence } from "./presence-face";
+import { MateMenuButton } from "./roster";
 import { panelFloats } from "./bubble-style";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
@@ -49,57 +51,6 @@ export function useShownMate(): Mate | null {
     const view = s.view;
     return view.kind === "mate" ? (s.mates.find((m) => m.id === view.id) ?? null) : null;
   });
-}
-
-/**
- * The conversation's bar, in the window's title row (ux.md 2): the mate's
- * face, name and state, Edit; on the right its model and the profile toggle.
- */
-export function MateBar({ mate, modelPill }: { mate: Mate; modelPill?: React.ReactNode }) {
-  const work = useSessionStore((s) => s.work[mate.chatId]);
-  const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
-  const queued = useMatesStore((s) => s.queued.includes(mate.chatId));
-  const failed = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.turns.at(-1)?.status === "error");
-  const mood = mateMood(work, busy, queued, failed);
-  const panelOpen = useMatesStore((s) => s.panelOpen);
-  const setPanelOpen = useMatesStore((s) => s.setPanelOpen);
-  const word = mate.paused ? "Paused" : moodWord(mood);
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2 pl-3">
-      {/* The mate's name as a pill, like the model's: a click edits its profile. */}
-      <button
-        type="button"
-        aria-label={`${mate.name}: edit profile`}
-        onClick={() => setPanelOpen(true)}
-        className="no-drag group flex h-8 min-w-0 items-center gap-1.5 rounded-full bg-card pr-2.5 pl-1 shadow-[0_0_0_1px_var(--border)] transition-colors hover:bg-accent"
-      >
-        <MateFace avatar={mate.avatar} size={24} mood={mood} live plate={false} label={mate.name} />
-        <span className="truncate text-[13px] font-semibold text-foreground">{mate.name}</span>
-        {word && <span className="truncate text-xs text-muted-foreground">{word}</span>}
-        <PencilIcon className="size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
-      </button>
-      <div className="flex-1" />
-      <div className="flex items-center gap-1">
-        {modelPill}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={panelOpen ? "Close profile" : "Open profile"}
-                onClick={() => setPanelOpen(!panelOpen)}
-                className="rounded-full text-muted-foreground"
-              />
-            }
-          >
-            <PanelRightIcon />
-          </TooltipTrigger>
-          <TooltipContent>{panelOpen ? "Close profile" : "Profile"}</TooltipContent>
-        </Tooltip>
-      </div>
-    </div>
-  );
 }
 
 /** The colours a mate can take (ux.md 6): one hue each, drawn per theme. */
@@ -225,7 +176,7 @@ function Secrets({ mate }: { mate: Mate }) {
   );
 }
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+function Field({ label, children, hint }: { label: React.ReactNode; children: React.ReactNode; hint?: string }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -235,24 +186,92 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
+/** A field that saves when the person leaves it, and says so (FR-24; QA A6). */
+function useSaved() {
+  const [saved, setSaved] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!saved) return;
+    const timer = window.setTimeout(() => setSaved(null), 1600);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
+  return { saved, mark: setSaved };
+}
+
+function SavedMark({ show }: { show: boolean }) {
+  return (
+    <span aria-live="polite" className={cn("text-[11px] font-medium text-brand transition-opacity", show ? "opacity-100" : "opacity-0")}>
+      Saved
+    </span>
+  );
+}
+
 function About({ mate }: { mate: Mate }) {
   const update = useMatesStore((s) => s.update);
   const [name, setName] = React.useState(mate.name);
   const [role, setRole] = React.useState(mate.role);
   const [instructions, setInstructions] = React.useState(mate.instructions);
+  const { saved, mark } = useSaved();
   React.useEffect(() => {
     setName(mate.name);
     setRole(mate.role);
     setInstructions(mate.instructions);
   }, [mate.id, mate.name, mate.role, mate.instructions]);
-  const dirty = name !== mate.name || role !== mate.role || instructions !== mate.instructions;
+  const save = (field: "name" | "role" | "instructions") => {
+    if (field === "name") {
+      if (!name.trim()) return; // An empty name is refused; the note says so.
+      if (name.trim() === mate.name) return;
+      void update(mate.id, { name: name.trim() }).then(() => mark("name"));
+    } else if (field === "role") {
+      if (role === mate.role) return;
+      void update(mate.id, { role }).then(() => mark("role"));
+    } else {
+      if (instructions === mate.instructions) return;
+      void update(mate.id, { instructions }).then(() => mark("instructions"));
+    }
+  };
+  const enter = (field: "name" | "role") => (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      save(field);
+      event.currentTarget.blur();
+    }
+  };
+  const label = (text: string, field: string) => (
+    <span className="flex items-center justify-between">
+      {text}
+      <SavedMark show={saved === field} />
+    </span>
+  );
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col items-center gap-2 rounded-[20px] bg-muted/50 px-4 pt-5 pb-4">
-        <MateFace avatar={mate.avatar} size={88} live plate={false} label={mate.name} />
-        <div className="max-w-full truncate text-[15px] font-semibold text-foreground">{mate.name}</div>
-        {mate.role && <div className="-mt-1.5 line-clamp-2 text-center text-xs text-muted-foreground">{mate.role}</div>}
-      </div>
+    <div className="flex flex-col gap-5">
+      <Field label={label("Name", "name")} hint={!name.trim() ? "A mate needs a name." : undefined}>
+        <Input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => save("name")}
+          onKeyDown={enter("name")}
+          aria-invalid={!name.trim()}
+          className="h-9 rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
+        />
+      </Field>
+      <Field label={label("Role", "role")} hint="One line: what this mate does.">
+        <Input
+          value={role}
+          onChange={(event) => setRole(event.target.value)}
+          onBlur={() => save("role")}
+          onKeyDown={enter("role")}
+          className="h-9 rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
+        />
+      </Field>
+      <Field label={label("Instructions", "instructions")} hint="How this mate works. Saved when you leave the field; applies from its next reply.">
+        <Textarea
+          value={instructions}
+          onChange={(event) => setInstructions(event.target.value)}
+          onBlur={() => save("instructions")}
+          rows={8}
+          className="rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
+        />
+      </Field>
       <section className="flex flex-col gap-2">
         <span className="text-xs font-medium text-muted-foreground">Face</span>
         <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Face">
@@ -263,11 +282,7 @@ function About({ mate }: { mate: Mate }) {
               role="radio"
               aria-checked={mate.avatar.definition === face.id}
               aria-label={face.name}
-              onClick={() =>
-                void update(mate.id, {
-                  avatar: { ...mate.avatar, definition: face.id },
-                })
-              }
+              onClick={() => void update(mate.id, { avatar: { ...mate.avatar, definition: face.id } })}
               className={cn(
                 "flex aspect-square items-center justify-center rounded-2xl bg-muted/40 transition-all hover:bg-muted/80",
                 mate.avatar.definition === face.id && "bg-brand/10 shadow-[0_0_0_1.5px_var(--brand)] hover:bg-brand/10",
@@ -290,7 +305,7 @@ function About({ mate }: { mate: Mate }) {
               aria-label={`Colour ${hue}`}
               onClick={() => void update(mate.id, { avatar: { ...mate.avatar, hue } })}
               className={cn(
-                "size-6 rounded-full ring-offset-2 ring-offset-background transition-transform hover:scale-110",
+                "size-6 rounded-full ring-offset-2 ring-offset-background transition-transform motion-safe:hover:scale-110",
                 (mate.avatar.hue ?? 210) === hue && "ring-2 ring-brand",
               )}
               style={{ background: faceColors(hue, false).body }}
@@ -298,38 +313,6 @@ function About({ mate }: { mate: Mate }) {
           ))}
         </div>
       </section>
-      <Field label="Name">
-        <Input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="h-9 rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
-        />
-      </Field>
-      <Field label="Role" hint="One line: what this mate does.">
-        <Input
-          value={role}
-          onChange={(event) => setRole(event.target.value)}
-          className="h-9 rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
-        />
-      </Field>
-      <Field label="Instructions" hint="How this mate works. Applies from its next reply.">
-        <Textarea
-          value={instructions}
-          onChange={(event) => setInstructions(event.target.value)}
-          rows={8}
-          className="rounded-2xl border-transparent bg-muted/50 shadow-none focus-visible:bg-background"
-        />
-      </Field>
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          className="rounded-full bg-brand px-4 text-brand-foreground hover:bg-brand/90"
-          disabled={!dirty || !name.trim()}
-          onClick={() => void update(mate.id, { name: name.trim(), role, instructions })}
-        >
-          Save
-        </Button>
-      </div>
     </div>
   );
 }
@@ -614,15 +597,46 @@ function Files({ mate }: { mate: Mate }) {
   );
 }
 
+/** A round quick action under the hero (FR-22). */
+function QuickAction({ label, onClick, active, children }: { label: string; onClick(): void; active?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="group flex w-14 flex-col items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <span
+        className={cn(
+          "flex size-9 items-center justify-center rounded-full bg-background/80 text-foreground shadow-[0_0_0_1px_var(--border)] transition-colors group-hover:bg-background [&_svg]:size-4",
+          active && "bg-foreground text-background group-hover:bg-foreground/90",
+        )}
+      >
+        {children}
+      </span>
+      {label}
+    </button>
+  );
+}
+
+const TABS: { id: MatePanelTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "about", label: "Profile" },
+  { id: "settings", label: "Settings" },
+  { id: "apps", label: "Apps" },
+  { id: "memory", label: "Memory" },
+  { id: "files", label: "Files" },
+];
+
 export function MatePanel({ mate }: { mate: Mate }) {
   const setPanelOpen = useMatesStore((s) => s.setPanelOpen);
   const panelTab = useMatesStore((s) => s.panelTab);
   const setPanelTab = useMatesStore((s) => s.setPanelTab);
-  const duplicate = useMatesStore((s) => s.duplicate);
-  const remove = useMatesStore((s) => s.remove);
-  const [confirm, setConfirm] = React.useState(false);
-  // Under 920 px the panel floats over the conversation instead of squeezing
-  // it to a sliver that scrolls sideways (ux.md 2; qa-2026-11-28, H2).
+  const update = useMatesStore((s) => s.update);
+  const { resolved } = useTheme();
+  const { presence, word } = usePresence(mate);
+  // Under 1100 px the panel floats over the conversation instead of squeezing
+  // it to a sliver that scrolls sideways (ux.md 2; qa-2026-11-28, H2; v2 FR-31).
   const [width, setWidth] = React.useState(() => window.innerWidth);
   React.useEffect(() => {
     const onResize = () => setWidth(window.innerWidth);
@@ -630,38 +644,83 @@ export function MatePanel({ mate }: { mate: Mate }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   const floats = panelFloats(width);
+  // The hero's band in the mate's colour, at its plate's strength (evo-mates-ui-v2 6.2).
+  const band = faceColors(mate.avatar.hue ?? 210, resolved === "dark").plate;
   return (
     // A soft card beside the conversation, not a ruled-off column (ux.md 2).
     <aside
-      className={cn("flex h-full w-[332px] shrink-0 p-2 pl-0", floats && "absolute inset-y-0 right-0 z-30 max-w-full pl-2")}
+      className={cn(
+        "flex h-full w-[360px] shrink-0 p-2 pl-0",
+        floats && "absolute inset-y-0 right-0 z-30 max-w-full pl-2 animate-in fade-in slide-in-from-right-4 duration-200",
+      )}
       aria-label={`${mate.name}'s profile`}
     >
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[22px] bg-card shadow-[0_0_0_1px_color-mix(in_srgb,var(--border)_70%,transparent),0_10px_30px_-18px_rgb(0_0_0/0.25)]">
-        <div className="flex h-12 items-center justify-center px-4">
-          <div className="text-[13px] font-semibold text-foreground">Mate profile</div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Close profile"
-            className="absolute top-2.5 right-2.5 rounded-full"
-            onClick={() => setPanelOpen(false)}
-          >
-            <XIcon />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Close profile"
+          className="absolute top-2.5 right-2.5 z-10 rounded-full bg-background/60 hover:bg-background"
+          onClick={() => setPanelOpen(false)}
+        >
+          <XIcon />
+        </Button>
+        {/* The hero (FR-22): face, name, role, state, quick actions. */}
+        <header
+          className="flex shrink-0 flex-col items-center gap-2 px-4 pt-6 pb-4 text-center"
+          style={{ background: `linear-gradient(to bottom, ${band}, transparent)` }}
+        >
+          <MatePresenceFace mate={mate} size={72} live ring="var(--card)" plate />
+          <div className="flex max-w-full flex-col items-center">
+            <div className="max-w-full truncate text-[17px] font-semibold tracking-tight text-foreground">{mate.name}</div>
+            {mate.role && <div className="line-clamp-2 text-xs text-muted-foreground">{mate.role}</div>}
+            {word && <div className={cn("mt-1 text-[11.5px] font-medium", presence === "working" ? "text-brand" : "text-foreground")}>{word}</div>}
+          </div>
+          <div className="mt-1 flex items-start justify-center gap-1">
+            <QuickAction
+              label="Message"
+              onClick={() => {
+                setPanelOpen(false);
+                requestAnimationFrame(() => (document.querySelector("main textarea") as HTMLTextAreaElement | null)?.focus());
+              }}
+            >
+              <MessageCircleIcon />
+            </QuickAction>
+            <QuickAction label={mate.paused ? "Resume" : "Pause"} active={mate.paused} onClick={() => void update(mate.id, { paused: !mate.paused })}>
+              {mate.paused ? <PlayIcon /> : <PauseIcon />}
+            </QuickAction>
+            <QuickAction
+              label={mate.notifications ? "Mute" : "Unmute"}
+              active={!mate.notifications}
+              onClick={() => void update(mate.id, { notifications: !mate.notifications })}
+            >
+              {mate.notifications ? <BellIcon /> : <BellOffIcon />}
+            </QuickAction>
+            <QuickAction label={mate.pinned ? "Unpin" : "Pin"} active={mate.pinned} onClick={() => void update(mate.id, { pinned: !mate.pinned })}>
+              {mate.pinned ? <PinOffIcon /> : <PinIcon />}
+            </QuickAction>
+            <div className="flex w-14 flex-col items-center gap-1 text-[11px] text-muted-foreground">
+              <MateMenuButton
+                mate={mate}
+                label={`${mate.name}: more`}
+                className="size-9 bg-background/80 text-foreground shadow-[0_0_0_1px_var(--border)] hover:bg-background"
+              />
+              More
+            </div>
+          </div>
+        </header>
         <Tabs value={panelTab} onValueChange={(tab) => setPanelTab(tab as MatePanelTab)} className="min-h-0 flex-1">
-          <TabsList className="mx-3 h-9 rounded-full bg-muted/70 p-1">
-            {(["about", "settings", "apps", "memory", "files"] as const).map((tab) => (
-              <TabsTrigger
-                key={tab}
-                value={tab}
-                className="rounded-full px-2.5 text-[12.5px] data-active:shadow-[0_1px_2px_rgb(0_0_0/0.08)]"
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          <TabsList className="mx-3 grid h-9 w-[calc(100%-1.5rem)] shrink-0 grid-cols-6 rounded-full bg-muted/70 p-1">
+            {TABS.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id} className="min-w-0 rounded-full px-0 text-[11.5px] data-active:shadow-[0_1px_2px_rgb(0_0_0/0.08)]">
+                {tab.label}
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-4">
+            <TabsContent value="overview">
+              <MateOverview mate={mate} />
+            </TabsContent>
             <TabsContent value="about">
               <About mate={mate} />
             </TabsContent>
@@ -682,27 +741,7 @@ export function MatePanel({ mate }: { mate: Mate }) {
             </TabsContent>
           </div>
         </Tabs>
-        <div className="flex gap-2 px-3 pt-1 pb-3">
-          <Button size="sm" variant="secondary" className="rounded-full px-3.5" onClick={() => void duplicate(mate.id)}>
-            Duplicate
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto rounded-full px-3.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => setConfirm(true)}
-          >
-            Delete…
-          </Button>
-        </div>
       </div>
-      <ConfirmDelete
-        open={confirm}
-        onOpenChange={setConfirm}
-        title={`Delete ${mate.name}?`}
-        description={`${mate.name}'s conversation, memory and folder are deleted too, and ${mate.name} leaves every channel. This cannot be undone.`}
-        onConfirm={() => void remove(mate.id)}
-      />
     </aside>
   );
 }

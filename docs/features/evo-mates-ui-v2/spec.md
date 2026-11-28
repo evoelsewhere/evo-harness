@@ -2,10 +2,10 @@
 
 | | |
 | --- | --- |
-| Status | In progress |
+| Status | Implemented |
 | Area | desktop UI (Evo Mates window) |
 | Created | 2026-11-28 |
-| Updated | 2026-11-28 |
+| Updated | 2026-11-29 |
 | Plan | [plan.md](plan.md) |
 | Tasks | [tasks.md](tasks.md) |
 | Research | [research.md](research.md) |
@@ -231,7 +231,7 @@ Acceptance scenarios:
 | FR-27 | An approval, question or secret card in a mate's conversation must sit under a header with the mate's face, "{name} needs you" and the kind. | Visual check on each kind. |
 | FR-28 | The gallery must open with a three-step strip (Pick a role · It introduces itself · Shape it as you go), **Describe a mate** as the first card, then roles and teams in the current tabs; cards lift on hover and show the face on its plate. | Visual check; Describe a mate works as before. |
 | FR-29 | Every empty list must show one sentence and one action: no mates (New mate), no channels (New channel), no search match (Clear search), empty Memory, empty Following up (Add a check-in), no files, a channel with no messages (its members and "@mention a mate"). | Visual check of each. |
-| FR-30 | Files must group by day (Today, Yesterday, dates) and offer **Grid** and **List**; the choice is kept. | Toggle to List, reload: List. |
+| FR-30 | Files must group by day (Today, Yesterday, dates) and offer **Grid** and **List**; the choice is kept. In the grid every file shows a **thumbnail**: a picture fills its tile, a text file (Markdown, text, code) shows its first lines as a small page with its headings, a CSV or TSV its first rows as a small table, anything else its kind; each with its kind as a tag. A thumbnail is read only once its tile is on screen. | Toggle to List, reload: List; a picture, a Markdown note and a CSV each show their thumbnail. |
 | FR-31 | Widths: from 1100 px the profile docks beside the conversation; under it, it floats over the conversation with a scrim that closes it on click; under 760 px the sidebar is a rail (FR-1). | Checks at 1440, 1000 and 720 px. |
 
 ### 4.2 Non-functional
@@ -275,6 +275,9 @@ None.
   Ctrl+B? → A: yes (FR-1, FR-2).
 - 2026-11-28 — Q: Leave side-panel threads in channels out of this round? →
   A: yes; replies stay quotes that jump to the original (2.2, FR-16).
+- 2026-11-29 — Owner, looking at the Files grid: "có thumbnail sẽ đẹp hơn"
+  (thumbnails would look better). → Every file in the grid shows a thumbnail
+  of what it holds (FR-30).
 
 ### 6.3 Assumptions
 
@@ -299,3 +302,6 @@ None.
   answers (6.2).
 - 2026-11-28 — Gate B: the owner accepted the plan; tasks written; status
   In progress.
+- 2026-11-29 — Owner asked for thumbnails in Files: FR-30 changed (6.2).
+- 2026-11-29 — Implemented and verified in the fake-IPC harness (tasks.md);
+  status Implemented.

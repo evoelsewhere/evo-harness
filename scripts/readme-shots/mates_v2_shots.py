@@ -112,7 +112,8 @@ def view_find(page: Page) -> None:
 
 
 def view_files(page: Page) -> None:
-    click_text(page, "Files")
+    page.get_by_role("button", name="Files", exact=True).first.click()
+    page.wait_for_timeout(900)
 
 
 def view_gallery(page: Page) -> None:

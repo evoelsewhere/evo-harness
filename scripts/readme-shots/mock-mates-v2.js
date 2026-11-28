@@ -91,6 +91,25 @@
     file("rio", "sources.md", 980, 3000),
   ];
   h.fs_stat = () => ({ exists: true, isDir: false, size: 1000 });
+  // What a file holds, for the Files page's thumbnails.
+  const PICTURE =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e3a8a"/><stop offset="0.55" stop-color="#7c3aed"/><stop offset="1" stop-color="#f97316"/></linearGradient></defs><rect width="320" height="200" fill="url(#g)"/><rect x="24" y="24" width="150" height="14" rx="7" fill="#fff" opacity="0.85"/><rect x="24" y="48" width="96" height="10" rx="5" fill="#fff" opacity="0.6"/><rect x="24" y="120" width="272" height="56" rx="10" fill="#0b1020" opacity="0.45"/></svg>',
+    );
+  const TEXTS = {
+    "release-notes-4.14.md": "# Evo 4.14\n\n## Highlights\n- **Evo Mates** gets a sidebar rail and presence\n- Find in a conversation\n- Today with counters\n\n## Fixes\n- Long links wrap in bubbles\n- Files open from replies",
+    "CHANGELOG.md": "# Changelog\n\n## 4.14.0\n- feat(mates): sidebar rail of faces\n- feat(mates): quick switcher\n- feat(mates): steps chips\n- fix(replies): file not found\n- fix(ci): launcher script",
+    "launch-plan.md": "# Launch plan\n\nFriday 10:00 — release build\nFriday 11:00 — notes live\nFriday 14:00 — post the update\n\n## Owners\n- Kai: build\n- Lin: notes\n- Mo: screenshots",
+    "market-sizes.csv": "market,size,growth\nEU,12.4,9%\nUS,30.1,12%\nAPAC,18.7,15%\nLATAM,4.2,7%",
+    "sources.md": "# Sources\n\n1. Industry report, 2026\n2. Public filings\n3. Two analyst notes\n\nAll three agree on 12% growth.",
+  };
+  h.fs_read_file = ({ path }) => {
+    const name = String(path).split(/[\\/]/).pop();
+    if (/\.png$/i.test(name)) return { kind: "image", dataUrl: PICTURE, size: 182000, mtime: Date.now() };
+    if (TEXTS[name]) return { kind: "text", text: TEXTS[name], size: TEXTS[name].length, mtime: Date.now(), lossy: false };
+    return { kind: "binary", size: 1000, mtime: Date.now() };
+  };
 
   // ── Gallery roles ──
   const role = (id, name, role, category, definition, hue, description) => ({

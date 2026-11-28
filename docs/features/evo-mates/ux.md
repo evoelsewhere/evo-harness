@@ -5,7 +5,8 @@
 | Spec | [spec.md](spec.md) (FR-29 – FR-38, NFR-7) |
 | Behaviour | [behaviour.md](behaviour.md) |
 | Plan | [plan.md](plan.md) |
-| Updated | 2026-11-25 |
+| Updated | 2026-11-28 |
+| v2 | [Evo Mates UI v2](../evo-mates-ui-v2/spec.md) supersedes the layout details below where they differ: the sidebar folds to a rail of faces, faces carry presence marks, the profile opens with a hero and an Overview |
 
 The owner asked for Evo Mates to look and behave like the AI-teammate apps
 on the market: a messaging app with a roster of bots, bots with faces and
