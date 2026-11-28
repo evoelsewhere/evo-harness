@@ -179,6 +179,20 @@ None.
   lives ten minutes — Composio's lifetime for a link.
 - A-2 The catalogue is cached for a day — because it changes rarely and the
   page must open offline.
+- A-3 (2026-11-28, taken while building, owner not asked) Evo Mates has no
+  Settings window of its own, so its "page in Settings" is the Connected
+  apps page as a dialog from the Mates sidebar footer and from a mate's
+  Apps tab; Settings › Evo Mates (in Evo Harness) holds the key card.
+- A-4 (2026-11-28, taken while building) A project switches connected apps
+  off for its chats with `"connectedApps": false` in its
+  `.evo/settings.json`; there is no switch for it in the UI yet.
+- A-5 (2026-11-28, taken while building) In Evo Harness chats, which have no
+  Sending on your behalf setting, a tool that sends asks every time
+  (Allow once / Deny); a tool that only reads runs without asking unless
+  the person set it to Ask.
+- A-6 (2026-11-28, taken while building) Services show a letter tile, not
+  their logo: showing Composio's logos would mean letting the app load
+  remote images.
 
 ## 7. History
 

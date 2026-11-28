@@ -54,7 +54,7 @@ Connect card works; Harness chats switch them per chat.
 ### Phase 5 — Verify and docs
 
 - [ ] T20 Manual end to end with the owner's key on a scratch agent dir: connect Gmail twice, a mate on Only these reads "work" and is refused "personal", a send asks, a file from `~/.ssh` is refused — check: recorded in section 2
-- [ ] T21 `apps/desktop/README.md` UI map; Evo Mates spec FR-39/FR-40 History lines pointing here — check: review
+- [x] T21 `apps/desktop/README.md` UI map; Evo Mates spec FR-39/FR-40 History lines pointing here — check: review
 - [ ] T22 Run every check in section 2 and record the results — check: table filled
 
 ## 2. Verification
