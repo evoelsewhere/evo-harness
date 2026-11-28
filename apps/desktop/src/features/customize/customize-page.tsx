@@ -632,7 +632,7 @@ function AgentDetail({ agent }: { agent: AgentInfo }) {
     <div className="flex flex-col gap-5">
       <header className="flex items-start gap-3">
         <span
-          className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", agentTint.bg)}
+          className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", agentTint.bg)}
           style={agentHueStyle(agent.name)}
         >
           <AgentIcon agentType={agent.name} tinted className="size-5" />
