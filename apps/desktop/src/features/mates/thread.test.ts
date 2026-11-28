@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Turn } from "@/features/chat";
-import { isHeartbeat, isSilent, stepsLine, threadRows } from "./thread-rows";
+import { GREETING_PROMPT, isGreeting, isHeartbeat, isSilent, stepsLine, threadRows } from "./thread-rows";
 
 const turn = (over: Partial<Turn>): Turn =>
   ({
@@ -13,6 +13,7 @@ const turn = (over: Partial<Turn>): Turn =>
     ...over,
   }) as Turn;
 
+const tool = (name: string) => ({ kind: "tool" as const, key: name, callId: name, name, args: {}, argsText: "", phase: "done" as const, output: "", startedAt: 0 });
 const text = (t: string) => ({ kind: "text" as const, key: t, text: t, streaming: false });
 
 // docs/features/evo-mates/spec.md (FR-58, FR-59).
@@ -55,10 +56,29 @@ describe("mate thread rows", () => {
   });
 
   test("steps read in plain words", () => {
-    const tool = (name: string) => ({ kind: "tool" as const, key: name, callId: name, name, args: {}, argsText: "", phase: "done" as const, output: "", startedAt: 0 });
     expect(stepsLine({ parts: [tool("read"), tool("read"), tool("web_search")] })).toBe("Read 2 files · Searched the web");
     expect(stepsLine({ parts: [tool("read")] })).toBe("Read 1 file");
     expect(stepsLine({ parts: [tool("memory")] })).toBeNull();
+  });
+
+  // Found playing a careful user (qa-2026-11-28): after Deny the line said
+  // "Edited 1 file", and a follow-up noted read "Used 3 tools".
+  test("a step that was denied or failed is not counted as done", () => {
+    const denied = { ...tool("write"), phase: "error" as const };
+    expect(stepsLine({ parts: [denied] })).toBeNull();
+    expect(stepsLine({ parts: [denied, tool("read")] })).toBe("Read 1 file");
+  });
+
+  test("a mate's own steps read in plain words", () => {
+    expect(stepsLine({ parts: [tool("mate_agenda"), tool("mate_agenda")] })).toBe("Noted to follow up");
+    expect(stepsLine({ parts: [tool("sessions_search")] })).toBe("Used 1 tool");
+  });
+
+  test("a working step with no plain word reads as working", () => {
+    const running = { ...tool("some_tool"), phase: "running" as const };
+    const rows = threadRows([turn({ status: "running", parts: [running] })], true);
+    const last = rows.at(-1);
+    expect(last?.kind === "typing" ? last.step : null).toBe("Working…");
   });
 });
 
@@ -82,5 +102,16 @@ describe("heartbeat turns", () => {
     expect(isSilent("How was it?")).toBe(false);
     expect(isHeartbeat(beat)).toBe(true);
     expect(isHeartbeat("hello")).toBe(false);
+  });
+});
+
+// docs/features/evo-mates/spec.md (FR-34; qa-2026-11-28, A1): a new mate
+// speaks first; the prompt that wakes it is not the person's message.
+describe("a new mate's greeting", () => {
+  test("the wake-up prompt shows no bubble of the person", () => {
+    expect(isGreeting(GREETING_PROMPT)).toBe(true);
+    const rows = threadRows([turn({ id: "g", prompt: GREETING_PROMPT, parts: [text("Hi, I'm Mai.")] })], false);
+    expect(rows.filter((r) => r.kind === "bubble").map((r) => (r.kind === "bubble" ? r.bubble.side : null))).toEqual(["mate"]);
+    expect(rows.some((r) => r.kind === "delivered")).toBe(false);
   });
 });

@@ -19,7 +19,7 @@ export function TurnError({ error, provider, prompt }: { error: string; provider
   const engine = useEngineStore.getState;
 
   const action =
-    explained.kind === "auth" ? (
+    explained.kind === "auth" || explained.kind === "setup" ? (
       <Button size="xs" variant="outline" onClick={() => useUiStore.getState().openSettings("providers")}>
         Open Providers
       </Button>

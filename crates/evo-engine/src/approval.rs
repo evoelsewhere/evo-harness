@@ -298,6 +298,24 @@ pub(crate) fn describe(tool: &str, kind: Kind, args: &Value) -> (String, String)
             let (added, removed) = edit_delta(args);
             ("Edit file?".into(), format!("{path} (+{added} −{removed})"))
         }
+        // What is kept, in plain words: a person approves a fact, not JSON.
+        ("memory", _) => {
+            let text = |key: &str| {
+                args.get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            };
+            let title = match args.get("action").and_then(Value::as_str) {
+                Some("delete") => "Forget a memory?",
+                Some("update") => "Change a memory?",
+                _ => "Save to memory?",
+            };
+            let what = text("description")
+                .or_else(|| text("name"))
+                .unwrap_or("a memory");
+            (title.into(), clip(what))
+        }
         (_, Kind::Edit) => (format!("Allow {tool}?"), clip(&args.to_string())),
         _ => (format!("Run {tool}?"), clip(&args.to_string())),
     }

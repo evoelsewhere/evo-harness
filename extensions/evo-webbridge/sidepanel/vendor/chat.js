@@ -1343,6 +1343,9 @@ function explainError(text, provider) {
   const who = provider?.trim() || "The provider";
   const code = status(text);
   const lower = text.toLowerCase();
+  if (/no model provider is connected/.test(lower)) {
+    return { kind: "setup", title: "Connect a model provider first, then send your message again.", detail };
+  }
   if (code === 401 || code === 403 || /authentication_error|invalid x-api-key|invalid api key|permission_error/.test(lower)) {
     return { kind: "auth", title: `${who} rejected the API key.`, detail };
   }

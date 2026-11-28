@@ -25,8 +25,10 @@ import {
   insertMention,
   mentionAt,
   mentionParts,
+  retroFailure,
   type ChannelRow,
 } from "./channel-rows";
+import { BUBBLE_TEXT } from "./bubble-style";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
 import { RetroCard } from "./retro-card";
@@ -62,6 +64,13 @@ export function ChannelBar({ channel }: { channel: Channel }) {
   const removeChannel = useMatesStore((s) => s.removeChannel);
   const [settings, setSettings] = React.useState(false);
   const [confirm, setConfirm] = React.useState(false);
+  // Why Run retro did not run, for a few seconds (learning-layers FR-19).
+  const [retroNote, setRetroNote] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!retroNote) return;
+    const timer = window.setTimeout(() => setRetroNote(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [retroNote]);
   const rule = RULES.find((r) => r.id === channel.replyRule);
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2 pl-3">
@@ -87,12 +96,23 @@ export function ChannelBar({ channel }: { channel: Channel }) {
         </span>
       )}
       <div className="flex-1" />
+      {retroNote && (
+        <span role="status" className="max-w-[45%] truncate text-xs text-muted-foreground" title={retroNote}>
+          {retroNote}
+        </span>
+      )}
       <IconButton label="Export channel" onClick={() => void exportTeam({ channel: channel.id }, channel.name)}>
         <DownloadIcon />
       </IconButton>
       <IconButton
         label="Run retro"
-        onClick={() => void channelsApi.runRetro(channel.chatId).catch((error) => log("warn", "mates", `the retro did not run: ${String(error)}`))}
+        onClick={() => {
+          setRetroNote(null);
+          void channelsApi.runRetro(channel.chatId).catch((error) => {
+            log("warn", "mates", `the retro did not run: ${String(error)}`);
+            setRetroNote(retroFailure(String(error)));
+          });
+        }}
       >
         <ClipboardCheckIcon />
       </IconButton>
@@ -120,6 +140,8 @@ function Line({ children, tone = "muted" }: { children: React.ReactNode; tone?: 
       <span
         className={cn(
           "max-w-[85%] rounded-full px-3 py-1 text-center text-[11.5px]",
+          // A hand-off's long URL breaks like a bubble's (qa-2026-11-28, H1).
+          BUBBLE_TEXT,
           tone === "warn" ? "bg-destructive/10 text-destructive" : "bg-muted/60 text-muted-foreground",
         )}
       >
@@ -154,7 +176,8 @@ function RowView({ row, faceOf, names, folder }: { row: ChannelRow; faceOf(id: s
             {!row.me && row.first && <span className="mb-0.5 ml-2 text-[11px] font-medium text-muted-foreground">{row.name}</span>}
             <div
               className={cn(
-                "min-w-0 rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                "rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                BUBBLE_TEXT,
                 row.me ? "bg-brand text-brand-foreground" : "bg-muted text-foreground",
                 row.last && (row.me ? "rounded-br-[6px]" : "rounded-bl-[6px]"),
                 row.failed && "opacity-70",

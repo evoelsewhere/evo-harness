@@ -17,6 +17,7 @@ import { TurnError, type Turn } from "@/features/chat";
 import { formatCost, formatDuration } from "@/lib/format";
 import type { Mate, ReactionKind } from "@/lib/mates";
 import { cn } from "@/lib/utils";
+import { BUBBLE_TEXT } from "./bubble-style";
 import { useEngineStore } from "@/stores/engine-store";
 import { useSessionStore } from "@/stores/session-store";
 import { emojiOf, parsePrompt, REACTIONS, type ReplyTo } from "./message-markup";
@@ -131,13 +132,14 @@ function BubbleView({
             <span className="font-medium">{bubble.reply.from === "you" ? "You" : bubble.reply.from}:</span> {bubble.reply.text}
           </div>
         )}
-        <div className={cn("flex items-end gap-1", me && "flex-row-reverse")}>
+        <div className={cn("flex max-w-full min-w-0 items-end gap-1", me && "flex-row-reverse")}>
           <ContextMenu>
             <ContextMenuTrigger
               render={
                 <div
                   className={cn(
-                    "relative min-w-0 rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                    "relative rounded-[20px] px-3.5 py-2 text-[14px] leading-[20px]",
+                    BUBBLE_TEXT,
                     me ? "bg-brand text-brand-foreground" : "bg-muted text-foreground",
                     last && (me ? "rounded-br-[6px]" : "rounded-bl-[6px]"),
                     // Replies are markdown: tighter blocks in a bubble.
