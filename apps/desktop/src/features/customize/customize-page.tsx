@@ -740,6 +740,9 @@ function ComingSoon({ section }: { section: CustomizeSection }) {
   );
 }
 
+/** The sections a chat's engine reads (Evo Mates may have none open). */
+const ENGINE_SECTIONS: CustomizeSection[] = ["instructions", "skills", "agents", "hooks"];
+
 /** Customize: instructions, skills, subagents, connectors, plugins and hooks. */
 export function CustomizePage() {
   const section = useUiStore((s) => s.customizeSection);
@@ -828,6 +831,14 @@ export function CustomizePage() {
       </header>
       {current.soon ? (
         <ComingSoon section={current.id} />
+      ) : !activeId && ENGINE_SECTIONS.includes(section) ? (
+        // Evo Mates with no mate open: these come from a chat's engine.
+        <div className="flex flex-1 items-center justify-center px-6">
+          <p className="max-w-sm text-center text-[13px] text-balance text-muted-foreground">
+            {current.title} are read from a conversation. Open a chat or a mate to see them; connectors and plugins are here
+            already.
+          </p>
+        </div>
       ) : section === "instructions" ? (
         <InstructionsSection />
       ) : section === "languages" ? (

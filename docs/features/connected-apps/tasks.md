@@ -66,6 +66,13 @@ as Composio apps, and a token never leaves the keychain except as a header.
 - [ ] T29 [FR-20 – FR-24, FR-26] UI: Official and Preview marks, service page, token dialog, Zapier card with the tasks note and its link, Failed with the docs link; mate Apps for servers — `features/connected-apps/` — check: UI tests; manual
 - [ ] T30 Manual end to end on scratch data: connect one official OAuth server and Zapier (owner signs in), a mate on Only these reaches only what it is granted — check: recorded in section 2
 
+### Phase 7 — One Customize for both apps
+
+Done when: Evo Mates opens the same Customize page as Evo Harness, and
+Settings › Evo Mates has nothing of connected apps.
+
+- [x] T31 [FR-1, FR-3, A-3] Customize in Evo Mates: a Customize button in the Mates sidebar footer and the mate's Apps tab opening it (at Connectors), a back row to the conversation; the Connected apps group leaves Settings › Evo Mates; the Connected apps dialog and page retire — `mates/mates-app.tsx`, `features/mates/mates-shell.tsx`, `features/connected-apps/`, `features/settings/sections/mates-settings.tsx` — check: typecheck, UI tests, manual with screenshots
+
 ### Phase 5 — Verify and docs
 
 - [ ] T20 Manual end to end with the owner's key on a scratch agent dir: connect Gmail twice, a mate on Only these reads "work" and is refused "personal", a send asks, a file from `~/.ssh` is refused — check: recorded in section 2

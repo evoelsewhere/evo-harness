@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, PlusIcon, SearchIcon, ZapIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, PlusIcon, RefreshCwIcon, SearchIcon, ZapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -491,6 +491,21 @@ export function ServiceDetail({ toolkit }: { toolkit: string }) {
         )}
       </section>
       <ConnectDialog toolkit={adding} onOpenChange={(open) => !open && setAdding(null)} />
+    </div>
+  );
+}
+
+/** The unavailable notice with Retry (FR-17). */
+export function UnavailableNotice() {
+  const status = useConnectedAppsStore((s) => s.status);
+  const reason = useConnectedAppsStore((s) => s.reason);
+  if (status !== "unavailable") return null;
+  return (
+    <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs">
+      <span className="flex-1">Composio is unavailable{reason ? `: ${reason}` : ""}. Chats keep their other tools.</span>
+      <Button size="xs" variant="ghost" onClick={() => void useConnectedAppsStore.getState().retry().catch(() => undefined)}>
+        <RefreshCwIcon /> Retry
+      </Button>
     </div>
   );
 }

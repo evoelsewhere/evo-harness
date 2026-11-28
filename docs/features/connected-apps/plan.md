@@ -432,4 +432,14 @@ or a log; results stay tool output.
   context protocol". A Composio service with an official server shows
   Connect directly on its page. Evo Mates' page uses the same Providers
   panel.
+- 2026-11-28 — One Customize for both apps (owner's request; spec FR-1,
+  FR-3, A-3). The Mates window renders the same `CustomizePage` when its
+  window's `ui-store.customizeOpen` is set — from a Customize button in its
+  sidebar footer, or `openConnectorsAt` from a mate's Apps tab — under a
+  back row to the conversation; opening a mate, a channel or the gallery
+  closes it. Its data is the shell's and the active chat's engine (the
+  shown mate's), as in Harness, so a change shows in both windows.
+  `apps-dialog.tsx` and `connected-apps-page.tsx` are gone
+  (`UnavailableNotice` moved to `apps-parts.tsx`), and Settings › Evo Mates
+  has no Connected apps group.
 

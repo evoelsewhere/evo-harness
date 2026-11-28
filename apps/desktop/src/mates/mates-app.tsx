@@ -8,7 +8,10 @@
 import * as React from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ArrowLeftIcon } from "lucide-react";
 import { MateFace } from "@/components/mate-face/mate-face";
+import { Button } from "@/components/ui/button";
+import { CustomizePage } from "@/features/customize/customize-page";
 import { MateModelPicker } from "@/features/mates/model-picker";
 import { ChannelBar, ChannelView } from "@/features/mates/channel-view";
 import { MateConversation } from "@/features/mates/conversation";
@@ -24,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { setNativeMaterial } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
+import { useUiStore } from "@/stores/ui-store";
 
 function useBootstrap() {
   React.useEffect(() => {
@@ -69,11 +73,40 @@ function ChannelPane({ id }: { id: string }) {
   );
 }
 
+/**
+ * Customize, the same page as in Evo Harness (docs/features/connected-apps/
+ * spec.md, FR-3; evo-mates History 2026-11-28): skills, subagents,
+ * connectors with connected apps and providers, plugins, hooks and
+ * instructions, with a row back to the conversation.
+ */
+function MatesCustomize() {
+  const mate = useShownMate();
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-10 shrink-0 items-center border-b border-border/60 px-2">
+        <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => useUiStore.getState().closeCustomize()}>
+          <ArrowLeftIcon />
+          {mate ? `Back to ${mate.name}` : "Back to Evo Mates"}
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <CustomizePage />
+      </div>
+    </div>
+  );
+}
+
 function Conversation() {
   const mate = useShownMate();
   const view = useMatesStore((s) => s.view);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const shown = useEngineStore((s) => s.activeId);
+  const customizeOpen = useUiStore((s) => s.customizeOpen);
+  // Opening a mate, a channel or the gallery leaves Customize.
+  React.useEffect(() => {
+    useUiStore.getState().closeCustomize();
+  }, [view, shown]);
+  if (customizeOpen) return <MatesCustomize />;
   if (view.kind === "gallery") return <Gallery />;
   if (view.kind === "channel") return <ChannelPane id={view.id} />;
   if (!mate) return <MatesEmpty />;

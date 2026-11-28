@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useMatesStore } from "@/stores/mates-store";
-import { openConnectedApps } from "./apps-dialog";
-import { ServiceTile, useServiceName } from "./connected-apps-page";
+import { useUiStore } from "@/stores/ui-store";
+import { ServiceTile, useServiceName } from "./apps-parts";
 
 // A mate's connected apps (docs/features/connected-apps/spec.md, FR-10;
 // Evo Mates FR-39): All connected apps, or Only these with, per service, All
@@ -16,6 +16,12 @@ import { ServiceTile, useServiceName } from "./connected-apps-page";
 // of `apps` are left as they are.
 
 type ToolsChoice = "all" | "these" | "none";
+
+/** Open Customize → Connectors on a connected-apps view, in this window. */
+function openConnectorsAt(view: "apps:browse" | "apps:settings") {
+  useConnectedAppsStore.getState().setFocus(view);
+  useUiStore.getState().openCustomize("connectors");
+}
 
 /** A connected-apps entry: a Composio service, an official server or Zapier (FR-10, FR-25). */
 const isServiceGrant = (entry: unknown): entry is ServiceGrant => {
@@ -88,7 +94,7 @@ export function MateConnectedApps({ mate }: { mate: Mate }) {
         <h3 className="text-[13px] font-medium">Connected apps</h3>
         <p className="text-xs text-muted-foreground">
           Gmail, Slack, Notion and hundreds more, through Composio with your own key.{" "}
-          <button type="button" onClick={openConnectedApps} className="text-brand hover:underline">
+          <button type="button" onClick={() => openConnectorsAt("apps:settings")} className="text-brand hover:underline">
             Set up connected apps
           </button>
         </p>
@@ -114,7 +120,7 @@ export function MateConnectedApps({ mate }: { mate: Mate }) {
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h3 className="text-[13px] font-medium">Connected apps</h3>
-        <button type="button" onClick={openConnectedApps} className="text-xs text-brand hover:underline">
+        <button type="button" onClick={() => openConnectorsAt("apps:browse")} className="text-xs text-brand hover:underline">
           Manage
         </button>
       </div>
