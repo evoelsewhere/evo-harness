@@ -251,13 +251,27 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
   },
 }));
 
-/** A mate's state for its row, header and face (ux.md 4). */
-export function mateMood(work: ChatWork | undefined, busy: boolean, queued = false): MateMood {
+/**
+ * A mate's state for its row, header and face (ux.md 4); `failed`: its last
+ * turn ended in an error, which reads "Couldn't reply" until it works again
+ * (FR-32).
+ */
+export function mateMood(work: ChatWork | undefined, busy: boolean, queued = false, failed = false): MateMood {
   if (work === "waiting") return "waiting";
   if (work === "working" || busy) return "working";
   // Waiting for room under the running limit (NFR-6).
   if (queued) return "queued";
+  if (failed) return "error";
   return "idle";
+}
+
+/**
+ * A reply the person sees as it lands is read: its conversation is shown in a
+ * window that has the focus (FR-6). The shell marks it unread when the window
+ * was in the background; coming back to it clears that.
+ */
+export function seenNow(at: { chat: string; shown: string | null; unread: boolean; focused: boolean }): boolean {
+  return at.unread && at.focused && at.shown === at.chat;
 }
 
 /** The word a state shows in a roster row or the header (ux.md 4). */

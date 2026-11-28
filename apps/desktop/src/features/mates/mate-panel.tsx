@@ -57,7 +57,8 @@ export function MateBar({ mate, modelPill }: { mate: Mate; modelPill?: React.Rea
   const work = useSessionStore((s) => s.work[mate.chatId]);
   const busy = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.busy);
   const queued = useMatesStore((s) => s.queued.includes(mate.chatId));
-  const mood = mateMood(work, busy, queued);
+  const failed = useEngineStore((s) => s.activeId === mate.chatId && s.transcript.turns.at(-1)?.status === "error");
+  const mood = mateMood(work, busy, queued, failed);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const setPanelOpen = useMatesStore((s) => s.setPanelOpen);
   const word = mate.paused ? "Paused" : moodWord(mood);

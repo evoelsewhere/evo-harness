@@ -26,7 +26,8 @@ import { inTauri, isMac } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { setNativeMaterial } from "@/stores/appearance-store";
 import { useEngineStore } from "@/stores/engine-store";
-import { useMatesStore } from "@/stores/mates-store";
+import { seenNow, useMatesStore } from "@/stores/mates-store";
+import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 
 function useBootstrap() {
@@ -96,11 +97,30 @@ function MatesCustomize() {
   );
 }
 
+/**
+ * The shown mate's reply that landed while this window was in the background
+ * is read once the person is back on it (FR-6): clicking the mate already
+ * shown selects nothing, so nothing else would clear it.
+ */
+function useReadOnSight(chat: string | null, shown: string | null) {
+  const unread = useSessionStore((s) => (chat ? Boolean(s.sessions.find((c) => c.id === chat)?.unread) : false));
+  React.useEffect(() => {
+    if (!chat || !unread) return;
+    const check = () => {
+      if (seenNow({ chat, shown, unread, focused: document.hasFocus() })) useSessionStore.getState().markUnread(chat, false);
+    };
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, [chat, shown, unread]);
+}
+
 function Conversation() {
   const mate = useShownMate();
   const view = useMatesStore((s) => s.view);
   const panelOpen = useMatesStore((s) => s.panelOpen);
   const shown = useEngineStore((s) => s.activeId);
+  useReadOnSight(mate?.chatId ?? null, shown);
   const customizeOpen = useUiStore((s) => s.customizeOpen);
   // Opening a mate, a channel or the gallery leaves Customize.
   React.useEffect(() => {
