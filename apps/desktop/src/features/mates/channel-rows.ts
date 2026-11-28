@@ -4,7 +4,7 @@
 // line when more than 15 minutes pass, and the channel's own lines (who
 // answers, hand-offs, notices) centred between them.
 
-import type { ChannelEntry } from "@/lib/mates";
+import type { ChannelEntry, RetroCard } from "@/lib/mates";
 import { timeLine } from "./thread-rows";
 
 const GAP_MS = 15 * 60_000;
@@ -27,7 +27,8 @@ export type ChannelRow =
     }
   | { kind: "route"; key: string; text: string }
   | { kind: "handoff"; key: string; from: string; fromName: string; toName: string; handoff: string; text: string }
-  | { kind: "notice"; key: string; text: string; stop: boolean };
+  | { kind: "notice"; key: string; text: string; stop: boolean }
+  | { kind: "retro"; key: string; card: RetroCard };
 
 /** `text` without markdown marks: bold, italics, code, headings, links. */
 export function plainText(text: string): string {
@@ -88,6 +89,20 @@ export function channelRows(entries: ChannelEntry[], nameOf: (mate: string) => s
         break;
       case "notice":
         rows.push({ kind: "notice", key, text: entry.text, stop: entry.notice === "limit" || entry.notice === "stopped" });
+        break;
+      case "retro":
+        rows.push({
+          kind: "retro",
+          key: entry.id || key,
+          card: {
+            job: entry.job,
+            status: entry.status,
+            handoffs: entry.handoffs ?? 0,
+            well: entry.well ?? [],
+            wrong: entry.wrong ?? [],
+            lessons: entry.lessons ?? [],
+          },
+        });
         break;
     }
   });

@@ -206,7 +206,21 @@ export type ChannelEntry =
       text: string;
       at: number;
     }
-  | { kind: "notice"; notice: string; text: string; at: number; author?: string };
+  | { kind: "notice"; notice: string; text: string; at: number; author?: string }
+  /** A job ended (learning-layers FR-19); not shown. */
+  | { kind: "job"; id: string; message: string; status: string; handoffs: number; at: number }
+  /** A retro's card (learning-layers FR-21). */
+  | ({ kind: "retro"; id: string; at: number } & RetroCard);
+
+/** What a channel job's retro found (docs/features/learning-layers/spec.md, FR-20, FR-21). */
+export interface RetroCard {
+  job: string;
+  status: string;
+  handoffs: number;
+  well: string[];
+  wrong: string[];
+  lessons: { mate: string; name: string; text: string; skill?: string | null; row?: number | null }[];
+}
 
 export const channelsApi = {
   list: () => invoke<Channel[]>("channels_list"),
@@ -216,6 +230,8 @@ export const channelsApi = {
   stopMember: (id: string, mate: string) => invoke<void>("channels_stop_member", { id, mate }),
   /** Every channel reads Settings › Evo Mates again. */
   reload: () => invoke<void>("channels_reload"),
+  /** **Run retro**: the retro of the channel's last job, now (learning-layers FR-19). */
+  runRetro: (chat: string) => invoke<RetroCard>("channel_run_retro", { chat }),
 };
 
 // ── Team files (FR-20, FR-21, FR-27) ───────────────────────────────────────

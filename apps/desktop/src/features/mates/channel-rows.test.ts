@@ -103,3 +103,29 @@ describe("mentions and marks in the thread", () => {
     );
   });
 });
+
+// docs/features/learning-layers/spec.md (FR-21): a retro is a card, a job end shows nothing.
+test("a retro is a card and a job end shows nothing", () => {
+  const rows = channelRows(
+    [
+      { kind: "message", id: "m1", author: "person", text: "Go", at: 1 },
+      { kind: "job", id: "j1", message: "m1", status: "limit", handoffs: 12, at: 2 },
+      {
+        kind: "retro",
+        id: "r1",
+        at: 3,
+        job: "j1",
+        status: "limit",
+        handoffs: 12,
+        well: ["Fast"],
+        wrong: ["Looped"],
+        lessons: [{ mate: "w1", name: "Writer", text: "Answer first.", skill: "answering", row: 7 }],
+      },
+    ],
+    (id) => id,
+    10,
+  );
+  expect(rows.map((row) => row.kind)).toEqual(["time", "bubble", "retro"]);
+  const retro = rows[2];
+  expect(retro.kind === "retro" && retro.card.lessons[0].row).toBe(7);
+});

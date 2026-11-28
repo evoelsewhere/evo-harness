@@ -4,7 +4,7 @@
 // mates at work, and the message box with an `@` list of the channel's mates.
 
 import * as React from "react";
-import { ArrowUpIcon, DownloadIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpIcon, ClipboardCheckIcon, DownloadIcon, HashIcon, SettingsIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { Markdown } from "@/components/markdown";
 import { MateFace } from "@/components/mate-face/mate-face";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
 } from "./channel-rows";
 import { ChannelSettings, RULES } from "./channel-settings";
 import { ConfirmDelete } from "./confirm";
+import { RetroCard } from "./retro-card";
 import { exportTeam } from "./team-import";
 
 const EMPTY: never[] = [];
@@ -88,6 +89,12 @@ export function ChannelBar({ channel }: { channel: Channel }) {
       <IconButton label="Export channel" onClick={() => void exportTeam({ channel: channel.id }, channel.name)}>
         <DownloadIcon />
       </IconButton>
+      <IconButton
+        label="Run retro"
+        onClick={() => void channelsApi.runRetro(channel.chatId).catch((error) => log("warn", "mates", `the retro did not run: ${String(error)}`))}
+      >
+        <ClipboardCheckIcon />
+      </IconButton>
       <IconButton label="Channel settings" onClick={() => setSettings(true)}>
         <SettingsIcon />
       </IconButton>
@@ -131,6 +138,8 @@ function RowView({ row, faceOf, names }: { row: ChannelRow; faceOf(id: string): 
       return <Line>{handoffLine(row)}</Line>;
     case "notice":
       return <Line tone={row.stop ? "warn" : "muted"}>{row.text}</Line>;
+    case "retro":
+      return <RetroCard card={row.card} />;
     case "bubble": {
       const mate = row.me ? undefined : faceOf(row.author);
       return (
