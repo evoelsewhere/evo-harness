@@ -173,8 +173,8 @@ impl MailStore for DbMailStore {
         // seat (docs/features/evo-mates/spec.md, FR-14).
         let seat_of = spec.role.as_ref().and_then(|role| role.mate.as_ref()).filter(|_| parent_row.kind == chats::KIND_CHANNEL);
         if let Some(mate) = seat_of {
+            // `session_row` made it a seat; the channel records it.
             let marked = db.with(|conn| {
-                conn.execute("UPDATE chats SET kind = 'seat', mate_id = ?2 WHERE id = ?1", evo_store::rusqlite::params![id, mate.id])?;
                 if let Some(channel) = evo_store::channels::channel_of_chat(conn, parent)? {
                     evo_store::channels::set_seat(conn, &channel.id, &mate.id, &id)?;
                     // The channel's role names the seat too, so a restarted
@@ -211,6 +211,32 @@ impl MailStore for DbMailStore {
 /// (docs/features/session-roles-and-mail/spec.md, FR-1, FR-2). `None`: the
 /// parent cannot be copied (it is gone, or incognito).
 fn session_row(
+    conn: &mut Connection,
+    transcripts_dir: &Path,
+    parent: &Chat,
+    id: &str,
+    title: &str,
+    fork: bool,
+    worktree_path: Option<&str>,
+    role: Option<&evo_mesh::wire::SessionRole>,
+) -> Result<Option<Chat>, DbError> {
+    let made = chat_row(conn, transcripts_dir, parent, id, title, fork, worktree_path, role)?;
+    // A channel's seat is its mate's (kind `seat`) from the start: the row
+    // the windows hear of must already say so, or Evo Harness lists it
+    // (docs/features/evo-mates/spec.md, FR-24).
+    let mate = role.and_then(|role| role.mate.as_ref()).filter(|_| parent.kind == chats::KIND_CHANNEL);
+    match (made, mate) {
+        (Some(_), Some(mate)) => {
+            conn.execute("UPDATE chats SET kind = 'seat', mate_id = ?2 WHERE id = ?1", evo_store::rusqlite::params![id, mate.id])?;
+            chats::get_chat(conn, id)
+        }
+        (made, _) => Ok(made),
+    }
+}
+
+/// [`session_row`]'s chat, before a seat is marked as one.
+#[allow(clippy::too_many_arguments)]
+fn chat_row(
     conn: &mut Connection,
     transcripts_dir: &Path,
     parent: &Chat,
@@ -525,6 +551,28 @@ mod tests {
         let own = evo_mesh::wire::SessionRole { provider: Some("acme".into()), model: Some("acme-small".into()), ..mate };
         let seat = fx.child_as(&channel, false, &own);
         assert_eq!(seat.model.as_deref(), Some("acme-small"));
+    }
+
+    // docs/features/evo-mates/spec.md (FR-24): the row the windows hear of
+    // is already a seat of its mate, so Evo Harness never lists it.
+    #[test]
+    fn a_channels_seat_is_made_a_seat_of_its_mate() {
+        let mate = evo_mesh::wire::SessionRole {
+            name: Some("Ada".into()),
+            mate: Some(evo_mesh::wire::MateIdentity { id: "mate-1".into(), name: "Ada".into(), role: String::new(), channel: Some("Room".into()) }),
+            ..Default::default()
+        };
+        for fork in [false, true] {
+            let mut fx = Fixture::new();
+            let channel = fx.parent(NewChat { kind: Some(chats::KIND_CHANNEL.into()), ..Default::default() });
+            let seat = fx.child_as(&channel, fork, &mate);
+            assert_eq!((seat.kind.as_str(), seat.mate_id.as_deref()), ("seat", Some("mate-1")), "fork: {fork}");
+        }
+        // A nested session of a chat stays a chat, role or not.
+        let mut fx = Fixture::new();
+        let parent = fx.parent(NewChat::default());
+        let nested = fx.child_as(&parent, false, &mate);
+        assert_eq!((nested.kind.as_str(), nested.mate_id.as_deref()), ("chat", None));
     }
 
     // docs/features/session-roles-and-mail/spec.md (FR-6, FR-7).
