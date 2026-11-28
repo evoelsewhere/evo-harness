@@ -257,3 +257,19 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   the user and session ids. The key is checked with `GET
   /connected_accounts?limit=1`. Tests use `connected_apps/fake.rs`, an
   HTTP server on 127.0.0.1 that answers from `testdata/`.
+- 2026-11-28 — `Pool::start` keeps the app server (it is the app's, not
+  the file's), so the order of `mcp::setup` and `connected_apps::app::setup`
+  does not matter. The key's keychain account is `connected-apps` in the
+  release build (`com.evoelsewhere.evo`) and `connected-apps@<identifier>`
+  in any other build (debug, e2e), so testing never reads or replaces the
+  person's key.
+- 2026-11-28 — Connect (`connect.rs`): for a service without managed
+  sign-in (from the catalogue's `composio_managed_auth_schemes`), the
+  person's newest enabled auth config is set on the session
+  (`PATCH /tool_router/session/{id}` `{auth_configs: {toolkit: id}}`)
+  *before* the link; a managed service whose link is refused for its auth
+  config takes the same path once. Reconnect removes the old account
+  first, then links under its label (FR-5). The app polls every 2 s for
+  ten minutes, then emits `apps://connected` and `apps://changed` and
+  re-sends chats' tools. One more command, `apps_retry`, tries Composio
+  again at once.

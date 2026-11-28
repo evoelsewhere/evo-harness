@@ -15,8 +15,8 @@ connector's meta-tools; with none, no request goes to Composio.
 
 - [ ] T1 [FR-7] Pin Composio's shapes: record redacted fixtures of `POST /tool_router/session`, `tools/list` of the session MCP (meta-tool schemas, `MULTI_EXECUTE` arguments), `toolkits`, `link`, `connected_accounts` from a live run with the owner's key; a fake Composio server for tests — `apps/desktop/src-tauri/src/connected_apps/testdata/`, `connected_apps/fake.rs` — check: fixtures hold no key, user id or email
 - [x] T2 [FR-7, NFR-1] Failing pool tests then `AppServer` slot: one code-supplied server, permissions and cached tools saved under `appServers`, its config and headers never written — `crates/evo-mcp/src/pool.rs` — check: `cargo test -p evo-mcp app_server`
-- [ ] T3 [FR-1, NFR-1, NFR-4] Key in the keychain, check with Composio before saving, remove; no request without a key — `connected_apps/{key,composio,mod}.rs` — check: shell tests `a_refused_key_is_not_saved`, `no_key_no_request` (fake server)
-- [ ] T4 [FR-7, FR-17, FR-18] Session create or reuse, `set_app_server`, re-send tools; key removed or changed clears everything; earlier user reused when exactly one — `connected_apps/mod.rs` — check: shell tests `a_restart_keeps_the_session`, `a_new_key_starts_clean`
+- [x] T3 [FR-1, NFR-1, NFR-4] Key in the keychain, check with Composio before saving, remove; no request without a key — `connected_apps/{key,composio,mod}.rs` — check: shell tests `a_refused_key_is_not_saved`, `no_key_no_request` (fake server)
+- [x] T4 [FR-7, FR-17, FR-18] Session create or reuse, `set_app_server`, re-send tools; key removed or changed clears everything; earlier user reused when exactly one — `connected_apps/mod.rs` — check: shell tests `a_restart_keeps_the_session`, `a_new_key_starts_clean`
 - [ ] T5 [FR-1, FR-2] Key card UI with the Composio note — `apps/desktop/src/features/connected-apps/key-card.tsx` — check: manual
 
 ### Phase 2 — Catalogue and accounts
@@ -25,8 +25,8 @@ Done when: the person connects two labelled Gmail accounts, reconnects and
 disconnects one, in both apps.
 
 - [x] T6 [FR-4, FR-5] Failing tests then label rules: unique, required once active, dead label reused after removing its account, five usable — `connected_apps/accounts.rs` — check: `cargo test` shell `label_rules`
-- [ ] T7 [FR-3 – FR-6] Commands catalog, connect (browser), reopen, poll, disconnect with revoke, reconnect; `apps://changed` — `connected_apps/{catalog,accounts,mod}.rs`, `lib.rs` — check: shell tests against the fake server
-- [ ] T8 [FR-16] No managed sign-in: enable the person's newest enabled auth config for Tool Router, patch the session, retry once; else the steps — `connected_apps/accounts.rs`, `errors.rs` — check: shell test `a_toolkit_without_managed_auth_uses_the_persons_config`
+- [x] T7 [FR-3 – FR-6] Commands catalog, connect (browser), reopen, poll, disconnect with revoke, reconnect; `apps://changed` — `connected_apps/{catalog,accounts,mod}.rs`, `lib.rs` — check: shell tests against the fake server
+- [x] T8 [FR-16] No managed sign-in: enable the person's newest enabled auth config for Tool Router, patch the session, retry once; else the steps — `connected_apps/accounts.rs`, `errors.rs` — check: shell test `a_toolkit_without_managed_auth_uses_the_persons_config`
 - [ ] T9 [FR-3 – FR-6, NFR-3] Connected apps page (catalogue with search and categories, Connected tab, Connect dialog, Add account, Reconnect, Disconnect, pending link), placed in Customize, the More menu, Mates Settings and the mate's Apps tab — `features/connected-apps/`, `features/customize/customize-page.tsx`, `features/shell/sidebar-items.ts`, `features/settings/`, `features/mates/mate-panel.tsx` — check: manual, timed catalogue open
 
 ### Phase 3 — The gate

@@ -357,7 +357,8 @@ impl Pool {
         let file = ConfigFile::load(&self.shared.path)?;
         let names: Vec<String> = {
             let mut servers = self.shared.servers.lock().unwrap();
-            servers.clear();
+            // The app server is the app's, not the file's: it stays.
+            servers.retain(|_, e| e.app.is_some());
             for (name, config) in file.servers {
                 servers.insert(name.clone(), Entry::new(name, config, None));
             }
@@ -1918,6 +1919,12 @@ mod tests {
         assert_eq!(server["name"], "connected_apps");
         assert_eq!(server["app"], "connected_apps");
         assert_eq!(server["status"], "failed", "nothing listens there");
+        pool.start().unwrap();
+        assert_eq!(
+            pool.snapshot()["servers"][0]["key"],
+            "app:connected_apps",
+            "reading the file again keeps it"
+        );
         assert!(!snap.to_string().contains(SECRET), "{snap}");
         // Its permissions are saved apart from the person's servers…
         pool.set_permission(

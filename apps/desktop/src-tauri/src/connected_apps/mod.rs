@@ -15,7 +15,10 @@
 //! that lives only in memory.
 
 pub mod accounts;
+pub mod app;
+pub mod catalog;
 pub mod composio;
+pub mod connect;
 #[cfg(test)]
 pub mod fake;
 pub mod files;
@@ -71,6 +74,8 @@ struct Inner {
     reach: Option<Reach>,
     session: Option<Session>,
     accounts: Vec<Account>,
+    /// Sign-ins under way, by id.
+    pending: std::collections::HashMap<String, connect::Pending>,
 }
 
 /// The connected-apps service of the app.

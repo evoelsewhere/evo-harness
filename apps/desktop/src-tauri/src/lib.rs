@@ -141,6 +141,8 @@ pub fn run() {
             mcp::setup(app.handle());
             // Plugins' connectors join the pool.
             plugins::setup(app.handle());
+            // Connected apps (Composio) join it as one more connector.
+            connected_apps::app::setup(app.handle());
             plugin_ui::watch::start(app.handle());
             // Plugin sign-ins: events, and renewing connector servers' tokens.
             plugin_auth::setup(app.handle());
@@ -195,6 +197,15 @@ pub fn run() {
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             app_identity::app_open,
             app_identity::mates_open_pending,
+            connected_apps::app::apps_state,
+            connected_apps::app::apps_set_key,
+            connected_apps::app::apps_remove_key,
+            connected_apps::app::apps_catalog,
+            connected_apps::app::apps_connect,
+            connected_apps::app::apps_reopen,
+            connected_apps::app::apps_disconnect,
+            connected_apps::app::apps_reconnect,
+            connected_apps::app::apps_retry,
             mates::mates_list,
             mates::mates_templates,
             mates::mates_create,
