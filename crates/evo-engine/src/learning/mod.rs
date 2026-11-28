@@ -6,6 +6,7 @@
 //! fact about the person, the quote checks, then into the journal.
 
 pub mod entries;
+pub mod quotes;
 pub mod redact;
 pub mod run;
 pub mod tidy;

@@ -37,7 +37,7 @@ journal rows, in both apps, on the Background model.
 Done when: a nightly dream saves only cross-chat patterns backed by real
 quotes, supersedes outdated facts and offers ideas the person can accept.
 
-- [ ] T12 [P] [FR-8] Failing tests then `learning/quotes.rs`: a quote must be in its chat (folded), numbers, paths and URLs must be in the quotes, any language — `crates/evo-engine/src/learning/quotes.rs` — check: `cargo test -p evo-engine quotes`
+- [x] T12 [P] [FR-8] Failing tests then `learning/quotes.rs`: a quote must be in its chat (folded), numbers, paths and URLs must be in the quotes, any language — `crates/evo-engine/src/learning/quotes.rs` — check: `cargo test -p evo-engine quotes`
 - [ ] T13 [FR-8] The index run's memory tool takes `evidence` for `user` facts and refuses without a passing check — `crates/evo-engine/src/memory_index.rs`, `tools/memory.rs` — check: engine test `an_index_fact_without_a_real_quote_is_refused`
 - [ ] T14 [FR-10 – FR-13] Failing tests then `learning/dream.rs`: chat selection (owner's lines only, no scheduled, mail or heartbeat), cuts, prompt, parse with limits and confidence, quote checks, apply learned and outdated with journal rows — `crates/evo-engine/src/learning/dream.rs` — check: `cargo test -p evo-engine dream`
 - [ ] T15 [FR-14] Suggestions: store ideas; Harness Memory panel **Suggestions**; mate conversation card with **Set it up** (opens the scheduled-task or skill editor filled in) and **No thanks** (never again) — `crates/evo-store/src/learning.rs`, `learning/commands.rs`, `features/memory/`, `features/mates/conversation.tsx` — check: manual
