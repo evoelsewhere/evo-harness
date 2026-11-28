@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, PlusIcon, SearchIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, PlusIcon, SearchIcon, ZapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { appsApi, statusText, type Account, type AppTool, type PendingSignIn, ty
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useConnectedAppsStore } from "@/stores/connected-apps-store";
-import { OfficialBadge, PreviewBadge, WaysDialog, ZapierCard } from "./official-parts";
+import { OfficialBadge, PreviewBadge, useConnectOfficial, useOfficial, WaysDialog } from "./official-parts";
 
 // The pieces of Connected apps that Customize → Connectors and Evo Mates'
 // page are built from (docs/features/connected-apps/spec.md, FR-3 – FR-6,
@@ -19,8 +19,15 @@ import { OfficialBadge, PreviewBadge, WaysDialog, ZapierCard } from "./official-
 export function ServiceTile({ slug, name, className }: { slug: string; name: string; className?: string }) {
   const logo = useConnectedAppsStore((s) => s.logos[slug]);
   React.useEffect(() => {
-    useConnectedAppsStore.getState().wantLogos([slug]);
+    if (slug !== "zapier") useConnectedAppsStore.getState().wantLogos([slug]);
   }, [slug]);
+  // Composio's logo host has no usable Zapier logo: Zapier's own orange and bolt.
+  if (slug === "zapier")
+    return (
+      <span aria-hidden className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#ff4f00] text-white", className)}>
+        <ZapIcon className="size-1/2 fill-current" />
+      </span>
+    );
   return (
     <span
       aria-hidden
@@ -172,7 +179,12 @@ export function ConnectDialog({ toolkit, onOpenChange }: { toolkit: Toolkit | nu
 // ── The catalogue ───────────────────────────────────────────────────────────
 
 /** "developer tools" → "Developer tools". */
-const firstUpper = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+const ACRONYMS: Record<string, string> = { crm: "CRM", ai: "AI", seo: "SEO", hr: "HR", erp: "ERP", sms: "SMS", it: "IT", api: "API" };
+const firstUpper = (text: string) =>
+  text
+    .split(" ")
+    .map((word, i) => ACRONYMS[word.toLowerCase()] ?? (i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(" ");
 
 /** Cards shown before "Show more". */
 const PAGE = 48;
@@ -205,7 +217,7 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(view: 
 
   const chips = React.useMemo(() => {
     const count = new Map<string, number>();
-    for (const t of toolkits) for (const c of t.categories) count.set(c, (count.get(c) ?? 0) + 1);
+    for (const t of toolkits) for (const c of t.categories) if (c.toLowerCase() !== "model context protocol") count.set(c, (count.get(c) ?? 0) + 1);
     return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, CHIPS).map(([c]) => c);
   }, [toolkits]);
   const q = query.trim().toLowerCase();
@@ -224,7 +236,6 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(view: 
   if (error && !toolkits.length) return <p className="py-8 text-center text-xs text-muted-foreground">The catalogue could not be read: {error}</p>;
   return (
     <div className="flex flex-col gap-3">
-      {!q && !category && <ZapierCard onOpen={() => onOpen?.("zapier")} />}
       <div className="scrollbar-none -mx-1 flex gap-1 overflow-x-auto px-1">
         {["", ...chips].map((c) => (
           <button
@@ -232,11 +243,11 @@ export function AppsCatalogue({ query, onOpen }: { query: string; onOpen?(view: 
             type="button"
             onClick={() => setCategory(c)}
             className={cn(
-              "h-7 shrink-0 rounded-full px-3 text-xs capitalize transition-colors",
+              "h-7 shrink-0 rounded-full px-3 text-xs transition-colors",
               category === c ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground dark:bg-accent",
             )}
           >
-            {c || "All"}
+            {c ? firstUpper(c.toLowerCase()) : "All"}
           </button>
         ))}
       </div>
@@ -368,6 +379,8 @@ export function ServiceDetail({ toolkit }: { toolkit: string }) {
   const [confirm, setConfirm] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = React.useState(false);
+  const official = useOfficial(info?.official);
+  const direct = useConnectOfficial();
   const act = async (id: string, run: () => Promise<void>) => {
     setBusy(id);
     setError(null);
@@ -398,8 +411,20 @@ export function ServiceDetail({ toolkit }: { toolkit: string }) {
         </Button>
       </header>
 
+      {official && !official.connected && (
+        <div className="flex items-center gap-3 rounded-xl bg-brand/6 px-3.5 py-2.5 shadow-[0_0_0_1px_var(--brand)]">
+          <OfficialBadge />
+          <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            {title} also has its own MCP server: data goes only to {title}, and Evo adds no cost.
+          </p>
+          <Button size="xs" disabled={direct.busy} onClick={() => void direct.connect(official)}>
+            Connect directly
+          </Button>
+          {direct.dialog}
+        </div>
+      )}
       <section className="flex flex-col gap-2">
-        <h3 className="text-xs font-medium text-muted-foreground">Accounts</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">Accounts through Composio</h3>
         {error && (
           <p role="alert" className="text-xs text-destructive">
             {error}

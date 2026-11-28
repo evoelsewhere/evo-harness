@@ -49,7 +49,7 @@ export const serverTone = (status: string | undefined) =>
   status === "connected" ? "bg-status-ok" : status === "failed" ? "bg-destructive" : "bg-amber-500";
 
 /** Paste a token the service issues; it goes to the system keychain. */
-function TokenDialog({
+export function TokenDialog({
   title,
   hint,
   docs,
@@ -240,10 +240,16 @@ export function WaysDialog({ toolkit, onOpenChange }: { toolkit: Toolkit | null;
   );
 }
 
-/** Zapier at the top of Browse (FR-24): its actions, its tasks. */
+/**
+ * Zapier as a provider, in the Connected apps settings panel (FR-24):
+ * Connect (its sign-in) or a connection token; once connected its status,
+ * Choose actions on Zapier, Open its page and Disconnect; the tasks note.
+ */
 export function ZapierCard({ onOpen }: { onOpen?(): void }) {
   const zapier = useConnectedAppsStore((s) => s.providers?.zapier);
+  const server = useServer(zapier?.key);
   const [tokenOpen, setTokenOpen] = React.useState(false);
+  const [confirm, setConfirm] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   if (!zapier) return null;
@@ -261,27 +267,62 @@ export function ZapierCard({ onOpen }: { onOpen?(): void }) {
     }
   };
   return (
-    <div className="flex flex-col gap-2 rounded-xl px-3.5 py-3 shadow-[0_0_0_1px_var(--border)]">
+    <section className="flex flex-col gap-3 rounded-xl bg-muted/40 p-4 dark:bg-accent/40">
       <div className="flex items-center gap-3">
         <ServiceTile slug="zapier" name="Zapier" className="size-9 rounded-[10px]" />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-center gap-1.5 text-[13px] font-medium">
             <ZapIcon className="size-3.5 text-amber-500" /> Zapier
           </span>
-          <span className="text-xs text-muted-foreground">
-            Thousands of apps through your Zapier account. Each successful call uses {zapier.tasksPerCall} tasks of your Zapier plan.
-          </span>
+          {zapier.connected ? (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className={cn("size-1.5 rounded-full", serverTone(server?.status))} />
+              {statusWord[server?.status ?? "connecting"]}
+              {server?.status === "connected" && ` · ${server.tools.length} actions`}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">Thousands of apps through your Zapier account.</span>
+          )}
         </div>
         {zapier.connected ? (
-          <Button size="sm" variant="outline" onClick={onOpen}>
-            Open
-          </Button>
+          <div className="flex items-center gap-1">
+            {onOpen && (
+              <Button size="sm" variant="ghost" onClick={onOpen}>
+                Open
+              </Button>
+            )}
+            {confirm ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onBlur={() => setConfirm(false)}
+                onClick={async () => {
+                  await appsApi.disconnectZapier().catch(() => undefined);
+                  void useConnectedAppsStore.getState().load();
+                  void useConnectorsStore.getState().load();
+                }}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setConfirm(true)}>
+                Disconnect
+              </Button>
+            )}
+          </div>
         ) : (
           <Button size="sm" disabled={busy} onClick={() => void connect()}>
             {busy ? "Signing in…" : "Connect"}
           </Button>
         )}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Its tools are the actions you enable for your server on Zapier.{" "}
+        <button type="button" onClick={() => open(zapier.actions)} className="text-brand hover:underline">
+          Choose actions
+        </button>
+        . Each successful call uses {zapier.tasksPerCall} tasks of your Zapier plan, at Zapier's rate; failed calls use none.
+      </p>
       {!zapier.connected && (
         <button type="button" onClick={() => setTokenOpen(true)} className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
           <KeyRoundIcon className="size-3" /> Use a connection token instead
@@ -291,6 +332,9 @@ export function ZapierCard({ onOpen }: { onOpen?(): void }) {
         <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
+      )}
+      {zapier.connected && server && server.status !== "connected" && server.status !== "connecting" && (
+        <Trouble server={server} docs={zapier.docs} name="Zapier" onRetry={() => void connect()} />
       )}
       <TokenDialog
         title="Connect Zapier with a token"
@@ -304,20 +348,41 @@ export function ZapierCard({ onOpen }: { onOpen?(): void }) {
           void useConnectorsStore.getState().load();
         }}
       />
-    </div>
+    </section>
   );
 }
 
+/**
+ * What is wrong with an app server, in the person's words: a sign-in that is
+ * missing or refused, an address that does not answer, or the server's own
+ * message cut short. The raw text stays available under Details.
+ */
+export function problemOf(server: Pick<Connector, "status" | "error"> | undefined, name: string): string | null {
+  if (!server || server.status === "connected" || server.status === "connecting" || server.status === "off") return null;
+  const raw = (server.error ?? "").toLowerCase();
+  if (server.status === "needs-auth" || /auth required|unauthori[sz]ed|\b401\b|\b403\b|invalid_token/.test(raw))
+    return `${name} needs you to sign in.`;
+  if (/timed out|no answer|connection refused|dns|could not connect|error sending request|connect error/.test(raw)) return `${name} does not answer right now.`;
+  const first = (server.error ?? "").split(/[\n.]/)[0]?.trim();
+  return first && first.length < 140 && !first.includes("::") ? first : `${name} could not be reached.`;
+}
+
 /** Failed or needing sign-in, with the reason and the service's docs (FR-26). */
-function Trouble({ server, docs, name, onRetry }: { server: Connector | undefined; docs: string; name: string; onRetry(): void }) {
-  if (!server || server.status === "connected" || server.status === "connecting") return null;
+export function Trouble({ server, docs, name, onRetry }: { server: Connector | undefined; docs: string; name: string; onRetry(): void }) {
+  const problem = problemOf(server, name);
+  if (!server || !problem) return null;
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl bg-amber-500/8 px-3.5 py-3 text-[13px] shadow-[0_0_0_1px_rgb(245_158_11/0.3)]">
-      <p className="font-medium">{statusWord[server.status] ?? server.status}</p>
-      {server.error && <p className="font-mono text-xs break-words text-muted-foreground">{server.error}</p>}
+    <div className="flex flex-col gap-2 rounded-xl bg-amber-500/8 px-3.5 py-3 text-[13px] shadow-[0_0_0_1px_rgb(245_158_11/0.3)]">
+      <p className="font-medium">{problem}</p>
+      {server.error && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-default select-none hover:text-foreground">Details</summary>
+          <p className="mt-1 font-mono break-words">{server.error}</p>
+        </details>
+      )}
       <div className="flex gap-2">
         <Button size="xs" onClick={onRetry}>
-          {server.status === "needs-auth" ? "Sign in" : "Try again"}
+          {problem.endsWith("sign in.") ? "Sign in" : "Try again"}
         </Button>
         <Button size="xs" variant="ghost" onClick={() => open(docs)}>
           {name}'s documentation <ExternalLinkIcon />

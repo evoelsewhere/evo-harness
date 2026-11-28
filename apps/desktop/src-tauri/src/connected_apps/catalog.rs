@@ -176,7 +176,18 @@ pub async fn load(client: &Composio, file: &Path) -> Result<Vec<Toolkit>, String
 /// order — on the card of its Composio toolkit when the service has exactly
 /// one, so the service shows once with both ways — then Composio's toolkits.
 pub fn merge(toolkits: Vec<Toolkit>) -> Vec<Toolkit> {
-    let mut rest = toolkits;
+    // Composio lists some services twice, as "X" and "X MCP": keep "X".
+    let names: std::collections::HashSet<String> =
+        toolkits.iter().map(|t| t.name.to_lowercase()).collect();
+    let mut rest: Vec<Toolkit> = toolkits
+        .into_iter()
+        .filter(|t| {
+            let lower = t.name.to_lowercase();
+            !lower
+                .strip_suffix(" mcp")
+                .is_some_and(|base| names.contains(base))
+        })
+        .collect();
     let mut first = Vec::new();
     for o in super::official::all() {
         let matching: Vec<usize> = rest
@@ -300,6 +311,17 @@ mod tests {
             .iter()
             .any(|t| t.slug == "jira" && t.official.is_none()));
         assert_eq!(merged.last().unwrap().slug, "confluence");
+        // "X MCP" goes when "X" is there; one on its own stays.
+        let merged = merge(vec![
+            kit("acme", "Acme", &[]),
+            kit("acme_mcp", "Acme MCP", &[]),
+            kit("solo_mcp", "Solo MCP", &[]),
+        ]);
+        let slugs: Vec<&str> = merged.iter().map(|t| t.slug.as_str()).collect();
+        assert!(
+            slugs.contains(&"acme") && !slugs.contains(&"acme_mcp") && slugs.contains(&"solo_mcp"),
+            "{slugs:?}"
+        );
     }
 
     #[test]
