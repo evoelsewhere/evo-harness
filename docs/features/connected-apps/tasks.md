@@ -61,26 +61,26 @@ Connect card works; Harness chats switch them per chat.
 
 | Requirement | Test or check | Result |
 | --- | --- | --- |
-| FR-1 | `a_refused_key_is_not_saved`; manual | not run |
-| FR-2 | review of the key card text | not run |
+| FR-1 | `a_refused_key_is_not_saved`; manual | passed (2026-11-28): test; in the e2e app a `uak_` key is refused before any request, a bogus `ak_` key is refused by Composio with its reason and not saved |
+| FR-2 | review of the key card text | passed (2026-11-28): the note shows on the key card in Customize, Settings › Evo Mates and the Mates dialog |
 | FR-3 | manual placements | not run |
 | FR-4 | `label_rules`; fake-server connect test; manual | not run |
-| FR-5 | `label_rules` | not run |
-| FR-6 | fake-server disconnect and reconnect tests | not run |
+| FR-5 | `label_rules` | passed (2026-11-28) |
+| FR-6 | fake-server disconnect and reconnect tests | passed (2026-11-28): `disconnect_revokes_one_and_reconnect_keeps_the_label` |
 | FR-7 | `app_server` pool tests; `the_sandbox_is_closed_to_a_limited_mate` | not run |
-| FR-8 | `an_account_is_required_with_two` | not run |
-| FR-9 | `a_bad_argument_is_refused_before_sending` | not run |
+| FR-8 | `an_account_is_required_with_two` | passed (2026-11-28) |
+| FR-9 | `a_bad_argument_is_refused_before_sending` | passed (2026-11-28) |
 | FR-10 | `a_mate_on_only_these_cannot_use_personal`; `a_new_service_reaches_mates_on_all`; manual | not run |
 | FR-11 | `manage_connections_shows_the_connect_card`; manual | not run |
-| FR-12 | `connected_apps_off_in_a_chat_offers_none` | not run |
-| FR-13 | `a_send_tool_asks_under_ask_every_time` | not run |
-| FR-14 | `a_hidden_file_is_never_uploaded`; `files_upload_only_after_approval` | not run |
-| FR-15 | scope fixture test | not run |
-| FR-16 | `a_toolkit_without_managed_auth_uses_the_persons_config` | not run |
+| FR-12 | `connected_apps_off_in_a_chat_offers_none` | passed (2026-11-28); also `connected_apps_off_in_a_project_offers_none` |
+| FR-13 | `a_send_tool_asks_under_ask_every_time` | passed (2026-11-28) |
+| FR-14 | `a_hidden_file_is_never_uploaded`; `files_upload_only_after_approval` | passed (2026-11-28) |
+| FR-15 | scope fixture test | passed (2026-11-28): `a_scope_refusal_names_the_step` |
+| FR-16 | `a_toolkit_without_managed_auth_uses_the_persons_config` | passed (2026-11-28) |
 | FR-17 | `a_new_key_starts_clean`; manual offline | not run |
-| FR-18 | `a_restart_keeps_the_session` | not run |
-| FR-19 | tool-label unit test | not run |
+| FR-18 | `a_restart_keeps_the_session` | passed (2026-11-28); also `a_reinstall_finds_the_one_earlier_user` |
+| FR-19 | tool-label unit test | passed (2026-11-28): `connected-app-label.test.ts` |
 | NFR-1 | review: no secret in `evo.db`, logs, `mcp.json` | not run |
 | NFR-2 | review: results are tool output | not run |
 | NFR-3 | timed manual check | not run |
-| NFR-4 | `no_key_no_request` | not run |
+| NFR-4 | `no_key_no_request` | passed (2026-11-28) |
