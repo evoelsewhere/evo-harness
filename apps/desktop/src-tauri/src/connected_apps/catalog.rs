@@ -129,7 +129,7 @@ pub async fn fetch(client: &Composio) -> Result<Vec<Toolkit>, ApiError> {
             break;
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|t| t.name.to_lowercase());
     out.dedup_by(|a, b| a.slug == b.slug);
     Ok(out)
 }

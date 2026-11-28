@@ -165,7 +165,7 @@ pub fn offered_to(tool: &ChatTool, limited_mate: bool, project_off: bool) -> boo
     if tool.server != gate::KEY {
         return true;
     }
-    !project_off && !(limited_mate && gate::meta(&tool.tool) == Meta::Sandbox)
+    !(project_off || (limited_mate && gate::meta(&tool.tool) == Meta::Sandbox))
 }
 
 /// [`offered_to`] for `chat` working in `folder`.
