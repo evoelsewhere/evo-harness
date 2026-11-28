@@ -23,6 +23,7 @@ import { useMemoryStore } from "@/stores/memory-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
+import { LearningSettings } from "./learning-settings";
 
 // Settings → Memory: every memory setting in one place
 // (docs/features/memory-topics-and-chat-recall/spec.md, FR-10).
@@ -374,6 +375,8 @@ export function MemorySettings() {
           }
         />
       </SettingsGroup>
+
+      <LearningSettings app="harness" />
 
       <SettingsGroup title="Reset">
         <SettingsRow

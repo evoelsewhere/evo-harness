@@ -23,7 +23,8 @@ import { mateMood, moodWord, useMatesStore, type MatePanelTab } from "@/stores/m
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
-import { MemoryHistory, type MemoryChange } from "@/features/memory";
+import { MemoryHistory, TidyNow, type MemoryChange } from "@/features/memory";
+import { MateLearning } from "./mate-learning";
 import { ConfirmDelete } from "./confirm";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
@@ -402,6 +403,7 @@ function Settings({ mate }: { mate: Mate }) {
           aria-label="Paused"
         />
       </div>
+      <MateLearning mate={mate} />
     </div>
   );
 }
@@ -508,6 +510,7 @@ function Memory({ mate }: { mate: Mate }) {
           </ul>
         </section>
       )}
+      <TidyNow owners={[`mate:${mate.id}`]} onDone={() => void request("list_memories").then(() => history())} />
       <MemoryHistory
         changes={changes}
         onUndo={(id) => void history("undo_memory_change", { change: id }).then((done) => (done ? request("list_memories") : undefined))}

@@ -19,6 +19,7 @@ import { channelsApi } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
 import { useEngineStore } from "@/stores/engine-store";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
+import { LearningSettings } from "./learning-settings";
 
 // Settings → Evo Mates (docs/features/evo-mates/spec.md, FR-18): how many
 // times mates in a channel may hand work to each other for one message
@@ -140,6 +141,7 @@ export function MatesSettings() {
           control={<RouterModelPicker value={router} onChange={saveRouter} />}
         />
       </SettingsGroup>
+      <LearningSettings app="mates" />
     </div>
   );
 }

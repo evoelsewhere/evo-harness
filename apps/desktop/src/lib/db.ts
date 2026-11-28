@@ -297,6 +297,12 @@ export const db = {
   memoryIndexEarlier: () => invoke<void>("memory_index_earlier"),
   /** A memory setting kept by the engine, or the providers, changed. */
   memoryIndexPoke: () => invoke<void>("memory_index_poke"),
+
+  /** Tidy now for memory owners (docs/features/learning-layers/spec.md, FR-6). */
+  learningTidyNow: (owners: string[]) =>
+    invoke<import("@/stores/learning-store").TidyResult[]>("learning_tidy_now", { owners }),
+  /** A learning setting changed: the shell looks again now. */
+  learningPoke: () => invoke<void>("learning_poke"),
 };
 
 /**

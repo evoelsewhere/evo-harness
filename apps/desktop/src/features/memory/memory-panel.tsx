@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useActiveEngineReady, useEngineStore } from "@/stores/engine-store";
 import { MemoryHistory, type MemoryChange } from "./memory-history";
+import { TidyNow } from "./tidy-now";
 
 // The Memory tool: what the agent keeps across chats (RPC `list_memories`,
 // `save_memory`, `delete_memory`, `set_memory_enabled`;
@@ -59,6 +60,8 @@ interface MemoryState {
   project: { dir: string; folder: string; items: MemoryItem[] };
   /** A save was refused: the topic as it is now (`null` when it was deleted). */
   conflict?: { current: MemoryItem | null };
+  /** Whose memory each list is (learning-layers FR-6). */
+  owners?: { personal: string; project: string };
 }
 
 const BY_LABEL: Record<string, string> = { chat: "by the agent", index: "by indexing", person: "by you" };
@@ -135,13 +138,14 @@ function useMemories() {
     void loadChanges();
   }, [ready, busy, chat, request, loadChanges]);
 
-  // An index run changed topics while the panel was open.
+  // An index run, the tidy-up or the dream changed topics while the panel was open.
   React.useEffect(() => {
-    const stop = listen("memory://changed", () => {
+    const again = () => {
       void request("list_memories");
       void loadChanges();
-    });
-    return () => void stop.then((off) => off());
+    };
+    const stops = [listen("memory://changed", again), listen("learning://changed", again)];
+    return () => stops.forEach((stop) => void stop.then((off) => off()));
   }, [request, loadChanges]);
 
   /** Undo one change, then show the topics as they are now. */
@@ -585,6 +589,14 @@ export function MemoryPanel() {
                   )}
                 </section>
               ))
+            )}
+            {state.owners && total > 0 && (
+              <div className="mb-2">
+                <TidyNow
+                  owners={state.usePersonal === false ? [state.owners.project] : [state.owners.project, state.owners.personal]}
+                  onDone={() => void request("list_memories")}
+                />
+              </div>
             )}
             <MemoryHistory changes={changes} onUndo={(id) => void undo(id)} />
           </>

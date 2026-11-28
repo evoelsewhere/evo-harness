@@ -451,7 +451,8 @@ pub fn settings_set(app: AppHandle, db: State<'_, Db>, key: String, value: Value
         crate::computer::settings_changed(&app, &key, &value);
     }
     // Memory indexing follows its settings at once (memory_index.rs).
-    if key.starts_with("memory.") {
+    // The Background model is indexing's model too (learning-layers FR-24).
+    if key.starts_with("memory.") || key == crate::learning::BACKGROUND_MODEL_KEY {
         crate::memory_index::settings_changed(&app, &key, &value);
     }
     // **Search past chats**: running chats are offered their tools again.
