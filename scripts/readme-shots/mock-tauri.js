@@ -113,6 +113,71 @@
   ];
   const STATE = { modelId: "gpt-5.1", model: "GPT-5.1", provider: "openai", thinkingLevel: "medium", context: { tokens: 31200, window: 400000, percent: 7.8 } };
 
+  // ── Evo Mates (capture_app.py, mates.html): Evo's own faces only ─────────
+  const ago = (minutes) => Date.now() - minutes * 60_000;
+  const mate = (id, name, role, definition, hue, position, extra = {}) => ({
+    id, name, role, avatar: { definition, hue, material: "flat" }, instructions: "", provider: null, model: null, thinking: null,
+    tools: null, connectors: null, skills: null, apps: null, approvalMode: "ask", sending: "send", initiative: "low", unanswered: 0,
+    notifications: true, paused: false, folder: `${HOME}\\.evo\\agent\\mates\\${id}`, projectFolder: null, chatId: `chat-${id}`,
+    template: null, pinned: false, hidden: false, position, createdAt: ago(9000), updatedAt: ago(5), ...extra,
+  });
+  const MATES = [
+    mate("ava", "Ava", "Product lead", "pebble", 215, 0, { pinned: true }),
+    mate("kai", "Kai", "Engineer", "gear", 160, 1),
+    mate("lin", "Lin", "Writer", "quill", 28, 2),
+    mate("mo", "Mo", "Designer", "prism", 330, 3),
+    mate("rio", "Rio", "Researcher", "scout", 275, 4),
+  ];
+  const member = (mateId, position) => ({ mateId, seatChatId: `seat-${mateId}`, position });
+  const CHANNELS = [
+    { id: "launch", name: "Launch room", instructions: "Ship 4.14 on Friday.", replyRule: "auto", leadMateId: "ava", folder: null,
+      chatId: "chan-launch", pinned: true, hidden: false, position: 0,
+      members: [member("ava", 0), member("kai", 1), member("lin", 2), member("mo", 3)], createdAt: ago(4000), updatedAt: ago(2) },
+    { id: "research", name: "Research notes", instructions: "", replyRule: "lead", leadMateId: "rio", folder: null,
+      chatId: "chan-research", pinned: false, hidden: false, position: 1,
+      members: [member("rio", 0), member("lin", 1)], createdAt: ago(6000), updatedAt: ago(300) },
+  ];
+  const mateChat = (id, title, kind, minutesAgo) => ({ ...chat(id, null, title, minutesAgo), kind });
+  const MATE_CHATS = [
+    ...MATES.map((m, i) => mateChat(m.chatId, m.name, "mate", 3 + i * 40)),
+    ...CHANNELS.map((c, i) => mateChat(c.chatId, c.name, "channel", 2 + i * 300)),
+  ];
+
+  // What the Launch room's coordinator wrote: a request, who answers it, the
+  // hand-offs, the replies, the job's end and its retro.
+  const CHANNEL_ENTRIES = [
+    { kind: "message", id: "p1", author: "person", text: "We ship 4.14 on Friday. @Ava can you split the launch work between the team?", at: ago(18) },
+    { kind: "route", message: "p1", picked: ["ava"], line: "Ava, as you mentioned", at: ago(18) },
+    { kind: "message", id: "a1", author: "ava", name: "Ava", text: "On it. Kai takes the release build and the changelog, Lin writes the notes from it, Mo refreshes the screenshots.", at: ago(17) },
+    { kind: "handoff", message: "p1", handoff: "assigns", from: "ava", fromName: "Ava", to: "kai", toName: "Kai", text: "Cut the 4.14 release build and update CHANGELOG.md", at: ago(17) },
+    { kind: "handoff", message: "p1", handoff: "assigns", from: "ava", fromName: "Ava", to: "lin", toName: "Lin", text: "Draft the release notes from the changelog", at: ago(17) },
+    { kind: "message", id: "k1", author: "kai", name: "Kai", text: "Build is green on all three platforms. CHANGELOG.md has 14 entries under 4.14, tagged v4.14.0-rc.1.", at: ago(9) },
+    { kind: "handoff", message: "p1", handoff: "tells", from: "kai", fromName: "Kai", to: "lin", toName: "Lin", text: "The changelog is ready for the notes", at: ago(9) },
+    { kind: "message", id: "l1", author: "lin", name: "Lin", text: "Release notes are drafted in docs/release/4.14.md: three highlights first, then fixes. Two links still point to the beta docs; I marked them.", at: ago(4) },
+    { kind: "handoff", message: "p1", handoff: "tells", from: "lin", fromName: "Lin", to: "ava", toName: "Ava", text: "Notes drafted, two beta links marked", at: ago(4) },
+    { kind: "message", id: "a2", author: "ava", name: "Ava", text: "Everything is in place for Friday: build, changelog and notes. Only the two beta links are left for you to confirm.", at: ago(3) },
+    { kind: "job", id: "j1", message: "p1", status: "completed", handoffs: 4, at: ago(3) },
+    { kind: "retro", id: "r1", at: ago(1), job: "j1", status: "completed", handoffs: 4,
+      well: ["Every task had one owner, so nothing was done twice", "Kai told Lin as soon as the changelog was ready"],
+      wrong: ["Lin found the beta links only at the end"],
+      lessons: [
+        { mate: "lin", name: "Lin", text: "Check every link against the release docs before drafting", skill: "release-notes", row: 41 },
+        { mate: "kai", name: "Kai", text: "Post the changelog's entry count with the build", skill: null, row: null },
+      ] },
+  ];
+
+  // Ava's own conversation: a reply after which she learned a skill.
+  const AVA_MESSAGES = [
+    { role: "user", content: [{ type: "text", text: "Write this week's update for the team: launch on Friday, hiring paused, offsite moved to the 12th." }], timestamp: ago(30), entryId: "ava-e1" },
+    { role: "assistant", content: [{ type: "text", text: "**This week**\n\n- **Launch:** 4.14 ships on Friday.\n- **Hiring:** paused until next quarter.\n- **Offsite:** moved to the 12th.\n\nI kept it to three lines with the date first, the way you like updates." }],
+      provider: "openai", model: "gpt-5.1", api: "openai-responses", stopReason: "stop", usage: usage(6000, 120), timestamp: ago(29) },
+  ];
+  const LEARNED = {
+    "chat-ava": [{ id: 7, atMs: ago(29), owner: "mate:ava", subject: "skill", name: "weekly-update", action: "added", by: "review",
+      chatId: "chat-ava", chatTitle: "Ava", replyId: "ava-e1", diff: "three lines, date first",
+      before: null, after: "1. Three lines at most.\n2. Put the date or deadline first.", undoable: true, undoneAt: null }],
+  };
+
   // ── IPC plumbing (same contract as @tauri-apps/api/mocks) ──────────────
   const callbacks = new Map();
   const listeners = new Map();
@@ -129,7 +194,8 @@
     }
     const data = (() => {
       switch (message.type) {
-        case "get_messages": return { messages: chat === "c1" ? MESSAGES : [] };
+        case "get_messages": return { messages: chat === "c1" ? MESSAGES : chat === "chat-ava" ? AVA_MESSAGES : [] };
+        case "get_session_branch": return { entries: chat === "chan-launch" ? CHANNEL_ENTRIES.map((data) => ({ type: "custom", customType: "channel", data })) : [] };
         case "get_state": return STATE;
         case "get_available_models": return { models: MODELS };
         case "get_available_thinking_levels": return { levels: ["off", "low", "medium", "high"] };
@@ -148,7 +214,7 @@
     "plugin:event|emit": ({ event, payload }) => { emit(event, payload); return null; },
     "plugin:event|emit_to": ({ event, payload }) => { emit(event, payload); return null; },
     "plugin:path|resolve_directory": () => HOME,
-    "plugin:app|version": () => "4.0.0",
+    "plugin:app|version": () => "4.13.2",
     "plugin:app|name": () => "Evo Harness",
     "plugin:window|is_maximized": () => false,
     "plugin:window|is_fullscreen": () => false,
@@ -157,13 +223,41 @@
     "window_material": () => "none",
     "settings_all": () => ({ "ui.lastChat": "c1" }),
     "workspaces_list": () => WS,
-    "chats_list": ({ archived }) => (archived ? [] : CHATS),
+    // Each front end lists its own chats: Evo Mates' mates and channels, Evo Harness's the rest.
+    "chats_list": ({ archived, kind }) => (archived ? [] : kind === "mates" ? MATE_CHATS : CHATS),
     "chats_search": () => [],
     "engine_info": () => ({ binary: "evo-engine", exists: true, extra_args: [] }),
     "engine_running": () => [],
     "engine_start": ({ chat }) => { setTimeout(() => emit("engine://message", { chat, generation: 1, message: { type: "ready" } }), 30); return 1; },
     "engine_send": ({ chat, message }) => { setTimeout(() => emit("engine://message", { chat, generation: 1, message: engineReply(chat, message) }), 10); return null; },
     "engine_stop": () => null,
+    // The shell hosts the engines: a window attaches, and the shell starts one when none runs.
+    "engine_attach": () => ({ generation: null, status: "stopped", working: false, questions: [] }),
+    "engine_ensure": () => ({ generation: 1, started: false }),
+    "engine_working": () => [],
+    "engine_questions": () => [],
+    "mcp_state": () => ({ servers: [], path: `${HOME}\\.evo\\agent\\mcp.json` }),
+    "plugins_state": () => ({ installed: [], marketplaces: [], catalog: [], root: `${HOME}\\.evo\\agent\\plugins` }),
+    "plugin_ai_questions": () => [],
+    "notifications_take": () => [],
+    "updates_state": () => ({ current: "4.13.2", lastCheckedAt: Date.now(), status: { kind: "upToDate" }, release: null }),
+    "app_open_pending": () => null,
+    "quick_entry_pending": () => null,
+    "quit_pending": () => null,
+    "mates_list": () => MATES,
+    "mates_templates": () => [],
+    "mates_queued": () => [],
+    "mates_open_pending": () => null,
+    "mates_reactions": () => [],
+    "mates_agenda": () => [],
+    "channels_list": () => CHANNELS,
+    "learned_for_chat": ({ chat }) => LEARNED[chat] || [],
+    "learning_suggestions": () => [],
+    // Commands whose answer the UI does not read.
+    ...Object.fromEntries([
+      "agent_notify_muted", "agent_panels_report", "agent_window_chat", "chat_window_focus", "engine_set_composing", "logs_append",
+      "plugin:webview|set_webview_zoom", "plugin_view_reset", "plugin_view_theme", "settings_set", "terminal_set_default_shell", "window_set_theme",
+    ].map((cmd) => [cmd, () => null])),
     "mesh_pending_chats": () => [],
     "mesh_session_tools": () => [],
     "mcp_chat_tools": () => [],

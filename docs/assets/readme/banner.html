@@ -113,10 +113,10 @@
       font-weight: 400;
       letter-spacing: -0.02em;
       color: var(--muted);
-      margin-bottom: 40px;
+      margin-bottom: 36px;
     }
 
-    ul { list-style: none; display: grid; gap: 14px; margin-bottom: 44px; }
+    ul { list-style: none; display: grid; gap: 14px; margin-bottom: 40px; }
     li {
       display: flex;
       align-items: center;
@@ -145,7 +145,7 @@
       position: absolute;
       z-index: 1;
       left: 668px;
-      top: 104px;
+      top: 96px;
       width: 1176px;
       border-radius: 14px;
       overflow: hidden;
@@ -153,12 +153,50 @@
       background: var(--bg);
     }
     .shot img { display: block; width: 100%; height: auto; }
+
+    /* Evo Mates' window over the Harness one's lower right. */
+    .mates {
+      position: absolute;
+      z-index: 3;
+      left: 1000px;
+      top: 318px;
+      width: 584px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--frame-shadow), 0 24px 48px -16px rgba(0, 0, 0, 0.28);
+      background: var(--bg);
+    }
+    .mates img { display: block; width: 100%; height: auto; }
+    .label {
+      position: absolute;
+      z-index: 4;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 28px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--pill);
+      box-shadow: 0 0 0 1px var(--line), 0 4px 12px -4px rgba(0, 0, 0, 0.18);
+      font: 500 13px 'Geist', system-ui, sans-serif;
+      color: var(--ink);
+      letter-spacing: -0.005em;
+    }
+    .label.harness { left: 684px; top: 56px; }
+    .label.mates-label { left: 1000px; top: 278px; }
+    .tag {
+      font: 500 11px 'Geist Mono', ui-monospace, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+    }
+    li .tag { margin-left: 2px; }
   </style>
 </head>
 <body>
   <div class="banner" id="banner">
     <div class="copy">
-      <span class="pill"><span class="dot"></span>v4 · Rust engine + desktop app</span>
+      <span class="pill"><span class="dot"></span>v4 · Open source · Runs on your machine</span>
       <div class="brand">
         <svg viewBox="64 64 896 896" aria-hidden="true">
           <rect x="64" y="64" width="896" height="896" rx="200" fill="#171717"/>
@@ -170,20 +208,25 @@
         </svg>
         <h1>Evo Harness</h1>
       </div>
-      <p class="tagline">A local-first desktop workspace for AI&nbsp;agents.</p>
+      <p class="tagline">Your AI agents, working right on your&nbsp;desktop.</p>
       <ul>
-        <li>One engine process per chat</li>
-        <li>Bring any model, facts from models.dev</li>
-        <li>Files, terminal, browser and git beside the chat</li>
+        <li>Any model: cloud, local or your own</li>
+        <li>Code, terminal, browser and git in one place</li>
+        <li>Crash-proof: every chat runs its own engine</li>
+        <li>Evo Mates: an AI team that works together <span class="tag">Preview</span></li>
       </ul>
       <p class="platforms">Windows · macOS · Linux</p>
     </div>
+    <span class="label harness">Evo Harness</span>
     <div class="shot"><img id="shot" src="app-light.png" alt=""></div>
+    <span class="label mates-label">Evo Mates <span class="tag">Preview</span></span>
+    <div class="mates"><img id="mates" src="mates-light.png" alt=""></div>
   </div>
   <script>
     if (location.hash === "#dark") {
       document.documentElement.dataset.theme = "dark";
       document.getElementById("shot").src = "app-dark.png";
+      document.getElementById("mates").src = "mates-dark.png";
     }
   </script>
 </body>

@@ -1,14 +1,16 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/banner-dark.png">
-    <img src="docs/assets/readme/banner-light.png" width="800" alt="Evo Harness: a chat that added a retry to web_fetch, next to the edited fetch.rs with its git changes in the Files panel" />
+    <img src="docs/assets/readme/banner-light.png" width="800" alt="Evo Harness: a chat that added a retry to web_fetch, next to the edited fetch.rs with its git changes in the Files panel; over it, Evo Mates: a Launch room channel where mates split the release work, hand it off and close with a retro" />
   </picture>
 
-  **A local-first desktop workspace for AI agents.**
+  **Your AI agents, working right on your desktop.**
 
   Evo Harness brings agent chats, files, terminal, browser, git, connectors
   and skills into one desktop app. A headless Rust engine runs every chat on your
-  machine; the desktop app is a thin shell around it.
+  machine; the desktop app is a thin shell around it. **Evo Mates** (Preview),
+  the second app in the same install, gives you AI teammates with their own
+  faces, memory and skills, who work together in channels.
 
   [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-2563EB.svg)](LICENSE)
   [![Desktop app](https://img.shields.io/badge/Product-Desktop-1764FF)](apps/desktop/)

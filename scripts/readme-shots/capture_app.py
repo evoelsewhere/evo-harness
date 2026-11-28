@@ -5,7 +5,9 @@ Tauri IPC (``mock-tauri.js``: a canned chat replayed by a fake engine) and a
 small fake repository for the Files tool (``mock-fs.js``). Nothing here is
 app code, and the app itself always runs against the real engine.
 
-Writes ``app-light.png`` and ``app-dark.png`` (1680x1000 at 2x) to
+Writes ``app-light.png`` and ``app-dark.png`` (Evo Harness, 1680x1000 at 2x)
+and ``mates-light.png`` and ``mates-dark.png`` (Evo Mates' window,
+``mates.html``, on the Launch room channel, 1280x1000 at 2x) to
 ``docs/assets/readme/`` unless another folder is given.
 
 Example::
@@ -25,12 +27,13 @@ from playwright.sync_api import sync_playwright
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 WIDTH, HEIGHT = 1680, 1000
+MATES_WIDTH, MATES_HEIGHT = 1280, 1000
 
 # Saved UI state the app reads at startup: theme and panel widths.
 STORAGE = """
 try {{
   localStorage.setItem('evo.theme', '{theme}');
-  localStorage.setItem('evo.ui', JSON.stringify({{ state: {{ sidePanelWidth: 760, sidebarWidth: 256 }}, version: 0 }}));
+  localStorage.setItem('evo.ui', JSON.stringify({{ state: {{ sidePanelWidth: 760, sidebarWidth: 256, approvalNoteSeen: true }}, version: 0 }}));
 }} catch {{}}
 """
 
@@ -51,6 +54,41 @@ SCROLL_EDITOR = """(line) => {
   scroller.scrollTop = (line - 1) * height;
   scroller.scrollLeft = 0;
 }"""
+
+
+def report(page, errors: list[str]) -> None:
+    unknown = page.evaluate("[...window.__mockUnknown].sort()")
+    if unknown:
+        print(f"  commands answered with null: {', '.join(unknown)}")
+    for error in errors:
+        print(f"  page error: {error}")
+
+
+def capture_mates(browser, url: str, out: pathlib.Path, theme: str) -> None:
+    """Evo Mates' window on the Launch room: replies, hand-offs and a retro."""
+    context = browser.new_context(
+        viewport={"width": MATES_WIDTH, "height": MATES_HEIGHT},
+        device_scale_factor=2,
+        color_scheme=theme,
+    )
+    context.add_init_script(path=str(HERE / "mock-tauri.js"))
+    context.add_init_script(path=str(HERE / "mock-fs.js"))
+    context.add_init_script(STORAGE.format(theme=theme))
+    page = context.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(url.rstrip("/") + "/mates.html", wait_until="networkidle")
+    page.wait_for_timeout(2000)
+    page.evaluate("document.fonts.ready")
+    page.get_by_text("Launch room", exact=True).first.click()
+    page.wait_for_timeout(2000)
+    page.mouse.move(MATES_WIDTH // 2, MATES_HEIGHT - 2)
+    page.wait_for_timeout(400)
+    target = out / f"mates-{theme}.png"
+    page.screenshot(path=str(target))
+    print(f"wrote {target}")
+    report(page, errors)
+    context.close()
 
 
 def capture(url: str, out: pathlib.Path) -> None:
@@ -92,12 +130,9 @@ def capture(url: str, out: pathlib.Path) -> None:
                 target = out / f"app-{theme}.png"
                 page.screenshot(path=str(target))
                 print(f"wrote {target}")
-                unknown = page.evaluate("[...window.__mockUnknown].sort()")
-                if unknown:
-                    print(f"  commands answered with null: {', '.join(unknown)}")
-                for error in errors:
-                    print(f"  page error: {error}")
+                report(page, errors)
                 context.close()
+                capture_mates(browser, url, out, theme)
         finally:
             browser.close()
 
