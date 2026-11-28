@@ -680,6 +680,11 @@ pub struct SessionRole {
     /// the session works in: a mate's own memory (FR-11, FR-26).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_dir: Option<String>,
+    /// The folder of the skills this session's agent learned itself: a
+    /// mate's own (docs/features/learning-layers/spec.md, FR-15). Written by
+    /// the shell; an older engine ignores it and sees no learned skills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub learned_skills_dir: Option<String>,
     /// The skills this session may use, by name; `None`: every skill.
     /// A mate's skill switches (docs/features/evo-mates/spec.md, FR-44).
     /// A skill switched off in Customize stays off whatever this says.

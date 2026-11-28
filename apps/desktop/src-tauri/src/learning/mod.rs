@@ -13,6 +13,7 @@ pub mod clock;
 pub mod commands;
 pub mod jobs;
 pub mod owners;
+pub mod skills;
 
 /// The first dream of an owner looks back this far (FR-10).
 pub const FIRST_DREAM_LOOKBACK_MS: i64 = 7 * 24 * 60 * 60 * 1000;

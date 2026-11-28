@@ -207,6 +207,13 @@ pub fn finish_skills(cwd: &Path, project_trusted: bool, skills: Vec<Skill>) -> V
     let mut off = Vec::new();
     let mut kept = Vec::with_capacity(skills.len());
     for mut skill in skills {
+        // A learned skill switched off in its own list (learning-layers FR-15).
+        let learned_off = crate::learning::skills::is_learned(Path::new(&skill.file_path))
+            && crate::learning::skills::switched_off(Path::new(&skill.file_path));
+        if learned_off {
+            off.push(skill);
+            continue;
+        }
         match overrides.get(&skill.name).map(String::as_str) {
             Some("off") => off.push(skill),
             Some("user-invocable-only") => {
@@ -239,9 +246,12 @@ static OFF_HERE: Mutex<Vec<Skill>> = Mutex::new(Vec::new());
 pub fn split_by_role(skills: Vec<Skill>, allowed: Option<&[String]>) -> (Vec<Skill>, Vec<Skill>) {
     match allowed {
         None => (skills, Vec::new()),
-        Some(names) => skills
-            .into_iter()
-            .partition(|skill| names.iter().any(|name| *name == skill.name)),
+        // A mate's learned skills are its own: always allowed
+        // (learning-layers FR-15).
+        Some(names) => skills.into_iter().partition(|skill| {
+            names.iter().any(|name| *name == skill.name)
+                || crate::learning::skills::is_learned(Path::new(&skill.file_path))
+        }),
     }
 }
 
@@ -376,6 +386,8 @@ fn skill_entry(cwd: &Path, skill: &Skill, state: &str, extra: &Extra) -> Value {
         "path": skill.file_path,
         "scope": scope,
         "origin": family,
+        // Written by the agent itself, not installed (learning-layers FR-15).
+        "learned": crate::learning::skills::is_learned(Path::new(&skill.file_path)),
         "state": state,
         "uses": extra.usage.get(&skill.name).map_or(0, |u| u.uses),
         "lastUsed": extra.usage.get(&skill.name).map(|u| u.last_used).filter(|t| *t > 0),

@@ -479,3 +479,55 @@ async fn a_failing_dream_changes_nothing() {
     assert_eq!(result["error"], "the answer was not valid");
     assert!(memory::list_dir(&dir).is_empty());
 }
+
+// FR-15, plan 3.7: a learned skill never shadows an installed one.
+#[tokio::test]
+async fn a_learned_skill_never_shadows_an_installed_one() {
+    let w = world();
+    let agent = crate::config::agent_dir().unwrap();
+    let skill = |dir: &Path, name: &str, what: &str| {
+        std::fs::create_dir_all(dir.join(name)).unwrap();
+        std::fs::write(
+            dir.join(name).join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {what}\n---\n\n{what}\n"),
+        )
+        .unwrap();
+    };
+    skill(&agent.join("skills"), "reports", "Installed reports");
+    skill(&agent.join("learned-skills"), "reports", "Learned reports");
+    skill(
+        &agent.join("learned-skills"),
+        "summary-first",
+        "Learned summary first",
+    );
+    let dirs = crate::resource_dirs::skill_dirs(&w.cwd);
+    assert_eq!(
+        dirs.last(),
+        Some(&agent.join("learned-skills")),
+        "learned skills come last"
+    );
+    let env: Arc<dyn evo_tools::ExecutionEnv> =
+        Arc::new(evo_tools::OsExecutionEnv::with_cwd(w.cwd.clone()));
+    let loaded = crate::resource_dirs::load_skills_with_precedence(&env, &dirs).await;
+    let found = |name: &str| {
+        loaded
+            .skills
+            .iter()
+            .find(|s| s.name == name)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(
+        found("reports").description,
+        "Installed reports",
+        "the installed skill wins"
+    );
+    assert!(crate::learning::skills::is_learned(Path::new(
+        &found("summary-first").file_path
+    )));
+    assert!(!crate::learning::skills::is_learned(Path::new(
+        &found("reports").file_path
+    )));
+    assert!(crate::learning::skills::installed_names(&w.cwd).contains("reports"));
+    assert!(!crate::learning::skills::installed_names(&w.cwd).contains("summary-first"));
+}

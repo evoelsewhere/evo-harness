@@ -10,6 +10,7 @@ import type { Mate } from "@/lib/mates";
 import { useCustomizeStore, type SkillInfo } from "@/stores/customize-store";
 import { useEngineStore } from "@/stores/engine-store";
 import { useMatesStore } from "@/stores/mates-store";
+import { MateLearnedSkills } from "./learned-skills";
 
 /**
  * The mate's skill list after switching `name` on or off: `null` (every skill)
@@ -41,7 +42,8 @@ export function MateSkills({ mate }: { mate: Mate }) {
   }, [ready, mate.skills]);
 
   const skills = React.useMemo(
-    () => (data?.skills ?? []).filter((s) => s.kind === "skill").sort((a, b) => a.name.localeCompare(b.name)),
+    // Learned skills are listed apart, below (learning-layers FR-15).
+    () => (data?.skills ?? []).filter((s) => s.kind === "skill" && !s.learned).sort((a, b) => a.name.localeCompare(b.name)),
     [data],
   );
   const known = skills.map((s) => s.name);
@@ -84,6 +86,7 @@ export function MateSkills({ mate }: { mate: Mate }) {
           </ul>
         </>
       )}
+      <MateLearnedSkills mate={mate} />
     </section>
   );
 }

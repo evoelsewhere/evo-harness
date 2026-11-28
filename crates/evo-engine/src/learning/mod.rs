@@ -11,6 +11,7 @@ pub mod entries;
 pub mod quotes;
 pub mod redact;
 pub mod run;
+pub mod skills;
 pub mod tidy;
 
 use serde_json::Value;

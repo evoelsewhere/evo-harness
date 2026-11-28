@@ -279,9 +279,12 @@ pub fn skill_dirs(cwd: &Path) -> Vec<PathBuf> {
         dirs.push(g);
     }
     dirs.extend(crate::customize::global_skill_dirs());
-    // The skills shipped inside evo come last: a skill of the same name the
+    // The skills shipped inside evo come after: a skill of the same name the
     // person wrote wins (first-wins dedupe).
     dirs.extend(crate::office::bundled_skill_dirs());
+    // Learned skills come last: an installed skill of the same name always
+    // wins (docs/features/learning-layers/plan.md, 3.7).
+    dirs.extend(crate::learning::skills::learned_dir());
     dirs
 }
 
@@ -301,6 +304,7 @@ pub fn global_skill_dirs() -> Vec<PathBuf> {
     let mut dirs = global_resource_dirs("skills", ResourceKind::Skills);
     dirs.extend(crate::customize::global_skill_dirs());
     dirs.extend(crate::office::bundled_skill_dirs());
+    dirs.extend(crate::learning::skills::learned_dir());
     dirs
 }
 

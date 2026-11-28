@@ -1,4 +1,5 @@
 import * as React from "react";
+import { LearnedSkillActions } from "@/components/learned-skill-actions";
 import {
   BlocksIcon,
   BracesIcon,
@@ -171,8 +172,9 @@ function groupBySource<T extends { scope: string; origin: string }>(items: T[]) 
   const groups = new Map<string, T[]>();
   for (const item of items) {
     const plugin = (item as { plugin?: string | null }).plugin;
-    const key =
-      item.scope === "builtin"
+    const key = (item as { learned?: boolean }).learned
+      ? "Learned by Evo"
+      : item.scope === "builtin"
         ? "Built-in"
         : plugin
           ? `Plugin · ${plugin}`
@@ -183,7 +185,7 @@ function groupBySource<T extends { scope: string; origin: string }>(items: T[]) 
               : "Personal";
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
-  const order = ["This project", "Personal", "From packages", "Built-in"];
+  const order = ["This project", "Personal", "Learned by Evo", "From packages", "Built-in"];
   const rank = (key: string) => (key.startsWith("Plugin · ") ? 2.5 : order.indexOf(key));
   return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
@@ -453,7 +455,7 @@ function SkillDetail({ skill }: { skill: SkillInfo }) {
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h2 className="truncate text-base font-semibold">{skill.name}</h2>
             <Badge>{folder ? "Skill" : "Command"}</Badge>
-            <Badge>{sourceLabel(skill)}</Badge>
+            <Badge>{skill.learned ? "Learned" : sourceLabel(skill)}</Badge>
             {metaText(skill.metadata, "version") && <Badge>v{metaText(skill.metadata, "version")}</Badge>}
           </div>
           <p className="text-[13px] leading-relaxed text-muted-foreground">{skill.description}</p>
@@ -465,6 +467,15 @@ function SkillDetail({ skill }: { skill: SkillInfo }) {
           <StateMenu skill={skill} />
         </div>
       </header>
+
+      {skill.learned && (
+        <div className="flex flex-col gap-1 rounded-xl bg-muted/40 px-4 py-3 text-[13px] dark:bg-accent/30">
+          <p className="text-muted-foreground">
+            Evo wrote this skill from your corrections after real work. Skills you installed are never changed.
+          </p>
+          <LearnedSkillActions owner="personal" name={skill.name} onDone={() => void useCustomizeStore.getState().load(true)} />
+        </div>
+      )}
 
       <div className="@container rounded-xl bg-muted/40 px-4 py-3 dark:bg-accent/30">
         <Properties

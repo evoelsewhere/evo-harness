@@ -80,6 +80,8 @@ pub fn role_of(mate: &Mate) -> Value {
         "access": "full",
         "mate": { "id": mate.id, "name": mate.name, "role": mate.role },
         "memoryDir": memory.display().to_string(),
+        // Its learned skills (docs/features/learning-layers/spec.md, FR-15).
+        "learnedSkillsDir": mate_dir(&mate.id).join("skills").display().to_string(),
     });
     let object = role.as_object_mut().expect("role is an object");
     if let Some(tools) = &mate.tools {

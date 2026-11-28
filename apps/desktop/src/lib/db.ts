@@ -306,6 +306,14 @@ export const db = {
   /** The dream's ideas still waiting for an answer (FR-14). */
   learningSuggestions: (owners: string[]) => invoke<LearningSuggestion[]>("learning_suggestions", { owners }),
   learningSuggestionAnswer: (id: number, accepted: boolean) => invoke<boolean>("learning_suggestion_answer", { id, accepted }),
+  /** Learned skills: list, switch, undo a change, delete (FR-15, FR-18). */
+  learnedSkills: (owner: string) => invoke<LearnedSkill[]>("learned_skills", { owner }),
+  learnedSkillSetOn: (owner: string, name: string, on: boolean) => invoke<void>("learned_skill_set_on", { owner, name, on }),
+  learnedSkillUndo: (owner: string, which: { name?: string; change?: number }) =>
+    invoke<void>("learned_skill_undo", { owner, name: which.name ?? null, change: which.change ?? null }),
+  learnedSkillDelete: (owner: string, name: string) => invoke<void>("learned_skill_delete", { owner, name }),
+  /** The skill changes made after replies of a chat: its "Learned" lines. */
+  learnedForChat: (chat: string) => invoke<JournalEntry[]>("learned_for_chat", { chat }),
 };
 
 /**
@@ -350,4 +358,34 @@ export interface LearningSuggestion {
   fromChats: string[];
   status: "pending" | "accepted" | "declined";
   atMs: number;
+}
+
+/** A learned skill (docs/features/learning-layers/spec.md, FR-15). */
+export interface LearnedSkill {
+  name: string;
+  description: string;
+  text: string;
+  on: boolean;
+  lastChange: number | null;
+  changedAt: number | null;
+  changedBy: string | null;
+}
+
+/** One journal row (memory or skill), as the shell returns it. */
+export interface JournalEntry {
+  id: number;
+  atMs: number;
+  owner: string;
+  subject: "memory" | "skill";
+  name: string;
+  action: string;
+  by: string;
+  chatId: string | null;
+  chatTitle: string | null;
+  replyId: string | null;
+  diff: string | null;
+  before: string | null;
+  after: string | null;
+  undoable: boolean;
+  undoneAt: number | null;
 }

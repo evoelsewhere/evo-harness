@@ -25,6 +25,8 @@ export interface SkillInfo {
   /** Files in the skill folder besides SKILL.md, relative with `/`. */
   files?: string[];
   path: string;
+  /** Written by the agent itself (learning-layers FR-15). */
+  learned?: boolean;
   scope: "project" | "user";
   /** Which folder family it came from. */
   origin: "evo" | "agents" | "package" | "plugin";
