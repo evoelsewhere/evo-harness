@@ -936,6 +936,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
+ "chrono",
  "dirs",
  "evo-agent",
  "evo-ai",
@@ -961,6 +962,7 @@ dependencies = [
  "indexmap",
  "percent-encoding",
  "png",
+ "regex",
  "reqwest",
  "ring",
  "rpassword",

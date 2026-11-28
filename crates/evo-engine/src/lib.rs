@@ -45,6 +45,7 @@ pub mod hooks;
 pub mod host;
 pub mod install;
 pub mod instructions;
+pub mod learning;
 pub mod mates;
 pub mod memory;
 pub mod memory_index;

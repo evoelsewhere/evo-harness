@@ -44,6 +44,9 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true }
 sha2 = "0.10"
+regex = { workspace = true }
+# Local dates for memory entries and the nightly tidy-up (learning-layers FR-4, FR-6).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 percent-encoding = "2"
 # X25519 + AES-256-GCM for the Xiaomi MiMo sign-in (already in the tree via rustls).
 ring = "0.17"
