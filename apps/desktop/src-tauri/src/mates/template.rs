@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 /// The face of a mate with none chosen.
 pub const DEFAULT_FACE: &str = "pebble";
 
-const FILES: [&str; 16] = [
+const FILES: [&str; 20] = [
     include_str!("templates/assistant.md"),
     include_str!("templates/researcher.md"),
     include_str!("templates/writer.md"),
@@ -46,6 +46,10 @@ const FILES: [&str; 16] = [
     include_str!("templates/coach.md"),
     include_str!("templates/travel.md"),
     include_str!("templates/tester.md"),
+    include_str!("templates/inbox.md"),
+    include_str!("templates/account.md"),
+    include_str!("templates/paid-media.md"),
+    include_str!("templates/chief.md"),
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +65,43 @@ pub struct Template {
     pub approval: Option<String>,
     /// Requests in the person's words that show what the role does (FR-74).
     pub starters: Vec<String>,
+    /// Check-ins the role suggests, added paused to a new mate (FR-85).
+    pub checkins: Vec<Checkin>,
     pub instructions: String,
+}
+
+/// A check-in a role suggests: its schedule (the Scheduler's JSON) and what to look at.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Checkin {
+    pub repeat: Value,
+    pub text: String,
+}
+
+const DAY_NAMES: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/// `weekdays 09:00 | text`, `daily 18:00 | text`, `weekly mon,thu 10:00 | text`.
+pub fn parse_checkin(value: &str) -> Option<Checkin> {
+    let (when, text) = value.split_once('|')?;
+    let text = text.trim();
+    let words: Vec<&str> = when.split_whitespace().collect();
+    let time = *words.last()?;
+    let valid_time = time.len() == 5 && time.as_bytes()[2] == b':' && time[..2].parse::<u32>().is_ok_and(|h| h < 24) && time[3..].parse::<u32>().is_ok_and(|m| m < 60);
+    if text.is_empty() || !valid_time {
+        return None;
+    }
+    let repeat = match (words.first().copied()?, words.len()) {
+        ("daily", 2) => json!({ "kind": "daily", "time": time }),
+        ("weekdays", 2) => json!({ "kind": "weekdays", "time": time }),
+        ("weekly", 3) => {
+            let days: Vec<usize> = words[1]
+                .split(',')
+                .map(|d| DAY_NAMES.iter().position(|n| d.trim().eq_ignore_ascii_case(n)))
+                .collect::<Option<_>>()?;
+            json!({ "kind": "weekly", "time": time, "days": days })
+        }
+        _ => return None,
+    };
+    Some(Checkin { repeat, text: text.to_string() })
 }
 
 /// What the gallery shows of a role.
@@ -125,6 +165,7 @@ pub fn parse(text: &str) -> Option<Template> {
         tools: None,
         approval: None,
         starters: Vec::new(),
+        checkins: Vec::new(),
         instructions: body.trim().to_string(),
     };
     for line in head.lines() {
@@ -142,6 +183,8 @@ pub fn parse(text: &str) -> Option<Template> {
             "approval" => template.approval = Some(value),
             // One per line: a starter may hold commas (FR-74).
             "starter" if !value.is_empty() => template.starters.push(value),
+            // One per line; a line that does not read is left out (FR-85).
+            "checkin" => template.checkins.extend(parse_checkin(&value)),
             _ => {}
         }
     }
@@ -178,6 +221,26 @@ mod tests {
             assert!(!role.role.is_empty() && !role.description.is_empty() && !role.instructions.is_empty(), "{}", role.id);
             assert!(role.approval.as_deref().is_none_or(|mode| ["ask", "auto-edits", "auto"].contains(&mode)), "{}", role.id);
             assert!((3..=4).contains(&role.starters.len()), "{} needs 3-4 starters (FR-74)", role.id);
+        }
+    }
+
+    #[test]
+    fn check_ins_read_from_role_lines() {
+        assert_eq!(
+            parse_checkin("weekdays 09:00 | Morning briefing"),
+            Some(Checkin { repeat: json!({ "kind": "weekdays", "time": "09:00" }), text: "Morning briefing".into() })
+        );
+        assert_eq!(parse_checkin("weekly mon,fri 16:30 | Review").unwrap().repeat, json!({ "kind": "weekly", "time": "16:30", "days": [1, 5] }));
+        assert_eq!(parse_checkin("daily 18:00 | Day's end").unwrap().repeat["kind"], "daily");
+        for bad in ["weekdays 9am | x", "monthly 09:00 | x", "weekly funday 09:00 | x", "daily 09:00 |  ", "daily 25:00 | x", "no bar"] {
+            assert_eq!(parse_checkin(bad), None, "{bad}");
+        }
+        let chief = find("chief").unwrap();
+        assert!(!chief.checkins.is_empty(), "the Chief of Staff suggests a briefing");
+        for role in all() {
+            for checkin in &role.checkins {
+                crate::mates::initiative::new_checkin("m", "c", &checkin.text, &checkin.repeat, 0).unwrap();
+            }
         }
     }
 

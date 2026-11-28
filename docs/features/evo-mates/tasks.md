@@ -139,6 +139,9 @@ plan 3.10).
 - [x] T84 [FR-81, FR-82] Thumbnails, file chips, pasted chips, the full-size viewer and the mate's files row in the thread; paste and drop in the mate composer — `attachment-views.tsx`, `thread.tsx`, `composer.tsx` — check: manual in the app
 - [x] T85 [FR-83] The channel composer's +, paste and drop; the person's and mates' lines with their pictures and files — `channel-view.tsx` — check: manual in the app
 
+- [ ] T86 [FR-84] Tests, then code: `files::collect` (newest first, depth, hidden and build folders left out, at most N); `mates_files`; the Files page with search and a mate filter — `src-tauri/src/mates/files.rs`, `src/features/mates/files-page.tsx` — check: `bun run test:shell mates::files`; manual
+- [ ] T87 [FR-85] Tests, then code: `checkin:` lines parse; a mate made from a role gets its check-ins paused; four roles — `src-tauri/src/mates/template.rs`, `mates/mod.rs`, `templates/` — check: `bun run test:shell mates::template`; manual
+
 ### Phase 5 — Verify
 
 Done when: every row below is `passed` with its date.
@@ -232,6 +235,8 @@ Done when: every row below is `passed` with its date.
 | FR-81 | `bun test` (T83); manual T84 | not run |
 | FR-82 | `bun test` (T83); manual T84 | not run |
 | FR-83 | `bun test` (T83); manual T85 | not run |
+| FR-84 | `bun run test:shell mates::files` (T86); manual | not run |
+| FR-85 | `bun run test:shell mates::template` (T87); manual | not run |
 | NFR-1 | Timing T8 | passed (2026-11-25, Windows debug build): switch to an open window 29 ms; Mates window rebuilt from Harness 248 ms; second launch to Mates shown 602 ms; cold start to Mates page 1.4 s |
 | NFR-2 | Timing in T17 | not run |
 | NFR-3 | Open ports and outbound hosts before and after | not run |

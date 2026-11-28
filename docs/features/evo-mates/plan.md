@@ -751,6 +751,26 @@ Local pictures are read as data URLs by `fs_read_file`, sizes by `fs_stat`.
 | desktop UI | `apps/desktop/src/features/mates/composer.tsx` | Paste and drop as the chat composer does (`attachmentsFromTransfer`, `attachmentsFromPaths`, the webview's drop event) | FR-81 |
 | desktop UI | `apps/desktop/src/features/mates/channel-view.tsx` | The channel composer's +, paste and drop; pictures saved with `fs_save_paste`; the person's line split with `splitPrompt`; a mate's line shows the existing files it names | FR-83 |
 
+### 3.12 Files page and roles with check-ins (FR-84, FR-85)
+
+No new process, protocol or trust boundary. **Files**: the shell walks each
+mate's own folder (`mates/<id>/work`, plus its `knowledge`) to a depth of
+four, skipping hidden entries and `node_modules`, `target`, `dist`,
+`build`, `.git`, `__pycache__` and `.venv`, keeps the 500 newest files and
+returns them with their mate (`mates_files`, `src-tauri/src/mates/files.rs`).
+The page (`features/mates/files-page.tsx`) shows them with `Thumb` and
+`FileChip` from 3.11. **Check-ins in roles**: a role file's `checkin:` lines
+(`<repeat words> | <text>`, the repeat in the editor's words: `daily 09:00`,
+`weekdays 09:00`, `weekly fri 16:00`) are added as paused agenda items when a
+mate is made from the role (`template::Checkin`, `mates::create`), with
+`initiative::new_checkin`.
+
+| Layer | Path | Responsibility | Requirements |
+| --- | --- | --- | --- |
+| desktop shell | `apps/desktop/src-tauri/src/mates/files.rs` (new) | `collect(dir, depth, max)`, `mates_files` | FR-84 |
+| desktop UI | `apps/desktop/src/features/mates/files-page.tsx` (new), `mates-shell.tsx`, `mates-app.tsx`, `stores/mates-store.ts` | The Files page, its sidebar row and view | FR-84 |
+| desktop shell | `apps/desktop/src-tauri/src/mates/template.rs`, `templates/*.md`, `mates/mod.rs` | `checkin:` lines; paused check-ins at creation; four roles | FR-85 |
+
 ## 4. Alternatives considered
 
 | Option | Why not |

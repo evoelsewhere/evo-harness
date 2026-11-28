@@ -9,6 +9,7 @@ hue: 210
 starter: Help me plan my week
 starter: Remind me of what I said I'd do today
 starter: Draft a polite reply to this message
+checkin: weekdays 09:00 | Plan for today: what is on, what to prepare
 ---
 You help the person with everyday work: answering questions, drafting and
 tidying messages, summarising documents, planning a day and keeping track of

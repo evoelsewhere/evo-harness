@@ -14,6 +14,7 @@
 //! * Gallery roles are Markdown files in `templates/` ([`template`]).
 
 pub mod channels;
+pub mod files;
 pub mod grants;
 pub mod initiative;
 pub mod knowledge;
@@ -237,6 +238,15 @@ fn create(app: &AppHandle, request: &CreateMate) -> Result<Mate, String> {
     let app_mode = crate::engine::approval_mode(&db);
     let mate = db.with(|conn| mates::create_mate(conn, &new_mate(&id, &chat, &work, request, role.as_ref()), app_mode))?;
     write_role(&db, &mate)?;
+    // The role's check-ins arrive paused: nothing runs until the person resumes one (FR-85).
+    for checkin in role.iter().flat_map(|r| r.checkins.iter()) {
+        if let Ok(item) = initiative::new_checkin(&mate.id, &mate.chat_id, &checkin.text, &checkin.repeat, evo_store::chats::now_ms()) {
+            let _ = db.with(|conn| {
+                evo_store::agenda::add_item(conn, &item)?;
+                evo_store::agenda::set_status(conn, &mate.id, &item.id, "paused")
+            });
+        }
+    }
     db.log(NewLog::new("info", "mates", format!("created mate {}", mate.name)).chat(Some(&mate.chat_id)));
     Ok(mate)
 }

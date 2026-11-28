@@ -31,6 +31,8 @@ export type MatesView =
   | { kind: "gallery" }
   /** Evo Mates' home (FR-73). */
   | { kind: "today" }
+  /** Every file the mates keep (FR-84). */
+  | { kind: "files" }
   | { kind: "empty" };
 
 /** The mate panel's tabs. */
@@ -53,6 +55,7 @@ interface MatesStore {
   openChat(chat: string): Promise<void>;
   showGallery(): void;
   showToday(): void;
+  showFiles(): void;
   setPanelOpen(open: boolean): void;
   /** Open the panel at `tab`. */
   openPanel(tab: MatePanelTab): void;
@@ -194,6 +197,10 @@ export const useMatesStore = create<MatesStore>()((set, get) => ({
 
   showToday() {
     set({ view: { kind: "today" }, panelOpen: false });
+  },
+
+  showFiles() {
+    set({ view: { kind: "files" }, panelOpen: false });
   },
 
   setPanelOpen(open) {

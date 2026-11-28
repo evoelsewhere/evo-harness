@@ -366,6 +366,8 @@ Acceptance scenarios:
 | FR-81 | In a mate's conversation the person must be able to attach pictures and files to a message with **+**, by pasting and by dropping them on the window, see them in the box before sending, and see them in their sent bubble as a messaging app shows them: pictures as thumbnails that open full size, files as chips with their name and size that open with the default app or show in their folder, pasted long text as a "Pasted text · N lines" chip. The `@path` lines and pasted-text markup the mate receives never show. | Given a picture pasted, a PDF dropped and long text pasted, then the box shows three chips, and after sending the bubble shows one thumbnail, one file chip and one pasted-text chip and no `@` line; clicking the thumbnail opens it full size. |
 | FR-82 | A mate's reply must show what it sends and shows: the files of its `send_file` calls, pictures among them as previews that open full size and other files as cards with **Open** and **Show in folder**, and the pictures its tools took (screenshots) as thumbnails, at most four with "+N"; they sit on the mate's side under its text, in the turn that made them. | Given a turn that sends a PNG and a DOCX and takes two screenshots, then the mate's side shows the PNG preview, the DOCX card and two thumbnails; opening each works. |
 | FR-83 | In a channel the person must be able to attach pictures and files the same way (+, paste, drop); since every member reads the message as text, pictures are saved as files and sent by path. The person's line shows thumbnails and file chips as in FR-81, and a mate's line shows the pictures and files it names by path that exist (in the channel's folder, else the mate's) as previews and cards under its text. | Given a picture pasted into a channel, then the person's line shows its thumbnail and a member can read the file; given a mate's reply naming `report.pdf` in its folder, then a card for it shows under the line. |
+| FR-84 | Evo Mates must have a **Files** page, the sidebar row under Today, listing the files in every mate's own folder, newest first, at most 500: each with its mate's face, name, size and time, pictures as thumbnails, a search by name and a filter by mate; a file opens with the default app or shows in its folder. Hidden files and folders, and dependency and build folders, are left out. | Given two mates that wrote a picture and a report, then Files lists both newest first with their mates, the picture as a thumbnail; filtering by one mate shows only its file; searching "report" shows only the report. |
+| FR-85 | A gallery role may come with a check-in it suggests (for example the Chief of Staff's morning briefing); a mate made from that role gets it **paused** in its Following up list, so nothing runs until the person resumes it. The gallery adds the roles Inbox Manager, Account Manager, Paid Media and Chief of Staff. | Given a mate made from the Chief of Staff role, then its Following up list shows its briefing check-in paused; given Resume, then it is open with its next time. |
 
 ### 4.2 Non-functional
 
@@ -584,6 +586,15 @@ None.
   text in the turn that made them, not inside the text bubble, so a long
   reply stays readable; a channel line shows only files that exist, so a
   path a mate mentions in passing does not become a broken card.
+- A-23 (2026-11-28, owner away) From the reference product the owner
+  named, this round takes the pieces that need no new third party, cost or
+  deleted data: a Files page, roles that bring a paused check-in, its four
+  missing roles, and pictures and files in messages (FR-81 – FR-85). Its
+  other features are listed in the report as built, already in Evo, or left
+  with why.
+- A-24 (2026-11-28, owner away) Files lists mates' own folders only, not
+  project folders (which may be whole code bases), and reads the disk on
+  open rather than keeping an index.
 
 ## 7. History
 
@@ -609,3 +620,4 @@ None.
 - 2026-11-28 — Owner asked that Evo Harness's agents use the mates' faces so both apps look alike: ux.md 6 changed; the agents' side is [subagents](../subagents-and-nested-sessions/spec.md) FR-25.
 - 2026-11-28 — Owner away, asked for Evo Mates to match the best AI-teammate apps: market research of about forty products ([research-2026-11.md](research-2026-11.md)); FR-73 – FR-80 added (Today, starters, teams, message search, Knowledge, Describe a mate, check-ins from the panel, daily spending limit), FR-8 raised to 16 roles; A-13 – A-20 recorded.
 - 2026-11-28 — Owner asked that messages in Evo Mates show and exchange pictures and files like a phone messaging app: FR-81 – FR-83 added, A-21 and A-22 recorded.
+- 2026-11-28 — Owner asked to study a reference AI-bot-team product and adapt its features: its patterns added to [research-2026-11.md](research-2026-11.md); FR-84 and FR-85 added; A-23 and A-24 recorded.
