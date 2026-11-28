@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | Draft |
+| Status | In progress |
 | Area | desktop UI (Evo Mates window) |
 | Created | 2026-11-28 |
 | Updated | 2026-11-28 |
@@ -297,3 +297,5 @@ None.
   four questions open (6.1).
 - 2026-11-28 — Gate A: the owner accepted the spec with the four proposed
   answers (6.2).
+- 2026-11-28 — Gate B: the owner accepted the plan; tasks written; status
+  In progress.
