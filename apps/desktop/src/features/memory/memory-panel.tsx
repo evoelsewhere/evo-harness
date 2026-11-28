@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BrainIcon, FolderOpenIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { BrainIcon, FolderOpenIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, XIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Markdown } from "@/components/markdown";
@@ -13,7 +13,7 @@ import { baseName, formatRelative } from "@/lib/format";
 import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useActiveEngineReady, useEngineStore } from "@/stores/engine-store";
-import { useSessionStore } from "@/stores/session-store";
+import { MemoryHistory, type MemoryChange } from "./memory-history";
 
 // The Memory tool: what the agent keeps across chats (RPC `list_memories`,
 // `save_memory`, `delete_memory`, `set_memory_enabled`;
@@ -24,8 +24,11 @@ import { useSessionStore } from "@/stores/session-store";
 // Topics (docs/features/memory-topics-and-chat-recall/spec.md): each memory
 // says who changed it last; a project can do without personal topics
 // (`set_memory_settings`); a paused memory is still listed and edited; and
-// the changes automatic indexing made are listed with the chat they came
-// from and can be undone (`list_memory_changes`, `undo_memory_change`).
+// every change to a topic — by the agent, you, indexing, the tidy-up or the
+// dream — is listed with the chat it came from and can be undone
+// (`list_memory_changes`, `undo_memory_change`; learning-layers FR-1, FR-2).
+// A save is refused when the topic changed since it was opened, and the
+// draft is kept (FR-3).
 
 type Scope = "personal" | "project";
 type MemoryType = "user" | "feedback" | "project" | "reference";
@@ -42,6 +45,8 @@ interface MemoryItem {
   by?: "chat" | "index" | "person" | null;
   /** It holds a sensitive subject the person allowed. */
   sensitive?: boolean;
+  /** The file's hash, sent back with a save (learning-layers FR-3). */
+  hash?: string;
 }
 
 interface MemoryState {
@@ -52,20 +57,8 @@ interface MemoryState {
   usePersonal?: boolean;
   personal: { dir: string; items: MemoryItem[] };
   project: { dir: string; folder: string; items: MemoryItem[] };
-}
-
-/** One change automatic indexing made to a topic. */
-interface MemoryChange {
-  id: number;
-  at: number;
-  scope: Scope;
-  name: string;
-  action: "added" | "updated" | "deleted";
-  chatId: string | null;
-  chatTitle: string | null;
-  removed: string[];
-  added: string[];
-  undone: boolean;
+  /** A save was refused: the topic as it is now (`null` when it was deleted). */
+  conflict?: { current: MemoryItem | null };
 }
 
 const BY_LABEL: Record<string, string> = { chat: "by the agent", index: "by indexing", person: "by you" };
@@ -86,6 +79,10 @@ interface Draft {
   content: string;
   /** The name being edited, when editing. */
   previous?: string;
+  /** The topic's hash when it was opened; none overwrites. */
+  hash?: string;
+  /** The save was refused: the topic changed since. */
+  conflict?: { current: MemoryItem | null };
 }
 
 function useMemories() {
@@ -110,6 +107,7 @@ function useMemories() {
     }
   }, []);
 
+  /** Run a memory command; the new state, or `null` when it failed. */
   const request = React.useCallback(async (command: string, args?: Record<string, unknown>) => {
     const engine = useEngineStore.getState();
     try {
@@ -118,15 +116,18 @@ function useMemories() {
       if (!next?.personal?.items || !next?.project?.items) throw new Error("this engine has no memory support; restart the app");
       setState(next);
       setError(null);
-      if (command !== "list_memories") await engine.reloadIdleResources().catch(() => undefined);
+      if (command !== "list_memories") {
+        await engine.reloadIdleResources().catch(() => undefined);
+        void loadChanges();
+      }
       // Indexing that stopped for a paused memory may go on (as in Settings → Memory).
       if (command === "set_memory_enabled" || command === "set_memory_settings") await db.memoryIndexPoke().catch(() => undefined);
-      return true;
+      return next;
     } catch (e) {
       setError(String(e).replace(/^Error:\s*/, ""));
-      return false;
+      return null;
     }
-  }, []);
+  }, [loadChanges]);
 
   React.useEffect(() => {
     if (!ready || busy) return;
@@ -143,7 +144,7 @@ function useMemories() {
     return () => void stop.then((off) => off());
   }, [request, loadChanges]);
 
-  /** Undo one indexing change, then show the topics as they are now. */
+  /** Undo one change, then show the topics as they are now. */
   const undo = React.useCallback(
     async (id: number) => {
       if (await loadChanges("undo_memory_change", { change: id })) {
@@ -163,6 +164,8 @@ function Editor({
   onChange,
   onCancel,
   onSave,
+  onOverwrite,
+  onReload,
   saving,
   canPickScope,
 }: {
@@ -170,6 +173,8 @@ function Editor({
   onChange(next: Draft): void;
   onCancel(): void;
   onSave(): void;
+  onOverwrite(): void;
+  onReload(): void;
   saving: boolean;
   canPickScope: boolean;
 }) {
@@ -242,6 +247,26 @@ function Editor({
         aria-label="Memory"
         className={cn(field, "min-h-24 max-h-80 py-1.5 leading-5")}
       />
+      {draft.conflict && (
+        <div className="flex flex-col gap-1.5 rounded-md bg-background px-3 py-2 text-xs ring-1 ring-border/70" role="alert">
+          <p className="font-medium">
+            {draft.conflict.current ? "This topic changed since you opened it. Your draft is kept." : "This topic was deleted since you opened it."}
+          </p>
+          {draft.conflict.current && (
+            <div className="max-h-40 overflow-y-auto text-muted-foreground">
+              <Markdown>{draft.conflict.current.content}</Markdown>
+            </div>
+          )}
+          <div className="flex justify-end gap-1.5">
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={onReload}>
+              Reload
+            </Button>
+            <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={onOverwrite} disabled={saving}>
+              Overwrite with mine
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>
           Cancel
@@ -333,58 +358,6 @@ function MemoryCard({
   );
 }
 
-/** One change indexing made: what it did, where it came from, and undo. */
-function ChangeRow({ change, onUndo }: { change: MemoryChange; onUndo(): void }) {
-  const [open, setOpen] = React.useState(false);
-  const listed = useSessionStore((s) => (change.chatId ? s.sessions.some((chat) => chat.id === change.chatId) : false));
-  const verb = change.action === "added" ? "Added" : change.action === "deleted" ? "Deleted" : "Updated";
-  return (
-    <div className={cn("rounded-lg px-2.5 py-1.5 transition-colors", open ? "bg-muted/60 dark:bg-accent/40" : "hover:bg-accent/50")}>
-      <div className="flex min-w-0 items-center gap-2">
-        <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
-          <span className="shrink-0 text-xs text-muted-foreground">{verb}</span>
-          <span className={cn("truncate font-mono text-[12.5px]", change.undone && "text-muted-foreground line-through")}>{change.name}</span>
-          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">{formatRelative(change.at)}</span>
-        </button>
-        {change.undone ? (
-          <span className="shrink-0 text-[11px] text-muted-foreground">Undone</span>
-        ) : (
-          <Button size="sm" variant="ghost" className="h-6 shrink-0 gap-1 px-2 text-xs" onClick={onUndo}>
-            <Undo2Icon className="size-3" /> Undo
-          </Button>
-        )}
-      </div>
-      {open && (
-        <div className="mt-1.5 flex flex-col gap-1.5">
-          <div className="rounded-md bg-background px-3 py-2 font-mono text-xs ring-1 ring-border/70">
-            {change.removed.map((line, index) => (
-              <p key={`r${index}`} className="text-destructive">
-                − {line}
-              </p>
-            ))}
-            {change.added.map((line, index) => (
-              <p key={`a${index}`}>+ {line}</p>
-            ))}
-            {change.removed.length + change.added.length === 0 && <p className="text-muted-foreground">No line changed.</p>}
-          </div>
-          {change.chatId &&
-            (listed ? (
-              <button
-                type="button"
-                className="self-start truncate text-xs text-link"
-                onClick={() => void useEngineStore.getState().selectSession(change.chatId!)}
-              >
-                From “{change.chatTitle ?? "a chat"}”
-              </button>
-            ) : (
-              <span className="text-xs text-muted-foreground">From {change.chatTitle ? `“${change.chatTitle}”` : "a chat that is gone"}</span>
-            ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function MemoryPanel() {
   const { state, changes, error, ready, request, undo } = useMemories();
   const [query, setQuery] = React.useState("");
@@ -401,16 +374,38 @@ export function MemoryPanel() {
     );
   }
 
-  const save = async () => {
+  /** Save the draft; `overwrite` skips the check that the topic is unchanged. */
+  const save = async (overwrite = false) => {
     if (!draft) return;
     setSaving(true);
-    const { scope, name, description, type, content, previous } = draft;
-    const ok = await request("save_memory", { scope, name, description, kind: type, content, previous });
+    const { scope, name, description, type, content, previous, hash } = draft;
+    const next = await request("save_memory", {
+      scope,
+      name,
+      description,
+      kind: type,
+      content,
+      previous,
+      hash: overwrite ? undefined : hash,
+    });
     setSaving(false);
-    if (ok) {
+    if (next?.conflict) {
+      // Changed since it was opened: keep the draft and show what is there now.
+      setDraft({ ...draft, conflict: next.conflict });
+    } else if (next) {
       setDraft(null);
       setOpen(`${scope}:${name}`);
     }
+  };
+  /** Start again from the topic as it is now. */
+  const reload = () => {
+    const current = draft?.conflict?.current;
+    if (!draft) return;
+    setDraft(
+      current
+        ? { ...draft, description: current.description, type: current.type, content: current.content, hash: current.hash, conflict: undefined }
+        : { ...draft, hash: undefined, conflict: undefined },
+    );
   };
 
   const q = query.trim().toLowerCase();
@@ -511,7 +506,16 @@ export function MemoryPanel() {
           <>
             {draft && !draft.previous && (
               <div className="mb-3">
-                <Editor draft={draft} onChange={setDraft} onCancel={() => setDraft(null)} onSave={() => void save()} saving={saving} canPickScope />
+                <Editor
+                  draft={draft}
+                  onChange={setDraft}
+                  onCancel={() => setDraft(null)}
+                  onSave={() => void save()}
+                  onOverwrite={() => void save(true)}
+                  onReload={reload}
+                  saving={saving}
+                  canPickScope
+                />
               </div>
             )}
             {total === 0 && !draft ? (
@@ -552,6 +556,8 @@ export function MemoryPanel() {
                           onChange={setDraft}
                           onCancel={() => setDraft(null)}
                           onSave={() => void save()}
+                          onOverwrite={() => void save(true)}
+                          onReload={reload}
                           saving={saving}
                           canPickScope={false}
                         />
@@ -569,6 +575,7 @@ export function MemoryPanel() {
                               type: item.type,
                               content: item.content,
                               previous: item.name,
+                              hash: item.hash,
                             })
                           }
                           onDelete={() => void request("delete_memory", { scope: item.scope, name: item.name })}
@@ -579,17 +586,7 @@ export function MemoryPanel() {
                 </section>
               ))
             )}
-            {changes.length > 0 && (
-              <section className="mb-3 flex flex-col gap-0.5">
-                <p className="flex items-baseline gap-1.5 px-2 pb-1 text-[11px] font-medium text-muted-foreground">
-                  <span className="truncate">Changed by indexing</span>
-                  <span className="shrink-0 font-normal opacity-70">Newest first</span>
-                </p>
-                {changes.map((change) => (
-                  <ChangeRow key={change.id} change={change} onUndo={() => void undo(change.id)} />
-                ))}
-              </section>
-            )}
+            <MemoryHistory changes={changes} onUndo={(id) => void undo(id)} />
           </>
         }
       </div>

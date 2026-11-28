@@ -23,6 +23,7 @@ import { mateMood, moodWord, useMatesStore, type MatePanelTab } from "@/stores/m
 import { useConnectorsStore } from "@/stores/connectors-store";
 import { useSessionStore } from "@/stores/session-store";
 import { useUiStore } from "@/stores/ui-store";
+import { MemoryHistory, type MemoryChange } from "@/features/memory";
 import { ConfirmDelete } from "./confirm";
 import { FollowingUp } from "./following-up";
 import { MateSkills } from "./skills-tab";
@@ -418,6 +419,19 @@ function Memory({ mate }: { mate: Mate }) {
   const [topics, setTopics] = React.useState<Topic[] | null>(null);
   const [shared, setShared] = React.useState<Topic[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  // Every change, with Undo (docs/features/learning-layers/spec.md, FR-1, FR-2).
+  const [changes, setChanges] = React.useState<MemoryChange[]>([]);
+  const history = React.useCallback(async (command = "list_memory_changes", args?: Record<string, unknown>) => {
+    const next = await useEngineStore
+      .getState()
+      .request<{ changes?: MemoryChange[] }>(command, args)
+      .catch((e: unknown) => {
+        if (command !== "list_memory_changes") setError(String(e).replace(/^Error:\s*/, ""));
+        return null;
+      });
+    if (Array.isArray(next?.changes)) setChanges(next.changes);
+    return next != null;
+  }, []);
   const request = React.useCallback(async (command: string, args?: Record<string, unknown>) => {
     try {
       const state = await useEngineStore.getState().request<{
@@ -433,8 +447,11 @@ function Memory({ mate }: { mate: Mate }) {
     }
   }, []);
   React.useEffect(() => {
-    if (shown && !busy) void request("list_memories");
-  }, [shown, busy, request]);
+    if (shown && !busy) {
+      void request("list_memories");
+      void history();
+    }
+  }, [shown, busy, request, history]);
   if (!shown)
     return <p className="text-sm text-muted-foreground">Open {mate.name}'s conversation to see its memory.</p>;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
@@ -463,7 +480,7 @@ function Memory({ mate }: { mate: Mate }) {
                     void request("delete_memory", {
                       scope: "project",
                       name: topic.name,
-                    })
+                    }).then(() => history())
                   }
                 >
                   Forget
@@ -491,6 +508,10 @@ function Memory({ mate }: { mate: Mate }) {
           </ul>
         </section>
       )}
+      <MemoryHistory
+        changes={changes}
+        onUndo={(id) => void history("undo_memory_change", { change: id }).then((done) => (done ? request("list_memories") : undefined))}
+      />
     </div>
   );
 }
