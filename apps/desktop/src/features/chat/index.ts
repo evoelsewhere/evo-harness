@@ -8,3 +8,4 @@ export type { PermissionRequest, Turn } from "./transcript";
 export { ChatModelPill } from "./model-pill";
 // Pictures and files attached to a message, as the composer takes them.
 export { attachmentsFromPaths, attachmentsFromTransfer, buildPrompt, isLongPaste, releaseAttachment, textAttachment } from "./composer-input";
+export { composerDraft } from "./chat-composer";

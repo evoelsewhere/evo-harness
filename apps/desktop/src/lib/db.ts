@@ -303,6 +303,9 @@ export const db = {
     invoke<import("@/stores/learning-store").TidyResult[]>("learning_tidy_now", { owners }),
   /** A learning setting changed: the shell looks again now. */
   learningPoke: () => invoke<void>("learning_poke"),
+  /** The dream's ideas still waiting for an answer (FR-14). */
+  learningSuggestions: (owners: string[]) => invoke<LearningSuggestion[]>("learning_suggestions", { owners }),
+  learningSuggestionAnswer: (id: number, accepted: boolean) => invoke<boolean>("learning_suggestion_answer", { id, accepted }),
 };
 
 /**
@@ -336,4 +339,15 @@ export function installErrorLogging() {
       data: { stack: reason instanceof Error ? reason.stack : undefined },
     });
   });
+}
+
+/** An idea the dream offers (docs/features/learning-layers/spec.md, FR-14). */
+export interface LearningSuggestion {
+  id: number;
+  owner: string;
+  kind: "schedule" | "skill";
+  text: string;
+  fromChats: string[];
+  status: "pending" | "accepted" | "declined";
+  atMs: number;
 }

@@ -425,6 +425,14 @@ export function SchedulerPage() {
     setCreating(
       from ? { ...from, folder: from.folder ?? cwd ?? null } : { name: "", prompt: "", folder: cwd ?? null, schedule: { kind: "daily", time: "09:00" } },
     );
+  // A suggestion's Set it up: the editor starts filled in; nothing is saved
+  // until the person saves it (learning-layers FR-14).
+  React.useEffect(() => {
+    const draft = useUiStore.getState().takeSchedulerDraft();
+    if (draft) setCreating({ name: draft.name, prompt: draft.prompt, folder: cwd ?? null, schedule: { kind: "weekly", days: [1], time: "09:00" } as TaskInput["schedule"] });
+    // Only when the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const sorted = [...tasks].sort(
     (a, b) => Number(b.enabled) - Number(a.enabled) || (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity),
   );

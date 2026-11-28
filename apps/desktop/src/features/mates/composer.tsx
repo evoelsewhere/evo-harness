@@ -9,7 +9,7 @@ import * as React from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ArrowUpIcon, ClockIcon, PlusIcon, SquareIcon, XIcon } from "lucide-react";
 import type { PromptAttachment } from "@/components/ai-elements/prompt-input";
-import { attachmentsFromPaths, buildPrompt, releaseAttachment } from "@/features/chat";
+import { attachmentsFromPaths, buildPrompt, composerDraft, releaseAttachment } from "@/features/chat";
 import { log } from "@/lib/db";
 import { matesApi, type Mate } from "@/lib/mates";
 import { cn } from "@/lib/utils";
@@ -48,6 +48,16 @@ export function MateComposer({ mate, reply, onReplyDone }: { mate: Mate; reply: 
     el.style.height = "0px";
     el.style.height = `${Math.min(el.scrollHeight, MAX_LINES * LINE_PX + 16)}px`;
   }, [text]);
+
+  // A suggestion's Set it up fills the box (learning-layers FR-14).
+  React.useEffect(() => {
+    const fill = (next: string) => {
+      setText(next);
+      field.current?.focus();
+    };
+    composerDraft.listeners.add(fill);
+    return () => void composerDraft.listeners.delete(fill);
+  }, []);
 
   // A new reply puts the caret in the box.
   React.useEffect(() => {

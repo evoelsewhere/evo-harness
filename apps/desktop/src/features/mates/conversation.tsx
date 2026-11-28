@@ -10,6 +10,7 @@ import { matesApi, type Mate, type ReactionKind } from "@/lib/mates";
 import { MateComposer } from "./composer";
 import { excerpt, type ReplyTo } from "./message-markup";
 import { SecretCard } from "./secret-card";
+import { MateSuggestions } from "./suggestion-card";
 import { MateThread } from "./thread";
 
 export function MateConversation({ mate, empty }: { mate: Mate; empty: React.ReactNode }) {
@@ -61,6 +62,7 @@ export function MateConversation({ mate, empty }: { mate: Mate; empty: React.Rea
           )}
         </div>
       )}
+      {!permission && <MateSuggestions mate={mate} />}
       <div hidden={Boolean(permission)}>
         <MateComposer mate={mate} reply={reply} onReplyDone={() => setReply(null)} />
       </div>

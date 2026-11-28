@@ -31,6 +31,23 @@ pub async fn learning_tidy_now(app: AppHandle, owners: Vec<String>) -> Result<Ve
     Ok(results)
 }
 
+/// The dream's ideas still waiting for an answer, for these owners (FR-14).
+#[tauri::command]
+pub fn learning_suggestions(db: State<'_, crate::db::Db>, owners: Vec<String>) -> Result<Vec<evo_store::learning::Suggestion>, String> {
+    let owners: Vec<&str> = owners.iter().map(String::as_str).filter(|owner| valid_owner(owner)).collect();
+    db.with(|conn| evo_store::learning::pending(conn, &owners))
+}
+
+/// **Set it up** (accepted) or **No thanks**: answered once; a declined idea
+/// is never offered again (FR-14).
+#[tauri::command]
+pub fn learning_suggestion_answer(app: AppHandle, db: State<'_, crate::db::Db>, id: i64, accepted: bool) -> Result<bool, String> {
+    use tauri::Emitter;
+    let answered = db.with(|conn| evo_store::learning::answer(conn, id, accepted))?;
+    let _ = app.emit("learning://changed", json!({ "suggestion": id }));
+    Ok(answered)
+}
+
 /// A learning setting changed: look again now.
 #[tauri::command]
 pub fn learning_poke(learning: State<'_, Learning>) {

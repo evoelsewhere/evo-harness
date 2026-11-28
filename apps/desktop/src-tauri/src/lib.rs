@@ -317,6 +317,8 @@ pub fn run() {
             memory_index::memory_index_poke,
             learning::commands::learning_tidy_now,
             learning::commands::learning_poke,
+            learning::commands::learning_suggestions,
+            learning::commands::learning_suggestion_answer,
             db::logs_append,
             db::logs_query,
             db::logs_clear,

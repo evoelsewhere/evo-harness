@@ -14,7 +14,10 @@ import { db } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { useActiveEngineReady, useEngineStore } from "@/stores/engine-store";
 import { MemoryHistory, type MemoryChange } from "./memory-history";
+import { Suggestions, skillRequest } from "./suggestions";
 import { TidyNow } from "./tidy-now";
+import { composerDraft } from "@/features/chat";
+import { useUiStore } from "@/stores/ui-store";
 
 // The Memory tool: what the agent keeps across chats (RPC `list_memories`,
 // `save_memory`, `delete_memory`, `set_memory_enabled`;
@@ -597,6 +600,16 @@ export function MemoryPanel() {
                   onDone={() => void request("list_memories")}
                 />
               </div>
+            )}
+            {state.owners && (
+              <Suggestions
+                owners={state.usePersonal === false ? [state.owners.project] : [state.owners.project, state.owners.personal]}
+                onSetUp={(suggestion) =>
+                  suggestion.kind === "schedule"
+                    ? useUiStore.getState().openScheduler({ name: suggestion.text.slice(0, 60), prompt: suggestion.text })
+                    : composerDraft.set(skillRequest(suggestion.text))
+                }
+              />
             )}
             <MemoryHistory changes={changes} onUndo={(id) => void undo(id)} />
           </>

@@ -137,7 +137,10 @@ interface UiStore {
   customizeOpen: boolean;
   /** The Scheduler page (sidebar → Scheduler) shows instead of the chat. */
   schedulerOpen: boolean;
-  openScheduler(): void;
+  openScheduler(draft?: { name: string; prompt: string }): void;
+  /** A task to start the Scheduler's editor with, once (learning-layers FR-14). */
+  schedulerDraft: { name: string; prompt: string } | null;
+  takeSchedulerDraft(): { name: string; prompt: string } | null;
   /** The Usage page (sidebar → Usage) shows instead of the chat. */
   usageOpen: boolean;
   openUsage(): void;
@@ -288,8 +291,14 @@ export const useUiStore = create<UiStore>()(
       settingsOpen: false,
       customizeOpen: false,
       schedulerOpen: false,
-      openScheduler: () =>
-        set({ schedulerOpen: true, usageOpen: false, customizeOpen: false, pluginPage: null, settingsOpen: false, commandOpen: false }),
+      openScheduler: (draft) =>
+        set({ schedulerOpen: true, usageOpen: false, customizeOpen: false, pluginPage: null, settingsOpen: false, commandOpen: false, schedulerDraft: draft ?? null }),
+      schedulerDraft: null,
+      takeSchedulerDraft: () => {
+        const draft = get().schedulerDraft;
+        if (draft) set({ schedulerDraft: null });
+        return draft;
+      },
       usageOpen: false,
       openUsage: () =>
         set({ usageOpen: true, schedulerOpen: false, customizeOpen: false, pluginPage: null, settingsOpen: false, commandOpen: false }),

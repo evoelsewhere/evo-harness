@@ -276,6 +276,12 @@ None.
 - A-3 The eval suite lives in the repository, in Rust, using the engine's
   scripted provider — because the engine and the coordinator are Rust and
   the scripted provider already exists.
+- A-5 (taken while building, 2026-11-28, owner not asked) A mate has one
+  conversation, so for its dream each local day of that conversation with
+  the person's lines counts as one chat; with Learn from channels each day
+  of a channel the mate is in counts the same way (FR-10, FR-22) — because
+  otherwise a mate without channels would never have two chats and would
+  never dream.
 - A-4 Prompts adapted from OpenMausBot (Apache 2.0) and its skill review
   (adapted there from an MIT project) are credited in NOTICE — because
   both licences ask for it.
