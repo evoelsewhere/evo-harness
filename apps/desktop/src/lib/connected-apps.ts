@@ -46,6 +46,8 @@ export interface Toolkit {
   managedAuth: boolean;
   noAuth: boolean;
   description: string;
+  /** How many tools Composio has for it. */
+  toolsCount: number;
 }
 
 export interface Catalog {

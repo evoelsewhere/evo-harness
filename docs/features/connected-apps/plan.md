@@ -336,3 +336,19 @@ Changes apply at once: the pool and the chats' tools are refreshed.
   host, which answers for every toolkit slug), keeps them in
   `<cache>/connected-apps/logos/` and hands `data:` URLs to the page
   (`apps_logos`); the CSP is unchanged.
+- 2026-11-28 — Connectors and Connected apps are one Customize section
+  (owner's request; spec FR-3 changed). `connectors-section.tsx` lists
+  **Apps** (each connected service, then Browse apps; with no key, "Set up
+  connected apps") above **MCP servers**; the detail is a service's page
+  (`ServiceDetail`: accounts, Add account, tools), the catalogue
+  (`AppsCatalogue`: cards with logos, most used first as Composio lists
+  them, category chips, Show more), the Apps settings (key card, and under
+  Advanced the `connected_apps` connector's own detail with its tool
+  permissions), or an MCP server. The app server is not listed among the
+  MCP servers. The Customize section `connected-apps` is gone; the More
+  menu's Connected apps and Settings › Evo Mates open Connectors on the
+  apps (`openConnectorsAt`). Evo Mates' dialog is built from the same parts
+  (Your apps, a service's page, Browse, the key). Shared pieces live in
+  `features/connected-apps/apps-parts.tsx`. The catalogue drops Composio's
+  own `composio` toolkit and keeps `meta.tools_count`.
+

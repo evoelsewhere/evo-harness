@@ -5,6 +5,7 @@
 import * as React from "react";
 import { AppWindowIcon } from "lucide-react";
 import { PluginsIcon, SchedulerIcon, UsageIcon } from "@/components/icons/tool-icons";
+import { openConnectorsAt } from "@/features/connected-apps";
 import { pluginIcon } from "@/features/plugin-ui";
 import { usePluginUiStore, type PluginViewRef } from "@/stores/plugin-ui-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -55,8 +56,9 @@ export const SIDEBAR_ITEMS: readonly SidebarItem[] = [
     label: "Connected apps",
     icon: AppWindowIcon,
     defaultShown: false,
-    open: () => useUiStore.getState().openCustomize("connected-apps"),
-    isActive: (ui) => ui.customizeOpen && ui.customizeSection === "connected-apps",
+    // Customize → Connectors, on the apps (connected-apps FR-3).
+    open: () => openConnectorsAt("apps:browse"),
+    isActive: () => false,
   },
 ];
 

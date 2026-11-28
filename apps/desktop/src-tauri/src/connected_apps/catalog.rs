@@ -33,6 +33,9 @@ pub struct Toolkit {
     pub no_auth: bool,
     #[serde(default)]
     pub description: String,
+    /// How many tools Composio has for it.
+    #[serde(default)]
+    pub tools_count: u64,
 }
 
 impl Toolkit {
@@ -69,6 +72,10 @@ impl Toolkit {
                 .get("no_auth")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            tools_count: item
+                .pointer("/meta/tools_count")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
             slug,
         })
     }
@@ -129,8 +136,9 @@ pub async fn fetch(client: &Composio) -> Result<Vec<Toolkit>, ApiError> {
             break;
         }
     }
-    out.sort_by_key(|t| t.name.to_lowercase());
-    out.dedup_by(|a, b| a.slug == b.slug);
+    // Composio lists the most used first; its own toolkit is not a service.
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|t| t.slug != "composio" && seen.insert(t.slug.clone()));
     Ok(out)
 }
 
@@ -200,6 +208,7 @@ mod tests {
             managed_auth: true,
             no_auth: false,
             description: String::new(),
+            tools_count: 0,
         }
     }
 

@@ -17,6 +17,9 @@ interface ConnectedAppsStore extends AppsState {
   logos: Record<string, string | null>;
   /** Ask for these toolkits' logos (batched; each is asked for once). */
   wantLogos(slugs: string[]): void;
+  /** A view Customize → Connectors should show when it opens. */
+  focus: string | null;
+  setFocus(focus: string | null): void;
   load(): Promise<void>;
   loadCatalog(): Promise<void>;
   setKey(key: string): Promise<void>;
@@ -45,6 +48,8 @@ export const useConnectedAppsStore = create<ConnectedAppsStore>()((set, get) => 
   catalogLoading: false,
   catalogError: null,
   logos: {},
+  focus: null,
+  setFocus: (focus) => set({ focus }),
 
   wantLogos(slugs) {
     if (!inTauri) return;

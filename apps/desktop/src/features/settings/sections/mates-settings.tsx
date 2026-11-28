@@ -18,8 +18,7 @@ import { db, log } from "@/lib/db";
 import { channelsApi } from "@/lib/mates";
 import { inTauri } from "@/lib/platform";
 import { useEngineStore } from "@/stores/engine-store";
-import { ComposioNote, KeyCard } from "@/features/connected-apps";
-import { useUiStore } from "@/stores/ui-store";
+import { ComposioNote, KeyCard, openConnectorsAt } from "@/features/connected-apps";
 import { SettingsGroup, SettingsHeader, SettingsRow } from "../settings-controls";
 
 // Settings → Evo Mates (docs/features/evo-mates/spec.md, FR-18): how many
@@ -145,7 +144,7 @@ export function MatesSettings() {
       {/* docs/features/connected-apps/spec.md, FR-1, FR-2. */}
       <SettingsGroup title="Connected apps" description={<ComposioNote />}>
         <KeyCard compact />
-        <Button size="sm" variant="outline" className="w-fit" onClick={() => useUiStore.getState().openCustomize("connected-apps")}>
+        <Button size="sm" variant="outline" className="w-fit" onClick={() => openConnectorsAt("apps:settings")}>
           Open Connected apps
         </Button>
       </SettingsGroup>
