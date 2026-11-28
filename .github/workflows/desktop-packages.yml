@@ -773,12 +773,12 @@ jobs:
               echo "Release $TAG is already published; refusing to replace immutable assets." >&2
               exit 1
             fi
-            gh release edit "$TAG" --title "evo v$VERSION" --notes-file "$NOTES"
+            gh release edit "$TAG" --title "Evo Harness v$VERSION" --notes-file "$NOTES"
           else
             gh release create "$TAG" \
               --draft \
               --notes-file "$NOTES" \
-              --title "evo v$VERSION"
+              --title "Evo Harness v$VERSION"
           fi
 
       - name: Upload assets
