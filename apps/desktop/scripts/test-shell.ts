@@ -11,21 +11,34 @@
 // Elsewhere it is plain `cargo test`.
 
 import { $ } from "bun";
-import { copyFileSync, existsSync, readFileSync, utimesSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, utimesSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const shell = path.resolve(import.meta.dir, "../src-tauri");
 const args = process.argv.slice(2);
 
+// Some tests open the app's default database, and opening it applies pending
+// migrations: run against the person's real agent folder (~/.evo), a branch
+// with a new migration upgraded their database. Tests always get a fresh
+// agent folder of their own; EVO_TEST_AGENT_DIR names one to keep.
+const kept = process.env.EVO_TEST_AGENT_DIR;
+const agentDir = kept || mkdtempSync(path.join(os.tmpdir(), "evo-shell-tests-"));
+process.env.EVO_CODING_AGENT_DIR = agentDir;
+const finish = (code: number): never => {
+  if (!kept) rmSync(agentDir, { recursive: true, force: true });
+  process.exit(code);
+};
+
 if (process.platform !== "win32") {
   const result = await $`cargo test ${args}`.cwd(shell).nothrow();
-  process.exit(result.exitCode);
+  finish(result.exitCode);
 }
 
 const build = await $`cargo test --no-run --message-format=json`.cwd(shell).nothrow().quiet();
 if (build.exitCode !== 0) {
   process.stderr.write(build.stderr);
-  process.exit(build.exitCode);
+  finish(build.exitCode);
 }
 
 // The executables cargo built for the test profile.
@@ -54,4 +67,4 @@ for (const executable of executables) {
   const run = await $`${executable} ${args}`.cwd(shell).nothrow();
   if (run.exitCode !== 0) code = run.exitCode;
 }
-process.exit(code);
+finish(code);
