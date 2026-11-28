@@ -10,6 +10,7 @@ pub mod dream;
 pub mod entries;
 pub mod quotes;
 pub mod redact;
+pub mod review;
 pub mod run;
 pub mod skills;
 pub mod tidy;
@@ -21,6 +22,7 @@ pub async fn dispatch(step: &run::Step<'_>) -> Value {
     match step.task {
         run::Task::Tidy => tidy::run(step).await,
         run::Task::Dream => dream::run(step).await,
+        run::Task::Review => review::run(step).await,
         _ => run::skipped(step.task, &step.owner.id, "not built yet"),
     }
 }

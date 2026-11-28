@@ -531,3 +531,50 @@ async fn a_learned_skill_never_shadows_an_installed_one() {
     assert!(crate::learning::skills::installed_names(&w.cwd).contains("reports"));
     assert!(!crate::learning::skills::installed_names(&w.cwd).contains("summary-first"));
 }
+
+// FR-16, FR-18: a review writes the learned skill and journals it with the reply.
+#[tokio::test]
+async fn a_review_writes_a_learned_skill_after_the_reply() {
+    let _w = world();
+    let args = crate::args::Args::default();
+    let answer = serde_json::to_string(&json!({ "changes": [{
+        "action": "create", "skill_name": "weekly-report-writing",
+        "skill_md": "---\nname: weekly-report-writing\ndescription: Writing the weekly report\n---\n\n1. Put the summary first, then the table.\n",
+        "gist": "summary first" }] }))
+    .unwrap();
+    let review = step(
+        crate::learning::run::Task::Review,
+        "mate:m1",
+        &args,
+        vec![&answer],
+    );
+    let result = crate::learning::review::review_with(
+        &review,
+        "chat-1",
+        Some("e4"),
+        "Person: Put the summary first, then the table.",
+        crate::learning::run::Task::Review,
+    )
+    .await;
+    assert!(result["error"].is_null(), "{result}");
+    let file = review
+        .owner
+        .skills_dir
+        .join("weekly-report-writing")
+        .join("SKILL.md");
+    assert!(std::fs::read_to_string(file)
+        .unwrap()
+        .contains("summary first"));
+    let conn = crate::app_db::open().unwrap();
+    let rows = crate::app_db::journal::for_reply(&conn, "chat-1").unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (
+            rows[0].by.as_str(),
+            rows[0].subject.as_str(),
+            rows[0].reply_id.as_deref(),
+            rows[0].owner.as_str()
+        ),
+        ("review", "skill", Some("e4"), "mate:m1")
+    );
+}
